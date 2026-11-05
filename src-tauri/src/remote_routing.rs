@@ -386,6 +386,17 @@ pub(crate) fn remote_grub_json(app: &AppHandle) -> serde_json::Value {
 /// 页面本身**不要求 token**：浏览器得先拿到页面才能让用户输入 token；
 /// 真正的数据与命令全部在 /api/* 后面，那里全程 token 鉴权。页面里没有任何
 /// 机密（token 只在设置快照接口返回，且那需要 token 本身）。
+/// 旧版 UI 资源（7bd3ce2 的 6 文件形态）：旧版安卓 App 的 APK 里内嵌着引用
+/// `/app.js`、`/styles.css` 等相对路径的 HTML —— 这些路径必须继续有响应，否则
+/// 旧客户端的 JS 全部 404，表现成「所有接口都无法响应」（页面脚本挂了，不是接口）。
+/// 新 Vue 页面不用这些路径（走 Vite 产物），两者并存互不影响。
+pub(crate) const UI_APP_JS: &str = include_str!("../../ui/app.js");
+pub(crate) const UI_STYLES_CSS: &str = include_str!("../../ui/styles.css");
+pub(crate) const UI_GRUB_LIST_VIEW_JS: &str = include_str!("../../ui/grub-list-view.js");
+pub(crate) const UI_BOOT_LIST_VIEW_JS: &str = include_str!("../../ui/boot-list-view.js");
+pub(crate) const UI_BOOT_ADV_JS: &str = include_str!("../../ui/boot-adv.js");
+pub(crate) const UI_QRCODE_JS: &str = include_str!("../../ui/qrcode.min.js");
+
 pub(crate) fn static_ui_reply(path: &str) -> Option<RemoteReply> {
     // 归一化：去掉前导 "/"、"/ui/" 前缀、以及空路径 → index.html
     let mut rel = path.trim_start_matches('/');
@@ -423,9 +434,33 @@ pub(crate) fn static_ui_reply(path: &str) -> Option<RemoteReply> {
         "hub-files.html" => Some(("hub-files.html", "text/html; charset=utf-8")),
         "hub-backup.html" => Some(("hub-backup.html", "text/html; charset=utf-8")),
         "hub-keys.html" => Some(("hub-keys.html", "text/html; charset=utf-8")),
+        // 旧版安卓 App 内嵌 HTML 引用的 JS/CSS 老路径（7bd3ce2 的 6 文件形态）
+        "app.js" => Some(("legacy-app.js", "text/javascript; charset=utf-8")),
+        "styles.css" => Some(("legacy-styles.css", "text/css; charset=utf-8")),
+        "grub-list-view.js" => Some(("legacy-grub-list-view.js", "text/javascript; charset=utf-8")),
+        "boot-list-view.js" => Some(("legacy-boot-list-view.js", "text/javascript; charset=utf-8")),
+        "boot-adv.js" => Some(("legacy-boot-adv.js", "text/javascript; charset=utf-8")),
+        "qrcode.min.js" => Some(("legacy-qrcode.min.js", "text/javascript; charset=utf-8")),
         _ => None,
     };
     if let Some((name, content_type)) = legacy {
+        // legacy-* 前缀 = 旧版 UI 内嵌资源；其余名字查 Vue 产物表
+        let legacy_body: Option<&'static str> = match name {
+            "legacy-app.js" => Some(UI_APP_JS),
+            "legacy-styles.css" => Some(UI_STYLES_CSS),
+            "legacy-grub-list-view.js" => Some(UI_GRUB_LIST_VIEW_JS),
+            "legacy-boot-list-view.js" => Some(UI_BOOT_LIST_VIEW_JS),
+            "legacy-boot-adv.js" => Some(UI_BOOT_ADV_JS),
+            "legacy-qrcode.min.js" => Some(UI_QRCODE_JS),
+            _ => None,
+        };
+        if let Some(body) = legacy_body {
+            return Some(RemoteReply::raw_page(
+                200,
+                content_type,
+                body.as_bytes().to_vec(),
+            ));
+        }
         if let Some((_, _, body)) = crate::ui_assets::UI_ASSETS
             .iter()
             .find(|(file, _, _)| *file == name)
