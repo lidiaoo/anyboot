@@ -77,6 +77,8 @@ const nextBootRowsOpen = ref(false);
 
 /** 免密助手切换中的忙碌标志（旧版 helperPending） */
 const helperBusy = ref(false);
+/** 启动静默扫 Linux grub 的重试标志（旧版 grubAutoBootRetried） */
+let grubBootRetried = false;
 /** 切换免密助手（旧版 toggleBootHelper → boot_helper {action}） */
 async function toggleBootHelper(action: "install" | "uninstall") {
   if (helperBusy.value) return;
@@ -202,6 +204,21 @@ watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | nu
 
 onMounted(async () => {
   await ui.start();
+  // 旧版 app.js:4418：免密助手在位且还没扫过 Linux 分区 → 启动静默扫一次
+  // （auto:true = Elevation::Silent，绝不弹授权；失败 8 秒后重试一次）
+  void (async () => {
+    try {
+      const ready = await call<boolean>("linux_grub_helper_ready");
+      if (!ready || ui.linuxGrub?.entries?.length) return;
+      const view = await call("linux_grub_scan", { target: null, auto: true });
+      if (!view && !grubBootRetried) {
+        grubBootRetried = true;
+        setTimeout(() => {
+          void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
+        }, 8000);
+      }
+    } catch { /* 忽略 */ }
+  })();
   // 强调色初始应用（旧版 applyAccent）
   const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
   applyAccent(ui.settings?.accentColor, curTheme);

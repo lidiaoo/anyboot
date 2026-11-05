@@ -133,7 +133,9 @@ const espDir = computed(() => grubManual.value?.efiDir ?? "");
 const partuuid = computed(() => grubManual.value?.partuuid ?? "");
 
 function refreshAuto() {
-  void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
+  // 旧版 app.js:1892「重新读取」：不带 auto → Elevation::Allow（弹一次授权）；
+  // auto:true 是启动静默扫的参数（Silent：绝不弹授权，通道不在位就失败）
+  void call("linux_grub_scan", { target: null }).catch(() => {});
 }
 
 async function syncManual() {
