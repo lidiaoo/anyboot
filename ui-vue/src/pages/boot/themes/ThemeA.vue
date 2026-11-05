@@ -6,7 +6,7 @@ function footText(loader: { id: string; state: string; entries: unknown[] }): st
   return `${loader.entries.length} 个可启动项 · 读取正常`;
 }
 
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { LoaderInfo } from "./types";
@@ -36,26 +36,18 @@ const props = defineProps<{
 }>();
 
 const activeId = ref(props.loaders[0]?.id ?? "");
-const cardRefs = ref(new Map<string, HTMLElement>());
 
-function setCardRef(id: string, el: unknown) {
-  if (el instanceof HTMLElement) cardRefs.value.set(id, el);
-  else cardRefs.value.delete(id);
-}
 
-async function focusLoader(id: string) {
+function focusLoader(id: string) {
   activeId.value = id;
-  await nextTick();
-  const target = cardRefs.value.get(id);
-  if (!target) return;
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
-  // 闪一下，让用户看清滚到了哪张卡
-  target.classList.remove("ba-flash");
-  void target.offsetWidth;
-  target.classList.add("ba-flash");
 }
 
 const hasLoaders = computed(() => props.loaders.length > 0);
+/** 只展示当前选中引导器（旧版是全部堆叠+滚动定位，用户要求改为只显示选中的那个） */
+const activeOnly = computed(() => {
+  const hit = props.loaders.filter((l) => l.id === activeId.value);
+  return hit.length ? hit : props.loaders.slice(0, 1);
+});
 </script>
 
 <template>
@@ -86,9 +78,8 @@ const hasLoaders = computed(() => props.loaders.length > 0);
 
     <div class="la-list">
       <div
-        v-for="loader in loaders"
+        v-for="loader in activeOnly"
         :key="loader.id"
-        :ref="(el) => setCardRef(loader.id, el)"
         class="la-card"
       >
         <BootList :loader="loader.id" />
