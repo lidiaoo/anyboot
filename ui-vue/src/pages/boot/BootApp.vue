@@ -814,7 +814,6 @@ const statusHidden = computed(() => {
           :side="adv.state?.side"
           :active-id="loaders[0]?.id ?? ''"
           :ratio="adv.state?.ratio ?? 0.5"
-          :on-select="(s: string) => call('switch_grub', { selector: s })"
           @update:ratio="adv.setRatio"
           @reorder="(order: string[]) => adv.setOrder(order as any)"
         >

@@ -4,6 +4,8 @@ import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
+import { useToastStore } from "@/stores/toast";
+import { call } from "@/api/tauri";
 import type { ChannelView, GrubEntry, SimEntry } from "@/api/types";
 
 /**
@@ -29,10 +31,30 @@ const props = defineProps<{
 
 const ui = useUiStateStore();
 const settings = useSettingsStore();
+const toast = useToastStore();
 
 const isRefind = computed(() => props.loader === "refind");
 const isGrub = computed(() => props.loader === "grub");
 const isChannel = computed(() => !isRefind.value && !isGrub.value);
+/** 点击引导项 = 切换到该条为下次启动（自包含：各主题卡片直接可用，回显靠 IPC 快照） */
+async function switchEntry(selector: string) {
+  if (!selector) return;
+  try {
+    if (isRefind.value) {
+      if (settings.refindMode === "manual") await call("switch_system", { system: selector });
+      else await call("refind_sim_switch", { title: selector });
+    } else if (isGrub.value) {
+      if (settings.grubMode === "manual") await call("switch_grub", { selector });
+      else await call("linux_grub_switch", { selector });
+    } else {
+      await call("switch_boot_channel", { target: selector });
+    }
+    toast.show("已切换下次启动项");
+  } catch (e) {
+    toast.show("切换失败：" + e, "bad");
+  }
+}
+
 
 /** 该通道的数据（三通道时才有） */
 const channel = computed<ChannelView | null>(
@@ -187,7 +209,7 @@ const emit = defineEmits<{
       :group-titles="groupTitles"
       :show-groups="showGroups"
       :disabled="disabled"
-      @select="(selector) => emit('select', selector)"
+      @select="(selector) => { switchEntry(selector); emit('select', selector); }"
     />
     <p v-if="!entries.length" class="boot-list-empty">没有可用条目</p>
   </div>
