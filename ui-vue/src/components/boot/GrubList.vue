@@ -37,6 +37,8 @@ const props = withDefaults(
     disabled?: boolean;
     /** 置顶行右侧小字（不给就按条目自己算） */
     pinnedTag?: string;
+    /** 是否渲染「选中项置顶副本」（旧版：GRUB/rEFInd 有，通道 OC 行没有） */
+    pinnedCopy?: boolean;
     /** 条目文本格式（旧版 grub.listFormat：minimal/simple/medium/detailed/raw） */
     format?: string;
   }>(),
@@ -46,6 +48,7 @@ const props = withDefaults(
     showGroups: true,
     disabled: false,
     pinnedTag: "",
+    pinnedCopy: true,
     format: "minimal",
   },
 );
@@ -175,7 +178,7 @@ function onSelect(selector: string) {
   <div class="grub-list-body">
     <!-- 置顶副本：同一条目只出现一次（正式列表里那份仍然保留，带 active 高亮） -->
     <GrubEntry
-      v-if="activeEntry"
+      v-if="pinnedCopy && activeEntry"
       :entry="activeEntry"
       :format="props.format"
       :pinned="true"

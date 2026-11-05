@@ -214,6 +214,7 @@ const emit = defineEmits<{
     <GrubList
       :entries="entries"
       :active-selector="activeSelector"
+      :pinned-copy="!isChannel"
       :group-titles="groupTitles"
       :show-groups="showGroups"
       :disabled="disabled"
