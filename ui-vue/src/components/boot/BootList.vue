@@ -172,7 +172,11 @@ const channelEntries = computed<EntryData[]>(() => {
   const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
     const rows = preview.map((row) => ({
-      selector: row.spec,
+      // 标识用 spec，空则退 title（旧版 ocEntrySelector 兜底）——default 行 spec
+      // 常为空，selector 空串会让高亮匹配失效
+      selector: row.spec || row.title,
+      // 旧版 ocMenuRow：entry.spec 为空的行不挂 is-clickable（不可点）
+      readonly: !row.spec,
       name: row.title,
       class: row.kind,
       submenu: null,
