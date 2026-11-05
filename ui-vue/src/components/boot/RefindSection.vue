@@ -55,7 +55,8 @@ const activeSelector = computed<string>(() => {
   if (settings.refindMode === "manual") {
     return ui.status?.variables?.find((v) => v.active)?.source ?? "";
   }
-  return sim.value?.entries?.find((e) => e.lastBoot)?.title.trim() ?? "";
+  // 原文返回（与 selector 原文相等，回显高亮才能命中；rEFInd 标题末尾常带空格）
+  return sim.value?.entries?.find((e) => e.lastBoot)?.title ?? "";
 });
 
 /** 被隐藏的条目（旧版 #sim-scan-hidden：refindSimTree(hidden, {plain:true})，
