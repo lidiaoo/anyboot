@@ -3396,9 +3396,12 @@ svg.i.lg { width: 16px; height: 16px; }
 .lc { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .lc-tabs {
   flex: none; display: flex; align-items: stretch; gap: 2px; padding: 7px 10px 0;
-  border-bottom: 1px solid var(--line); background: var(--panel); overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+  overflow-x: auto; scrollbar-width: thin;   /* 引导器标签超出时显示横向滚动条 */
 }
-.lc-tabs::-webkit-scrollbar { display: none; }
+.lc-tabs::-webkit-scrollbar { height: 6px; }
+.lc-tabs::-webkit-scrollbar-thumb { background: var(--line-2, #cbd5e1); border-radius: 3px; }
+.lc-tabs::-webkit-scrollbar-track { background: transparent; }
 .lc-tab {
   display: flex; align-items: center; gap: 6px; height: 31px; padding: 0 10px; flex: none;
   border: 1px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0;
