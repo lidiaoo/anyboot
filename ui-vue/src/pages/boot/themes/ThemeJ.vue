@@ -108,7 +108,7 @@ const healthText = computed(() => {
     </section>
 
     <!-- 右侧设置栏（旧版 aside.lj-c3 > .hd + .bd） -->
-    <aside :class="['lj-c3', { folded: collapsed, 'is-open': mobileOpen }]">
+    <aside :class="['lj-c3', { 'body-collapsed': collapsed, 'is-open': mobileOpen }]">
       <div class="hd" @click="mobileOpen = !mobileOpen">
         <svg class="i sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
           <circle cx="8" cy="8" r="2.4" />
@@ -116,7 +116,7 @@ const healthText = computed(() => {
         </svg>
         <b>引导器设置</b>
         <span class="grow" />
-        <button type="button" class="btn icon ghost sm" :aria-expanded="!collapsed" title="收起设置栏（只留图标条）" @click.stop="collapsed = !collapsed">
+        <button type="button" class="btn icon ghost sm" :aria-expanded="!collapsed" title="收起/展开引导器设置内容（标题保留）" @click.stop="collapsed = !collapsed">
           {{ collapsed ? "‹" : "›" }}
         </button>
       </div>

@@ -5247,3 +5247,11 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .vw-760 .lg > .lg-main, .vw-520 .lg > .lg-main { grid-column: 1 / -1 !important; grid-row: 1 !important; overflow: visible !important; }
 .vw-760 .lg > .lg-side, .vw-520 .lg > .lg-side { grid-column: 1 / -1 !important; grid-row: 2 !important; width: auto !important; border-left: 0; border-top: 1px solid var(--line); }
 .vw-760 .lg > .lg-foot, .vw-520 .lg > .lg-foot { grid-column: 1 / -1 !important; grid-row: 3 !important; }
+
+/* 2026-11-06 J 引导器设置收起：只隐藏正文，保留标题栏（此前用 .folded 折成 42px 图标条，
+ * 把「引导器设置」几个字也藏了 —— 用户：收起后这几个字不见了）。 */
+#tab-boot .lj-c3.body-collapsed .bd,
+.k-prev .lj-c3.body-collapsed .bd { display: none; }
+/* 收起后标题栏仍是整行，字号/内边距正常显示文字 */
+#tab-boot .lj-c3.body-collapsed,
+.k-prev .lj-c3.body-collapsed { width: auto; }
