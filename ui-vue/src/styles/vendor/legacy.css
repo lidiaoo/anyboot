@@ -5230,3 +5230,17 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .k-prev .lg-side .lg-fact span { font: 10.5px var(--mono); color: var(--dim); min-width: 0; overflow-wrap: anywhere; word-break: normal; }
 .k-prev .lg-side h4 { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter); margin: 0; }
 .k-prev .lg-side > * { flex: none; min-width: 0; }
+
+/* 2026-11-06 G 移动端（≤760/≤520）：.lg 已改 grid，旧 flex-direction:column 失效 →
+ * 需改用 grid 单列堆叠：main 上、side(选中项) 中、foot 底。同时覆盖系统页与预演区。 */
+@media (max-width: 760px) {
+  .lg { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto auto auto !important; }
+  .lg > .lg-main { grid-column: 1 / -1 !important; grid-row: 1 !important; overflow: visible !important; }
+  .lg > .lg-side { grid-column: 1 / -1 !important; grid-row: 2 !important; width: auto !important; border-left: 0; border-top: 1px solid var(--line); }
+  .lg > .lg-foot { grid-column: 1 / -1 !important; grid-row: 3 !important; }
+}
+/* 预演区 .k-prev 内同样按容器宽度收窄时：用 .k-prev 自身 vw 类（已由 ResizeObserver 挂） */
+.vw-760 .lg, .vw-520 .lg { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: auto auto auto !important; }
+.vw-760 .lg > .lg-main, .vw-520 .lg > .lg-main { grid-column: 1 / -1 !important; grid-row: 1 !important; overflow: visible !important; }
+.vw-760 .lg > .lg-side, .vw-520 .lg > .lg-side { grid-column: 1 / -1 !important; grid-row: 2 !important; width: auto !important; border-left: 0; border-top: 1px solid var(--line); }
+.vw-760 .lg > .lg-foot, .vw-520 .lg > .lg-foot { grid-column: 1 / -1 !important; grid-row: 3 !important; }

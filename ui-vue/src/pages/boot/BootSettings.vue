@@ -158,6 +158,7 @@ const previewRows = computed<Record<string, EntryData[]>>(() => {
 
 /** 旧版 applyVwClasses：按容器宽度挂 .vw-900/.vw-760/.vw-520 断点类（屏幕适配） */
 const rootEl = ref<HTMLElement | null>(null);
+const kPrevEl = ref<HTMLElement | null>(null);
 let vwRo: ResizeObserver | null = null;
 function applyVwClasses(el: HTMLElement, width: number): void {
   el.classList.toggle("vw-g", width >= 900);
@@ -169,10 +170,18 @@ onMounted(() => {
   const el = rootEl.value;
   if (!el || typeof ResizeObserver === "undefined") return;
   vwRo = new ResizeObserver((entries) => {
-    for (const en of entries) applyVwClasses(el, en.contentRect.width);
+    for (const en of entries) {
+      applyVwClasses(el, en.contentRect.width);
+      // 预演卡片按自身宽度挂断点类（宽窗口里预演区仍可能很窄 → 需要移动端堆叠）
+      if (kPrevEl.value) applyVwClasses(kPrevEl.value, kPrevEl.value.getBoundingClientRect().width);
+    }
   });
   vwRo.observe(el);
   applyVwClasses(el, el.getBoundingClientRect().width);
+  if (kPrevEl.value) {
+    vwRo.observe(kPrevEl.value);
+    applyVwClasses(kPrevEl.value, kPrevEl.value.getBoundingClientRect().width);
+  }
 });
 onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 </script>
@@ -305,7 +314,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       </div>
     </div>
     <!-- 预演面板（旧版：bootThemeStage → .k-stage + lg-side 选中项；真实区块由 ThemeHost slot 承接） -->
-    <section class="card k-prev">
+    <section class="card k-prev" ref="kPrevEl">
       <header class="k-prev-head">
         <h2>预演 · {{ adv.effectiveLayout === 'lr' ? '左右' : '单列' }}</h2>
         <small>{{ adv.state.order.filter((x) => adv.state.visible[x]).length }} 个引导器</small>
