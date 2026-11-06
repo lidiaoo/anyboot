@@ -1,0 +1,51 @@
+# ui-vue.yml —— 前端（ui-vue）质量闸：类型检查 + 构建产物校验。
+#
+# 背景：桌面打包工作流 build-all.yml 只在 build:win/linux/mac 时隐式跑 vite build，
+# 而 vite build 不做类型检查。这里用独立 workflow 把 ui-vue 的 vue-tsc 类型检查
+# 与产物完整性单独把关，普通 push / PR 即可触发，与打包流程互不影响。
+#
+# 不改动 build-all.yml（原工作流保持原样）。
+name: ui-vue
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ui-vue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: 安装依赖
+        run: npm ci
+      - name: 类型检查（vue-tsc --noEmit）
+        run: npm run typecheck
+      - name: 构建前端产物（vite build + gen-ui-assets）
+        run: npm run build:vue
+      - name: 校验产物与资源表
+        run: |
+          set -e
+          test -d ui-vue/dist || { echo "::error::ui-vue/dist 不存在"; exit 1; }
+          test -f ui-vue/dist/index.html || { echo "::error::缺 dist/index.html"; exit 1; }
+          test -f ui-vue/dist/hub.html   || { echo "::error::缺 dist/hub.html"; exit 1; }
+          JS_COUNT=$(find ui-vue/dist/assets -name '*.js' | wc -l | tr -d ' ')
+          echo "dist JS 文件数: $JS_COUNT"
+          test "$JS_COUNT" -ge 3 || { echo "::error::dist 产物过少，构建可能异常"; exit 1; }
+          test -f src-tauri/src/ui_assets.rs || { echo "::error::缺生成资源表 ui_assets.rs"; exit 1; }
+          echo "ui-vue 产物与资源表校验通过"
+      - name: 上传 dist（失败排查用）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: |
+            ui-vue/dist
+            src-tauri/src/ui_assets.rs
+          if-no-files-found: warn
+          retention-days: 7
