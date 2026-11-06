@@ -250,9 +250,24 @@ const selectedLoaderState = computed(
       </div>
 
       <div class="lg-results" ref="resultsRoot">
-        <!-- 旧版 G：真实区块就是面板本体（组头由 slot 内容承载，搜索/筛选
-             直接对真实行做 ba-g-hide 显隐，不重渲条目） -->
-        <slot />
+        <!-- 系统引导页：真实区块由 slot 承接（保留原有 ba-g-hide 显隐逻辑）。
+             引导高级设置预演：无 slot → 用 fallback 从 props.rows 自渲染列表，
+             否则预演区列表为空。 -->
+        <slot>
+          <template v-for="g in results" :key="g.loader.id">
+            <div v-if="g.entries.length" class="lg-group">{{ g.loader.name }} · {{ g.entries.length }} 项</div>
+            <button
+              v-for="e in g.entries"
+              :key="g.loader.id + ':' + e.selector"
+              type="button"
+              class="lg-item grub-entry"
+              :class="[{ active: selected && selected.loader === g.loader.id && selected.selector === e.selector }]"
+              @click="selected = { loader: g.loader.id, selector: e.selector || '' }"
+            >
+              <span class="grub-entry-name">{{ e.name }}</span>
+            </button>
+          </template>
+        </slot>
       </div>
     </div>
 

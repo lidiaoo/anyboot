@@ -5202,3 +5202,17 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lj-c3 .ba-set-body .row,
 #tab-boot .lj-c3 .ba-set-body .remote-inline,
 #tab-boot .lj-c3 .ba-set-body .sim-scan-head { flex-wrap: wrap; }
+
+/* 预演区(.k-prev) J 设置区与系统页一致：内部可收缩/换行，不越界 */
+.k-prev .lj-c3 { min-width: 0; }
+.k-prev .lj-c3 .bd,
+.k-prev .lj-c3 .ba-set-body,
+.k-prev .lj-c3 .loader-settings { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-x: hidden; }
+.k-prev .lj-c3 .ba-set-body * { min-width: 0; max-width: 100%; box-sizing: border-box;
+  white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+.k-prev .lj-c3 .ba-set-body .grub-title-row,
+.k-prev .lj-c3 .ba-set-body .directory-row,
+.k-prev .lj-c3 .ba-set-body .setting,
+.k-prev .lj-c3 .ba-set-body .row,
+.k-prev .lj-c3 .ba-set-body .remote-inline,
+.k-prev .lj-c3 .ba-set-body .sim-scan-head { flex-wrap: wrap; }
