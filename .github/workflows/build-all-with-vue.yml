@@ -107,8 +107,13 @@ jobs:
         run: bash scripts/build-sidecar.sh
       - name: 安装前端依赖（tauri CLI）
         run: npm ci
+      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: .
       - name: tauri build（NSIS + MSI）
-        run: npm run build:win
+        run: npx tauri build --bundles nsis,msi
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
@@ -135,7 +140,12 @@ jobs:
         run: bash scripts/build-sidecar.sh
       - name: 安装前端依赖（tauri CLI）
         run: npm ci
-      - name: tauri build（deb + rpm + AppImage）
+      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: .
+      - name: tauri build（deb + rpm + AppImage，复用 build-vue 产物不再跑 vite）
         run: npm run build:linux
       - uses: actions/upload-artifact@v4
         with:
@@ -161,8 +171,13 @@ jobs:
         run: bash scripts/build-sidecar.sh
       - name: 安装前端依赖（tauri CLI）
         run: npm ci
+      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: .
       - name: tauri build（universal dmg）
-        run: npm run build:mac-universal
+        run: env -u CARGO CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar npx tauri build --target universal-apple-darwin
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos
