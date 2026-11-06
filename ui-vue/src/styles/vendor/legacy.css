@@ -5104,3 +5104,49 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lg > .lg-main { order: 1; }
 #tab-boot .lg > .lg-side { order: 2; }
 #tab-boot .lg > .lg-foot { order: 3; flex: 0 0 100%; width: 100%; border-left: 0; border-radius: 0 0 12px 12px; }
+
+/* 2026-11-06 所有布局「展开的引导器设置」自适应（用户：展开的引导器区域要自适应，别超边界）
+ * 统一：设置正文及其内部区块/行/输入一律可收缩到容器宽，内部行可换行，禁止横向溢出。 */
+#tab-boot .loader-settings,
+#tab-boot .ba-set-body { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-x: hidden; }
+
+#tab-boot .ba-set-body .grub-panel,
+#tab-boot .ba-set-body .refind,
+#tab-boot .ba-set-body .grub,
+#tab-boot .ba-set-body .sim-scan,
+#tab-boot .ba-set-body .sim-scan-head,
+#tab-boot .ba-set-body .sim-scan-summary,
+#tab-boot .ba-set-body .sim-scan-issues,
+#tab-boot .ba-set-body .sim-scan-list,
+#tab-boot .ba-set-body .sim-scan-hidden,
+#tab-boot .ba-set-body .directory,
+#tab-boot .ba-set-body .grub-title-row,
+#tab-boot .ba-set-body .grub-row,
+#tab-boot .ba-set-body .setting,
+#tab-boot .ba-set-body .row,
+#tab-boot .ba-set-body .remote-inline,
+#tab-boot .ba-set-body .grub-tabs,
+#tab-boot .ba-set-body .grub-auto-card,
+#tab-boot .ba-set-body .grub-auto-issues {
+  min-width: 0; max-width: 100%; box-sizing: border-box;
+}
+
+#tab-boot .ba-set-body .grub-title-row,
+#tab-boot .ba-set-body .grub-row,
+#tab-boot .ba-set-body .setting,
+#tab-boot .ba-set-body .row,
+#tab-boot .ba-set-body .remote-inline,
+#tab-boot .ba-set-body .sim-scan-head {
+  flex-wrap: wrap;
+}
+
+#tab-boot .ba-set-body input,
+#tab-boot .ba-set-body select,
+#tab-boot .ba-set-body textarea,
+#tab-boot .ba-set-body button,
+#tab-boot .ba-set-body code,
+#tab-boot .ba-set-body .mono {
+  min-width: 0; max-width: 100%; box-sizing: border-box;
+}
+#tab-boot .ba-set-body code,
+#tab-boot .ba-set-body .mono { overflow-wrap: anywhere; word-break: normal; }
