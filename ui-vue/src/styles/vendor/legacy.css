@@ -5102,15 +5102,26 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 /* G：两栏(main|side) + 底部 foot 整行。用 grid 而非 flex-wrap：
  * flex-wrap 会让行高按内容撑开 → .lg-results/.lg-side 失去受限高度 → 滚动条消失、内容被 overflow:hidden 裁掉。
  * grid 用 minmax(0,1fr) 行高，主/侧栏各自内部滚动。 */
-#tab-boot .lg {
+/* G 两栏 + 底部 foot：系统引导页(#tab-boot) 与 引导高级设置预演(.k-prev) 通用。
+ * 之前只写 #tab-boot，导致高级设置里的 G 预演还是旧布局，两者不一致。 */
+#tab-boot .lg,
+.k-prev .lg {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-rows: minmax(0, 1fr) auto;
   align-items: stretch;
 }
-#tab-boot .lg > .lg-main { grid-column: 1; grid-row: 1; min-height: 0; min-width: 0; overflow: hidden; }
-#tab-boot .lg > .lg-side { grid-column: 2; grid-row: 1; min-height: 0; }
-#tab-boot .lg > .lg-foot { grid-column: 1 / -1; grid-row: 2; border-left: 0; border-radius: 0 0 12px 12px; }
+#tab-boot .lg > .lg-main,
+.k-prev .lg > .lg-main { grid-column: 1; grid-row: 1; min-height: 0; min-width: 0; overflow: hidden; }
+#tab-boot .lg > .lg-side,
+.k-prev .lg > .lg-side { grid-column: 2; grid-row: 1; min-height: 0; }
+#tab-boot .lg > .lg-foot,
+.k-prev .lg > .lg-foot { grid-column: 1 / -1; grid-row: 2; border-left: 0; border-radius: 0 0 12px 12px; }
+
+/* G 右栏自适应/去除大空隙 也覆盖预演 */
+.k-prev .lg-side .lg-fact { min-width: 0; }
+.k-prev .lg-side .lg-fact span { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
+.k-prev .lg-side .loader-settings { margin-top: 4px; }
 
 /* 2026-11-06 所有布局「展开的引导器设置」自适应（用户：展开的引导器区域要自适应，别超边界）
  * 统一：设置正文及其内部区块/行/输入一律可收缩到容器宽，内部行可换行，禁止横向溢出。 */
