@@ -1,0 +1,291 @@
+# build-all-with-vue.yml —— 在 build-all 基础上显式加入 ui-vue 前端构建/校验闸。
+# 与 build-all.yml 并存（不替换它）：多一个 build-vue job 先构建 ui-vue 并做
+# typecheck + 产物校验，桌面打包 job needs 它，前端有问题时提前失败。
+#
+# 原 build-all.yml —— 全平台一键编译打包（GitHub Actions）。
+#
+# 触发：Actions 页手动跑（workflow_dispatch），或推 v* tag。
+# 单机做不了交叉编译（Windows/Linux 安装包、签名 IPA），全部交给这里的矩阵：
+#   desktop-windows : NSIS + MSI
+#   desktop-linux   : deb + rpm + AppImage
+#   desktop-macos   : dmg（universal，Intel+Apple Silicon 合包）
+#   android         : debug APK
+#   ios             : 模拟器构建（编译验证；真机 IPA 需证书，本 job 不签）
+# 每个 job 的产物在 run 页 Artifacts 区下载。
+name: build-all-with-vue
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # ── 版本一致性闸（只在打 tag 时跑）─────────────────────────────────────
+  # 为什么必须有：客户端是拿「二进制里的版本号」跟「release tag 推出的版本」比。
+  # 如果 tag 是 v0.2.1 而源码里还写着 0.2.0，用户会看到「有新版本」→ 下载 →
+  # 装完版本还是 0.2.0 → 永远提示更新（死循环）。这里直接把这种发布掐死。
+  # 四处都要改：Cargo.toml / tauri.conf.json / build.gradle.kts / Info.plist。
+  version-check:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验四处版本号与 tag 一致
+        run: |
+          python3 - <<'PY'
+          import json, os, plistlib, re, sys, tomllib
+
+          version = os.environ["GITHUB_REF_NAME"].lstrip("vV")
+          cargo = tomllib.load(open("src-tauri/Cargo.toml", "rb"))["package"]["version"]
+          tauri = json.load(open("src-tauri/tauri.conf.json"))["version"]
+          gradle_src = open("mobile/android/app/build.gradle.kts").read()
+          gradle = re.search(r'versionName\s*=\s*"([^"]+)"', gradle_src).group(1)
+          ios = plistlib.load(open("mobile/ios/Info.plist", "rb"))["CFBundleShortVersionString"]
+
+          values = {
+              "src-tauri/Cargo.toml": cargo,
+              "src-tauri/tauri.conf.json": tauri,
+              "mobile/android/app/build.gradle.kts": gradle,
+              "mobile/ios/Info.plist": ios,
+          }
+          print("tag =", version, "|", values)
+
+          bad = {name: value for name, value in values.items() if value != version}
+          if bad:
+              detail = ", ".join(f"{name}={value}" for name, value in bad.items())
+              print(f"::error::版本号与 tag 不一致：{detail} ≠ {version}。发版前把四处版本号一起改成 {version}。")
+              sys.exit(1)
+          print("版本号一致，可以发布")
+          PY
+
+  # ── ui-vue 前端构建闸（typecheck + build + 产物校验）─────────────────────
+  build-vue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: 安装前端依赖
+        run: npm ci
+      - name: 类型检查（vue-tsc）
+        run: npm run typecheck
+      - name: 构建前端产物（vite build + gen-ui-assets）
+        run: npm run build:vue
+      - name: 校验产物与资源表
+        run: |
+          set -e
+          test -f ui-vue/dist/index.html || { echo "::error::缺 dist/index.html"; exit 1; }
+          test -f ui-vue/dist/hub.html   || { echo "::error::缺 dist/hub.html"; exit 1; }
+          JS_COUNT=$(find ui-vue/dist/assets -name '*.js' | wc -l | tr -d ' ')
+          echo "dist JS 文件数: $JS_COUNT"
+          test "$JS_COUNT" -ge 3 || { echo "::error::dist 产物过少"; exit 1; }
+          test -f src-tauri/src/ui_assets.rs || { echo "::error::缺 ui_assets.rs"; exit 1; }
+          echo "ui-vue 产物校验通过"
+      - name: 上传 ui-vue 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: |
+            ui-vue/dist
+            src-tauri/src/ui_assets.rs
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-windows:
+    needs: build-vue
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 构建 sidecar（Windows）
+        run: bash scripts/build-sidecar.sh
+      - name: 安装前端依赖（tauri CLI）
+        run: npm ci
+      - name: tauri build（NSIS + MSI）
+        run: npm run build:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+
+  desktop-linux:
+    needs: build-vue
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 系统依赖（Tauri v2 Linux）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
+      - name: 构建 sidecar（Linux amd64/arm64）
+        run: bash scripts/build-sidecar.sh
+      - name: 安装前端依赖（tauri CLI）
+        run: npm ci
+      - name: tauri build（deb + rpm + AppImage）
+        run: npm run build:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+  desktop-macos:
+    needs: build-vue
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: 构建 sidecar（macOS 双架构）
+        run: bash scripts/build-sidecar.sh
+      - name: 安装前端依赖（tauri CLI）
+        run: npm ci
+      - name: tauri build（universal dmg）
+        run: npm run build:mac-universal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: "8.11.1" }
+      - name: assembleDebug
+        run: gradle assembleDebug
+        working-directory: mobile/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+  ios:
+    # macos-15+：镜像里的 Xcode 才认识 xcodegen 生成的 project format 77
+    # （macos-14 的老 Xcode 会报 future Xcode project file format）
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: 切到 Xcode 26
+        # swiftui-introspect 27.x 要求 Swift 6.2 工具链，镜像默认的 Xcode 16 解析不了
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version && swift --version
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+      - name: 生成工程并构建（模拟器，不签名）
+        run: |
+          cd mobile/ios
+          xcodegen generate
+          xcodebuild build -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
+            -destination 'generic/platform=iOS Simulator' -quiet
+      - name: 打未签名 IPA（真机自签用）
+        # 通用 iOS 设备构建 + 关签名，得到的 .app 打包成未签名 IPA。
+        # 没有 CI 证书，无法出能直接安装的包；用 Sideloadly/AltStore
+        # （免费 Apple ID，7 天有效）或付费证书对 IPA 重签后即可装真机。
+        run: |
+          cd mobile/ios
+          xcodebuild build -project AnyBootRemote.xcodeproj -scheme AnyBootRemote \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -quiet
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AnyBootRemote.app Payload/
+          zip -qry AnyBoot-unsigned.ipa Payload
+          ls -lh AnyBoot-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-unsigned
+          path: mobile/ios/AnyBoot-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-log
+          path: mobile/ios/build
+        if: failure()
+
+  # ── 发布：只有推 v* tag 才跑 ────────────────────────────────────────────
+  # 客户端（update.rs）按**固定资产名**拼下载 URL + 校验 SHA256SUMS.txt，
+  # 所以这里的命名是硬契约（见 docs/检查更新-设计.md §6 / update.rs
+  # asset_candidates）。改名字必须两边一起改，否则更新会报「没有本平台安装包」。
+  release:
+    needs: [version-check, build-vue, desktop-windows, desktop-linux, desktop-macos, android, ios]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: 解析版本号
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "资产会按 AnyBoot_${VERSION}_<platform>.<ext> 命名"
+      - name: 统一命名（与 update.rs 的 asset_candidates 一一对应）
+        # 注意：download-artifact 的 merge-multiple 会保留产物 zip 内部的相对目录。
+        # 只匹配一个 bundle 子目录（如 dmg/*.dmg）时文件落在 artifacts/ 根下；
+        # 匹配多个子目录（nsis + msi）时会带上前缀 → artifacts/nsis/xxx.exe。
+        # 所以这里一律用 find 递归找，不写死层级。
+        run: |
+          set -euo pipefail
+          mkdir -p rel
+          pick() {
+            local label="$1" pattern="$2" path
+            path="$(find artifacts -type f -iname "$pattern" | sort | head -1)"
+            if [ -z "$path" ]; then
+              echo "::error::找不到 ${label} 产物（匹配 *${pattern}）。artifacts 实际内容：" >&2
+              find artifacts -type f -printf '%P\n' | sort >&2
+              exit 1
+            fi
+            echo "$path"
+          }
+          cp "$(pick 'macOS dmg' '*.dmg')"              "rel/AnyBoot_${VERSION}_universal.dmg"
+          cp "$(pick 'Windows NSIS' '*setup*.exe')"     "rel/AnyBoot_${VERSION}_x64-setup.exe"
+          cp "$(pick 'Windows MSI' '*.msi')"            "rel/AnyBoot_${VERSION}_x64.msi"
+          cp "$(pick 'Linux deb' '*.deb')"              "rel/AnyBoot_${VERSION}_amd64.deb"
+          cp "$(pick 'Linux rpm' '*.rpm')"              "rel/AnyBoot_${VERSION}_x86_64.rpm"
+          cp "$(pick 'Linux AppImage' '*.AppImage')"    "rel/AnyBoot_${VERSION}_amd64.AppImage"
+          cp "$(pick 'Android APK' '*.apk')"            "rel/AnyBoot_${VERSION}_debug.apk"
+          cp "$(pick 'iOS IPA' '*.ipa')"                "rel/AnyBoot_${VERSION}_unsigned.ipa"
+          ls -lh rel
+      - name: 生成 SHA256SUMS.txt
+        working-directory: rel
+        run: |
+          sha256sum AnyBoot_* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: 发布（存在则覆盖资产）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "v${VERSION}" >/dev/null 2>&1 \
+            || gh release create "v${VERSION}" --title "AnyBoot v${VERSION}" --generate-notes
+          gh release upload "v${VERSION}" rel/* --clobber
