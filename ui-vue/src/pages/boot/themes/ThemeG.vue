@@ -164,6 +164,18 @@ const results = computed(() => {
 
 /** 当前高亮的条目（右侧预览用） */
 const selected = ref<{ loader: string; selector: string } | null>(null);
+/** 「引导器设置」应跟随「当前引导器」，与有没有条目无关：
+ *  ① 筛选在某个具体引导器上 → 用该引导器；
+ *  ② 否则用当前选中项所属引导器；
+ *  ③ 否则回落到第一个引导器（条目为空也能看它的设置，不能因无条目就不显示）。 */
+const settingsLoader = computed(() => {
+  if (filter.value && filter.value !== "all") {
+    const f = props.loaders.find((l) => l.id === filter.value);
+    if (f) return f.id;
+  }
+  if (selected.value?.loader) return selected.value.loader;
+  return props.loaders[0]?.id ?? "";
+});
 // 旧版语义：默认 selected=0，右侧永远有一份预览，不是空窗
 watch(results, (groups) => {
   if (!selected.value && groups.length && groups[0].entries.length) {
@@ -315,8 +327,8 @@ const selectedLoaderState = computed(
       <p v-else class="lg-hint">选中一条查看详情</p>
       <!-- 折叠「引导器设置」（与 A/B 一致：收起时只看到一行） -->
       <!-- 跟随「当前选中项」所属引导器；无选中则留空提示，绝不回落到 refind -->
-      <LoaderSettings v-if="selected?.loader" :loader="selected.loader" />
-      <div v-else class="lg-hint" style="margin-top: 4px">选中上方某条引导项后，这里显示它所属引导器的设置</div>
+      <LoaderSettings v-if="settingsLoader" :loader="settingsLoader" />
+      <div v-else class="lg-hint" style="margin-top: 4px">没有可显示的引导器</div>
     </aside>
 
     <div class="lg-foot">
