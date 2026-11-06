@@ -5099,11 +5099,18 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lj-c3 .bd .row,
 #tab-boot .lj-c3 .bd .grub-row,
 #tab-boot .lj-c3 .bd .setting { min-width: 0; flex-wrap: wrap; }
-/* G：foot 必须独占底部整行（此前被当作第 3 列 = 虚假「三栏」空块）。用 ID 提权覆盖基础 .lg-foot{flex:none} */
-#tab-boot .lg { flex-wrap: wrap; }
-#tab-boot .lg > .lg-main { order: 1; }
-#tab-boot .lg > .lg-side { order: 2; }
-#tab-boot .lg > .lg-foot { order: 3; flex: 0 0 100%; width: 100%; border-left: 0; border-radius: 0 0 12px 12px; }
+/* G：两栏(main|side) + 底部 foot 整行。用 grid 而非 flex-wrap：
+ * flex-wrap 会让行高按内容撑开 → .lg-results/.lg-side 失去受限高度 → 滚动条消失、内容被 overflow:hidden 裁掉。
+ * grid 用 minmax(0,1fr) 行高，主/侧栏各自内部滚动。 */
+#tab-boot .lg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+#tab-boot .lg > .lg-main { grid-column: 1; grid-row: 1; min-height: 0; min-width: 0; overflow: hidden; }
+#tab-boot .lg > .lg-side { grid-column: 2; grid-row: 1; min-height: 0; }
+#tab-boot .lg > .lg-foot { grid-column: 1 / -1; grid-row: 2; border-left: 0; border-radius: 0 0 12px 12px; }
 
 /* 2026-11-06 所有布局「展开的引导器设置」自适应（用户：展开的引导器区域要自适应，别超边界）
  * 统一：设置正文及其内部区块/行/输入一律可收缩到容器宽，内部行可换行，禁止横向溢出。 */
@@ -5150,3 +5157,37 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 }
 #tab-boot .ba-set-body code,
 #tab-boot .ba-set-body .mono { overflow-wrap: anywhere; word-break: normal; }
+
+/* 2026-11-06 J 专属设置区（含 rEFInd 设置正文）强制自适应：容器内任何元素都不得超出 c3 宽度。
+ * 真实数据里 rEFInd 设置的摘要/路径/变量目录等常带 nowrap 长串，统一放开换行。 */
+#tab-boot .lj-c3 { min-width: 0; }
+#tab-boot .lj-c3 .bd,
+#tab-boot .lj-c3 .ba-set-body,
+#tab-boot .lj-c3 .loader-settings { min-width: 0; max-width: 100%; box-sizing: border-box; overflow-x: hidden; }
+#tab-boot .lj-c3 .ba-set-body * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#tab-boot .lj-c3 .ba-set-body .refind,
+#tab-boot .lj-c3 .ba-set-body .grub,
+#tab-boot .lj-c3 .ba-set-body .grub-panel,
+#tab-boot .lj-c3 .ba-set-body .sim-scan,
+#tab-boot .lj-c3 .ba-set-body .directory,
+#tab-boot .lj-c3 .ba-set-body .grub-title-row,
+#tab-boot .lj-c3 .ba-set-body .directory-row,
+#tab-boot .lj-c3 .ba-set-body .sim-scan-head,
+#tab-boot .lj-c3 .ba-set-body .sim-scan-summary,
+#tab-boot .lj-c3 .ba-set-body .sim-issue,
+#tab-boot .lj-c3 .ba-set-body .grub-entry-name,
+#tab-boot .lj-c3 .ba-set-body .grub-entry-sub,
+#tab-boot .lj-c3 .ba-set-body small,
+#tab-boot .lj-c3 .ba-set-body code,
+#tab-boot .lj-c3 .ba-set-body .mono {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-overflow: clip;
+}
+#tab-boot .lj-c3 .ba-set-body .grub-title-row,
+#tab-boot .lj-c3 .ba-set-body .directory-row,
+#tab-boot .lj-c3 .ba-set-body .setting,
+#tab-boot .lj-c3 .ba-set-body .row,
+#tab-boot .lj-c3 .ba-set-body .remote-inline,
+#tab-boot .lj-c3 .ba-set-body .sim-scan-head { flex-wrap: wrap; }

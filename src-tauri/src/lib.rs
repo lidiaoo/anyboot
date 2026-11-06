@@ -3352,6 +3352,8 @@ pub fn run() {
 
 
 
+
+
             // 调试/沙箱：把变量目录指到别处，验证时不会碰真实的 ESP
             if let Ok(directory) = std::env::var("ANYBOOT_VARS_DIR") {
                 let directory = directory.trim().to_string();
