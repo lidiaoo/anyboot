@@ -1,8 +1,7 @@
-# build-all-with-vue.yml —— 在 build-all 基础上显式加入 ui-vue 前端构建/校验闸。
-# 与 build-all.yml 并存（不替换它）：多一个 build-vue job 先构建 ui-vue 并做
-# typecheck + 产物校验，桌面打包 job needs 它，前端有问题时提前失败。
+# build-all-with-vue.yml —— 分平台结构同 build-all，但把 ui-vue 前端构建**显式**放进
+# 每个桌面平台 job（独立一步「构建前端 ui-vue」再「tauri 打包」），不做成独立 job。
 #
-# 原 build-all.yml —— 全平台一键编译打包（GitHub Actions）。
+# 原描述：build-all.yml —— 全平台一键编译打包（GitHub Actions）。
 #
 # 触发：Actions 页手动跑（workflow_dispatch），或推 v* tag。
 # 单机做不了交叉编译（Windows/Linux 安装包、签名 IPA），全部交给这里的矩阵：
@@ -58,43 +57,7 @@ jobs:
           print("版本号一致，可以发布")
           PY
 
-  # ── ui-vue 前端构建闸（typecheck + build + 产物校验）─────────────────────
-  build-vue:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-      - name: 安装前端依赖
-        run: npm ci
-      - name: 类型检查（vue-tsc）
-        run: npm run typecheck
-      - name: 构建前端产物（vite build + gen-ui-assets）
-        run: npm run build:vue
-      - name: 校验产物与资源表
-        run: |
-          set -e
-          test -f ui-vue/dist/index.html || { echo "::error::缺 dist/index.html"; exit 1; }
-          test -f ui-vue/dist/hub.html   || { echo "::error::缺 dist/hub.html"; exit 1; }
-          JS_COUNT=$(find ui-vue/dist/assets -name '*.js' | wc -l | tr -d ' ')
-          echo "dist JS 文件数: $JS_COUNT"
-          test "$JS_COUNT" -ge 3 || { echo "::error::dist 产物过少"; exit 1; }
-          test -f src-tauri/src/ui_assets.rs || { echo "::error::缺 ui_assets.rs"; exit 1; }
-          echo "ui-vue 产物校验通过"
-      - name: 上传 ui-vue 产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-vue-dist
-          path: |
-            ui-vue/dist
-            src-tauri/src/ui_assets.rs
-          if-no-files-found: error
-          retention-days: 7
-
   desktop-windows:
-    needs: build-vue
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,13 +68,10 @@ jobs:
         with: { node-version: 20 }
       - name: 构建 sidecar（Windows）
         run: bash scripts/build-sidecar.sh
-      - name: 安装前端依赖（tauri CLI）
+      - name: 安装前端依赖
         run: npm ci
-      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-vue-dist
-          path: .
+      - name: 构建前端 ui-vue（vite build + ui_assets）
+        run: npm run build:vue
       - name: tauri build（NSIS + MSI）
         run: npx tauri build --bundles nsis,msi
       - uses: actions/upload-artifact@v4
@@ -122,7 +82,6 @@ jobs:
             src-tauri/target/release/bundle/msi/*.msi
 
   desktop-linux:
-    needs: build-vue
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -138,14 +97,11 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2
       - name: 构建 sidecar（Linux amd64/arm64）
         run: bash scripts/build-sidecar.sh
-      - name: 安装前端依赖（tauri CLI）
+      - name: 安装前端依赖
         run: npm ci
-      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-vue-dist
-          path: .
-      - name: tauri build（deb + rpm + AppImage，复用 build-vue 产物不再跑 vite）
+      - name: 构建前端 ui-vue（vite build + ui_assets）
+        run: npm run build:vue
+      - name: tauri build（deb + rpm + AppImage）
         run: npm run build:linux
       - uses: actions/upload-artifact@v4
         with:
@@ -156,7 +112,6 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
 
   desktop-macos:
-    needs: build-vue
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -169,13 +124,10 @@ jobs:
         with: { node-version: 20 }
       - name: 构建 sidecar（macOS 双架构）
         run: bash scripts/build-sidecar.sh
-      - name: 安装前端依赖（tauri CLI）
+      - name: 安装前端依赖
         run: npm ci
-      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
-        uses: actions/download-artifact@v4
-        with:
-          name: ui-vue-dist
-          path: .
+      - name: 构建前端 ui-vue（vite build + ui_assets）
+        run: npm run build:vue
       - name: tauri build（universal dmg）
         run: env -u CARGO CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar npx tauri build --target universal-apple-darwin
       - uses: actions/upload-artifact@v4
@@ -247,7 +199,7 @@ jobs:
   # 所以这里的命名是硬契约（见 docs/检查更新-设计.md §6 / update.rs
   # asset_candidates）。改名字必须两边一起改，否则更新会报「没有本平台安装包」。
   release:
-    needs: [version-check, build-vue, desktop-windows, desktop-linux, desktop-macos, android, ios]
+    needs: [version-check, desktop-windows, desktop-linux, desktop-macos, android, ios]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -256,12 +208,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - name: 下载各平台发布产物（不含 ui-vue-dist）
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-          pattern: "{desktop-windows,desktop-linux,desktop-macos,android-apk,ios-ipa-unsigned}"
       - name: 解析版本号
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
