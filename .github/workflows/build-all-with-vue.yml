@@ -18,6 +18,8 @@ name: build-all-with-vue
 on:
   workflow_dispatch:
   push:
+    # 便于在列表里随时看到多平台作业编排：普通推送 main 也跑一次
+    branches: ["main"]
     tags: ["v*"]
 
 jobs:
