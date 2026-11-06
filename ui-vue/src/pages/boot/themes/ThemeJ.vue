@@ -6,6 +6,8 @@ import LoaderIcon from "./LoaderIcon.vue";
 import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
 const collapsed = ref(false);
+/** 小屏：底部设置块默认收起，点标题展开（宽屏忽略此状态，常展开） */
+const mobileOpen = ref(false);
 /** 是否有设置正文（旧版靠 .ba-set-body 是否停靠来判断） */
 
 /**
@@ -91,7 +93,7 @@ const healthText = computed(() => {
     </aside>
 
     <section class="lj-c2">
-      <div class="hd">
+      <div class="hd" @click="mobileOpen = !mobileOpen">
         <template v-if="activeLoader">
           <LoaderIcon :id="activeLoader.id" size="sm" />
           <b>{{ activeLoader.name }}</b>
@@ -106,21 +108,21 @@ const healthText = computed(() => {
     </section>
 
     <!-- 右侧设置栏（旧版 aside.lj-c3 > .hd + .bd） -->
-    <aside :class="['lj-c3', { 'is-collapsed': collapsed }]">
-      <div class="hd">
+    <aside :class="['lj-c3', { folded: collapsed, 'is-open': mobileOpen }]">
+      <div class="hd" @click="mobileOpen = !mobileOpen">
         <svg class="i sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
           <circle cx="8" cy="8" r="2.4" />
           <path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M12.4 3.6 11 5M5 11l-1.4 1.4" />
         </svg>
         <b>引导器设置</b>
         <span class="grow" />
-        <button type="button" class="btn icon ghost sm" :aria-expanded="!collapsed" title="收起设置栏（只留图标条）" @click="collapsed = !collapsed">
+        <button type="button" class="btn icon ghost sm" :aria-expanded="!collapsed" title="收起设置栏（只留图标条）" @click.stop="collapsed = !collapsed">
           {{ collapsed ? "‹" : "›" }}
         </button>
       </div>
       <div class="bd">
         <!-- 专属引导器设置区：点不同通道显示该引导器自己的设置（旧 .lj-c3） -->
-        <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" />
+        <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" plain />
         <div v-else class="lj-setempty">
           <b>没有分配到引导器</b>
           <small>在通道栏选一个引导器</small>

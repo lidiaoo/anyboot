@@ -5054,3 +5054,29 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .vw-760 .lb { flex-direction: column; }
 .vw-760 .lb-nav { order: 1; }
 .vw-760 .lb-main { order: 2; min-height: 0; }
+
+/* 2026-11-06 三项追加修复 */
+/* I：抽屉显示（此前 li-sheet 无 is-on → display:none，箭头点了看不到反应） */
+/* （已在模板加 class="li-sheet is-on"，无需额外 CSS） */
+
+/* G：右侧栏 flex 自适应 —— 子块可收缩、路径长值可换行、设置贴底 */
+#tab-boot .lg-side { min-width: 0; }
+#tab-boot .lg-side > * { min-width: 0; }
+#tab-boot .lg-side .lg-sel,
+#tab-boot .lg-side .lg-sel-body { min-width: 0; }
+#tab-boot .lg-side .lg-fact { min-width: 0; }
+#tab-boot .lg-side .lg-fact span { min-width: 0; word-break: break-all; overflow-wrap: anywhere; }
+#tab-boot .lg-side .loader-settings { margin-top: auto; }   /* 设置块贴底，不挤乱上方 */
+/* G 移动端：隐藏「选中项」详情与动作按钮，只留底部折叠设置 */
+.vw-760 .lg-side > h4,
+.vw-760 .lg-side > .lg-sel,
+.vw-760 .lg-side > .toolbar,
+.vw-760 .lg-side > .lg-hint,
+.vw-760 .lg-side > .lg-sel + .toolbar { display: none !important; }
+
+/* J：宽屏专属设置区常展开（plain，无内部折叠）；仅小屏折叠成条、点标题展开 */
+.vw-760 .lj-c3:not(.folded) { width: auto; }
+.vw-760 .lj-c3 > .bd { display: none; }              /* 小屏默认收起正文 */
+.vw-760 .lj-c3.is-open > .bd { display: flex; }      /* 点开才显示 */
+/* 小屏 c3 标题条可点击展开/收起（视觉提示） */
+.vw-760 .lj-c3 > .hd { cursor: pointer; }

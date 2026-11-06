@@ -11,13 +11,14 @@ import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
 import ChannelSettings from "./ChannelSettings.vue";
 
-const props = defineProps<{ loader: string; defaultOpen?: boolean }>();
+const props = defineProps<{ loader: string; defaultOpen?: boolean; plain?: boolean }>();
 const open = ref(Boolean(props.defaultOpen));
 </script>
 
 <template>
-  <div class="loader-settings">
+  <div class="loader-settings" :class="{ 'is-plain': props.plain }">
     <button
+      v-if="!props.plain"
       type="button"
       class="acc ba-setbar"
       :aria-expanded="open ? 'true' : 'false'"
@@ -32,7 +33,7 @@ const open = ref(Boolean(props.defaultOpen));
       </span>
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
-    <div v-show="open" class="ba-set-body">
+    <div v-show="props.plain || open" class="ba-set-body">
       <RefindSection v-if="props.loader === 'refind'" hide-list />
       <GrubSection v-else-if="props.loader === 'grub'" hide-list />
       <ChannelSettings v-else :loader="props.loader" />

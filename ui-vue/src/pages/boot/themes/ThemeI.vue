@@ -212,7 +212,7 @@ function closeSheet() {
 
     <!-- 底部抽屉：完整引导列表 -->
     <Teleport to="body">
-      <div v-if="sheetLoader || settingsOpen" class="li-sheet">
+      <div v-if="sheetLoader || settingsOpen" class="li-sheet is-on">
         <!-- 遮罩（旧版 .li-scrim） -->
         <div class="li-scrim" @click="closeAll" />
         <!-- 半高面板（旧版 .li-panel > .li-panel-hd + .li-panel-bd） -->
