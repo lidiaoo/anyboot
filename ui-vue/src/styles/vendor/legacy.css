@@ -3658,7 +3658,13 @@ svg.i.lg { width: 16px; height: 16px; }
    } */
 
 /* ── 7. 方案 G —— 命令面板（原样移植）────────────────────────────────── */
-.lg { display: flex; gap: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.lg { display: flex; gap: 0; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  /* 布局：main(左) | side(右) 两栏 + foot(底部整行)。此前 foot 被当成第 3 列
+   * （flex row 直接排），右侧多出一块「空栏」= 用户说的「三栏」。 */
+  flex-wrap: wrap; align-items: stretch; }
+.lg-main { order: 1; }
+.lg-side { order: 2; }
+.lg-foot { order: 3; flex: 0 0 100%; }
 .lg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .lg-top {
   flex: none; padding: 14px 14px 10px; border-bottom: 1px solid var(--line);
@@ -5093,3 +5099,8 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lj-c3 .bd .row,
 #tab-boot .lj-c3 .bd .grub-row,
 #tab-boot .lj-c3 .bd .setting { min-width: 0; flex-wrap: wrap; }
+/* G：foot 必须独占底部整行（此前被当作第 3 列 = 虚假「三栏」空块）。用 ID 提权覆盖基础 .lg-foot{flex:none} */
+#tab-boot .lg { flex-wrap: wrap; }
+#tab-boot .lg > .lg-main { order: 1; }
+#tab-boot .lg > .lg-side { order: 2; }
+#tab-boot .lg > .lg-foot { order: 3; flex: 0 0 100%; width: 100%; border-left: 0; border-radius: 0 0 12px 12px; }
