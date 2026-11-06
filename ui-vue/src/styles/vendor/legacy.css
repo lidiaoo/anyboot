@@ -4778,7 +4778,7 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   text-overflow: ellipsis;
 }
 #tab-boot .lg-side .lg-sel-body { padding: 6px 9px; display: grid; gap: 5px; }
-#tab-boot .lg-side .lg-fact { display: grid; grid-template-columns: 44px 1fr; gap: 6px; align-items: baseline; }
+#tab-boot .lg-side .lg-fact { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: baseline; }
 #tab-boot .lg-side .lg-fact b {
   font-size: 9.5px;
   font-weight: 600;
@@ -5065,8 +5065,8 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lg-side .lg-sel,
 #tab-boot .lg-side .lg-sel-body { min-width: 0; }
 #tab-boot .lg-side .lg-fact { min-width: 0; }
-#tab-boot .lg-side .lg-fact span { min-width: 0; word-break: break-all; overflow-wrap: anywhere; }
-#tab-boot .lg-side .loader-settings { margin-top: auto; }   /* 设置块贴底，不挤乱上方 */
+#tab-boot .lg-side .lg-fact span { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
+#tab-boot .lg-side .loader-settings { margin-top: 4px; }  /* 紧接选中项之后，不留大空隙 */
 /* G 移动端：隐藏「选中项」详情与动作按钮，只留底部折叠设置 */
 .vw-760 .lg-side > h4,
 .vw-760 .lg-side > .lg-sel,
@@ -5080,3 +5080,16 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .vw-760 .lj-c3.is-open > .bd { display: flex; }      /* 点开才显示 */
 /* 小屏 c3 标题条可点击展开/收起（视觉提示） */
 .vw-760 .lj-c3 > .hd { cursor: pointer; }
+
+/* 2026-11-06 J 专属设置区自适应：内部区块不撑宽、不横向滚 */
+#tab-boot .lj-c3 .bd { overflow-x: hidden; }
+#tab-boot .lj-c3 .bd > * { min-width: 0; max-width: 100%; }
+#tab-boot .lj-c3 .grub-panel,
+#tab-boot .lj-c3 .refind,
+#tab-boot .lj-c3 .grub { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#tab-boot .lj-c3 .bd input,
+#tab-boot .lj-c3 .bd select,
+#tab-boot .lj-c3 .bd textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#tab-boot .lj-c3 .bd .row,
+#tab-boot .lj-c3 .bd .grub-row,
+#tab-boot .lj-c3 .bd .setting { min-width: 0; flex-wrap: wrap; }
