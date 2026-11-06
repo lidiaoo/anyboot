@@ -5011,3 +5011,46 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   background: color-mix(in srgb, var(--ok-bg) 78%, var(--ok) 22%);
   border-color: var(--ok-border);
 }
+
+/* ============================================================================
+ * 2026-11-06 移动端（≤760）三主题顺序统一（用户定案）：
+ *   通道区(顶部) → 引导列表 → 折叠后的「引导器设置」(底部)
+ *   设置一律是**文档流里的底部折叠块**，不再做覆盖抽屉 / 不再隐藏。
+ *   - J（三栏）：c1 顶部横滑，c2 列表，c3 设置收到最底部（整行、折叠态只留标题条）
+ *   - G（命令面板）：main 列表在上，side 里的「选中项」隐去，仅保留底部折叠设置
+ *   - B（左栏通道）：nav 顶部横滑，detail（列表+折叠设置）在下
+ * ========================================================================= */
+
+/* ---- J 三栏：c3 从覆盖抽屉改成底部折叠块 ---- */
+.vw-760 .lj { flex-direction: column; overflow: visible; }
+.vw-760 .lj-c3 {
+  display: flex; flex-direction: column;   /* 覆盖既有 display:none（小屏不再整块隐藏） */
+  position: static; width: auto; right: auto; top: auto; bottom: auto;
+  flex: 0 0 auto; box-shadow: none; border-top: 1px solid var(--line);
+  border-left: 0; order: 3;
+}
+/* 小屏折叠块默认展开为「折叠条」高度，LoaderSettings 自身收起，不压列表 */
+.vw-760 .lj-c3 > .bd { overflow: visible; }
+.vw-760 .lj-c2 { order: 2; }
+.vw-760 .lj-c1 { order: 1; }
+/* 折叠态：只留一条标题栏高度，点展开按钮才显示正文（LoaderSettings 自身折叠） */
+.vw-760 .lj-c3 > .hd { justify-content: flex-start; padding: 8px 12px; }
+
+/* ---- G 命令面板：side 不再隐藏；隐去「选中项」详情，仅留底部折叠设置 ---- */
+.vw-760 .lg { flex-direction: column; }
+.vw-760 .lg-side {
+  display: block;                 /* 覆盖既有 display:none */
+  width: auto; flex: 0 0 auto; order: 2;
+  border-left: 0; border-top: 1px solid var(--line);
+}
+.vw-760 .lg-main { order: 1; min-height: 0; }
+/* 移动端隐藏「选中项 / 路径 / 状态」这些详情，只保留引导器设置折叠块 */
+.vw-760 .lg-side > h4,
+.vw-760 .lg-side > .lg-sel,
+.vw-760 .lg-side > .toolbar,
+.vw-760 .lg-side > .lg-hint { display: none; }
+
+/* ---- B 左栏通道：nav 顶部横滑(既有) + detail(列表+设置)在下 ---- */
+.vw-760 .lb { flex-direction: column; }
+.vw-760 .lb-nav { order: 1; }
+.vw-760 .lb-main { order: 2; min-height: 0; }

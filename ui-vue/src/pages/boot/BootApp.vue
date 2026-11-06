@@ -527,8 +527,10 @@ function channelRows(id: string): EntryData[] {
 
 /** 旧版：非 K 主题整页 fill 链（body[data-ba-fill] + #tab-boot.ba-fill） */
 function syncBodyBaFill(): void {
-  if (adv.effectiveTheme !== "K") document.body.dataset.baFill = "1";
-  else delete document.body.dataset.baFill;
+  // 无论 K 与否都挂：body[data-ba-fill] main 的 grid-template-rows + overflow:hidden
+  // 是「#tabs 不被内容挤扁、#tab-boot 自带滚动」的前提。K 也在 .pane-main 网格里，
+  // 之前 K 删掉它 → 内容 2200px 高把 #tabs 挤成 1px（用户：选不套用主题标签栏消失）。
+  document.body.dataset.baFill = "1";
 }
 watch(() => adv.effectiveTheme, syncBodyBaFill, { immediate: true });
 

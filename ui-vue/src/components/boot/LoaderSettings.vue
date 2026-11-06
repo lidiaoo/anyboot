@@ -11,8 +11,8 @@ import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
 import ChannelSettings from "./ChannelSettings.vue";
 
-const props = defineProps<{ loader: string }>();
-const open = ref(false);
+const props = defineProps<{ loader: string; defaultOpen?: boolean }>();
+const open = ref(Boolean(props.defaultOpen));
 </script>
 
 <template>

@@ -4,6 +4,7 @@ import type { EntryData } from "@/components/boot/types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import LoaderIcon from "./LoaderIcon.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { LoaderInfo } from "./types";
 
 /**
@@ -297,6 +298,8 @@ const selectedLoaderState = computed(
         </div>
       </template>
       <p v-else class="lg-hint">选中一条查看详情</p>
+      <!-- 折叠「引导器设置」（与 A/B 一致：收起时只看到一行） -->
+      <LoaderSettings v-if="selected?.loader || loaders[0]?.id" :loader="selected?.loader || loaders[0]?.id" />
     </aside>
 
     <div class="lg-foot">

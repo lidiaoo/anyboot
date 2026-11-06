@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useSlots, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
@@ -7,8 +7,6 @@ import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
 const collapsed = ref(false);
 /** 是否有设置正文（旧版靠 .ba-set-body 是否停靠来判断） */
-const slots = useSlots();
-const settingsSlot = computed(() => Boolean(slots.settings));
 
 /**
  * 主题 J：三栏（`.lj`）—— 通道栏 / 详情 / 设置栏。
@@ -57,8 +55,6 @@ const activeLoader = computed(
   () => props.loaders.find((item) => item.id === current.value) ?? null,
 );
 
-/** 设置栏折叠（只留图标条） */
-const settingsCollapsed = ref(false);
 
 function select(id: string) {
   current.value = id;
@@ -105,13 +101,12 @@ const healthText = computed(() => {
       </div>
       <div class="bd">
         <BootList v-if="activeLoader" :loader="activeLoader.id" @select="(s) => onSelect?.(s)" />
-        <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" />
         <div v-if="healthText" class="lj-note">{{ healthText }}</div>
       </div>
     </section>
 
     <!-- 右侧设置栏（旧版 aside.lj-c3 > .hd + .bd） -->
-    <aside class="lj-c3">
+    <aside :class="['lj-c3', { 'is-collapsed': collapsed }]">
       <div class="hd">
         <svg class="i sm" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
           <circle cx="8" cy="8" r="2.4" />
@@ -124,34 +119,15 @@ const healthText = computed(() => {
         </button>
       </div>
       <div class="bd">
-        <!-- 有设置项时放设置正文；没有则显示空态（旧版 .lj-setempty） -->
-        <div v-if="!settingsSlot" class="lj-setempty">
-          <b>这个引导器没有可调设置</b>
-          <small>在中间列表里点一条，即为下次启动</small>
+        <!-- 专属引导器设置区：点不同通道显示该引导器自己的设置（旧 .lj-c3） -->
+        <LoaderSettings v-if="activeLoader" :loader="activeLoader.id" />
+        <div v-else class="lj-setempty">
+          <b>没有分配到引导器</b>
+          <small>在通道栏选一个引导器</small>
         </div>
-        <slot v-else name="settings" />
       </div>
     </aside>
 
-    <aside :class="['lj-c3', { 'is-collapsed': settingsCollapsed }]">
-      <div class="hd">
-        <span aria-hidden="true">⚙</span>
-        <b>引导器设置</b>
-        <span class="grow" />
-        <button
-          type="button"
-          class="btn icon ghost sm"
-          title="收起设置栏（只留图标条）"
-          aria-label="收起"
-          @click="settingsCollapsed = !settingsCollapsed"
-        >
-          {{ settingsCollapsed ? "‹" : "›" }}
-        </button>
-      </div>
-      <div v-show="!settingsCollapsed" class="bd">
-        <div class="lj-setempty"><b>配置见中间引导列表</b><small>以实际引导器的引导列表配置为准</small></div>
-      </div>
-    </aside>
   </div>
 </template>
 
