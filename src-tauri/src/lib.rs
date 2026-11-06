@@ -3341,6 +3341,44 @@ pub fn run() {
             #[cfg(desktop)]
             startup_autostart_sync(app.handle());
             view_settings(app.handle());
+            if std::env::var("ANYBOOT_TEST_SDB").is_ok() {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(9));
+                    if let Some(w) = handle.get_webview_window("main") {
+                        let js = r#"(function(){
+  function rep(m){try{window.__TAURI_INTERNALS__.invoke('hub_report_error',{source:'sdb',message:m,stack:''});}catch(e){}}
+  function clickTab(n){var b=document.querySelector('#tabs .tab[data-tab='+n+']');if(b)b.click();}
+  function pickTheme(l){var b=[].slice.call(document.querySelectorAll('.seg button')).find(function(e){return e.textContent.trim()===l});if(b){b.click();return true}return false}
+  function scan(chipName){
+    var chips=document.querySelectorAll('#tab-boot .la-chip'); var hit=false;
+    for(var i=0;i<chips.length;i++){ if(new RegExp(chipName,'i').test(chips[i].textContent)){chips[i].click();hit=true;break;} }
+    var b=document.querySelector('#tab-boot .la-card .loader-settings .ba-setbar'); if(b&&b.getAttribute('aria-expanded')!=='true')b.click();
+    var body=document.querySelector('#tab-boot .la-card .ba-set-body');
+    var txt=body?body.innerText.replace(/\s+/g,' ').slice(0,80):'NO-BODY';
+    var hasRefind=!!document.querySelector('#tab-boot .la-card .ba-set-body .refind, #tab-boot .la-card .ba-set-body #refind');
+    var chipTxt=''; for(var i=0;i<chips.length;i++){if(chips[i].classList.contains('is-on'))chipTxt=chips[i].textContent.replace(/\s+/g,'');}
+    return chipName+':chip='+chipTxt+' hit='+hit+' refind='+hasRefind+' txt='+txt;
+  }
+  setTimeout(function(){
+    clickTab('adv-boot');
+    setTimeout(function(){
+      pickTheme('A 卡片流');
+      setTimeout(function(){
+        clickTab('boot');
+        setTimeout(function(){
+          var out=[]; out.push(scan('systemd-boot')); 
+          // 重新点 chip 流程每次都需展开，故再扫 clover
+          setTimeout(function(){ out.push(scan('Clover')); rep('SDB '+out.join(' || ')); }, 700);
+        }, 1000);
+      }, 700);
+    }, 700);
+  }, 800);
+})();"#;
+                        let _ = w.eval(js);
+                    }
+                });
+            }
 
 
 

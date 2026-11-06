@@ -55,11 +55,18 @@ const emit = defineEmits<{
 }>();
 
 /** 选中的条目（可以是顶层，也可以是组内子项） */
-const activeEntry = computed(() =>
-  props.activeSelector
-    ? props.entries.find((entry) => entry.selector === props.activeSelector)
-    : undefined,
-);
+const activeEntry = computed(() => {
+  const sel = props.activeSelector;
+  if (!sel) return undefined;
+  // 直接命中可见行
+  const direct = props.entries.find((entry) => entry.selector === sel);
+  if (direct) return direct;
+  // 命中「组」（父条目不作为行出现，子项 submenu=组标题/父 selector）：
+  // 合成一条置顶行，避免选中组条目后选中条消失（用户：refind 选中条丢了）
+  const child = props.entries.find((entry) => entry.submenu && entry.submenu === sel);
+  if (child) return { selector: sel, name: child.submenu as string };
+  return undefined;
+});
 
 /**
  * 正式列表要渲染的行序列。
@@ -197,7 +204,7 @@ function onSelect(selector: string) {
         :depth="row.depth"
         :child-count="row.childCount"
         :tag="row.entry.tag || ''"
-        :active="!row.group && row.entry.selector === activeSelector"
+        :active="row.entry.selector === activeSelector"
         :disabled="disabled"
         :group-title="row.groupTitle"
         @select="onSelect"

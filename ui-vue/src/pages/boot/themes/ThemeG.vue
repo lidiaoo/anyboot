@@ -314,7 +314,9 @@ const selectedLoaderState = computed(
       </template>
       <p v-else class="lg-hint">选中一条查看详情</p>
       <!-- 折叠「引导器设置」（与 A/B 一致：收起时只看到一行） -->
-      <LoaderSettings v-if="selected?.loader || loaders[0]?.id" :loader="selected?.loader || loaders[0]?.id" />
+      <!-- 跟随「当前选中项」所属引导器；无选中则留空提示，绝不回落到 refind -->
+      <LoaderSettings v-if="selected?.loader" :loader="selected.loader" />
+      <div v-else class="lg-hint" style="margin-top: 4px">选中上方某条引导项后，这里显示它所属引导器的设置</div>
     </aside>
 
     <div class="lg-foot">

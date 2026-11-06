@@ -27,7 +27,11 @@ async function toggleBootHelper(action: "install" | "uninstall") {
 </script>
 
 <template>
-  <div v-if="ch" class="channel-settings">
+  <!-- 通道未探测 / 无该通道数据时，也给出明确空态，不留白、不回落到别的引导器 -->
+  <div v-if="!ch" class="channel-settings">
+    <p class="channel-settings-empty">这个引导器没有可调设置（未探测到通道，或该通道无额外配置）</p>
+  </div>
+  <div v-else class="channel-settings">
     <!-- 免密模式 helper（OpenCore） -->
     <div
       v-if="props.loader === 'opencore' && ui.state?.helper && ui.state.helper.supported"
