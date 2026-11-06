@@ -39,6 +39,20 @@ jobs:
           test "$JS_COUNT" -ge 3 || { echo "::error::dist 产物过少，构建可能异常"; exit 1; }
           test -f src-tauri/src/ui_assets.rs || { echo "::error::缺生成资源表 ui_assets.rs"; exit 1; }
           echo "ui-vue 产物与资源表校验通过"
+      - name: 安装 Chromium 与 ws（ui-compare 冒烟依赖）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
+          which chromium-browser || which chromium
+          npm i --no-save ws
+      - name: ui-compare 完整冒烟（渲染无异常 / 命令参数无违规）
+        env:
+          CHROME_BIN: ${{ env.CHROME_BIN }}
+        run: |
+          # ci-check.sh 会：链接 ws/Chrome 到脚本硬编码路径、从 7bd3ce2 取 old/、
+          # 起 mock 服务、跑 smoke+strict-ipc+verify-all 并按结果返回退出码
+          export CHROME_BIN="$(command -v chromium-browser || command -v chromium)"
+          bash scripts/ui-compare/ci-check.sh
       - name: 上传 dist（失败排查用）
         if: always()
         uses: actions/upload-artifact@v4
