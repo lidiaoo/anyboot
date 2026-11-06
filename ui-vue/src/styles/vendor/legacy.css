@@ -5216,3 +5216,17 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .k-prev .lj-c3 .ba-set-body .row,
 .k-prev .lj-c3 .ba-set-body .remote-inline,
 .k-prev .lj-c3 .ba-set-body .sim-scan-head { flex-wrap: wrap; }
+
+/* 2026-11-06 引导高级设置预演(.k-prev) 里 G 的「选中项」面板：与系统引导页同款
+ * 之前所有 .lg-side 样式都写 #tab-boot，预演区没生效 → 路径/状态等 label 和值
+ * 挤在一行、无间距。这里对 .k-prev 复刻同一套。 */
+.k-prev .lg-side { min-width: 0; }
+.k-prev .lg-side .lg-sel { border: 1px solid var(--line); border-radius: 9px; background: var(--bg); overflow: hidden; }
+.k-prev .lg-side .lg-sel-head { display: flex; align-items: center; gap: 7px; padding: 8px 9px; border-bottom: 1px solid var(--line); min-width: 0; }
+.k-prev .lg-side .lg-sel-head b { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-prev .lg-side .lg-sel-body { padding: 6px 9px; display: grid; gap: 5px; min-width: 0; }
+.k-prev .lg-side .lg-fact { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: baseline; min-width: 0; }
+.k-prev .lg-side .lg-fact b { font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; color: var(--fainter); white-space: nowrap; }
+.k-prev .lg-side .lg-fact span { font: 10.5px var(--mono); color: var(--dim); min-width: 0; overflow-wrap: anywhere; word-break: normal; }
+.k-prev .lg-side h4 { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fainter); margin: 0; }
+.k-prev .lg-side > * { flex: none; min-width: 0; }
