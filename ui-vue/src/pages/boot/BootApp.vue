@@ -190,33 +190,34 @@ watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | nu
 
 onMounted(async () => {
   await ui.start();
-  // 启动扫描策略（用户定案 2026-11-07）：
-  //   startupScanWithAdmin 开启（默认）→ 启动主动扫所有引导器（GRUB 自动 + rEFInd 内核）。
-  //   · 免密助手已就绪 → 静默全扫（Silent，绝不弹系统授权框）。
-  //   · 免密未就绪 且 不在「取消提醒」期 → 弹 App 内对话框引导开启免密；**等用户操作完毕**
-  //     再决定：装了免密→静默扫（绝不再弹系统框）；取消提醒/暂不→本次不扫。
-  //   · 免密未就绪 且 在「取消提醒」期 → 不弹、不扫（用户明确不想被打扰，可手动重新读取）。
+  // 启动扫描策略（用户定案修正 2026-11-07）：
+  //   **勾选「启动时使用管理员扫描」= 启动一定用管理员权限扫描所有引导器**
+  //   （GRUB 自动 + rEFInd 内核）。没免密就弹系统密码授权框扫；取消勾选才不用 root 扫。
+  //   · 免密就绪 → 静默扫（Silent，绝不弹系统框）。
+  //   · 免密未就绪 → 先弹【免密建议窗（带「取消提醒」）】引导开免密；
+  //        - 用户开免密 → 装好后静默扫（不再弹系统框）；
+  //        - 用户取消提醒 / 暂不 → 关闭建议窗后，**照常弹系统密码授权框扫**
+  //          （因为勾了管理员扫描，必须扫）。等建议窗操作完毕再决定，绝不重复弹。
+  //   · 免密未就绪且处于「取消提醒」期 → 不弹建议窗，**直接弹系统密码框扫**。
   void (async () => {
     try {
       const s = ui.settings;
-      if (!s || s.startupScanWithAdmin === false) return; // 功能关闭
-      // 已有数据就别扫（避免无谓 IO）
-      if (ui.linuxGrub?.entries?.length) return;
+      if (!s || s.startupScanWithAdmin === false) return; // 取消勾选：不用 root 扫
+      if (ui.linuxGrub?.entries?.length) return; // 已有数据不再扫
       const h = ui.state?.helper;
       const helperReady = Boolean(h?.installed && !h?.stale);
+      if (helperReady) {
+        await runStartupAdminScan(false).catch(() => {}); // 免密就绪：静默扫
+        return;
+      }
       const now = Math.floor(Date.now() / 1000);
       const snoozed = Number(s.helperReminderSnoozeUntil ?? 0) > now;
-
-      if (helperReady) {
-        // 静默全扫（不弹授权）
-        await runStartupAdminScan(false).catch(() => {});
-        return;
-      }
       if (snoozed) {
-        // 取消提醒期内：不打扰、不扫
+        // 处于「取消提醒」期：不弹建议窗，直接走系统密码框做管理员扫描
+        await runStartupAdminScan(true).catch(() => {});
         return;
       }
-      // 需要提示用户开启免密：等用户操作完毕再决定是否扫描
+      // 免密未就绪、未取消提醒：先弹免密建议窗（含取消提醒）；用户操作完再决定扫描方式
       helperPromptVisible.value = true;
     } catch { /* 忽略 */ }
   })();
@@ -378,11 +379,14 @@ const helperPromptVisible = ref(false);
 /** 弹窗用户操作完毕后：装了免密→静默扫；取消提醒/暂不→本次不扫 */
 async function onHelperPromptResolved(action: "installed" | "snoozed" | "cancelled") {
   helperPromptVisible.value = false;
+  // 勾选了「启动时使用管理员扫描」，所以扫描**一定做**；建议窗只是先问要不要开免密。
   if (action === "installed") {
-    // 用户刚输了免密密码装了助手 —— 静默扫，绝不再弹系统授权框（否则逻辑错）
+    // 刚输了免密装了助手 → 静默扫，绝不再弹系统授权框（否则逻辑错）
     await runStartupAdminScan(false).catch(() => {});
+  } else {
+    // 取消提醒 / 暂不 → 免密未装，但仍要用管理员权限扫 → 弹系统密码授权框扫
+    await runStartupAdminScan(true).catch(() => {});
   }
-  // snoozed / cancelled：本次不扫（用户明确不想被打扰 / 没授权渠道）
 }
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
 const statusBar = ref<{ icon: string; text: string; error: boolean }>({ icon: "", text: "", error: false });
