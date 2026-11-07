@@ -427,6 +427,23 @@ const privPaths = computed(() => {
   );
 });
 
+const channelReloadBusy = ref<string | null>(null);
+/** K 主题（真实区块）通道卡片的「重新读取」：refresh 后按条目数回执 */
+async function reloadChannel(id: string): Promise<void> {
+  if (channelReloadBusy.value) return;
+  channelReloadBusy.value = id;
+  try {
+    await call("refresh");
+    const ch = ui.channels.find((c) => c.id === id);
+    const n = ch?.menuPreview?.entries?.length ?? ch?.entries?.length ?? 0;
+    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`);
+    else toast.show("重新读取完成，但没有识别到条目", "bad");
+  } catch (e) {
+    toast.show("重新读取失败：" + e, "bad");
+  } finally {
+    channelReloadBusy.value = null;
+  }
+}
 async function privLoad() {
   try {
     privStatus.value = (await call<PrivStatus>("linux_priv_status")) ?? null;
@@ -865,6 +882,9 @@ const statusHidden = computed(() => {
                   <h2>{{ ch.label }} 启动项</h2>
                 </div>
                 <small class="grub-pane-status">{{ ch.chip === "ok" ? "已检测 · 免提权" : "已检测 · 需提权" }}</small>
+                <button type="button" class="secondary" :disabled="channelReloadBusy === ch.id" @click="reloadChannel(ch.id)">
+                  {{ channelReloadBusy === ch.id ? "读取中…" : "重新读取" }}
+                </button>
               </div>
               <div class="grub-list">
                 <BootList :loader="ch.id" />
