@@ -9,6 +9,7 @@
 import { ref } from "vue";
 import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
+import GrubEsp from "./GrubEsp.vue";
 import ChannelSettings from "./ChannelSettings.vue";
 
 const props = defineProps<{ loader: string; defaultOpen?: boolean; plain?: boolean }>();
@@ -34,8 +35,13 @@ const open = ref(Boolean(props.defaultOpen));
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
     <div v-show="props.plain || open" class="ba-set-body">
-      <RefindSection v-if="props.loader === 'refind'" hide-list />
-      <GrubSection v-else-if="props.loader === 'grub'" hide-list />
+      <template v-if="props.loader === 'refind'">
+        <RefindSection hide-list />
+      </template>
+      <template v-else-if="props.loader === 'grub'">
+        <GrubSection hide-list />
+        <GrubEsp />
+      </template>
       <ChannelSettings v-else :loader="props.loader" />
     </div>
   </div>
