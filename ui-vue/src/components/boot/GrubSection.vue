@@ -241,6 +241,34 @@ async function switchEntry(selector: string) {
       <small id="grub-meta">{{ grubManual?.syncedAt ? `同步于 ${grubManual.syncedAt}` : "" }}</small>
     </div>
 
+    <!-- 两个横向标签 -->
+    <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
+      <button
+        type="button"
+        id="grub-tab-auto"
+        class="grub-tab"
+        :class="{ 'is-active': activePane === 'auto' }"
+        role="tab"
+        :aria-selected="activePane === 'auto'"
+        data-grub-tab="auto"
+        @click="activePane = 'auto'"
+      >
+        自动读取
+      </button>
+      <button
+        type="button"
+        id="grub-tab-manual"
+        class="grub-tab"
+        :class="{ 'is-active': activePane === 'manual' }"
+        role="tab"
+        :aria-selected="activePane === 'manual'"
+        data-grub-tab="manual"
+        @click="activePane = 'manual'"
+      >
+        手动解析
+      </button>
+    </div>
+
     <!-- 面板一：自动读取 Linux 分区 -->
     <div
       v-show="activePane === 'auto'"
@@ -391,6 +419,7 @@ async function switchEntry(selector: string) {
       <div class="grub-esp" id="grub-esp">
         <div class="grub-esp-head">
           <strong>ESP 分区</strong>
+      <small class="grub-esp-shared-note">自动读取与手动解析共用这里的分区设置</small>
           <small>手动 / 自动共用</small>
         </div>
         <div class="grub-row">
@@ -436,33 +465,6 @@ async function switchEntry(selector: string) {
 
     <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
-    <!-- 两个横向标签 -->
-    <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
-      <button
-        type="button"
-        id="grub-tab-auto"
-        class="grub-tab"
-        :class="{ 'is-active': activePane === 'auto' }"
-        role="tab"
-        :aria-selected="activePane === 'auto'"
-        data-grub-tab="auto"
-        @click="activePane = 'auto'"
-      >
-        自动读取
-      </button>
-      <button
-        type="button"
-        id="grub-tab-manual"
-        class="grub-tab"
-        :class="{ 'is-active': activePane === 'manual' }"
-        role="tab"
-        :aria-selected="activePane === 'manual'"
-        data-grub-tab="manual"
-        @click="activePane = 'manual'"
-      >
-        手动解析
-      </button>
-    </div>
 
     <!-- 列表格式（旧版 #grub-format-row） -->
     <div class="grub-row" id="grub-format-row">

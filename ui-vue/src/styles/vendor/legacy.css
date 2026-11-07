@@ -5380,3 +5380,6 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 
 /* 预演 C：列表滚动容器限高（同上） */
 .k-prev .lc-body { max-height: 320px; overflow-y: auto; }
+
+/* GRUB ESP 共享区说明（自动/手动共用） */
+#tab-boot .grub-esp-shared-note { font-size: 11px; color: var(--faint); font-weight: 400; margin-left: 6px; }
