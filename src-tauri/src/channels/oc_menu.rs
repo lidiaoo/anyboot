@@ -794,20 +794,16 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // spawn 一次 `nvram`（本机无 Boot#### 时，逐项会白白 spawn N 次 ~40ms）。
     let all_vars = nvram::read_all_vars();
     let boot_option = |number: u16| -> Option<Vec<u8>> {
-        // 有批量 map（macOS nvram -p）就先只查它：命中用、没有就 None ——
-        // 绝不再逐项 spawn nvram（本机没有 Boot#### 时逐项会白 spawn N 次）。
-        // 无批量 map（Linux/Windows）才走逐项 read_option。
+        // 有批量 map（macOS nvram -p）先查它 —— 但**只当加速命中**：批量里没有
+        // 不代表真没有（nvram -p 的 key 大小写/格式未必与 boot_name 拼的一致），
+        // 必须继续回落逐项 read_option / cached_options，否则会把 order 项当成
+        // 「不存在」→ 默认项识别全丢、选中回显/置顶消失（踩过的坑）。
         let batch = all_vars.as_ref().and_then(|m| {
             let key = format!("{}:{}", namespace.guid().to_ascii_lowercase(), namespace.boot_name(number));
             m.get(&key).cloned()
         });
         batch
-            .or_else(|| {
-                if all_vars.is_some() {
-                    return None; // 已有全量快照、确实没有这条 → 不再逐项 spawn
-                }
-                namespace.read_option(number)
-            })
+            .or_else(|| namespace.read_option(number))
             .or_else(|| {
                 cached_options
                     .iter()
