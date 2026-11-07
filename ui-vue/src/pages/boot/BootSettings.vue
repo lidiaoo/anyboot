@@ -175,10 +175,16 @@ const previewRows = computed<Record<string, EntryData[]>>(() => {
         variables: ui.status?.variables,
       });
     } else {
-      out[id] = ((ui.channels.find((c) => c.id === id)?.entries ?? []) as never[]).map((e: never) => {
-        const row = e as { title?: string };
-        return { selector: row.title ?? "", name: row.title ?? "" } as EntryData;
-      });
+      // 与系统引导页同口径：OpenCore 的真实菜单在 menuPreview.entries（entries 只有动作），
+      // 漏了它会导致预演里 OC 的统计数/行数不对（用户：统计引导列表的数量不对）
+      const ch = ui.channels.find((c) => c.id === id);
+      const source = (ch?.menuPreview?.entries?.length ? ch.menuPreview.entries : ch?.entries ?? []) as {
+        spec?: string; title?: string; id?: string;
+      }[];
+      out[id] = source.map((row) => ({
+        selector: row.spec || row.title || row.id || "",
+        name: row.title || row.id || "",
+      }) as EntryData);
     }
   }
   return out;

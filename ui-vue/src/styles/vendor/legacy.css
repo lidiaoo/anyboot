@@ -5367,3 +5367,16 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #helper-card .helper-state[data-state="off"] { color: var(--faint); }
 #helper-card .helper-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--faint); line-height: 1.5; }
 #helper-card button { font-size: 12px; }
+
+/* 2026-11-07 引导高级设置预演(.k-prev)：各主题列表滚动层限高，
+ * 使置顶副本 pinned 的 sticky 以预演列表自身为参照（否则滚的是外层页面，置顶不浮）。 */
+.k-prev .la-list,
+.k-prev .lb-scroll,
+.k-prev .lg-results,
+.k-prev .li-grid,
+.k-prev .lj-c2 .bd {
+  max-height: 320px; overflow-y: auto; min-height: 0;
+}
+
+/* 预演 C：列表滚动容器限高（同上） */
+.k-prev .lc-body { max-height: 320px; overflow-y: auto; }
