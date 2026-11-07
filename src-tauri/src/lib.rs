@@ -2431,6 +2431,43 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
 }
 
 #[tauri::command]
+fn set_startup_scan_with_admin(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
+    trace(&app, "command", &format!("set_startup_scan_with_admin enabled={enabled}"));
+    let mut settings = stored_settings(&app);
+    settings.startup_scan_with_admin = enabled;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+#[tauri::command]
+fn set_helper_reminder_snooze(app: AppHandle, until: u64) -> Result<SettingsView, String> {
+    trace(&app, "command", &format!("set_helper_reminder_snooze until={until}"));
+    let mut settings = stored_settings(&app);
+    settings.helper_reminder_snooze_until = until;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+#[tauri::command]
+async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<(), String> {
+    trace(&app, "command", &format!("run_startup_admin_scan allow_prompt={allow_prompt}"));
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let elevation = if allow_prompt {
+            crate::channels::Elevation::Allow
+        } else {
+            crate::channels::Elevation::Silent
+        };
+        let _ = crate::channels::linux_grub::refresh(&handle, None, elevation);
+        let _ = crate::channels::refind_menu::refresh_sim(&handle);
+        crate::switch_flow::refresh_and_update(&handle);
+    })
+    .await
+    .map_err(|e| format!("扫描任务失败: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 fn set_start_in_tray(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
     trace(
         &app,
@@ -3681,6 +3718,9 @@ pub fn run() {
             channels::linux_grub::linux_grub_helper_ready,
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             helper_install::boot_helper,
+            set_startup_scan_with_admin,
+            set_helper_reminder_snooze,
+            run_startup_admin_scan,
             hub_term::hub_term_open,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,

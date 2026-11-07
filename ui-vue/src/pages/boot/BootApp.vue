@@ -6,6 +6,8 @@ import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
+import { runStartupAdminScan } from "@/api/tauri";
+import HelperPrompt from "@/components/boot/HelperPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import { simRows, grubRows, refindVariableRows } from "@/pages/boot/bootRows";
@@ -76,7 +78,6 @@ watch(currentTab, (tab) => {
 const nextBootRowsOpen = ref(false);
 
 /** 启动静默扫 Linux grub 的重试标志（旧版 grubAutoBootRetried） */
-let grubBootRetried = false;
 
 /** 跟随主题切换（旧版 set_theme） */
 function setTheme(theme: string) {
@@ -189,24 +190,34 @@ watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | nu
 
 onMounted(async () => {
   await ui.start();
-  // 旧版 app.js:4418：免密助手在位且还没扫过 Linux 分区 → 启动静默扫一次
-  // （auto:true = Elevation::Silent，绝不弹授权；失败 8 秒后重试一次）
+  // 启动扫描策略（用户定案 2026-11-07）：
+  //   startupScanWithAdmin 开启（默认）→ 启动主动扫所有引导器（GRUB 自动 + rEFInd 内核）。
+  //   · 免密助手已就绪 → 静默全扫（Silent，绝不弹系统授权框）。
+  //   · 免密未就绪 且 不在「取消提醒」期 → 弹 App 内对话框引导开启免密；**等用户操作完毕**
+  //     再决定：装了免密→静默扫（绝不再弹系统框）；取消提醒/暂不→本次不扫。
+  //   · 免密未就绪 且 在「取消提醒」期 → 不弹、不扫（用户明确不想被打扰，可手动重新读取）。
   void (async () => {
     try {
+      const s = ui.settings;
+      if (!s || s.startupScanWithAdmin === false) return; // 功能关闭
       // 已有数据就别扫（避免无谓 IO）
       if (ui.linuxGrub?.entries?.length) return;
-      // 不管免密助手是否就绪都尝试一次静默扫描（auto:true = Silent，绝不弹授权；
-      // 无免密通道时后端会返回空、不弹窗；UI 仍保留「重新读取」可授权手动扫）。
-      // 之前 !ready 直接 return 导致「刚启动 grub 列表读不出来」。
-      const ready = await call<boolean>("linux_grub_helper_ready").catch(() => false);
-      const view = await call("linux_grub_scan", { target: null, auto: true }).catch(() => null);
-      // 首次没扫出来：稍后重试一次（覆盖启动瞬间设备/分区还没就绪的情况）
-      if (!view && !grubBootRetried) {
-        grubBootRetried = true;
-        setTimeout(() => {
-          void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
-        }, ready ? 8000 : 3000);
+      const h = ui.state?.helper;
+      const helperReady = Boolean(h?.installed && !h?.stale);
+      const now = Math.floor(Date.now() / 1000);
+      const snoozed = Number(s.helperReminderSnoozeUntil ?? 0) > now;
+
+      if (helperReady) {
+        // 静默全扫（不弹授权）
+        await runStartupAdminScan(false).catch(() => {});
+        return;
       }
+      if (snoozed) {
+        // 取消提醒期内：不打扰、不扫
+        return;
+      }
+      // 需要提示用户开启免密：等用户操作完毕再决定是否扫描
+      helperPromptVisible.value = true;
     } catch { /* 忽略 */ }
   })();
   // 强调色初始应用（旧版 applyAccent）
@@ -362,6 +373,17 @@ const nextBootRows = computed(() =>
 );
 
 const toast = useToastStore();
+/** 「需要开免密」的启动提示弹窗是否显示 */
+const helperPromptVisible = ref(false);
+/** 弹窗用户操作完毕后：装了免密→静默扫；取消提醒/暂不→本次不扫 */
+async function onHelperPromptResolved(action: "installed" | "snoozed" | "cancelled") {
+  helperPromptVisible.value = false;
+  if (action === "installed") {
+    // 用户刚输了免密密码装了助手 —— 静默扫，绝不再弹系统授权框（否则逻辑错）
+    await runStartupAdminScan(false).catch(() => {});
+  }
+  // snoozed / cancelled：本次不扫（用户明确不想被打扰 / 没授权渠道）
+}
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
 const statusBar = ref<{ icon: string; text: string; error: boolean }>({ icon: "", text: "", error: false });
 /** 用户手动收起的文案（旧版 statusBarDismissed：同一文案不重复弹） */
@@ -708,4 +730,5 @@ const statusHidden = computed(() => {
     <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>
     <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="dismissStatusBar">×</button>
   </div>
+  <HelperPrompt v-if="helperPromptVisible" @resolved="onHelperPromptResolved" />
 </template>

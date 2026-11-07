@@ -10,6 +10,7 @@ import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
+import { setStartupScanWithAdmin, setHelperReminderSnooze } from "@/api/tauri";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
  *
@@ -66,6 +67,27 @@ function loaderPerm(id: string): string {
 }
 /** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
 const helperBusy = ref(false);
+/** 启动时使用管理员扫描（默认开） */
+async function toggleStartupAdminScan(): Promise<void> {
+  const cur = ui.settings?.startupScanWithAdmin !== false;
+  await setStartupScanWithAdmin(!cur).catch(() => {});
+}
+/** 「免密助手提醒」的取消提醒到期时间文案 */
+const snoozeLabel = computed(() => {
+  const until = Number(ui.settings?.helperReminderSnoozeUntil ?? 0);
+  const now = Math.floor(Date.now() / 1000);
+  if (!until || until <= now) return "";
+  if (until > now + 3600 * 24 * 365 * 40) return "已永久取消提醒";
+  const d = Math.ceil((until - now) / 86400);
+  return `已取消提醒（约 ${d} 天）`;
+});
+async function snoozeHelperReminder(days: number): Promise<void> {
+  const until = days === 0 ? 4_102_444_800 : Math.floor(Date.now() / 1000) + days * 86400;
+  await setHelperReminderSnooze(until).catch(() => {});
+}
+async function clearSnooze(): Promise<void> {
+  await setHelperReminderSnooze(0).catch(() => {});
+}
 async function toggleBootHelper(): Promise<void> {
   if (helperBusy.value) return;
   const h = ui.state?.helper;
@@ -235,6 +257,39 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         </button>
       </div>
       <small class="helper-hint">{{ ui.state.helper.text }}</small>
+      <!-- 启动时使用管理员扫描（默认开）：开启后启动主动扫所有引导器 -->
+      <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
+        <span class="helper-label">启动时使用管理员扫描</span>
+        <span class="grow" style="flex: 1"></span>
+        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
+          <input
+            type="checkbox"
+            :checked="ui.settings?.startupScanWithAdmin !== false"
+            @change="toggleStartupAdminScan"
+          />
+          <span style="font-size: 12px">{{ ui.settings?.startupScanWithAdmin !== false ? "已开启" : "已关闭" }}</span>
+        </label>
+      </div>
+      <small class="helper-hint">
+        开启后启动时自动扫描所有引导器（GRUB 自动 + rEFInd 内核）。未开启免密助手时会提示开启，
+        也可在此取消提醒。
+      </small>
+      <!-- 免密助手提醒的取消提醒设置 -->
+      <div class="helper-card-row" style="margin-top: 8px">
+        <span class="helper-label">启动免密提醒</span>
+        <span class="grow" style="flex: 1"></span>
+        <template v-if="snoozeLabel">
+          <span style="font-size: 12px; color: var(--text-faint); margin-right: 8px">{{ snoozeLabel }}</span>
+          <button type="button" class="btn sm ghost" @click="clearSnooze">恢复提醒</button>
+        </template>
+        <template v-else>
+          <span style="font-size: 12px; color: var(--text-faint); margin-right: 8px">取消提醒：</span>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">1天</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">7天</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">30天</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">永久</button>
+        </template>
+      </div>
     </section>
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
     <div class="k">

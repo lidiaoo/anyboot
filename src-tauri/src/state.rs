@@ -691,6 +691,11 @@ pub(crate) struct Settings {
     /// 用 `linuxGrub`（Linux 分区里的 grub.cfg + grubenv）还是 ESP 上那份
     /// `GrubView`。默认自动。
     pub(crate) grub_mode: LoaderMode,
+    /// 启动时使用管理员扫描：开启后启动时主动扫描所有引导器（GRUB 自动 +
+    /// rEFInd 内核）；免密助手没装时可弹窗引导安装或降级密码扫描。默认开启。
+    pub(crate) startup_scan_with_admin: bool,
+    /// 「首次/启动扫描需要免密助手」弹窗的「取消提醒」到期时间（epoch 秒，0=不取消）。
+    pub(crate) helper_reminder_snooze_until: u64,
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
     /// 悬停边条再展开。关掉时窗口保持完整可见。
     pub(crate) main_auto_hide: bool,
@@ -825,6 +830,8 @@ impl Default for Settings {
             linux_grub_dev: String::new(),
             refind_mode: LoaderMode::Auto,
             grub_mode: LoaderMode::Auto,
+            startup_scan_with_admin: true,
+            helper_reminder_snooze_until: 0,
             main_auto_hide: false,
             main_always_on_top: true,
             main_auto_hide_edge_distance: 24,

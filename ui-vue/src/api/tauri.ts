@@ -160,6 +160,15 @@ export const unmountTemporary = () => call<void>("unmount_temporary");
 export const setAutostart = (on: boolean) => call<void>("set_autostart", { on });
 /** 启动时收进托盘 */
 export const setStartInTray = (on: boolean) => call<void>("set_start_in_tray", { on });
+/** 启动时使用管理员扫描（开启后启动主动扫所有引导器） */
+export const setStartupScanWithAdmin = (enabled: boolean) =>
+  call<void>("set_startup_scan_with_admin", { enabled });
+/** 免密助手提醒的取消提醒到期时间（epoch 秒，0=清除） */
+export const setHelperReminderSnooze = (until: number) =>
+  call<void>("set_helper_reminder_snooze", { until });
+/** 启动时的管理员扫描：触发一次全引导器扫描（allowPrompt 才允许弹系统授权框） */
+export const runStartupAdminScan = (allowPrompt: boolean) =>
+  call<void>("run_startup_admin_scan", { allowPrompt });
 /** 从 Dock / 任务栏隐藏 */
 export const setHideFromDockTaskbar = (on: boolean) =>
   call<void>("set_hide_from_dock_taskbar", { on });
