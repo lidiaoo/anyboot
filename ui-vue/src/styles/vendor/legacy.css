@@ -5255,3 +5255,9 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 /* 收起后标题栏仍是整行，字号/内边距正常显示文字 */
 #tab-boot .lj-c3.body-collapsed,
 .k-prev .lj-c3.body-collapsed { width: auto; }
+
+/* 2026-11-07 置顶浮动（B/G 等）：让含 is-pinned 的 .grub-list-body 成为滚动容器，
+ * pinned 作为其直接子级 sticky 才真能浮动（此前滚动的是外层，body 整块跟着走 → 不浮动）。 */
+/* B：去掉 lb-block 的 overflow:hidden，让 pinned 的 sticky 参照真正滚动的 lb-scroll */
+
+/* B：lb-scroll 内层需要能撑开高度让 lb-scroll 滚动（pinned 相对它 sticky） */

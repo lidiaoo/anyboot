@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
@@ -9,6 +9,7 @@ import type { EntryData } from "@/components/boot/types";
 import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
+import { call } from "@/api/tauri";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
  *
@@ -63,6 +64,21 @@ function loaderMono(id: string): string {
 function loaderPerm(id: string): string {
   return loaderMeta(id).perm;
 }
+/** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
+const helperBusy = ref(false);
+async function toggleBootHelper(): Promise<void> {
+  if (helperBusy.value) return;
+  const h = ui.state?.helper;
+  if (!h) return;
+  helperBusy.value = true;
+  try {
+    await call("boot_helper", { action: h.installed && !h.stale ? "uninstall" : "install" });
+  } catch {
+    /* 状态由下次快照带回 */
+  } finally {
+    helperBusy.value = false;
+  }
+}
 const message = ref("");
 const errorText = ref("");
 
@@ -71,6 +87,16 @@ const varsDirInput = ref("");
 onMounted(() => {
   varsDirInput.value = ui.status?.varsDir ?? "";
 });
+
+// 版式主题/布局切换时按档位设定窗口宽度（默认=460 / 加宽=932 / 左右=932）。
+// 旧版 ensureLayoutWidth 在系统引导页做，这里高级设置页也要做，否则切布局窗口不变。
+function ensureLayoutWidth(): void {
+  const inTauri = location.protocol === "tauri:" || location.hostname === "tauri.localhost";
+  if (!inTauri) return;
+  const layout = adv.effectiveLayout;
+  void call("set_boot_layout", { mode: layout }).catch(() => {});
+}
+watch([() => adv.effectiveLayout, () => adv.effectiveTheme], () => ensureLayoutWidth());
 
 /** 当前主题可用的布局档位 */
 const layouts = computed<LayoutMode[]>(
@@ -188,6 +214,20 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 
 <template>
   <div class="settings-page" ref="rootEl">
+    <!-- 免密提权（总入口）：从各 opencore 引导器设置挪到这里统一管理 -->
+    <section v-if="ui.state?.helper?.supported" class="card helper-card" id="helper-card">
+      <div class="helper-card-row">
+        <span class="helper-label">免密提权（root 助手）</span>
+        <span class="helper-state" :data-state="ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off'">
+          {{ ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启" }}
+        </span>
+        <span class="grow" />
+        <button type="button" class="btn sm" :disabled="helperBusy" @click="toggleBootHelper">
+          {{ ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴" }}
+        </button>
+      </div>
+      <small class="helper-hint">{{ ui.state.helper.text }}</small>
+    </section>
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
     <div class="k">
       <div class="k-bar">
