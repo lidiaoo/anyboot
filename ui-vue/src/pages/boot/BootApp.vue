@@ -208,14 +208,19 @@ onMounted(async () => {
   // （auto:true = Elevation::Silent，绝不弹授权；失败 8 秒后重试一次）
   void (async () => {
     try {
-      const ready = await call<boolean>("linux_grub_helper_ready");
-      if (!ready || ui.linuxGrub?.entries?.length) return;
-      const view = await call("linux_grub_scan", { target: null, auto: true });
+      // 已有数据就别扫（避免无谓 IO）
+      if (ui.linuxGrub?.entries?.length) return;
+      // 不管免密助手是否就绪都尝试一次静默扫描（auto:true = Silent，绝不弹授权；
+      // 无免密通道时后端会返回空、不弹窗；UI 仍保留「重新读取」可授权手动扫）。
+      // 之前 !ready 直接 return 导致「刚启动 grub 列表读不出来」。
+      const ready = await call<boolean>("linux_grub_helper_ready").catch(() => false);
+      const view = await call("linux_grub_scan", { target: null, auto: true }).catch(() => null);
+      // 首次没扫出来：稍后重试一次（覆盖启动瞬间设备/分区还没就绪的情况）
       if (!view && !grubBootRetried) {
         grubBootRetried = true;
         setTimeout(() => {
           void call("linux_grub_scan", { target: null, auto: true }).catch(() => {});
-        }, 8000);
+        }, ready ? 8000 : 3000);
       }
     } catch { /* 忽略 */ }
   })();
@@ -844,7 +849,7 @@ const statusHidden = computed(() => {
             <b>rEFInd</b>
             <span>· {{ bootRowsByLoader.refind.length }} 项</span>
           </div>
-          <RefindSection data-loader-section="refind" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
+          <RefindSection v-if="adv.enabledLoaders.includes('refind')" data-loader-section="refind" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <hr aria-hidden="true" class="boot-divider" id="boot-divider" :style="adv.effectiveTheme !== 'K' ? { display: 'none' } : undefined" />
 
@@ -853,11 +858,11 @@ const statusHidden = computed(() => {
             <b>GRUB</b>
             <span>· {{ bootRowsByLoader.grub.length }} 项</span>
           </div>
-          <GrubSection data-loader-section="grub" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
+          <GrubSection v-if="adv.enabledLoaders.includes('grub')" data-loader-section="grub" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
 
           <!-- 三引导器通道（旧版 #boot-channels-mount） -->
           <div id="boot-channels-mount">
-            <template v-for="ch in ui.channels.filter((c) => c.detected)" :key="ch.id">
+            <template v-for="ch in ui.channels.filter((c) => c.detected && adv.enabledLoaders.includes(c.id as LoaderId))" :key="ch.id">
             <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" :data-loader-id="ch.id">
               <LoaderIcon size="sm" />
               <b>{{ ch.label }}</b>
