@@ -791,7 +791,10 @@ pub(crate) fn remote_ui_command_inner(
         // `vars/PreviousBoot`。之前只在本机 invoke 表里注册过，漏了这张白名单 ——
         // 远程浏览器点按钮会报「未知或不受支持的命令」。
         "refind_sim_scan" => {
-            serde_json::to_value(channels::refind_menu::refind_sim_scan(app.clone()))
+            // 远程（网页/手机）触发「重新模拟」：只读缓存重算，**绝不弹本机授权框**
+            // （远程不得弹 GUI 是本项目的硬性约束）。本机首次无缓存时由本机窗口的
+            // 「重新读取/重新模拟」走降级授权扫描填缓存。
+            serde_json::to_value(channels::refind_menu::refresh_sim(&app))
                 .map_err(|error| format!("序列化失败: {error}"))
         }
         // 与 switch_boot_channel 同级别：直接改本机 ESP 上的文件，不走本机授权窗

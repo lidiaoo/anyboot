@@ -183,7 +183,34 @@ pub(crate) fn refresh_sim(app: &tauri::AppHandle) -> Option<SimPreview> {
 
 /// 手动「重新模拟」：只读重算一遍，不写盘。
 #[tauri::command]
-pub(crate) fn refind_sim_scan(app: tauri::AppHandle) -> Option<SimPreview> {
+pub(crate) async fn refind_sim_scan(app: tauri::AppHandle) -> Option<SimPreview> {
+    // 用户主动点「重新模拟」：若还没有 Linux 分区缓存（首次 / 没开免密），
+    // 就**允许弹一次系统密码授权框**现扫一轮（Elevation::Allow）——这就是
+    // 「没开免密助手时降级为输入密码扫描」的那条路径。扫完填缓存再算 sim。
+    // async + spawn_blocking：refresh 会弹授权框并扫盘（数百 ms～），不能阻塞 UI 线程。
+    tauri::async_runtime::spawn_blocking(move || refind_sim_scan_blocking(app))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn refind_sim_scan_blocking(app: tauri::AppHandle) -> Option<SimPreview> {
+    let has_cache = {
+        let state = app.state::<Mutex<AppState>>();
+        state
+            .lock()
+            .ok()
+            .map(|s| s.linux_probe_cache.is_some())
+            .unwrap_or(false)
+    };
+    if !has_cache {
+        // 失败（用户取消授权 / 无权限）不致命：refresh_sim 会给出对应说明
+        let _ = crate::channels::linux_grub::refresh(
+            &app,
+            None,
+            crate::channels::Elevation::Allow,
+        );
+    }
     let sim = refresh_sim(&app);
     publish_ui(&app);
     sim
