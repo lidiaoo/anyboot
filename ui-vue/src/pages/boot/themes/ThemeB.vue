@@ -143,11 +143,6 @@ function select(id: string) {
 
         <div class="lb-scroll">
           <div class="lb-block">
-            <div class="lb-block-head">
-              <b>启动项</b>
-              <span>{{ activeLoader.entries.length }}</span>
-              <span class="grow" />
-            </div>
             <div class="lb-block-body">
               <BootList :loader="activeLoader.id" />
               <LoaderSettings :loader="activeLoader.id" />

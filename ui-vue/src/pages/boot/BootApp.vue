@@ -778,6 +778,13 @@ const statusHidden = computed(() => {
             :data-loader-section="id"
             class="boot-loader-block"
           >
+            <!-- 仅「不套用主题(K)」显示每个引导器的头部标题（多引导器堆叠需区分）；
+                 启用主题(A/B/C/G/I/J)不显示任何区块标题。 -->
+            <div v-if="adv.effectiveTheme === 'K'" class="boot-loader-head">
+              <span class="zone-tag">{{ loaders.find((l) => l.id === id)?.name ?? id }} 区</span>
+              <b>{{ loaders.find((l) => l.id === id)?.name ?? id }} 启动项</b>
+              <span class="cnt">· {{ bootRowsByLoader[id]?.length ?? 0 }} 项</span>
+            </div>
             <BootList :loader="id" />
             <LoaderSettings :loader="id" />
           </div>
