@@ -2458,18 +2458,29 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         } else {
             crate::channels::Elevation::Silent
         };
-        // 用 refresh_force：管理员扫描必须**真的扫**，不能被 T7 磁盘缓存挡掉（否则
-        // 命中缓存直接返回、不 probe、不弹系统授权框 —— 这正是「启动没弹密码框」的根因）。
-        let mut view = crate::channels::linux_grub::refresh_force(&handle, None, elevation);
-        // 装完免密助手后首次静默扫可能赶上助手还没热（probe 返回 error）——这时
-        // **再静默重试一次**（仍是 Silent，绝不升级为系统授权框，避免「刚输免密又弹框」）。
-        if !allow_prompt && view.error.is_some() {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            view = crate::channels::linux_grub::refresh_force(&handle, None, elevation);
-        }
-        let _ = view;
+        // 【关键】GRUB 分区扫描（可能弹系统授权框、阻塞等用户输密码）**不能挡住**其他
+        // 引导器的扫描 —— 否则用户不输密码/取消时，「启动所有扫描」就卡在第一步不动。
+        // 所以：ESP/通道/rEFInd 的扫描（无需 root，快）与 GRUB 分区扫描**并行**。
+        std::thread::scope(|scope| {
+            let h1 = &handle;
+            let grub = scope.spawn(|| {
+                // refresh_force：必须真扫，不被 T7 磁盘缓存挡掉（否则不 probe、不弹授权框）。
+                let mut view = crate::channels::linux_grub::refresh_force(h1, None, elevation);
+                // 装免密后首次静默扫可能赶上助手还没热：再静默重试一次（仍 Silent，绝不 Allow）。
+                if !allow_prompt && view.error.is_some() {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    view = crate::channels::linux_grub::refresh_force(h1, None, elevation);
+                }
+            });
+            // 与 GRUB 并行：ESP/OC/sdboot/clover 通道 + ESP 侧 GRUB（都无需 root，秒完）。
+            let others = scope.spawn(|| {
+                crate::switch_flow::refresh_and_update(h1);
+            });
+            let _ = grub.join();
+            let _ = others.join();
+        });
+        // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
-        crate::switch_flow::refresh_and_update(&handle);
     })
     .await
     .map_err(|e| format!("扫描任务失败: {e}"))?;
