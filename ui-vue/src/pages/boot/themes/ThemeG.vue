@@ -266,6 +266,13 @@ const selectedLoaderState = computed(
              引导高级设置预演：无 slot → 用 fallback 从 props.rows 自渲染列表，
              否则预演区列表为空。 -->
         <slot>
+          <!-- 预演：置顶副本（当前选中项），滚动时 sticky 钉顶（与系统页一致） -->
+          <button
+            v-if="selectedEntry"
+            type="button"
+            class="lg-item grub-entry is-pinned active"
+            @click="selected = { loader: selected!.loader, selector: selected!.selector }"
+          ><span class="grub-entry-name">{{ selectedEntry.name }}</span></button>
           <template v-for="g in results" :key="g.loader.id">
             <div v-if="g.entries.length" class="lg-group">{{ g.loader.name }} · {{ g.entries.length }} 项</div>
             <button

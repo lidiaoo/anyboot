@@ -5261,3 +5261,20 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 /* B：去掉 lb-block 的 overflow:hidden，让 pinned 的 sticky 参照真正滚动的 lb-scroll */
 
 /* B：lb-scroll 内层需要能撑开高度让 lb-scroll 滚动（pinned 相对它 sticky） */
+
+/* 2026-11-07 #2 置顶浮动(B 左栏)：解除 lb-block 的 overflow:hidden，使 pinned 的 sticky
+ * 以真正滚动的 lb-scroll 为参照，滚动时钉在顶部。 */
+#tab-boot .lb-block { overflow: visible; }
+
+/* 2026-11-07 #2 G 命令面板置顶浮动：lg-results 是滚动容器，pinned 深在 grub-list-body 内，
+ * 其包含块随滚动整体位移 → 不浮动。用 display:contents 让 pinned/行提升为 lg-results 的
+ * 布局子级，sticky 以 lg-results 为参照即可浮动；行间距改由行自身 margin 提供。 */
+#tab-boot .lg-results .grub-list-body { display: contents; }
+#tab-boot .lg-results .grub-list-body > .grub-list-rows { display: contents; }
+#tab-boot .lg-results .grub-entry { margin-bottom: 4px; }
+
+/* 2026-11-07 #2 预演区(.k-prev) 置顶浮动：与系统页同款修法（B 解 hidden / G display:contents） */
+.k-prev .lb-block { overflow: visible; }
+.k-prev .lg-results .grub-list-body,
+.k-prev .lg-results .grub-list-body > .grub-list-rows { display: contents; }
+.k-prev .lg-results .grub-entry { margin-bottom: 4px; }
