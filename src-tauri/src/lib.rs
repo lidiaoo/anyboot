@@ -2458,7 +2458,14 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         } else {
             crate::channels::Elevation::Silent
         };
-        let _ = crate::channels::linux_grub::refresh(&handle, None, elevation);
+        let mut view = crate::channels::linux_grub::refresh(&handle, None, elevation);
+        // 装完免密助手后首次静默扫可能赶上助手还没热（probe 返回 error）——这时
+        // **再静默重试一次**（仍是 Silent，绝不升级为系统授权框，避免「刚输免密又弹框」）。
+        if !allow_prompt && view.error.is_some() {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            view = crate::channels::linux_grub::refresh(&handle, None, elevation);
+        }
+        let _ = view;
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
         crate::switch_flow::refresh_and_update(&handle);
     })
