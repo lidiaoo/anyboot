@@ -128,7 +128,7 @@ async function selectEntry(selector: string) {
 
 <template>
   <section aria-label="rEFInd 启动项" class="refind" id="refind">
-    <div class="grub-title-row">
+    <div v-if="!props.hideList" class="grub-title-row">
       <span class="zone-tag" id="refind-zone-tag">rEFInd 区</span>
       <h2>rEFInd 启动项</h2>
     </div>

@@ -232,7 +232,7 @@ async function switchEntry(selector: string) {
 
 <template>
   <section aria-label="GRUB 启动项" class="grub" id="grub">
-    <div class="grub-head">
+    <div v-if="!props.hideList" class="grub-head">
       <div class="grub-title-row">
         <span class="zone-tag" id="grub-zone-tag">GRUB 区</span>
         <h2>GRUB 启动项</h2>
