@@ -716,9 +716,15 @@ fn offline_view(
 /// 重算三通道视图并写回 AppState.channels（refresh_and_update 里 GRUB 刷新之后调）。
 /// 叫 refresh_channels 是因为 switch_flow::refresh（tauri 命令）经 glob 会撞名。
 pub(crate) fn refresh_channels(app: &AppHandle) {
-    let _span = perf::span("channels.all");
     // 候选集算一次，三张卡各自在里面挑带自己签名的那块 —— 不再共用同一个 root。
     let candidates = esp_candidates(app);
+    refresh_channels_with(app, candidates);
+}
+
+/// 【性能 T5】让调用方传入预取好的 candidates，便于与 GRUB 刷新**并行**时
+/// 提前在主线程算好候选集（避免两边各自 esp_candidates 且受 grub.efi_dir 更新影响）。
+pub(crate) fn refresh_channels_with(app: &AppHandle, candidates: Vec<PathBuf>) {
+    let _span = perf::span("channels.all");
     let views = vec![
         match pick_esp(&candidates, ChannelKind::Sdboot) {
             Some(root) => {

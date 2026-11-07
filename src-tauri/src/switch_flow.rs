@@ -122,15 +122,32 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
     // **硬性条件（用户定案）**：ESP 必须已经由当前系统挂载在 /boot 下（fstab
     // 统一方案）—— 没挂就整条跳过：不自动挂载、不 pkexec、不写盘。手动链路
     // （识别/挂载/同步按钮）不受此限。
+    // 【性能 T5】GRUB 刷新与三通道刷新**并行**：两者操作不同资源（GRUB 走裸设备/helper，
+    // 通道走已挂载卷 + NVRAM），串行是浪费。candidates 先在主线程算一次给 channels 用
+    // （含上次的 grub.efi_dir；启动时该值来自持久化设置，通常稳定）。
+    let candidates = channels::esp_candidates(app);
     {
-        let _span = perf::span("grub.refresh");
-        refresh_grub(app);
-    }
-    // 三引导器通道（systemd-boot / OC / Clover）跟着刷：只做文件/变量读取，
-    // ESP 尽量复用 GRUB 链路解析好的那份
-    {
-        let _span = perf::span("channels.refresh");
-        channels::refresh_channels(app);
+        std::thread::scope(|scope| {
+            // 每个子线程的 perf span 在 thread_local 里，结束后回传主线程合并
+            let grub_handle = scope.spawn(|| {
+                let _span = perf::span("grub.refresh");
+                refresh_grub(app);
+                drop(_span);
+                perf::drain_thread_spans()
+            });
+            let ch_handle = scope.spawn(|| {
+                let _span = perf::span("channels.refresh");
+                channels::refresh_channels_with(app, candidates);
+                drop(_span);
+                perf::drain_thread_spans()
+            });
+            if let Ok(spans) = grub_handle.join() {
+                perf::merge_spans(spans);
+            }
+            if let Ok(spans) = ch_handle.join() {
+                perf::merge_spans(spans);
+            }
+        });
     }
     // 埋点汇总：必须在两条链路都跑完之后，否则看不到它们各占多少
     perf::flush(app, started.elapsed().as_millis());

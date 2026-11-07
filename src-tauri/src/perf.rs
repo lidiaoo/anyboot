@@ -56,6 +56,19 @@ impl Drop for Span {
     }
 }
 
+/// 【T5】取走**当前线程**收集的 spans（供并行子线程结束前回传主线程合并）。
+pub(crate) fn drain_thread_spans() -> Vec<(&'static str, u128)> {
+    SPANS.with(|spans| std::mem::take(&mut *spans.borrow_mut()))
+}
+
+/// 【T5】把别处线程回传的 spans 合并进当前线程（主线程 flush 前调）。
+pub(crate) fn merge_spans(items: Vec<(&'static str, u128)>) {
+    if items.is_empty() {
+        return;
+    }
+    SPANS.with(|spans| spans.borrow_mut().extend(items));
+}
+
 pub(crate) fn span(name: &'static str) -> Span {
     Span {
         name,

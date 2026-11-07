@@ -282,9 +282,9 @@ pub(crate) struct Volume {
     pub(crate) root: PathBuf,
 }
 
-/// 【性能 T6】全局「设备节点 → DiskUUID」映射，用**一次** `diskutil list -plist`
-/// 建好并缓存（TTL 见 GUID_MAP_TTL）。取代过去每条 `diskutil info -plist <dev>`
-/// （每次 ~130ms）。DiskUUID 不随写默认项变化，用 TTL 缓存即可，无需显式失效。
+/// 【性能 T6】全局「挂载点 → DiskUUID」映射，用**一次** `diskutil list -plist`
+/// 建好并缓存（TTL 10s）。取代过去每条 `diskutil info -plist <dev>`（~130ms/次）。
+/// DiskUUID 不随写默认项变化，TTL 天然够用，无需显式失效。
 #[cfg(target_os = "macos")]
 fn guid_map() -> std::collections::HashMap<String, String> {
     use std::sync::{Mutex, OnceLock};
@@ -304,8 +304,9 @@ fn guid_map() -> std::collections::HashMap<String, String> {
     map
 }
 
-/// 跑一次 `diskutil list -plist`，解析出 `DeviceIdentifier → DiskUUID`（小写）。
-/// 只做一次外部调用（~80ms），替代过去逐条 `diskutil info -plist`。
+/// 跑一次 `diskutil list -plist`（~86ms），解析出「挂载点 → DiskUUID」。
+/// `AllDisksAndPartitions` 每个分区 dict 含 `MountPoint` 与 `DiskUUID`，
+/// 一次拿全，**完全不需要再对每个卷调 `diskutil info`**。
 #[cfg(target_os = "macos")]
 fn build_guid_map() -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
@@ -316,15 +317,13 @@ fn build_guid_map() -> std::collections::HashMap<String, String> {
         return map;
     }
     let xml = String::from_utf8_lossy(&output.stdout);
-    // 简易 plist 解析：按 `<dict>` … `</dict>` 分段，每段取 DeviceIdentifier + DiskUUID。
-    // diskutil list -plist 里分区条目都是 dict，且这两个 key 都是 string。
     for seg in xml.split("<dict>").skip(1) {
         let seg = seg.split("</dict>").next().unwrap_or("");
-        let dev = plist_string_value(seg, "DeviceIdentifier");
+        let mp = plist_string_value(seg, "MountPoint");
         let uuid = plist_string_value(seg, "DiskUUID");
-        if let (Some(dev), Some(uuid)) = (dev, uuid) {
-            if !uuid.trim().is_empty() {
-                map.insert(dev, uuid.to_ascii_lowercase());
+        if let (Some(mp), Some(uuid)) = (mp, uuid) {
+            if !mp.trim().is_empty() && !uuid.trim().is_empty() {
+                map.insert(mp, uuid.to_ascii_lowercase());
             }
         }
     }
@@ -344,25 +343,12 @@ fn plist_string_value(seg: &str, key: &str) -> Option<String> {
 
 /// 卷的分区 GUID（`diskutil` 的 `DiskUUID`，小写）。非 macOS 一律 `None`。
 ///
-/// 【性能 T6】改为从一次性 `diskutil list -plist` 建的全局映射里查（按卷的
-/// 挂载根反查设备节点），不再逐条 `diskutil info -plist`。
+/// 【性能 T6】从一次性 `diskutil list -plist` 建的「挂载点→DiskUUID」映射里按
+/// 卷的挂载根直接查，不再逐条 `diskutil info`。
 #[cfg(target_os = "macos")]
 fn disk_guid(root: &Path) -> Option<String> {
-    // 卷根 `/Volumes/XXX` 或 `/`：反查它对应的 /dev/diskXsY，再查 GUID 映射。
-    let dev = device_for_mount(root)?;
-    guid_map().get(&dev).cloned()
-}
-
-/// 挂载点 → 设备节点（`disk4s2` 这种短名，与 diskutil 的 DeviceIdentifier 对齐）。
-#[cfg(target_os = "macos")]
-fn device_for_mount(root: &Path) -> Option<String> {
-    let output = command("diskutil").args(["info", "-plist"]).arg(root).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    // 只在「挂载点反查设备」这一处仍用 info -plist（每个卷一次，卷数很少），
-    // 拿 DeviceIdentifier 后走全局映射 —— 已比逐条查 DiskUUID 便宜。
-    plist_string_value(&String::from_utf8_lossy(&output.stdout), "DeviceIdentifier")
+    let key = root.to_string_lossy().to_string();
+    guid_map().get(&key).cloned()
 }
 
 #[cfg(not(target_os = "macos"))]
