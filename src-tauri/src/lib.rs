@@ -2458,7 +2458,9 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         } else {
             crate::channels::Elevation::Silent
         };
-        let mut view = crate::channels::linux_grub::refresh(&handle, None, elevation);
+        // 用 refresh_force：管理员扫描必须**真的扫**，不能被 T7 磁盘缓存挡掉（否则
+        // 命中缓存直接返回、不 probe、不弹系统授权框 —— 这正是「启动没弹密码框」的根因）。
+        let mut view = crate::channels::linux_grub::refresh_force(&handle, None, elevation);
         // 装完免密助手后首次静默扫可能赶上助手还没热（probe 返回 error）——这时
         // **再静默重试一次**（仍是 Silent，绝不升级为系统授权框，避免「刚输免密又弹框」）。
         if !allow_prompt && view.error.is_some() {
