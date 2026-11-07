@@ -2465,7 +2465,7 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         // **再静默重试一次**（仍是 Silent，绝不升级为系统授权框，避免「刚输免密又弹框」）。
         if !allow_prompt && view.error.is_some() {
             std::thread::sleep(std::time::Duration::from_secs(2));
-            view = crate::channels::linux_grub::refresh(&handle, None, elevation);
+            view = crate::channels::linux_grub::refresh_force(&handle, None, elevation);
         }
         let _ = view;
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
