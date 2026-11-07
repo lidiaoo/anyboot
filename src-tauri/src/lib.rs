@@ -1731,7 +1731,7 @@ fn announce_already_running(app: &AppHandle) {
 
 /// 配置目录：默认是系统的 `app_config_dir`；
 /// `ANYBOOT_CONFIG_DIR` 能把它指到别处（做验证/多实例时就不会碰你的真实配置）。
-fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(directory) = std::env::var("ANYBOOT_CONFIG_DIR") {
         let directory = directory.trim();
         if !directory.is_empty() {

@@ -1346,6 +1346,136 @@ fn is_kernel_like(name: &str) -> bool {
         || lower.ends_with(".efi")
 }
 
+/// 【性能 T2】该挂载点是否是 ext4（读 /proc/mounts 看 fstype）。只认 ext4 家族，
+/// 避免把 vfat/ntfs 等误走挂载点直读。
+#[cfg(target_os = "linux")]
+fn is_ext4_mount(mountpoint: &str) -> bool {
+    let Ok(text) = std::fs::read_to_string("/proc/mounts") else {
+        return false;
+    };
+    for line in text.lines() {
+        let mut fields = line.split_whitespace();
+        let _dev = fields.next();
+        let mp = fields.next();
+        let fstype = fields.next();
+        if mp == Some(mountpoint) {
+            return fstype.is_some_and(|f| f.starts_with("ext"));
+        }
+    }
+    false
+}
+
+/// 【性能 T2】Linux 已挂载分区的**挂载点直读**版 scan_ext4：走 `std::fs`（内核
+/// ext4 驱动 + 页缓存，秒级），不必裸读 `/dev/sdXn`。产出与 scan_ext4 同构的
+/// PartReport。fs_uuid 由 lsblk 的 UUID 列提供（挂载点读不到超级块）。
+#[cfg(target_os = "linux")]
+fn scan_mounted(root: &str, cand: &Ext4Candidate, fs_uuid: Option<String>) -> PartReport {
+    use std::path::Path;
+    let base = Path::new(root);
+    let rel = |p: &str| base.join(p);
+    let read_small = |rel_path: &str, cap: usize| -> Option<Vec<u8>> {
+        let data = std::fs::read(rel(rel_path)).ok()?;
+        Some(data.into_iter().take(cap).collect())
+    };
+    let mut report = PartReport {
+        dev: cand.dev.clone(),
+        label: if cand.label.clone().unwrap_or_default().is_empty() {
+            // 挂载点直读拿不到 ext4 超级块卷标，退回 lsblk 给的 label
+            cand.label.clone().unwrap_or_default()
+        } else {
+            cand.label.clone().unwrap_or_default()
+        },
+        size: cand.size.clone(),
+        fs_uuid: fs_uuid.map(|u| part_spec::normalize_uuid(&u)),
+        part_uuid: cand.part_uuid.clone(),
+        part_number: cand.part_number,
+        disk_index: cand.disk_index,
+        ..PartReport::default()
+    };
+    // fstab
+    if let Some(bytes) = read_small("etc/fstab", MAX_FSTAB_BYTES) {
+        let text = String::from_utf8_lossy(&bytes);
+        report.mounts = part_spec::parse_fstab(&text)
+            .into_iter()
+            .map(|entry| MountHint {
+                spec: entry.spec,
+                mountpoint: entry.mountpoint,
+                fstype: entry.fstype,
+            })
+            .collect();
+    }
+    // os-release
+    if let Some(bytes) = read_small("etc/os-release", MAX_SMALL_BYTES) {
+        let text = String::from_utf8_lossy(&bytes);
+        report.os_id = os_release_id(&text);
+        report.os_pretty_name = os_release_pretty_name(&text);
+    }
+    let is_linux_system =
+        report.os_id.is_some() || report.mounts.iter().any(|m| m.mountpoint == "/");
+    // 内核目录清单（根目录 + /boot），与裸读版同口径
+    if is_linux_system {
+        for dir in ["", "boot"] {
+            let dirpath = if dir.is_empty() { base.to_path_buf() } else { base.join(dir) };
+            let Ok(entries) = std::fs::read_dir(&dirpath) else {
+                continue;
+            };
+            let mut files: Vec<DirFile> = Vec::new();
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || !is_kernel_like(&name) {
+                    continue;
+                }
+                let Ok(meta) = entry.metadata() else { continue };
+                if meta.is_dir() {
+                    continue;
+                }
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                files.push(DirFile { name, mtime });
+                if files.len() >= MAX_LISTING_FILES {
+                    break;
+                }
+            }
+            let conf_rel = if dir.is_empty() { "refind_linux.conf".to_string() } else { format!("{dir}/refind_linux.conf") };
+            let refind_linux_conf = read_small(&conf_rel, MAX_SMALL_BYTES)
+                .map(|b| String::from_utf8_lossy(&b).to_string());
+            report.dir_listings.push(DirListing {
+                dir: dir.to_string(),
+                files,
+                refind_linux_conf,
+            });
+        }
+    }
+    // grub.cfg / grubenv
+    for dir in GRUB_DIRS {
+        let cfg_rel = format!("{dir}/grub.cfg");
+        let Some(cfg_bytes) = read_small(&cfg_rel, MAX_CFG_BYTES) else {
+            continue;
+        };
+        report.cfg_mtime = std::fs::metadata(rel(&cfg_rel))
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs() as i64);
+        report.cfg_text = Some(String::from_utf8_lossy(&cfg_bytes).to_string());
+        report.cfg_rel = Some(cfg_rel.clone());
+        report.root_uuid = report.cfg_text.as_deref().and_then(cfg_root_uuid);
+        let env_rel = format!("{dir}/grubenv");
+        if let Some(env) = read_small(&env_rel, ENV_BLOCK_SIZE + 1) {
+            if env.len() == ENV_BLOCK_SIZE {
+                report.env_rel = Some(env_rel);
+                report.env_hex = Some(hex::encode(&env));
+            }
+        }
+        break;
+    }
+    report
+}
+
 fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
     let mut report = PartReport {
         dev: cand.dev.clone(),
@@ -1532,6 +1662,31 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     Ok(payload)
 }
 
+/// 【T4】Windows 单分区扫描：打开物理分区 → Ext4::open → scan_ext4。
+/// 返回 Ok(Some)/Ok(None=非ext4)/Err(note=打不开)。
+#[cfg(target_os = "windows")]
+fn scan_one_part_win(
+    part: &crate::channels::partitions::Partition,
+) -> Result<Option<PartReport>, String> {
+    let dev = format!("disk{}p{}", part.disk, part.partition);
+    let source = FileSource::open_physical(part.disk, part.offset, false)
+        .map_err(|why| format!("{dev} 打不开：{why}"))?;
+    let Ok(mut fs) = Ext4::open(Box::new(source)) else {
+        return Ok(None); // 不是 ext4，正常跳过
+    };
+    Ok(Some(scan_ext4(
+        &mut fs,
+        &Ext4Candidate {
+            dev,
+            label: None,
+            size: Some(format!("{} MB", part.size_mb())),
+            part_uuid: Some(part.guid.clone()).filter(|value| !value.is_empty()),
+            part_number: part.partition,
+            disk_index: part.disk,
+        },
+    )))
+}
+
 /// 扫描并发度：min(可用核数, 6)。分区少时按分区数。
 fn scan_concurrency(n: usize) -> usize {
     let cores = std::thread::available_parallelism()
@@ -1633,41 +1788,44 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
     let mut candidates: Vec<_> = rows.iter().filter(|row| row.is_linux()).collect();
     candidates.extend(rows.iter().filter(|row| !row.is_linux()));
 
+    // 【T4】只扫 Linux 家族分区（数据/XBOOTLDR/LVM/RAID），非 Linux（MSR/恢复/NTFS/
+    // EFI/APFS）直接跳过，不再逐个 open 试 —— 大幅减少设备打开次数。
+    let linux_parts: Vec<&crate::channels::partitions::Partition> =
+        rows.iter().filter(|row| row.is_linux()).collect();
+    // 每个分区的扫描结果；下标与 linux_parts 对齐。Ok(Some)=成功，Ok(None)=非 ext4，Err=打不开。
+    let n = linux_parts.len();
+    let conc = scan_concurrency(n).min(4); // Windows：并发上限 4（防 USB/UASP 外置盘并行掉速）
+    let mut slots: Vec<Option<Result<Option<PartReport>, String>>> = (0..n).map(|_| None).collect();
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+        let next = AtomicUsize::new(0);
+        let slots_mutex = Mutex::new(&mut slots);
+        std::thread::scope(|scope| {
+            for _ in 0..conc.min(n.max(1)) {
+                scope.spawn(|| loop {
+                    let idx = next.fetch_add(1, Ordering::SeqCst);
+                    if idx >= n {
+                        break;
+                    }
+                    let result = scan_one_part_win(linux_parts[idx]);
+                    slots_mutex.lock().unwrap()[idx] = Some(result);
+                });
+            }
+        });
+    }
     let mut denied = 0usize;
-    for part in candidates {
-        let linux = part.is_linux();
-        // 与 PartReport.dev 的既有约定一致：macOS 是 `disk0s9`、Windows 是 `disk0p9`
-        let dev = format!("disk{}p{}", part.disk, part.partition);
-        let source = match FileSource::open_physical(part.disk, part.offset, false) {
-            Ok(source) => source,
-            Err(why) => {
-                if why.contains("管理员权限") {
+    for slot in slots.into_iter().flatten() {
+        match slot {
+            Ok(Some(report)) => payload.parts.push(report),
+            Ok(None) => {}
+            Err(note) => {
+                if note.contains("管理员权限") {
                     denied += 1;
                 }
-                // 报错原文一定带出来（APFS 那边踩过：把 io 原因吞成
-                // 「可能被占用」，白查半天权限）。**但只对 Linux 类型报**：
-                // MSR / 恢复分区本来就没有可读的文件系统，全报出来会把
-                // 真正的问题淹掉。
-                if linux {
-                    payload.notes.push(format!("{dev} 打不开：{why}"));
-                }
-                continue;
+                payload.notes.push(note);
             }
-        };
-        let Ok(mut fs) = Ext4::open(Box::new(source)) else {
-            continue; // 不是 ext4：正常跳过，不刷问题列表
-        };
-        payload.parts.push(scan_ext4(
-            &mut fs,
-            &Ext4Candidate {
-                dev,
-                label: None,
-                size: Some(format!("{} MB", part.size_mb())),
-                part_uuid: Some(part.guid.clone()).filter(|value| !value.is_empty()),
-                part_number: part.partition,
-                disk_index: part.disk,
-            },
-        ));
+        }
     }
 
     if payload.parts.is_empty() {
@@ -1734,34 +1892,61 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
             ));
         }
     }
-    let mut scanned = 0usize;
-    for part in &sys {
-        // 不再用「分区号 != 0」挡整盘：`parse_lsblk_parts` 只产出能承载文件系统的
-        // 节点（分区 / dm / md），整盘根本进不了清单；而 LVM/LUKS 的 `/dev/mapper/*`
-        // 天生没有分区号，用号码挡会把它们全误杀（2026-10-31 补齐）。
-        // 宿主根分区照旧不跳过（用户定案 2026-10-30：没有「本机」特例）。
-        let source = match FileSource::open_raw(&part.dev) {
-            Ok(source) => source,
-            Err(why) => {
-                payload.notes.push(format!("{} 打不开：{why}", part.dev));
-                continue;
+    // 【T2/T4】分区并行扫描：已挂载 ext4 走挂载点直读（内核页缓存），否则裸读。
+    let n = sys.len();
+    let conc = scan_concurrency(n);
+    let mut slots: Vec<Option<Result<Option<PartReport>, String>>> = (0..n).map(|_| None).collect();
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+        let next = AtomicUsize::new(0);
+        let slots_mutex = Mutex::new(&mut slots);
+        std::thread::scope(|scope| {
+            for _ in 0..conc.min(n.max(1)) {
+                scope.spawn(|| loop {
+                    let idx = next.fetch_add(1, Ordering::SeqCst);
+                    if idx >= n {
+                        break;
+                    }
+                    let part = &sys[idx];
+                    let cand = Ext4Candidate {
+                        dev: part.dev.clone(),
+                        label: part.label.clone(),
+                        size: part.size.clone(),
+                        part_uuid: part.part_uuid.clone(),
+                        part_number: part.part_number,
+                        disk_index: part.disk_index,
+                    };
+                    let result = if let Some(mp) = part.mountpoint.as_deref() {
+                        if is_ext4_mount(mp) {
+                            Ok(Some(scan_mounted(mp, &cand, part.fs_uuid.clone())))
+                        } else {
+                            Ok(None)
+                        }
+                    } else {
+                        match FileSource::open_raw(&part.dev) {
+                            Ok(source) => match Ext4::open(Box::new(source)) {
+                                Ok(mut fs) => Ok(Some(scan_ext4(&mut fs, &cand))),
+                                Err(_) => Ok(None),
+                            },
+                            Err(why) => Err(format!("{} 打不开：{why}", part.dev)),
+                        }
+                    };
+                    slots_mutex.lock().unwrap()[idx] = Some(result);
+                });
             }
-        };
-        let Ok(mut fs) = Ext4::open(Box::new(source)) else {
-            continue; // 不是 ext4：正常跳过，不刷问题列表
-        };
-        scanned += 1;
-        payload.parts.push(scan_ext4(
-            &mut fs,
-            &Ext4Candidate {
-                dev: part.dev.clone(),
-                label: part.label.clone(),
-                size: part.size.clone(),
-                part_uuid: part.part_uuid.clone(),
-                part_number: part.part_number,
-                disk_index: part.disk_index,
-            },
-        ));
+        });
+    }
+    let mut scanned = 0usize;
+    for slot in slots.into_iter().flatten() {
+        match slot {
+            Ok(Some(report)) => {
+                scanned += 1;
+                payload.parts.push(report);
+            }
+            Ok(None) => {}
+            Err(note) => payload.notes.push(note),
+        }
     }
     if scanned == 0 {
         payload
@@ -1783,7 +1968,7 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
 fn system_partitions_linux() -> Result<Vec<SysPart>, String> {
     let _span = crate::perf::span("cmd.lsblk_parts");
     let output = std::process::Command::new("lsblk")
-        .args(["-Jno", "NAME,PATH,PARTUUID,LABEL,SIZE,TYPE"])
+        .args(["-Jno", "NAME,PATH,PARTUUID,UUID,LABEL,SIZE,TYPE,MOUNTPOINT"])
         .output()
         .map_err(|error| format!("跑不起 lsblk：{error}"))?;
     if !output.status.success() {
@@ -1850,6 +2035,10 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
         size: Option<String>,
         #[serde(rename = "type", default)]
         kind: Option<String>,
+        #[serde(rename = "uuid", default)]
+        fs_uuid: Option<String>,
+        #[serde(default)]
+        mountpoint: Option<String>,
         #[serde(default)]
         children: Vec<LsblkRow>,
     }
@@ -1862,6 +2051,8 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
             label,
             size,
             kind,
+            fs_uuid,
+            mountpoint,
             children,
         } = node;
         if kind.as_deref().is_some_and(holds_filesystem) {
@@ -1879,6 +2070,8 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
                     part_uuid: partuuid.filter(|text| !text.trim().is_empty()),
                     disk_index: 0,
                     part_number: number,
+                    mountpoint: mountpoint.filter(|text| !text.trim().is_empty()),
+                    fs_uuid: fs_uuid.filter(|text| !text.trim().is_empty()),
                 });
             }
         }
@@ -1905,6 +2098,12 @@ struct SysPart {
     part_uuid: Option<String>,
     disk_index: u32,
     part_number: u32,
+    /// Linux：已挂载时的挂载点（`/`、`/boot` 等）。macOS/Windows 恒 None。
+    /// 【性能 T2】有挂载点就走内核直读（页缓存，秒级），不必裸读。
+    mountpoint: Option<String>,
+    /// Linux：文件系统 UUID（`lsblk UUID`）。挂载点直读时用它填 fs_uuid，
+    /// 供 locate() 的 fstab `UUID=` 匹配（裸读时由 ext4 超级块提供）。
+    fs_uuid: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -1956,6 +2155,8 @@ fn system_partitions() -> Vec<SysPart> {
             part_uuid,
             disk_index: disk,
             part_number: number,
+            mountpoint: None,
+            fs_uuid: None,
         });
     }
     parts
@@ -2193,7 +2394,8 @@ pub(crate) fn scan_blocking(
     target: Option<String>,
     elevation: Elevation,
 ) -> Option<LinuxGrubView> {
-    Some(refresh(&app, target.as_deref(), elevation))
+    // 「重新读取」/远程请求 = 用户主动扫 → 强制刷新，跳过磁盘缓存
+    Some(refresh_force(&app, target.as_deref(), elevation))
 }
 
 /// 「换一个」：记住用户选的分区，然后立刻按它重扫。
@@ -2398,7 +2600,90 @@ fn runtime_from(payload: &ProbePayload, view: &LinuxGrubView, prefer: &str) -> O
 
 /// 扫一遍 → 组装视图 → 写回状态。任何一步失败都返回「带 error 的视图」，
 /// 绝不把旧数据当成新结果留在界面上。
+// ─────────────────────────── T7 分区级磁盘缓存 ───────────────────────────
+// 启动路径：先算「分区表签名」→ 磁盘缓存若签名一致且未过期，直接用上次结果渲染
+// （秒开），后台照常刷新。「重新读取」按钮走 refresh(force=true) 跳过缓存。
+// 分区变动（增删/重分区/格式化，或换内核/改 grub.cfg 导致 mtime 变）→ 签名不符 → 重扫。
+
+/// 磁盘缓存文件（放在与 settings 同目录）。
+fn probe_cache_path(app: &AppHandle) -> Option<PathBuf> {
+    crate::config_dir(app).ok().map(|d| d.join("linux_probe_cache.json"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ProbeDiskCache {
+    /// 分区表签名（枚举关键字段拼串的哈希）
+    signature: String,
+    saved_at: u64,
+    payload: ProbePayload,
+}
+
+/// 当前分区表签名：枚举各端分区（dev|size|part_uuid 排序拼接），用 DefaultHasher 哈希。
+/// 枚举本身已优化到 ~86ms（macOS list -plist），足以作为「便宜的正确性校验」。
+fn probe_signature() -> String {
+    use std::hash::{Hash, Hasher};
+    let mut items: Vec<String> = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        for p in system_partitions() {
+            items.push(format!("{}|{}|{}", p.dev, p.size.unwrap_or_default(), p.part_uuid.unwrap_or_default()));
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        for row in super::partitions::all() {
+            items.push(format!("{}:{}|{}|{}", row.disk, row.partition, row.gpt_type, row.guid));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(parts) = system_partitions_linux() {
+            for p in parts {
+                items.push(format!("{}|{}|{}", p.dev, p.size.unwrap_or_default(), p.part_uuid.unwrap_or_default()));
+            }
+        }
+    }
+    items.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    items.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn load_probe_cache(app: &AppHandle) -> Option<ProbeDiskCache> {
+    let path = probe_cache_path(app)?;
+    let text = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str::<ProbeDiskCache>(&text).ok()
+}
+
+fn save_probe_cache(app: &AppHandle, cache: &ProbeDiskCache) {
+    if let Some(path) = probe_cache_path(app) {
+        if let Ok(text) = serde_json::to_string(cache) {
+            let _ = std::fs::write(&path, text);
+        }
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 磁盘缓存有效期：签名一致时，1 小时内直接复用（签名已保证分区/文件没变，
+/// 过期只是强制偶发重扫兜底）。分区增删/重分区会让签名变、立即重扫。
+const PROBE_CACHE_TTL: u64 = 3600;
+
 pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevation) -> LinuxGrubView {
+    refresh_impl(app, target, elevation, false)
+}
+
+/// force=true 时跳过磁盘缓存（「重新读取」按钮用）。
+pub(crate) fn refresh_force(app: &AppHandle, target: Option<&str>, elevation: Elevation) -> LinuxGrubView {
+    refresh_impl(app, target, elevation, true)
+}
+
+fn refresh_impl(app: &AppHandle, target: Option<&str>, elevation: Elevation, force: bool) -> LinuxGrubView {
     let settings = stored_settings(app);
     let prefer = target
         .map(str::to_string)
@@ -2411,6 +2696,23 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevatio
     };
     let esp_partuuid = settings.grub_efi_partuuid.clone();
 
+    // 【T7】非强制刷新时先查磁盘缓存：签名一致且未过期 → 直接用上次结果（秒开）。
+    let signature = probe_signature();
+    if !force {
+        if let Some(cache) = load_probe_cache(app) {
+            if cache.signature == signature && now_secs().saturating_sub(cache.saved_at) < PROBE_CACHE_TTL {
+                let payload = cache.payload;
+                let prefer_opt = Some(prefer.as_str()).filter(|v| !v.trim().is_empty());
+                let mut view = build_view(&payload, platform_name(), !cfg!(target_os = "linux"), prefer_opt, manual_takes_over);
+                if manual_takes_over {
+                    view.issues.insert(0, "这台机器装着 09_anyboot 且 ESP 上有 EFI/grubenv：GRUB 会优先用 ESP 上那份，在这里写的 env 不会生效。要切到自动读取，请先卸载 09_anyboot".to_string());
+                }
+                let runtime = runtime_from(&payload, &view, &prefer);
+                store(app, view.clone(), runtime, Some(&payload));
+                return view;
+            }
+        }
+    }
     let payload = match probe(&esp_partuuid, &prefer, elevation) {
         Ok(payload) => payload,
         Err(error) => {
@@ -2419,6 +2721,8 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevatio
             return view;
         }
     };
+    // 扫描成功 → 落盘缓存（签名 + payload + 时间）
+    save_probe_cache(app, &ProbeDiskCache { signature: signature.clone(), saved_at: now_secs(), payload: payload.clone() });
     let prefer_opt = Some(prefer.as_str()).filter(|value| !value.trim().is_empty());
     let mut view = build_view(
         &payload,

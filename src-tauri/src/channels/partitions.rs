@@ -31,6 +31,12 @@ pub(crate) const APFS_GPT: &str = "7c3457ef-0000-11aa-aa11-00306543ecac";
 /// Linux 文件系统数据分区的 GPT 类型（根分区 / `/boot` 都是它）。
 /// 只认这一类：LVM（`e6d6d379…`）与 RAID（`a19d880f…`）里的 ext4 我们不解析。
 pub(crate) const LINUX_GPT: &str = "0fc63daf-8483-4772-8e79-3d69d8477de4";
+/// XBOOTLDR（Linux `/boot` 专用 ESP 分区）：里面也常有 ext4 的 `/boot`。
+pub(crate) const XBOOTLDR_GPT: &str = "bc13c2ff-6689-423b-924d-4f2a0e4d6b6a";
+/// Linux LVM 物理卷 / RAID（这些容器里可能藏着 ext4；只做「是 Linux 家族」判定，
+/// 具体能不能读由 Ext4::open 决定）。
+pub(crate) const LINUX_LVM_GPT: &str = "e6d6d379-f507-44c2-a23c-238f2a3df928";
+pub(crate) const LINUX_RAID_GPT: &str = "a19d880f-05fc-4d3b-a006-743f0f84911e";
 
 /// 一条分区。只留三处调用方真正要的字段。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,8 +69,12 @@ impl Partition {
 
     /// Linux 文件系统分区。Windows 读 ext4 靠它筛候选：这些分区没有盘符，
     /// 唯一入口是「开整盘 + `offset`」。
+    /// Linux 数据分区或 XBOOTLDR（后者也可能是 ext4 的 /boot，需纳入候选）。
+    /// 【T4】比过去只认 `0FC63DAF` 多认 XBOOTLDR；LVM/RAID **不算**——
+    /// 那层容器不是能直接读的 ext4，列进来只会多 open 试一次。
     pub(crate) fn is_linux(&self) -> bool {
-        self.gpt_type.starts_with(&LINUX_GPT[..8])
+        let t = &self.gpt_type;
+        t.starts_with(&LINUX_GPT[..8]) || t.starts_with(&XBOOTLDR_GPT[..8])
     }
 
     /// 可访问的挂载根（`S:\`）；没盘符就是 `None`。

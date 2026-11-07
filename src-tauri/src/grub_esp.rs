@@ -266,9 +266,6 @@ pub(crate) fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
         if mountpoints.is_empty() {
             continue;
         }
-        // 一块分区可以同时挂在多处（fstab 的 /boot/efi + 桌面的自动挂载）。
-        // 优先取 /boot 下的挂载点 —— 那是 fstab 方案里「系统已经挂好的引导
-        // 数据」；/media 之类的自动挂载只是顺手，不该被当成首选。
         return mountpoints
             .iter()
             .find(|mountpoint| under_boot(mountpoint))
@@ -276,6 +273,16 @@ pub(crate) fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
             .map(PathBuf::from);
     }
     None
+}
+
+/// 从 plist `<dict>` 片段取 `<key>KEY</key><string>VALUE</string>`（grub 侧小工具）。
+fn grub_csv_value(seg: &str, key: &str) -> Option<String> {
+    let needle = format!("<key>{key}</key>");
+    let i = seg.find(&needle)? + needle.len();
+    let rest = &seg[i..];
+    let s = rest.find("<string>")? + "<string>".len();
+    let e = rest[s..].find("</string>")? + s;
+    Some(rest[s..e].to_string())
 }
 
 /// 挂载点是否在 `/boot` 下（fstab 统一方案的约定位置）。纯函数，便于单测。
@@ -435,7 +442,49 @@ pub(crate) fn grub_esp_dir(partuuid: &str) -> Result<(PathBuf, Option<ActiveMoun
 /// macOS：已挂载的卷里按分区 UUID 找（和 `grub_esp_dir` 同一套比对）。
 #[cfg(target_os = "macos")]
 pub(crate) fn find_mounted_by_partuuid(partuuid: &str) -> Option<PathBuf> {
-    grub_esp_dir(partuuid).ok().map(|(dir, _)| dir)
+    // macOS 没有 lsblk（旧实现用 lsblk 永远失败 → 每次启动都走 esp_mount 的
+    // diskutil mount，实测 1.4s）。改用 `mount` + `diskutil list -plist`：
+    //   ① plist 拿 DiskUUID → DeviceIdentifier（一次 ~86ms）
+    //   ② mount 拿 /dev/diskXsY → 挂载点
+    //   ③ 按 partuuid 匹配 → 已挂载就直接用，绝不触发 mount
+    let _span = crate::perf::span("cmd.mount_probe");
+    let want = part_spec::normalize_uuid(partuuid);
+    let Ok(out) = command("diskutil").args(["list", "-plist"]).output() else {
+        return None;
+    };
+    if !out.status.success() {
+        return None;
+    }
+    let xml = String::from_utf8_lossy(&out.stdout);
+    let mut dev_for_uuid: Option<String> = None;
+    for seg in xml.split("<dict>").skip(1) {
+        let seg = seg.split("</dict>").next().unwrap_or("");
+        let dev = grub_csv_value(seg, "DeviceIdentifier");
+        let uuid = grub_csv_value(seg, "DiskUUID");
+        if let (Some(dev), Some(uuid)) = (dev, uuid) {
+            if part_spec::normalize_uuid(&uuid) == want {
+                dev_for_uuid = Some(dev);
+                break;
+            }
+        }
+    }
+    let device = dev_for_uuid?;
+    let Ok(mount_out) = command("mount").output() else {
+        return None;
+    };
+    let text = String::from_utf8_lossy(&mount_out.stdout);
+    let target = format!("/dev/{device}");
+    for line in text.lines() {
+        if line.starts_with(&target) {
+            if let Some(rest) = line.split(" on ").nth(1) {
+                let mp = rest.split(" (").next().unwrap_or("").trim();
+                if !mp.is_empty() {
+                    return Some(PathBuf::from(mp));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// 当前用户对 `path` 有没有 `mode` 权限（Linux 的 `access(2)`；`libc::R_OK` / `W_OK`）。
@@ -1086,6 +1135,7 @@ pub(crate) fn grub_scan(
                  如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3）"
             ));
         };
+        let _sp = crate::perf::span("grub.locate");
         match grub_locate(&digits, settings.grub_keep_mounted) {
             Ok(found) => Some(found),
             Err(error) => {
@@ -1119,7 +1169,9 @@ pub(crate) fn grub_scan(
     let cfg_path = grub_rel(&efi_dir, grub::CFG_REL_PATH);
     let env_path = grub_rel(&efi_dir, grub::ENV_REL_PATH);
     // grub.cfg 还没同步过来不算致命：先把状态摆出来，界面上会提示去点同步
+    let _sp = crate::perf::span("grub.read_cfg");
     let cfg_text = fs::read_to_string(&cfg_path).ok();
+    drop(_sp);
     let raw_entries = cfg_text
         .as_deref()
         .map(grub::parse_grub_cfg)
@@ -1141,6 +1193,7 @@ pub(crate) fn grub_scan(
     };
 
     // ③ 顺手把分区认一遍（探测失败**不算**致命：条目照样能用，只是分区信息缺一块）
+    let _sp = crate::perf::span("grub.esp_probe");
     let mut esp = esp_probe(&efi_dir).unwrap_or_else(|error| EspInfo {
         path: efi_dir.display().to_string(),
         root: Some(efi_dir.display().to_string()),
@@ -1195,6 +1248,7 @@ pub(crate) fn rescan_grub(app: &AppHandle, allow_mount: bool, sync: bool) -> Res
     // UUID 或目录就仍做一次「启动识别」（只解析 + 双向回填，UUID 优先，
     // 见 startup_identify_scan）。
     let scan = if !allow_mount && !grub_esp_ready(&settings) {
+        let _span = crate::perf::span("grub.identify");
         match startup_identify_scan(app, &settings, reusable) {
             (Some(scan), _) => Some(scan),
             (None, reusable) => {
@@ -1207,6 +1261,7 @@ pub(crate) fn rescan_grub(app: &AppHandle, allow_mount: bool, sync: bool) -> Res
             }
         }
     } else {
+        let _span = crate::perf::span("grub.scan_esp");
         grub_scan(&settings, reusable, sync)?
     };
 
