@@ -1909,9 +1909,13 @@ struct SysPart {
 
 #[cfg(target_os = "macos")]
 fn system_partitions() -> Vec<SysPart> {
+    // 【性能 B1】一次 `diskutil list -plist`（~80ms）替代 `diskutil info -all`（~2.1s）。
+    // 输出里 AllDisksAndPartitions → 每盘 Partitions[]，每项含
+    // DeviceIdentifier / Content(类型) / VolumeName / DiskUUID(=GPT PARTGUID) / Size。
+    // 【B2】只保留 Content=="Linux Filesystem" 的分区做后续 ext4 扫描，
+    // 直接跳过 APFS/HFS/FAT/EFI/MSR —— 大幅减少 open_physical 次数。
     let Ok(output) = std::process::Command::new("diskutil")
-        .arg("info")
-        .arg("-all")
+        .args(["list", "-plist"])
         .output()
     else {
         return Vec::new();
@@ -1919,63 +1923,79 @@ fn system_partitions() -> Vec<SysPart> {
     if !output.status.success() {
         return Vec::new();
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut parts = Vec::new();
-    let mut current: Option<SysPart> = None;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.len() >= 8 && trimmed.chars().all(|character| character == '*') {
-            if let Some(part) = current.take() {
-                parts.push(part);
-            }
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else {
+    let xml = String::from_utf8_lossy(&output.stdout);
+    let mut parts: Vec<SysPart> = Vec::new();
+    // 逐 <dict> 段解析（分区条目都是 dict）。disk 整盘 dict 无 Partitions，跳过。
+    for seg in xml.split("<dict>").skip(1) {
+        let seg = seg.split("</dict>").next().unwrap_or("");
+        let Some(dev) = mac_plist_string(seg, "DeviceIdentifier") else {
             continue;
         };
-        let value = value.trim();
-        match key.trim() {
-            "Device Identifier" => {
-                if let Some(part) = current.take() {
-                    parts.push(part);
-                }
-                if let Some((disk, number)) = parse_disk_id(value) {
-                    current = Some(SysPart {
-                        dev: value.to_string(),
-                        disk_index: disk,
-                        part_number: number,
-                        ..SysPart::default()
-                    });
-                }
-            }
-            "Volume Name" if !value.is_empty() => {
-                if let Some(part) = current.as_mut() {
-                    part.label = Some(value.to_string());
-                }
-            }
-            "Disk Size" => {
-                if let Some(part) = current.as_mut() {
-                    part.size = Some(value.split('(').next().unwrap_or(value).trim().to_string());
-                }
-            }
-            // 分区 UUID（GPT PARTGUID）。ext4 卷 macOS 认不出，报的就是这个值。
-            "Disk / Partition UUID" => {
-                if let Some(part) = current.as_mut() {
-                    part.part_uuid = Some(value.to_string());
-                }
-            }
-            _ => {}
+        // 只要分区（disk0s9 这种，带 sN），不要整盘 disk0。
+        let Some((disk, number)) = parse_disk_id(&dev) else {
+            continue;
+        };
+        if number == 0 {
+            continue;
         }
-    }
-    if let Some(part) = current.take() {
-        parts.push(part);
-    }
-    for part in &mut parts {
-        if part.label.as_deref().is_some_and(is_diskutil_placeholder) {
-            part.label = None;
+        // B2：只留 Linux Filesystem 类型分区
+        let content = mac_plist_string(seg, "Content").unwrap_or_default();
+        if !content.eq_ignore_ascii_case("Linux Filesystem") {
+            continue;
         }
+        let label = mac_plist_string(seg, "VolumeName").filter(|s| {
+            !s.trim().is_empty() && !is_diskutil_placeholder(s)
+        });
+        let part_uuid = mac_plist_string(seg, "DiskUUID").filter(|s| !s.trim().is_empty());
+        // Size 是整数（字节），转成人类可读（与 info -all 的 "58.0 GB" 相近）。
+        let size = mac_plist_integer(seg, "Size").map(human_size);
+        parts.push(SysPart {
+            dev,
+            label,
+            size,
+            part_uuid,
+            disk_index: disk,
+            part_number: number,
+        });
     }
     parts
+}
+
+/// 从 plist `<dict>` 片段取 `<key>KEY</key><string>VALUE</string>`。
+#[cfg(target_os = "macos")]
+fn mac_plist_string(seg: &str, key: &str) -> Option<String> {
+    let needle = format!("<key>{key}</key>");
+    let i = seg.find(&needle)? + needle.len();
+    let rest = &seg[i..];
+    let s = rest.find("<string>")? + "<string>".len();
+    let e = rest[s..].find("</string>")? + s;
+    Some(rest[s..e].to_string())
+}
+
+/// 从 plist `<dict>` 片段取 `<key>KEY</key><integer>VALUE</integer>`。
+#[cfg(target_os = "macos")]
+fn mac_plist_integer(seg: &str, key: &str) -> Option<u64> {
+    let needle = format!("<key>{key}</key>");
+    let i = seg.find(&needle)? + needle.len();
+    let rest = &seg[i..];
+    let s = rest.find("<integer>")? + "<integer>".len();
+    let e = rest[s..].find("</integer>")? + s;
+    rest[s..e].trim().parse::<u64>().ok()
+}
+
+/// 字节数 → 人类可读（十进制，1 GB=10^9），与 diskutil 的显示口径接近。
+#[cfg(target_os = "macos")]
+fn human_size(bytes: u64) -> String {
+    const GB: f64 = 1e9;
+    const MB: f64 = 1e6;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.1} MB", b / MB)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 /// diskutil 认不出的分区会报一句英文占位文案，不能当卷标往界面上摆。
@@ -2423,6 +2443,28 @@ pub(crate) fn refresh(app: &AppHandle, target: Option<&str>, elevation: Elevatio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // 解析 diskutil list -plist 的 <dict> 片段（B1/B2 的核心逻辑）
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parses_diskutil_list_plist_partition() {
+        // 模拟一个 Linux Filesystem 分区 dict（DeviceIdentifier 与 DiskUUID 都是 string）
+        let seg = "<key>Content</key><string>Linux Filesystem</string>\
+                   <key>DeviceIdentifier</key><string>disk0s9</string>\
+                   <key>DiskUUID</key><string>CA6A0E66-36C7-4D65-977D-134976B18499</string>\
+                   <key>Size</key><integer>64609058816</integer>";
+        assert_eq!(mac_plist_string(seg, "DeviceIdentifier").as_deref(), Some("disk0s9"));
+        assert_eq!(mac_plist_string(seg, "Content").as_deref(), Some("Linux Filesystem"));
+        // DiskUUID 应转小写后进映射（此处保持原值供断言，实际 build_guid_map 里 to_ascii_lowercase）
+        assert_eq!(
+            mac_plist_string(seg, "DiskUUID").as_deref(),
+            Some("CA6A0E66-36C7-4D65-977D-134976B18499")
+        );
+        assert_eq!(mac_plist_integer(seg, "Size"), Some(64609058816));
+        // 整盘 disk0（无 sN）应被 parse_disk_id 判为 part_number=0 → 跳过
+        assert_eq!(parse_disk_id("disk0s9"), Some((0, 9)));
+        assert_eq!(parse_disk_id("disk0"), Some((0, 0)));
+    }
 
     /// 回归（2026-10-31 真机事故）：`lsblk -J` 输出的是**树** —— 顶层
     /// `blockdevices` 只有整盘，分区在 `children` 里。旧实现只过顶层那一层再
