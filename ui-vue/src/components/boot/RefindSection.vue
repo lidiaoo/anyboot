@@ -74,8 +74,8 @@ async function refreshSim() {
     const result = await call<{ entries?: unknown[]; summary?: string | null; issues?: { text?: string }[] } | null>("refind_sim_scan");
     if (result) ui.applySnapshot({ ...(ui.state ?? {}), refindSim: result } as never, { force: true });
     const n = result?.entries?.length ?? 0;
-    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个启动项`);
-    else toast.show("重新读取完成，但没有识别到启动项", "bad");
+    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个启动项`, { duration: 6000 });
+    else toast.show("重新读取完成，但没有识别到启动项", { bad: true, duration: 6000 });
   } catch (e) {
     toast.show("重新读取失败：" + e, "bad");
   } finally {

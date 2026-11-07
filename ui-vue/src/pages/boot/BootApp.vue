@@ -436,8 +436,8 @@ async function reloadChannel(id: string): Promise<void> {
     await call("refresh");
     const ch = ui.channels.find((c) => c.id === id);
     const n = ch?.menuPreview?.entries?.length ?? ch?.entries?.length ?? 0;
-    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`);
-    else toast.show("重新读取完成，但没有识别到条目", "bad");
+    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`, { duration: 6000 });
+    else toast.show("重新读取完成，但没有识别到条目", { bad: true, duration: 6000 });
   } catch (e) {
     toast.show("重新读取失败：" + e, "bad");
   } finally {

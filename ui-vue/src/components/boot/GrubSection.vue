@@ -146,9 +146,9 @@ async function refreshAuto() {
     if (view?.error) {
       toast.show("重新读取失败：" + view.error, "bad");
     } else if (n > 0) {
-      toast.show(`重新读取成功：识别到 ${n} 个启动项`);
+      toast.show(`重新读取成功：识别到 ${n} 个启动项`, { duration: 6000 });
     } else {
-      toast.show("重新读取完成，但没有识别到启动项（检查分区/免密授权）", "bad");
+      toast.show("重新读取完成，但没有识别到启动项（检查分区/免密授权）", { bad: true, duration: 6000 });
     }
     void call("refresh").catch(() => {});
   } catch (e) {
