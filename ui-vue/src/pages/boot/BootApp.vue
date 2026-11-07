@@ -7,8 +7,7 @@ import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
 import BootList from "@/components/boot/BootList.vue";
-import RefindSection from "@/components/boot/RefindSection.vue";
-import GrubSection from "@/components/boot/GrubSection.vue";
+import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import { simRows, grubRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import BootSettings from "./BootSettings.vue";
@@ -408,98 +407,6 @@ watch(
 );
 
 /* ============ Linux 免密提权（旧版 index.html:985–1100 的 priv* 逻辑） ============ */
-interface PrivStatus {
-  platform: boolean;
-  state: string;
-  detail: string;
-  sudoersExists: boolean;
-  sudoersPath: string;
-  user: string;
-  helperExists: boolean;
-  hasPkexec: boolean;
-  hasSudo: boolean;
-}
-const privStatus = ref<PrivStatus | null>(null);
-const privBusy = ref(false);
-const privPwOpen = ref(false);
-const privPw = ref("");
-let privPending: "install" | "uninstall" | "" = "";
-
-const privState = computed(() => privStatus.value?.detail ?? "正在读取状态…");
-const privPaths = computed(() => {
-  const s = privStatus.value;
-  if (!s) return "";
-  return (
-    (s.sudoersExists ? `授权：${s.sudoersPath}${s.user ? " → " + s.user : ""}` : "授权：未写入") +
-    " · " +
-    (s.helperExists ? "助手已就位" : "助手未安装")
-  );
-});
-
-const channelReloadBusy = ref<string | null>(null);
-/** K 主题（真实区块）通道卡片的「重新读取」：refresh 后按条目数回执 */
-async function reloadChannel(id: string): Promise<void> {
-  if (channelReloadBusy.value) return;
-  channelReloadBusy.value = id;
-  ui.setBootNotice("正在读取…");
-  try {
-    const MAX_TRIES = 5;
-    let n = 0;
-    for (let i = 0; i < MAX_TRIES; i++) {
-      await call("refresh");
-      const ch = ui.channels.find((c) => c.id === id);
-      n = ch?.menuPreview?.entries?.length ?? ch?.entries?.length ?? 0;
-      if (n > 0) break;
-      if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
-    }
-    if (n > 0) ui.setBootNotice(`重新读取成功：识别到 ${n} 个条目`);
-    else ui.setBootNotice("重新读取完成，但没有识别到条目", true);
-  } catch (e) {
-    ui.setBootNotice("重新读取失败：" + e, true);
-  } finally {
-    channelReloadBusy.value = null;
-  }
-}
-async function privLoad() {
-  try {
-    privStatus.value = (await call<PrivStatus>("linux_priv_status")) ?? null;
-  } catch {
-    privStatus.value = null;
-  }
-}
-
-async function privRun(action: "install" | "uninstall", password?: string) {
-  if (privBusy.value) return;
-  privBusy.value = true;
-  try {
-    const st = (await call<PrivStatus>(
-      action === "install" ? "linux_priv_install" : "linux_priv_uninstall",
-      { password: password || null },
-    )) ?? null;
-    privPwOpen.value = false;
-    privPw.value = "";
-    privPending = "";
-    privStatus.value = st;
-  } catch {
-    /* 忽略 */
-  } finally {
-    privBusy.value = false;
-  }
-}
-
-function privInstall() {
-  void privRun("install");
-}
-function privRemove() {
-  void privRun("uninstall");
-}
-function privPwGo() {
-  if (privPending) void privRun(privPending, privPw.value);
-}
-
-onMounted(() => {
-  void privLoad();
-});
 /** 事件解绑句柄 */
 const unlisteners: (() => void)[] = [];
 
@@ -863,80 +770,17 @@ const statusHidden = computed(() => {
           @update:ratio="adv.setRatio"
           @reorder="(order: string[]) => adv.setOrder(order as any)"
         >
-          <!-- K 原生态：旧版的完整区块结构 -->
-          <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" data-loader-id="refind">
-            <LoaderIcon size="sm" />
-            <b>rEFInd</b>
-            <span>· {{ bootRowsByLoader.refind.length }} 项</span>
+          <!-- G / 不套用主题(K)：与 A 一致——每个引导器只展示引导列表 +
+               折叠的「引导器设置」（其余原完整区块内容收进折叠面板）。 -->
+          <div
+            v-for="id in adv.enabledLoaders"
+            :key="id"
+            :data-loader-section="id"
+            class="boot-loader-block"
+          >
+            <BootList :loader="id" />
+            <LoaderSettings :loader="id" />
           </div>
-          <RefindSection v-if="adv.enabledLoaders.includes('refind')" data-loader-section="refind" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
-
-          <hr aria-hidden="true" class="boot-divider" id="boot-divider" :style="adv.effectiveTheme !== 'K' ? { display: 'none' } : undefined" />
-
-          <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" data-loader-id="grub">
-            <LoaderIcon size="sm" />
-            <b>GRUB</b>
-            <span>· {{ bootRowsByLoader.grub.length }} 项</span>
-          </div>
-          <GrubSection v-if="adv.enabledLoaders.includes('grub')" data-loader-section="grub" :class="adv.effectiveTheme !== 'K' ? 'ba-theme-sec ba-split ba-g-card' : ''" />
-
-          <!-- 三引导器通道（旧版 #boot-channels-mount） -->
-          <div id="boot-channels-mount">
-            <template v-for="ch in ui.channels.filter((c) => c.detected && adv.enabledLoaders.includes(c.id as LoaderId))" :key="ch.id">
-            <div v-if="adv.effectiveTheme !== 'K'" class="lg-group" :data-loader-id="ch.id">
-              <LoaderIcon size="sm" />
-              <b>{{ ch.label }}</b>
-              <span>· {{ bootRowsByLoader[ch.id]?.length ?? 0 }} 项</span>
-            </div>
-            <section
-              :data-loader-section="ch.id"
-              class="grub"
-            >
-              <div class="grub-head">
-                <div class="grub-title-row">
-                  <span class="zone-tag">{{ ch.label }} 区</span>
-                  <h2>{{ ch.label }} 启动项</h2>
-                </div>
-                <small class="grub-pane-status">{{ ch.chip === "ok" ? "已检测 · 免提权" : "已检测 · 需提权" }}</small>
-                <button type="button" class="secondary" :disabled="channelReloadBusy === ch.id" @click="reloadChannel(ch.id)">
-                  {{ channelReloadBusy === ch.id ? "读取中…" : "重新读取" }}
-                </button>
-              </div>
-              <div class="grub-list">
-                <BootList :loader="ch.id" />
-              </div>
-            </section>
-            </template>
-            <div v-if="!ui.channels.some((c) => c.detected)" class="boot-channel-collapsed" id="boot-channel-collapsed">
-              其他引导器
-              <span class="boot-channel-collapsed-names" id="boot-channel-collapsed-names">
-                {{ ui.channels.map((c) => c.label).join("、") }}（未检测到）
-              </span>
-            </div>
-          </div>
-
-          <!-- 免密提权卡（旧版 #privCard，逐字结构） -->
-          <section :hidden="!privStatus?.platform" aria-label="免密提权" class="priv-card" id="privCard">
-            <div class="priv-head">
-              <h3>免密提权</h3>
-              <span class="priv-badge" id="privBadge">{{ privStatus?.state === "installed" ? "已安装" : privStatus?.state === "stale" || privStatus?.state === "outdated" ? "需更新" : "未安装" }}</span>
-            </div>
-            <p class="priv-state" id="privState">{{ privState }}</p>
-            <p class="priv-paths mono" id="privPaths">{{ privPaths }}</p>
-            <div class="actions">
-              <button type="button" id="privInstall" @click="privInstall">安装免密组件</button>
-              <button type="button" class="secondary" id="privRemove" @click="privRemove">移除授权</button>
-            </div>
-            <div class="priv-pw" id="privPwBox" :hidden="!privPwOpen">
-              <label for="privPw">本机登录密码（只在本次运行的内存里，用于 sudo 兜底）</label>
-              <input id="privPw" v-model="privPw" type="password" autocomplete="off" spellcheck="false" placeholder="登录密码" />
-              <div class="actions">
-                <button type="button" id="privPwGo" @click="privPwGo">用密码继续</button>
-                <button type="button" class="secondary" id="privPwCancel" @click="privPwOpen = false">取消</button>
-              </div>
-            </div>
-            <p class="priv-note" id="privNote">{{ (privStatus?.detail || "") }}</p>
-          </section>
         </ThemeHost>
       </div>
 
