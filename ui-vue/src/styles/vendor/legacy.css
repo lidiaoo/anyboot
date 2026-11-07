@@ -5288,3 +5288,9 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.55); white-space: pre-line;
 }
 #toast.bad { border-color: color-mix(in srgb, var(--bad, #dc2626) 50%, transparent); color: var(--bad, #dc2626); }
+
+/* 2026-11-07 不套用主题(K)：每个引导器的引导列表区自身滚动（像 A 的 la-list），
+ * 使置顶副本 pinned 相对列表区钉顶悬浮，而不是钉在整页 tab-panel 顶。 */
+#tab-boot > .boot-loader-block .boot-list-block {
+  max-height: 46vh; overflow-y: auto; min-height: 0;
+}

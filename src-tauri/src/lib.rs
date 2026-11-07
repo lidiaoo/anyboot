@@ -3343,6 +3343,7 @@ pub fn run() {
             view_settings(app.handle());
 
 
+
             if std::env::var("ANYBOOT_TEST_SDB").is_ok() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
