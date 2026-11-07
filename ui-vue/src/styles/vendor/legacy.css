@@ -5341,3 +5341,19 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .grub-auto-candidates { max-height: 110px; overflow-y: auto; scrollbar-width: thin; }
 #tab-boot .grub-auto-note .grub-auto-summary,
 #tab-boot .grub-auto-note .sim-issue { font-size: 11px; }
+
+/* 2026-11-07 OpenCore/通道「引导器设置」里的健康检查/问题/长说明收进小滚动区（默认字号） */
+#tab-boot .oc-menu-issues {
+  max-height: 120px; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin;
+}
+#tab-boot .oc-menu-issues::-webkit-scrollbar,
+#tab-boot .channel-settings-empty::-webkit-scrollbar { width: 6px; }
+#tab-boot .oc-menu-issues::-webkit-scrollbar-thumb,
+#tab-boot .channel-settings-empty::-webkit-scrollbar-thumb { background: var(--line-2, #cbd5e1); border-radius: 3px; }
+#tab-boot .oc-menu-issues::-webkit-scrollbar-track,
+#tab-boot .channel-settings-empty::-webkit-scrollbar-track { background: transparent; }
+#tab-boot .channel-settings-empty {
+  max-height: 120px; overflow-y: auto; scrollbar-width: thin;
+  font-size: 11px; line-height: 1.5;
+}
