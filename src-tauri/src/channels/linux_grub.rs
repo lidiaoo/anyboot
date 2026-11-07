@@ -1624,9 +1624,15 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
 
     // 【性能 T3】分区并行扫描：每块 ext4 分区独立句柄，天然无共享状态，只读安全。
     // 并发上限 = min(核数, 6)。结果按候选原顺序归并（列顺序/默认项判定不变）。
+    // ext4 扫描候选：只挑 Linux Filesystem 类型（B2），ESP/APFS/HFS/FAT 不在其中。
     let candidates: Vec<&SysPart> = sys
         .iter()
         .filter(|part| part.part_number != 0)
+        .filter(|part| {
+            part.content
+                .as_deref()
+                .is_some_and(|c| c.eq_ignore_ascii_case("Linux Filesystem"))
+        })
         .collect();
     let n = candidates.len();
     let conc = scan_concurrency(n);
@@ -2072,6 +2078,7 @@ fn parse_lsblk_parts(bytes: &[u8]) -> Option<Vec<SysPart>> {
                     part_number: number,
                     mountpoint: mountpoint.filter(|text| !text.trim().is_empty()),
                     fs_uuid: fs_uuid.filter(|text| !text.trim().is_empty()),
+                    content: None,
                 });
             }
         }
@@ -2104,6 +2111,8 @@ struct SysPart {
     /// Linux：文件系统 UUID（`lsblk UUID`）。挂载点直读时用它填 fs_uuid，
     /// 供 locate() 的 fstab `UUID=` 匹配（裸读时由 ext4 超级块提供）。
     fs_uuid: Option<String>,
+    /// 分区内容类型（macOS 来自 diskutil 的 Content；用于 ESP 定位 / 是否 ext4 候选）。
+    content: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -2137,15 +2146,15 @@ fn system_partitions() -> Vec<SysPart> {
         if number == 0 {
             continue;
         }
-        // B2：只留 Linux Filesystem 类型分区
-        let content = mac_plist_string(seg, "Content").unwrap_or_default();
-        if !content.eq_ignore_ascii_case("Linux Filesystem") {
-            continue;
-        }
+        // 注意：**这里不过滤类型**——ESP 定位需要全部分区（ESP 是 FAT，
+        // 若只留 Linux Filesystem 就永远找不到 ESP）。ext4 扫描在
+        // probe_raw 里再按 content 过滤。
+        let content = mac_plist_string(seg, "Content").filter(|s| !s.trim().is_empty());
         let label = mac_plist_string(seg, "VolumeName").filter(|s| {
             !s.trim().is_empty() && !is_diskutil_placeholder(s)
         });
         let part_uuid = mac_plist_string(seg, "DiskUUID").filter(|s| !s.trim().is_empty());
+        let mountpoint = mac_plist_string(seg, "MountPoint").filter(|s| !s.trim().is_empty());
         // Size 是整数（字节），转成人类可读（与 info -all 的 "58.0 GB" 相近）。
         let size = mac_plist_integer(seg, "Size").map(human_size);
         parts.push(SysPart {
@@ -2155,8 +2164,9 @@ fn system_partitions() -> Vec<SysPart> {
             part_uuid,
             disk_index: disk,
             part_number: number,
-            mountpoint: None,
+            mountpoint,
             fs_uuid: None,
+            content,
         });
     }
     parts
