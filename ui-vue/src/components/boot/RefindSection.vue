@@ -140,10 +140,11 @@ async function selectEntry(selector: string) {
             type="button"
             id="sim-scan-refresh"
             class="secondary"
+            :disabled="simBusy"
             title="重新读一遍 ESP 与 refind.conf，重算菜单"
             @click="refreshSim"
           >
-            重新模拟
+            {{ simBusy ? "读取中…" : "重新读取" }}
           </button>
         </div>
 

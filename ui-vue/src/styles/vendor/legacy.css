@@ -5278,3 +5278,13 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .k-prev .lg-results .grub-list-body,
 .k-prev .lg-results .grub-list-body > .grub-list-rows { display: contents; }
 .k-prev .lg-results .grub-entry { margin-bottom: 4px; }
+
+/* 2026-11-07 主窗底部浮窗（重新读取等回执落这里，位置同 hub 的 #toast：最下方居中） */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  border: 1px solid var(--line-2, var(--line, #cbd5e1));
+  background: var(--panel, #fff); color: var(--fg, #111);
+  border-radius: 9px; padding: 10px 16px; font-size: 13px; max-width: min(520px, 90vw);
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.55); white-space: pre-line;
+}
+#toast.bad { border-color: color-mix(in srgb, var(--bad, #dc2626) 50%, transparent); color: var(--bad, #dc2626); }
