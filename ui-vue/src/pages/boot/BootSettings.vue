@@ -125,6 +125,8 @@ function loaderEsp(id: string): string {
 /** 切引导器左右列（旧版 k-rg） */
 function moveSide(id: string) {
   const cur = adv.state.side[id] === "r" ? "r" : "l";
+  // 旧版语义：没开左右布局时点「左/右」= 先自动切到左右布局（否则分了列也没效果）
+  if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
   adv.setSide(id, cur === "r" ? "l" : "r");
 }
 
