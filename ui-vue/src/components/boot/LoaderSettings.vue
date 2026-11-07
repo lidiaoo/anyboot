@@ -28,9 +28,6 @@ const open = ref(Boolean(props.defaultOpen));
       <span class="gear" aria-hidden="true" style="margin-right: 4px">⚙</span>
       <span class="grow">
         <span>引导器设置</span>
-        <small>
-          {{ props.loader === "refind" ? "重新模拟 · 扫描摘要 · 变量目录" : props.loader === "grub" ? "ESP 分区 · 分区明细 · 同步 · 脚本" : "健康检查 · 免密模式" }}
-        </small>
       </span>
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
