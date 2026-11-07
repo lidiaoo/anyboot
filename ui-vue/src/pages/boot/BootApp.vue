@@ -17,6 +17,7 @@ import SolPanel from "@/components/boot/SolPanel.vue";
 import ThemeHost from "./themes/index.vue";
 import type { LoaderInfo } from "./themes/types";
 
+import { useToastStore } from "@/stores/toast";
 /**
  * 主窗（原 `ui/index.html`，1092 行）。
  *
@@ -365,6 +366,7 @@ const nextBootRows = computed(() =>
   }),
 );
 
+const toast = useToastStore();
 /** 底部提示条（旧版 #status-bar，所有操作回执都落这里） */
 const statusBar = ref<{ icon: string; text: string; error: boolean }>({ icon: "", text: "", error: false });
 /** 用户手动收起的文案（旧版 statusBarDismissed：同一文案不重复弹） */
@@ -920,6 +922,8 @@ const statusHidden = computed(() => {
   </div>
 
   <!-- 窗口自己的底部提示条（旧版 #status-bar，与 .app-columns 平级） -->
+  <!-- 浮层 toast（GrubSection/RefindSection/ChannelSettings 等的「重新读取」回执落这里） -->
+  <div v-if="toast.text" id="toast" :class="{ bad: toast.bad }" role="status">{{ toast.text }}</div>
   <div v-if="statusBar.text" id="status-bar" aria-live="polite" :class="['status-bar', statusBar.error ? 'error' : 'ok']" role="status">
     <span id="status-bar-icon" class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
     <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>

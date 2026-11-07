@@ -132,10 +132,30 @@ const activeSelector = computed(() => {
 const espDir = computed(() => grubManual.value?.efiDir ?? "");
 const partuuid = computed(() => grubManual.value?.partuuid ?? "");
 
-function refreshAuto() {
-  // 旧版 app.js:1892「重新读取」：不带 auto → Elevation::Allow（弹一次授权）；
-  // auto:true 是启动静默扫的参数（Silent：绝不弹授权，通道不在位就失败）
-  void call("linux_grub_scan", { target: null }).catch(() => {});
+const autoBusy = ref(false);
+async function refreshAuto() {
+  if (autoBusy.value) return;
+  autoBusy.value = true;
+  try {
+    // 旧版 app.js:1892「重新读取」：不带 auto → Elevation::Allow（会弹一次授权）
+    const view = await call<{ error?: string | null; entries?: unknown[]; confidenceNote?: string | null } | null>(
+      "linux_grub_scan",
+      { target: null },
+    );
+    const n = view?.entries?.length ?? 0;
+    if (view?.error) {
+      toast.show("重新读取失败：" + view.error, "bad");
+    } else if (n > 0) {
+      toast.show(`重新读取成功：识别到 ${n} 个启动项`);
+    } else {
+      toast.show("重新读取完成，但没有识别到启动项（检查分区/免密授权）", "bad");
+    }
+    void call("refresh").catch(() => {});
+  } catch (e) {
+    toast.show("重新读取失败：" + e, "bad");
+  } finally {
+    autoBusy.value = false;
+  }
 }
 
 async function syncManual() {
@@ -151,8 +171,14 @@ function pickEspDir() {
   void call("pick_grub_dir").catch(() => {});
 }
 
-function detectEsp() {
-  void call("detect_esp", { path: espDir.value }).catch(() => {});
+async function detectEsp() {
+  try {
+    await call("detect_esp", { path: espDir.value });
+    toast.show("已识别 ESP 分区");
+    void call("refresh").catch(() => {});
+  } catch (e) {
+    toast.show("识别 ESP 失败：" + e, "bad");
+  }
 }
 
 function saveEspDir() {
@@ -219,10 +245,11 @@ async function switchEntry(selector: string) {
             type="button"
             id="grub-auto-refresh"
             class="secondary"
+            :disabled="autoBusy"
             title="按下方选的 ESP 分区重新定位 Linux 分区并读取"
             @click="refreshAuto"
           >
-            重新读取
+            {{ autoBusy ? "读取中…" : "重新读取" }}
           </button>
         </div>
 

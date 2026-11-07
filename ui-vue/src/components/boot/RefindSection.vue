@@ -65,12 +65,21 @@ const hiddenEntries = computed<EntryData[]>(() =>
   simRows({ entries: ((sim.value?.hidden ?? []) as { title?: string; kind?: string; hidden?: boolean; children?: { title?: string; source?: string }[] }[]).map((e) => ({ ...e, hidden: false })) }),
 );
 
+const simBusy = ref(false);
 async function refreshSim() {
-  // 旧版：refind_sim_scan → renderRefindSim（结果直接渲染，不等全量 refresh）
+  if (simBusy.value) return;
+  simBusy.value = true;
   try {
-    const result = await call("refind_sim_scan");
+    // 旧版：refind_sim_scan → renderRefindSim（结果直接渲染，不等全量 refresh）
+    const result = await call<{ entries?: unknown[]; summary?: string | null; issues?: { text?: string }[] } | null>("refind_sim_scan");
     if (result) ui.applySnapshot({ ...(ui.state ?? {}), refindSim: result } as never, { force: true });
+    const n = result?.entries?.length ?? 0;
+    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个启动项`);
+    else toast.show("重新读取完成，但没有识别到启动项", "bad");
+  } catch (e) {
+    toast.show("重新读取失败：" + e, "bad");
   } finally {
+    simBusy.value = false;
     void call("refresh").catch(() => {});
   }
 }
