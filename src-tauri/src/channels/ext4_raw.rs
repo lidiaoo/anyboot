@@ -569,7 +569,18 @@ pub(crate) struct Ext4 {
     pub(crate) sb: Superblock,
     /// 组描述符缓存（按需读，不整表预读：有的盘 100+ 组）
     groups: std::collections::HashMap<u32, (u64, u64)>, // group → (inode_table, block_bitmap)
+    /// 块缓存：一次扫描里 read_block/lookup/read_dir 会反复读同一批元数据块
+    /// （组描述符、目录块、extent 树节点）。用「插入序淘汰」的简易 LRU 兜住，
+    /// 上限见 BLOCK_CACHE_CAP（512 块 × 4K ≈ 2MB）。key=物理块号。
+    block_cache: std::collections::HashMap<u64, std::rc::Rc<Vec<u8>>>,
+    /// 插入序（旧→新），超上限时从头部淘汰
+    block_order: std::collections::VecDeque<u64>,
+    /// inode 缓存：stat/lookup 会反复取同一个 inode（目录项、内核文件）。
+    inode_cache: std::collections::HashMap<u32, Inode>,
 }
+
+/// 块缓存上限（块数）。512×4K≈2MB，单盘扫描足够，且不会撑爆内存。
+const BLOCK_CACHE_CAP: usize = 512;
 
 impl Ext4 {
     pub(crate) fn open(mut src: Box<dyn BlockSource>) -> Result<Self, String> {
@@ -583,6 +594,9 @@ impl Ext4 {
             src,
             sb,
             groups: std::collections::HashMap::new(),
+            block_cache: std::collections::HashMap::new(),
+            block_order: std::collections::VecDeque::new(),
+            inode_cache: std::collections::HashMap::new(),
         };
         // 「能开」必须是真的：组描述符与根 inode 都得读得出来，
         // 否则后面每个调用点都要各自处理这种半坏状态
@@ -602,14 +616,39 @@ impl Ext4 {
         self.src.writable() && !self.sb.needs_recovery()
     }
 
-    fn read_block(&mut self, block: u64) -> Result<Vec<u8>, String> {
+    /// 读一个块（带缓存）。返回 `Rc<Vec<u8>>`，热路径不必反复 clone。
+    fn read_block_rc(&mut self, block: u64) -> Result<std::rc::Rc<Vec<u8>>, String> {
+        if let Some(hit) = self.block_cache.get(&block) {
+            return Ok(hit.clone());
+        }
         let size = self.sb.block_size as usize;
         if block >= self.sb.blocks_count {
             return Err(format!("块号 {block} 超出文件系统范围"));
         }
         let mut buf = vec![0u8; size];
         self.src.read_at(block * self.sb.block_size as u64, &mut buf)?;
-        Ok(buf)
+        let rc = std::rc::Rc::new(buf);
+        // 淘汰最旧
+        while self.block_order.len() >= BLOCK_CACHE_CAP {
+            if let Some(old) = self.block_order.pop_front() {
+                self.block_cache.remove(&old);
+            } else {
+                break;
+            }
+        }
+        self.block_cache.insert(block, rc.clone());
+        self.block_order.push_back(block);
+        Ok(rc)
+    }
+
+    /// 兼容旧调用点：内部走缓存，返回克隆的 Vec（少数需要所有权的路径用）。
+    fn read_block(&mut self, block: u64) -> Result<Vec<u8>, String> {
+        Ok((*self.read_block_rc(block)?).clone())
+    }
+
+    /// 便于把缓存块当切片用（多数解析路径只需 &[u8]）。
+    fn read_block_bytes(&mut self, block: u64) -> Result<std::rc::Rc<Vec<u8>>, String> {
+        self.read_block_rc(block)
     }
 
     /// 组描述符在整个表里的字节偏移
@@ -642,6 +681,16 @@ impl Ext4 {
         if number == 0 || number > self.sb.inodes_count {
             return Err(format!("inode 号非法：{number}"));
         }
+        if let Some(hit) = self.inode_cache.get(&number) {
+            return Ok(hit.clone());
+        }
+        let parsed = self.inode_uncached(number)?;
+        self.inode_cache.insert(number, parsed.clone());
+        Ok(parsed)
+    }
+
+    /// 真正读盘解析 inode（不做缓存判断）。
+    fn inode_uncached(&mut self, number: u32) -> Result<Inode, String> {
         let index = number - 1;
         let group = index / self.sb.inodes_per_group;
         let within = index % self.sb.inodes_per_group;

@@ -1335,6 +1335,17 @@ struct Ext4Candidate {
 /// 一边加了 `dir_listings`、另一边忘了加，rEFInd 模拟在那一端就永远看不到内核清单，
 /// 而这种缺失不会报错，只会表现为「列表里少几项」。
 #[cfg_attr(target_os = "linux", allow(dead_code))]
+/// 【性能 A2】rEFInd 内核清单只认这些前缀（scan.c:1071-1073）：`vmlinuz*` /
+/// `bzImage*` / `kernel*` / `*.efi`。据此在 `list_dir` 之后、`stat` 之前先过滤，
+/// 避免对根目录里的普通文件（etc/bin/usr… 上百项）逐个 stat。
+fn is_kernel_like(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("vmlinuz")
+        || lower.starts_with("bzimage")
+        || lower.starts_with("kernel")
+        || lower.ends_with(".efi")
+}
+
 fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
     let mut report = PartReport {
         dev: cand.dev.clone(),
@@ -1372,44 +1383,51 @@ fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
         report.os_id = os_release_id(&text);
         report.os_pretty_name = os_release_pretty_name(&text);
     }
+    // 【性能 A1】是否像「Linux 系统分区」：有 os-release，或 fstab 里挂了根 `/`。
+    // 不是系统分区（纯数据盘 / 空 ext4）就跳过下面的「根目录 + /boot 内核清单」扫描
+    // ——那是本函数最贵的部分（根目录全遍历 + 每目录项 stat）。
+    // 保守判定：只要命中任一条就当系统分区，绝不误杀（漏判只会多扫，不会少扫）。
+    let is_linux_system = report.os_id.is_some()
+        || report.mounts.iter().any(|m| m.mountpoint == "/");
     // 内核目录清单（rEFInd 装了 ext4 驱动后扫的就是这两处：根目录 + /boot）。
     // 只在**有 ext4 文件系统可读**时才有意义，FAT ESP 的 PartReport 根本不会
     // 走到这里（Ext4::open 失败直接 continue 了）。
-    for dir in ["", "boot"] {
-        let Ok(names) = fs.list_dir(dir) else {
-            continue;
-        };
-        let files: Vec<DirFile> = names
-            .into_iter()
-            .filter(|name| !name.starts_with('.'))
-            .take(MAX_LISTING_FILES)
-            .filter_map(|name| {
-                // 只留文件（rEFInd 的 DirIter 也只匹配文件）；目录名如
-                // "efi" 不会撞 vmlinuz 前缀，但端给主进程的清单干净些好。
-                // mtime 对折叠排序至关重要（rEFInd 新内核排最前）。
-                let meta = fs.stat(&join_rel(dir, &name))?;
-                if meta.is_dir {
-                    return None;
-                }
-                Some(DirFile {
-                    name,
-                    mtime: meta.mtime,
+    // 【性能 A1】非 Linux 系统分区跳过（省掉全根目录遍历 + 每项 stat）。
+    if is_linux_system {
+        for dir in ["", "boot"] {
+            let Ok(names) = fs.list_dir(dir) else {
+                continue;
+            };
+            let files: Vec<DirFile> = names
+                .into_iter()
+                .filter(|name| !name.starts_with('.'))
+                .filter(|name| is_kernel_like(name)) // 【性能 A2】先按内核前缀过滤，只对命中项 stat
+                .take(MAX_LISTING_FILES)
+                .filter_map(|name| {
+                    // mtime 对折叠排序至关重要（rEFInd 新内核排最前）。
+                    let meta = fs.stat(&join_rel(dir, &name))?;
+                    if meta.is_dir {
+                        return None;
+                    }
+                    Some(DirFile {
+                        name,
+                        mtime: meta.mtime,
+                    })
                 })
-            })
-            .collect();
-        // list_dir 已按名字排好序，这里不用再排；**mtime 排序是消费方的
-        // 事**（要照顾 rescue 内核沉底，那是消费方才知道的事）。
-        let conf_rel = format!("{dir}/refind_linux.conf");
-        let refind_linux_conf = fs
-            .read_path(&conf_rel, MAX_SMALL_BYTES)
-            .ok()
-            .flatten()
-            .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
-        report.dir_listings.push(DirListing {
-            dir: dir.to_string(),
-            files,
-            refind_linux_conf,
-        });
+                .collect();
+            // 即便本目录没有内核，也读一次 refind_linux.conf（很便宜，且可能整目录就靠它）。
+            let conf_rel = format!("{dir}/refind_linux.conf");
+            let refind_linux_conf = fs
+                .read_path(&conf_rel, MAX_SMALL_BYTES)
+                .ok()
+                .flatten()
+                .map(|bytes| String::from_utf8_lossy(&bytes).to_string());
+            report.dir_listings.push(DirListing {
+                dir: dir.to_string(),
+                files,
+                refind_linux_conf,
+            });
+        }
     }
     // grub.cfg / grubenv
     for dir in GRUB_DIRS {
@@ -1474,38 +1492,77 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
         }
     }
 
-    for part in &sys {
-        // 只试分区，不试整盘
-        if part.part_number == 0 {
-            continue;
-        }
-        let path = raw_path(&part.dev);
-        // 报错原文一定要带出来。上一轮 `/dev/rdisk` + `disk0s9` 拼成了
-        // `/dev/rdiskdisk0s9`，被这句「可能被系统占用」吞掉，白查了半天权限。
-        let source = match FileSource::open_raw(&path) {
-            Ok(source) => source,
-            Err(why) => {
-                payload.notes.push(format!("{} 打不开：{why}", part.dev));
-                continue;
+    // 【性能 T3】分区并行扫描：每块 ext4 分区独立句柄，天然无共享状态，只读安全。
+    // 并发上限 = min(核数, 6)。结果按候选原顺序归并（列顺序/默认项判定不变）。
+    let candidates: Vec<&SysPart> = sys
+        .iter()
+        .filter(|part| part.part_number != 0)
+        .collect();
+    let n = candidates.len();
+    let conc = scan_concurrency(n);
+    // 每块的扫描结果：(PartReport, 可能的错误 note)。下标与 candidates 对齐。
+    let mut slots: Vec<Option<Result<Option<PartReport>, String>>> = (0..n).map(|_| None).collect();
+    {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+        let next = AtomicUsize::new(0);
+        let slots_mutex = Mutex::new(&mut slots);
+        std::thread::scope(|scope| {
+            for _ in 0..conc.min(n.max(1)) {
+                scope.spawn(|| loop {
+                    let idx = next.fetch_add(1, Ordering::SeqCst);
+                    if idx >= n {
+                        break;
+                    }
+                    let part = candidates[idx];
+                    let result = scan_one_part(part);
+                    slots_mutex.lock().unwrap()[idx] = Some(result);
+                });
             }
-        };
-        let Ok(mut fs) = Ext4::open(Box::new(source)) else {
-            continue; // 不是 ext4：正常跳过，不刷问题列表
-        };
-        payload.parts.push(scan_ext4(
-            &mut fs,
-            &Ext4Candidate {
-                dev: part.dev.clone(),
-                label: part.label.clone(),
-                size: part.size.clone(),
-                part_uuid: part.part_uuid.clone(),
-                part_number: part.part_number,
-                disk_index: part.disk_index,
-            },
-        ));
+        });
+    }
+    // 按序归并：错误原样进 notes（与串行版顺序一致）
+    for slot in slots.into_iter().flatten() {
+        match slot {
+            Ok(Some(report)) => payload.parts.push(report),
+            Ok(None) => {} // 非 ext4，正常跳过
+            Err(note) => payload.notes.push(note),
+        }
     }
     Ok(payload)
 }
+
+/// 扫描并发度：min(可用核数, 6)。分区少时按分区数。
+fn scan_concurrency(n: usize) -> usize {
+    let cores = std::thread::available_parallelism()
+        .map(|c| c.get())
+        .unwrap_or(4);
+    cores.min(6).min(n.max(1))
+}
+
+/// 【T3】单独扫一块分区：打开裸设备 → Ext4::open → scan_ext4。
+/// 返回 `Ok(Some(report))` 成功；`Ok(None)` 非 ext4（正常跳过，不记问题）；
+/// `Err(note)` 打不开（note 进 problems 列表，与串行版一致）。
+#[cfg(target_os = "macos")]
+fn scan_one_part(part: &SysPart) -> Result<Option<PartReport>, String> {
+    let path = raw_path(&part.dev);
+    let source = FileSource::open_raw(&path).map_err(|why| format!("{} 打不开：{why}", part.dev))?;
+    let Ok(mut fs) = Ext4::open(Box::new(source)) else {
+        return Ok(None); // 不是 ext4：正常跳过
+    };
+    Ok(Some(scan_ext4(
+        &mut fs,
+        &Ext4Candidate {
+            dev: part.dev.clone(),
+            label: part.label.clone(),
+            size: part.size.clone(),
+            part_uuid: part.part_uuid.clone(),
+            part_number: part.part_number,
+            disk_index: part.disk_index,
+        },
+    )))
+}
+
 
 /// Windows：Linux 分区没有盘符，只能开整盘再按分区偏移读。
 ///
