@@ -5320,3 +5320,24 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .sim-scan-note::-webkit-scrollbar-track { background: transparent; }
 #tab-boot .sim-scan-note .sim-scan-summary,
 #tab-boot .sim-scan-note .sim-issue { font-size: 11px; }
+
+/* 2026-11-07 GRUB 自动读取 扫描摘要/问题/分区JSON 收进小滚动区（默认字号，细滚动条） */
+#tab-boot .grub-auto-note {
+  max-height: 110px; overflow-y: auto; overflow-x: hidden;
+  margin: 4px 0; padding: 4px 6px; border-radius: 6px;
+  background: var(--panel-2, rgba(0,0,0,0.03));
+  font-size: 11px; line-height: 1.5; scrollbar-width: thin;
+}
+#tab-boot .grub-auto-note::-webkit-scrollbar,
+#tab-boot .grub-auto-target::-webkit-scrollbar,
+#tab-boot .grub-auto-candidates::-webkit-scrollbar { width: 6px; }
+#tab-boot .grub-auto-note::-webkit-scrollbar-thumb,
+#tab-boot .grub-auto-target::-webkit-scrollbar-thumb,
+#tab-boot .grub-auto-candidates::-webkit-scrollbar-thumb { background: var(--line-2, #cbd5e1); border-radius: 3px; }
+#tab-boot .grub-auto-note::-webkit-scrollbar-track,
+#tab-boot .grub-auto-target::-webkit-scrollbar-track,
+#tab-boot .grub-auto-candidates::-webkit-scrollbar-track { background: transparent; }
+#tab-boot .grub-auto-target { max-height: 90px; overflow-y: auto; scrollbar-width: thin; }
+#tab-boot .grub-auto-candidates { max-height: 110px; overflow-y: auto; scrollbar-width: thin; }
+#tab-boot .grub-auto-note .grub-auto-summary,
+#tab-boot .grub-auto-note .sim-issue { font-size: 11px; }

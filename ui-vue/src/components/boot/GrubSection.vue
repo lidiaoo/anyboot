@@ -263,11 +263,14 @@ async function switchEntry(selector: string) {
           </button>
         </div>
 
-        <p class="grub-auto-summary" id="grub-auto-summary">{{ grubAuto?.confidenceNote || "" }}</p>
-        <div class="grub-auto-issues" id="grub-auto-issues">
-          <p v-for="(issue, i) in grubAuto?.issues ?? []" :key="i" class="sim-issue">
-            {{ issue.text }}
-          </p>
+        <!-- 扫描摘要 + 问题：收进「重新读取」下方小滚动区（默认字号，细滚动条） -->
+        <div class="grub-auto-note">
+          <p class="grub-auto-summary" id="grub-auto-summary">{{ grubAuto?.confidenceNote || "" }}</p>
+          <div class="grub-auto-issues" id="grub-auto-issues">
+            <p v-for="(issue, i) in grubAuto?.issues ?? []" :key="i" class="sim-issue">
+              {{ issue.text }}
+            </p>
+          </div>
         </div>
 
         <div class="grub-auto-card" id="grub-auto-card">
