@@ -159,12 +159,15 @@ async function selectEntry(selector: string) {
           </button>
         </div>
 
-        <p class="sim-scan-summary" id="sim-scan-summary">{{ sim?.summary || "" }}</p>
-
-        <div class="sim-scan-issues" id="sim-scan-issues">
-          <p v-for="(issue, i) in sim?.issues ?? []" :key="i" class="sim-issue">
-            {{ issue.text }}
-          </p>
+        <!-- 扫描摘要 + 问题：收进「重新读取」下方的小滚动区（默认字号，带细滚动条） -->
+        <div class="sim-scan-note">
+          <p class="sim-scan-summary" id="sim-scan-summary">{{ sim?.summary || "" }}</p>
+  
+          <div class="sim-scan-issues" id="sim-scan-issues">
+            <p v-for="(issue, i) in sim?.issues ?? []" :key="i" class="sim-issue">
+              {{ issue.text }}
+            </p>
+          </div>
         </div>
 
         <div class="sim-scan-list" id="sim-scan-list">
