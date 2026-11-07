@@ -16,7 +16,7 @@ async function refreshChannel() {
   busy.value = true;
   ui.setBootNotice("正在读取…");
   try {
-    const MAX_TRIES = 5;
+    const MAX_TRIES = 1; // T8: 扫描已快，不再连打多次（失败一次即报错）
     let n = 0;
     for (let i = 0; i < MAX_TRIES; i++) {
       await call("refresh");

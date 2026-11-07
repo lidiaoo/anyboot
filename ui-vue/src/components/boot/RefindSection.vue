@@ -72,7 +72,7 @@ async function refreshSim() {
   ui.setBootNotice("正在读取…");
   try {
     // 循环重试直到读到条目或达上限；期间按钮保持“读取中…”
-    const MAX_TRIES = 6;
+    const MAX_TRIES = 1; // T8: 扫描已快，不再连打多次（失败一次即报错）
     let okN = 0;
     let lastErr = "";
     let last: { entries?: unknown[]; summary?: string | null } | null = null;

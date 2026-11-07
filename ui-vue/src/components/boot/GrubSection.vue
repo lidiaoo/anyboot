@@ -137,7 +137,7 @@ async function refreshAuto() {
   try {
     // 「重新读取」：循环重试直到读到条目或达到上限（期间按钮保持“读取中…”）。
     // 不带 auto → Elevation::Allow（首轮可能弹一次授权）。
-    const MAX_TRIES = 6;
+    const MAX_TRIES = 1; // T8: 扫描已快，不再连打多次（失败一次即报错）
     let lastErr = "";
     let okN = 0;
     for (let i = 0; i < MAX_TRIES; i++) {
