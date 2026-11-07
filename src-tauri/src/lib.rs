@@ -3329,8 +3329,6 @@ pub fn run() {
                         Err(error) => eprintln!("[hook] 打开远程管理窗口失败: {error}"),
                     }
 
-
-
                     let want_term = std::env::var("ANYBOOT_TEST_OPEN_TERM").is_ok();
                     let want_files = std::env::var("ANYBOOT_TEST_OPEN_FILES").is_ok();
                     let want_keys = std::env::var("ANYBOOT_TEST_OPEN_KEYS").is_ok();
@@ -3379,8 +3377,6 @@ pub fn run() {
             startup_autostart_sync(app.handle());
             view_settings(app.handle());
 
-
-
             if std::env::var("ANYBOOT_TEST_SDB").is_ok() {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {
@@ -3419,18 +3415,6 @@ pub fn run() {
                     }
                 });
             }
-
-
-
-
-
-
-
-
-
-
-
-
 
             // 调试/沙箱：把变量目录指到别处，验证时不会碰真实的 ESP
             if let Ok(directory) = std::env::var("ANYBOOT_VARS_DIR") {
