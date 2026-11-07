@@ -5357,3 +5357,13 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   max-height: 120px; overflow-y: auto; scrollbar-width: thin;
   font-size: 11px; line-height: 1.5;
 }
+
+/* 2026-11-07 引导高级设置「免密提权（root 助手）」卡片：统一默认字号（不再 16px 放大） */
+#helper-card { font-size: 13px; }
+#helper-card .helper-label { font-size: 13px; font-weight: 600; color: var(--text); }
+#helper-card .helper-state { font-size: 13px; color: var(--dim); }
+#helper-card .helper-state[data-state="on"] { color: var(--ok, #16a34a); }
+#helper-card .helper-state[data-state="stale"] { color: var(--warn, #d97706); }
+#helper-card .helper-state[data-state="off"] { color: var(--faint); }
+#helper-card .helper-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+#helper-card button { font-size: 12px; }
