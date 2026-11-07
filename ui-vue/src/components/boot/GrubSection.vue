@@ -415,6 +415,8 @@ async function switchEntry(selector: string) {
         </ul>
       </small>
 
+    </div>
+
       <!-- ESP 配置（旧版 .grub-esp） -->
       <div class="grub-esp" id="grub-esp">
         <div class="grub-esp-head">
@@ -461,7 +463,7 @@ async function switchEntry(selector: string) {
         </div>
         <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
       </div>
-    </div>
+
 
     <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
