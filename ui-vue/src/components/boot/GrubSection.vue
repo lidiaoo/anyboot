@@ -136,7 +136,7 @@ const autoBusy = ref(false);
 async function refreshAuto() {
   if (autoBusy.value) return;
   autoBusy.value = true;
-  toast.show("正在读取…", { duration: 0 });
+  ui.setBootNotice("正在读取…");
   try {
     // 「重新读取」：循环重试直到读到条目或达到上限（期间按钮保持“读取中…”）。
     // 不带 auto → Elevation::Allow（首轮可能弹一次授权）。
@@ -154,15 +154,15 @@ async function refreshAuto() {
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1500));
     }
     if (okN > 0) {
-      toast.show(`重新读取成功：识别到 ${okN} 个启动项`, { duration: 6000 });
+      ui.setBootNotice(`重新读取成功：识别到 ${okN} 个启动项`);
     } else if (lastErr) {
-      toast.show("重新读取失败：" + lastErr, { bad: true, duration: 6000 });
+      ui.setBootNotice("重新读取失败：" + lastErr, true);
     } else {
-      toast.show("重新读取完成，但没有识别到启动项（检查分区/免密授权）", { bad: true, duration: 6000 });
+      ui.setBootNotice("重新读取完成，但没有识别到启动项（检查分区/免密授权）", true);
     }
     void call("refresh").catch(() => {});
   } catch (e) {
-    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
+    ui.setBootNotice("重新读取失败：" + e, true);
   } finally {
     autoBusy.value = false;
   }

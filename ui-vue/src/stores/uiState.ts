@@ -83,6 +83,15 @@ export const useUiStateStore = defineStore("uiState", () => {
   /** 推送通道的最近一次错误（界面上提示用） */
   const pushError = ref("");
   const remoteTokenMissing = ref(false);
+  /** 全局「底部回执条」文案（引导页各「重新读取」等操作写这里 → BootApp 渲染为 #status-bar，
+   *  与 GRUB 手动识别同一条浮窗）。error=true 显示红字。 */
+  const bootNotice = ref<{ text: string; error: boolean }>({ text: "", error: false });
+  function setBootNotice(text: string, error = false): void {
+    bootNotice.value = { text, error };
+  }
+  function clearBootNotice(): void {
+    bootNotice.value = { text: "", error: false };
+  }
 
   let socket: WebSocket | null = null;
   let pushRetryTimer: number | null = null;
@@ -373,6 +382,9 @@ export const useUiStateStore = defineStore("uiState", () => {
     activeTransport,
     pushError,
     remoteTokenMissing,
+    bootNotice,
+    setBootNotice,
+    clearBootNotice,
     // 动作
     applySnapshot,
     start,

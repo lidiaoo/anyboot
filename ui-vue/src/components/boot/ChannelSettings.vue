@@ -5,18 +5,16 @@
  * 供各主题列表下方折叠面板使用（列表本身由 BootList 渲染）。
  */
 import { computed, ref } from "vue";
-import { useToastStore } from "@/stores/toast";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
 
 const props = defineProps<{ loader: string }>();
 const ui = useUiStateStore();
-const toast = useToastStore();
 const busy = ref(false);
 async function refreshChannel() {
   if (busy.value) return;
   busy.value = true;
-  toast.show("正在读取…", { duration: 0 });
+  ui.setBootNotice("正在读取…");
   try {
     const MAX_TRIES = 5;
     let n = 0;
@@ -27,10 +25,10 @@ async function refreshChannel() {
       if (n > 0) break;
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
     }
-    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`, { duration: 6000 });
-    else toast.show("重新读取完成，但没有识别到条目", { bad: true, duration: 6000 });
+    if (n > 0) ui.setBootNotice(`重新读取成功：识别到 ${n} 个条目`);
+    else ui.setBootNotice("重新读取完成，但没有识别到条目", true);
   } catch (e) {
-    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
+    ui.setBootNotice("重新读取失败：" + e, true);
   } finally {
     busy.value = false;
   }

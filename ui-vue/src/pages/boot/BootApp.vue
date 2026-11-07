@@ -397,6 +397,15 @@ function dismissStatusBar(): void {
 
 // 快照变化时同步
 watch(() => ui.state, syncStatusBarFromState);
+// 各引导器「重新读取」等操作把回执写到 ui.bootNotice → 显示到窗口底部 status-bar（与手动识别同一条）
+watch(
+  () => ui.bootNotice,
+  (n) => {
+    if (!n || !n.text) return;
+    statusBar.value = { icon: n.error ? "✕" : "✓", text: n.text, error: n.error };
+  },
+  { deep: true },
+);
 
 /* ============ Linux 免密提权（旧版 index.html:985–1100 的 priv* 逻辑） ============ */
 interface PrivStatus {
@@ -432,7 +441,7 @@ const channelReloadBusy = ref<string | null>(null);
 async function reloadChannel(id: string): Promise<void> {
   if (channelReloadBusy.value) return;
   channelReloadBusy.value = id;
-  toast.show("正在读取…", { duration: 0 });
+  ui.setBootNotice("正在读取…");
   try {
     const MAX_TRIES = 5;
     let n = 0;
@@ -443,10 +452,10 @@ async function reloadChannel(id: string): Promise<void> {
       if (n > 0) break;
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
     }
-    if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`, { duration: 6000 });
-    else toast.show("重新读取完成，但没有识别到条目", { bad: true, duration: 6000 });
+    if (n > 0) ui.setBootNotice(`重新读取成功：识别到 ${n} 个条目`);
+    else ui.setBootNotice("重新读取完成，但没有识别到条目", true);
   } catch (e) {
-    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
+    ui.setBootNotice("重新读取失败：" + e, true);
   } finally {
     channelReloadBusy.value = null;
   }

@@ -69,7 +69,7 @@ const simBusy = ref(false);
 async function refreshSim() {
   if (simBusy.value) return;
   simBusy.value = true;
-  toast.show("正在读取…", { duration: 0 });
+  ui.setBootNotice("正在读取…");
   try {
     // 循环重试直到读到条目或达上限；期间按钮保持“读取中…”
     const MAX_TRIES = 6;
@@ -84,11 +84,11 @@ async function refreshSim() {
       if (n > 0) { okN = n; break; }
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
     }
-    if (okN > 0) toast.show(`重新读取成功：识别到 ${okN} 个启动项`, { duration: 6000 });
-    else if (lastErr) toast.show("重新读取失败：" + lastErr, { bad: true, duration: 6000 });
-    else { void last; toast.show("重新读取完成，但没有识别到启动项", { bad: true, duration: 6000 }); }
+    if (okN > 0) ui.setBootNotice(`重新读取成功：识别到 ${okN} 个启动项`);
+    else if (lastErr) ui.setBootNotice("重新读取失败：" + lastErr, true);
+    else { void last; ui.setBootNotice("重新读取完成，但没有识别到启动项", true); }
   } catch (e) {
-    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
+    ui.setBootNotice("重新读取失败：" + e, true);
   } finally {
     simBusy.value = false;
     void call("refresh").catch(() => {});
