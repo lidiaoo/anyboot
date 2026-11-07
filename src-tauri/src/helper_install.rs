@@ -570,12 +570,16 @@ pub(crate) fn uninstall() -> Result<String, String> {
 
 /// 前端「开启 / 关闭免密」的唯一入口。
 #[tauri::command]
-pub(crate) fn boot_helper(action: String) -> Result<String, String> {
-    match action.as_str() {
+pub(crate) async fn boot_helper(action: String) -> Result<String, String> {
+    // async + spawn_blocking：install/uninstall 会弹系统授权框、阻塞等用户输入
+    // （十几秒）。若在主线程跑，会把整个 UI 卡住 —— 用户看不到「开启中」、转圈也不动。
+    tauri::async_runtime::spawn_blocking(move || match action.as_str() {
         "install" => install(),
         "uninstall" => uninstall(),
         other => Err(format!("未知的助手动作: {other}")),
-    }
+    })
+    .await
+    .map_err(|e| format!("助手操作任务失败: {e}"))?
 }
 
 #[cfg(test)]

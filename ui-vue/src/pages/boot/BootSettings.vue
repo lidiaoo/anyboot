@@ -11,6 +11,7 @@ import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/
 
 import { call } from "@/api/tauri";
 import { setStartupScanWithAdmin, setHelperReminderSnooze } from "@/api/tauri";
+import { useToastStore } from "@/stores/toast";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
  *
@@ -67,6 +68,9 @@ function loaderPerm(id: string): string {
 }
 /** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
 const helperBusy = ref(false);
+const toast = useToastStore();
+/** 助手操作的阶段文案（给按钮/状态当"进行中"反馈，让用户知道在等什么） */
+const helperBusyLabel = ref("");
 /** 启动时使用管理员扫描（默认开） */
 async function toggleStartupAdminScan(): Promise<void> {
   const cur = ui.settings?.startupScanWithAdmin !== false;
@@ -92,13 +96,28 @@ async function toggleBootHelper(): Promise<void> {
   if (helperBusy.value) return;
   const h = ui.state?.helper;
   if (!h) return;
+  const action = h.installed && !h.stale ? "uninstall" : "install";
   helperBusy.value = true;
+  helperBusyLabel.value =
+    action === "install"
+      ? (h.installed ? "重装中…（会弹系统授权框，请输入密码）" : "开启中…（会弹系统授权框，请输入密码）")
+      : "关闭中…";
   try {
-    await call("boot_helper", { action: h.installed && !h.stale ? "uninstall" : "install" });
-  } catch {
-    /* 状态由下次快照带回 */
+    await call("boot_helper", { action });
+    // 失败已由下次快照带回；成功/失败都给明确结果反馈
+    if (action === "install") {
+      toast.show("免密提权已开启");
+    } else {
+      toast.show("免密提权已关闭");
+    }
+  } catch (e) {
+    // 用户取消系统授权 / 安装失败：明确告诉用户，而不是静默
+    toast.show("免密提权操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
   } finally {
     helperBusy.value = false;
+    helperBusyLabel.value = "";
+    // 操作后主动拉一次设置，让状态标签尽快从「未开启」变「已开启」等
+    void call("get_settings").catch(() => {});
   }
 }
 const message = ref("");
@@ -248,15 +267,19 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
     <section v-if="ui.state?.helper?.supported" class="card helper-card" id="helper-card">
       <div class="helper-card-row">
         <span class="helper-label">免密提权（root 助手）</span>
-        <span class="helper-state" :data-state="ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off'">
-          {{ ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启" }}
+        <span class="helper-state" :data-state="helperBusy ? 'off' : (ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off')">
+          {{ helperBusy ? "处理中…" : (ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启") }}
         </span>
         <span class="grow" />
         <button type="button" class="btn sm" :disabled="helperBusy" @click="toggleBootHelper">
-          {{ ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴" }}
+          <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
+          {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴") }}
         </button>
       </div>
       <small class="helper-hint">{{ ui.state.helper.text }}</small>
+      <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+        点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
+      </small>
       <!-- 启动时使用管理员扫描（默认开）：开启后启动主动扫所有引导器 -->
       <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
         <span class="helper-label">启动时使用管理员扫描</span>

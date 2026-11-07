@@ -5383,3 +5383,11 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 
 /* GRUB ESP 共享区说明（自动/手动共用） */
 #tab-boot .grub-esp-shared-note { font-size: 11px; color: var(--faint); font-weight: 400; margin-left: 6px; }
+
+/* 免密提权按钮「处理中」小转圈 */
+.btn-spinner {
+  display: inline-block; width: 10px; height: 10px; margin-right: 5px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  vertical-align: -1px; animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
