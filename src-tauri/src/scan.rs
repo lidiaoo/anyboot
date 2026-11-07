@@ -229,7 +229,9 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
         });
     }
 
+    let _sp_c = crate::perf::span("vars.candidates");
     let mut candidates = mounted_scan_candidates();
+    drop(_sp_c);
     candidates.sort_by_key(|candidate| {
         candidate
             .active_mount
@@ -248,8 +250,10 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
         ));
     }
     if let Some(directory) = candidates.first() {
+        let _sp_i = crate::perf::span("vars.inspect");
         let variables = inspect_variables(&directory.vars_dir)
             .map_err(|error| format!("无法读取变量目录: {error}"))?;
+        drop(_sp_i);
         return Ok(ScanResult {
             vars_dir: directory.vars_dir.clone(),
             active_mount: directory.active_mount.clone(),

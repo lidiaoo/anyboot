@@ -180,6 +180,10 @@ pub(crate) fn nvram_write_arg(name: &str, guid: &str, value: &[u8]) -> String {
 
 #[cfg(target_os = "linux")]
 mod imp {
+    pub(crate) fn read_all_vars() -> Option<std::collections::HashMap<String, Vec<u8>>> {
+        None
+    }
+
     use super::*;
 
     fn efivar_path(name: &str, guid: &str) -> PathBuf {
@@ -269,6 +273,33 @@ mod imp {
             .stderr(Stdio::null())
             .output()
             .map_err(|error| NvramError::Failed(format!("无法执行 nvram: {error}")))
+    }
+
+    /// 【性能】一次 `nvram -p` 拿全部变量（key 形如 `name` 或 `GUID:name`），
+    /// 供「读多个 Boot####/OCBt####」的批量场景用 —— 避免逐项 spawn `nvram`
+    /// （每项 ~40ms）。返回值按 key 归一到小写 GUID + 原 name。
+    pub(crate) fn read_all_vars() -> Option<std::collections::HashMap<String, Vec<u8>>> {
+        let mut map = std::collections::HashMap::new();
+        let Ok(output) = run_nvram(&["-p"]) else {
+            return None;
+        };
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let Some((key, value)) = line.split_once('\t') else {
+                continue;
+            };
+            // key 可能带 GUID 前缀（私有 namespace 变量）。统一成小写 GUID:name。
+            let norm = if let Some((guid, name)) = key.rsplit_once(':') {
+                format!("{}:{}", guid.to_ascii_lowercase(), name)
+            } else {
+                key.to_string()
+            };
+            map.insert(norm, decode_nvram_escaped(value));
+        }
+        Some(map)
     }
 
     pub(crate) fn read_var(name: &str, guid: &str) -> Result<Vec<u8>, NvramError> {
@@ -378,6 +409,10 @@ mod imp {
 
 #[cfg(target_os = "windows")]
 mod imp {
+    pub(crate) fn read_all_vars() -> Option<std::collections::HashMap<String, Vec<u8>>> {
+        None
+    }
+
     use super::*;
     // 注意：windows-sys 0.59 里这俩函数落在 WindowsProgramming 模块
     // （windows crate 才在 SystemInformation，别照搬）
@@ -560,6 +595,11 @@ mod imp {
 
 pub(crate) fn read_var(name: &str, guid: &str) -> Result<Vec<u8>, NvramError> {
     imp::read_var(name, guid)
+}
+
+/// 【性能】批量读全部变量（macOS 一次 nvram -p；其它端返回 None 供调用方回落逐项）。
+pub(crate) fn read_all_vars() -> Option<std::collections::HashMap<String, Vec<u8>>> {
+    imp::read_all_vars()
 }
 
 pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {

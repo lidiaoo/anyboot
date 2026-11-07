@@ -338,16 +338,42 @@ pub(crate) fn macos_read_line(info: &mut DiskInfo, line: &str) {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_disk_info(path: &Path) -> Option<DiskInfo> {
+    // 【性能】进程内 TTL 缓存：`diskutil info <path>` 约 130ms，而一次 refresh 里
+    // grub 侧(esp_probe) 与三通道侧(esp.probe) 会对同一个 ESP 路径各调一次 →
+    // 第二次直接命中，省 ~130ms。TTL 5s 足够覆盖一次启动刷新，又不会读到过旧状态。
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Instant;
+    type Cache = std::collections::HashMap<String, (Instant, Option<DiskInfo>)>;
+    static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+    const TTL: std::time::Duration = std::time::Duration::from_secs(5);
+    let key = fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string_lossy().to_string());
+    let cell = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    // 非持锁 double-check：并行两处同时 miss 是常态（盘上调用不叠加，各 130ms 并行
+    // 不亏）；只要有一处先完成，后续同 path 的调用即命中。持锁反而把并行变串行，故不持锁调用。
+    if let Ok(guard) = cell.lock() {
+        if let Some((at, info)) = guard.get(&key) {
+            if at.elapsed() < TTL {
+                return info.clone();
+            }
+        }
+    }
     let output = command("diskutil").arg("info").arg(path).output().ok()?;
-    if !output.status.success() {
-        return None;
+    let info = if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut info = DiskInfo::default();
+        for line in text.lines() {
+            macos_read_line(&mut info, line);
+        }
+        Some(info)
+    } else {
+        None
+    };
+    if let Ok(mut guard) = cell.lock() {
+        guard.insert(key, (Instant::now(), info.clone()));
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut info = DiskInfo::default();
-    for line in text.lines() {
-        macos_read_line(&mut info, line);
-    }
-    Some(info)
+    info
 }
 
 /// `diskutil info -all`：每块盘一段，段之间是一整行星号。未挂载的卷也能从这里看到。

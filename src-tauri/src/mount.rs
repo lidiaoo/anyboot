@@ -475,14 +475,11 @@ pub(crate) fn mounted_candidate_directories() -> Vec<PathBuf> {
                 continue;
             };
             for entry in entries.flatten() {
-                let root = entry.path();
-                push_unique(&mut candidates, root.join("EFI/refind/vars"));
-                let Ok(nested) = fs::read_dir(&root) else {
-                    continue;
-                };
-                for nested_entry in nested.flatten() {
-                    push_unique(&mut candidates, nested_entry.path().join("EFI/refind/vars"));
-                }
+                // 【性能】只对卷根拼候选路径，**不再对每个卷做第二层 read_dir** ——
+                // 旧代码把 /Volumes 下每个卷再 read_dir 一层，遇到系统 Data 卷/
+                // 网络卷会累积上百毫秒（实测 vars.candidates 174ms）。rEFInd 的
+                // EFI/refind/vars 只会在卷根，不需要扫子目录。
+                push_unique(&mut candidates, entry.path().join("EFI/refind/vars"));
             }
         }
     }

@@ -720,7 +720,9 @@ fn root_volume_label() -> String {
 pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 预演是 OC 卡片的主体开销（枚举卷 + 读固件变量 + 扒 APFS），单独记总账
     let _span = perf::span("oc.preview");
+    let _sp_cfg = perf::span("oc.read_config");
     let config = fs::read_to_string(grub_rel(esp_root, "EFI/OC/config.plist")).unwrap_or_default();
+    drop(_sp_cfg);
     let hide_auxiliary = matches!(
         plist_lite::read_scalar(&config, &["Misc", "Boot", "HideAuxiliary"]),
         Some(plist_lite::PlistScalar::Bool(true))
@@ -788,9 +790,24 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         .as_ref()
         .map(|item| item.options.clone())
         .unwrap_or_default();
+    // 【性能】先一次 `nvram -p` 拿全部变量，逐项时先查这份内存 map，避免每项
+    // spawn 一次 `nvram`（本机无 Boot#### 时，逐项会白白 spawn N 次 ~40ms）。
+    let all_vars = nvram::read_all_vars();
     let boot_option = |number: u16| -> Option<Vec<u8>> {
-        namespace
-            .read_option(number)
+        // 有批量 map（macOS nvram -p）就先只查它：命中用、没有就 None ——
+        // 绝不再逐项 spawn nvram（本机没有 Boot#### 时逐项会白 spawn N 次）。
+        // 无批量 map（Linux/Windows）才走逐项 read_option。
+        let batch = all_vars.as_ref().and_then(|m| {
+            let key = format!("{}:{}", namespace.guid().to_ascii_lowercase(), namespace.boot_name(number));
+            m.get(&key).cloned()
+        });
+        batch
+            .or_else(|| {
+                if all_vars.is_some() {
+                    return None; // 已有全量快照、确实没有这条 → 不再逐项 spawn
+                }
+                namespace.read_option(number)
+            })
             .or_else(|| {
                 cached_options
                     .iter()
@@ -805,6 +822,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
                 }
             })
     };
+    let _sp_oi = perf::span("oc.build_order_items");
     let order_items: Vec<OrderItem> = order
         .iter()
         .filter_map(|number| {
@@ -818,6 +836,7 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             })
         })
         .collect();
+    drop(_sp_oi);
 
     // ① 每个卷上的 bless 扫描（每卷只取第一个命中，与 OC 一致）
     let bless_span = perf::span("oc.bless");
