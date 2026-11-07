@@ -123,10 +123,6 @@ function resetRatio() {
     >
     <!-- 左（或唯一）列 -->
     <section class="k-region" :style="splitH ? { width: firstWidth, flex: 'none' } : undefined">
-      <div class="k-rhd">
-        <b>{{ splitH ? "左列" : (loaders[0]?.name ?? "引导项") }}</b>
-        <span class="grow" />
-      </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
           <component :is="component" v-bind="{ ...leftProps, rows: props.rows, defaultEntrySelector: props.defaultEntrySelector }" @reorder="(order: string[]) => emit('reorder', order)">
@@ -150,10 +146,6 @@ function resetRatio() {
 
     <!-- 右列（仅左右布局） -->
     <section v-if="splitH" class="k-region" style="flex: 1">
-      <div class="k-rhd">
-        <b>右列</b>
-        <span class="grow" />
-      </div>
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
           <component :is="component" v-bind="{ ...rightProps, rows: props.rows }" @reorder="(order: string[]) => emit('reorder', order)" />
