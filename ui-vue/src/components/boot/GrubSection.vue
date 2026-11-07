@@ -136,23 +136,33 @@ const autoBusy = ref(false);
 async function refreshAuto() {
   if (autoBusy.value) return;
   autoBusy.value = true;
+  toast.show("正在读取…", { duration: 0 });
   try {
-    // 旧版 app.js:1892「重新读取」：不带 auto → Elevation::Allow（会弹一次授权）
-    const view = await call<{ error?: string | null; entries?: unknown[]; confidenceNote?: string | null } | null>(
-      "linux_grub_scan",
-      { target: null },
-    );
-    const n = view?.entries?.length ?? 0;
-    if (view?.error) {
-      toast.show("重新读取失败：" + view.error, "bad");
-    } else if (n > 0) {
-      toast.show(`重新读取成功：识别到 ${n} 个启动项`, { duration: 6000 });
+    // 「重新读取」：循环重试直到读到条目或达到上限（期间按钮保持“读取中…”）。
+    // 不带 auto → Elevation::Allow（首轮可能弹一次授权）。
+    const MAX_TRIES = 6;
+    let lastErr = "";
+    let okN = 0;
+    for (let i = 0; i < MAX_TRIES; i++) {
+      const view = await call<{ error?: string | null; entries?: unknown[] } | null>(
+        "linux_grub_scan",
+        { target: null },
+      ).catch((e) => ({ error: String(e) } as { error: string; entries?: unknown[] }));
+      const n = view?.entries?.length ?? 0;
+      if (view?.error) lastErr = view.error;
+      if (n > 0) { okN = n; break; }
+      if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1500));
+    }
+    if (okN > 0) {
+      toast.show(`重新读取成功：识别到 ${okN} 个启动项`, { duration: 6000 });
+    } else if (lastErr) {
+      toast.show("重新读取失败：" + lastErr, { bad: true, duration: 6000 });
     } else {
       toast.show("重新读取完成，但没有识别到启动项（检查分区/免密授权）", { bad: true, duration: 6000 });
     }
     void call("refresh").catch(() => {});
   } catch (e) {
-    toast.show("重新读取失败：" + e, "bad");
+    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
   } finally {
     autoBusy.value = false;
   }

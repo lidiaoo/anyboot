@@ -16,14 +16,21 @@ const busy = ref(false);
 async function refreshChannel() {
   if (busy.value) return;
   busy.value = true;
+  toast.show("正在读取…", { duration: 0 });
   try {
-    await call("refresh");
-    const c = ui.channels.find((x) => x.id === props.loader) ?? null;
-    const n = (c?.menuPreview?.entries?.length ?? c?.entries?.length ?? 0);
+    const MAX_TRIES = 5;
+    let n = 0;
+    for (let i = 0; i < MAX_TRIES; i++) {
+      await call("refresh");
+      const c = ui.channels.find((x) => x.id === props.loader) ?? null;
+      n = c?.menuPreview?.entries?.length ?? c?.entries?.length ?? 0;
+      if (n > 0) break;
+      if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
+    }
     if (n > 0) toast.show(`重新读取成功：识别到 ${n} 个条目`, { duration: 6000 });
     else toast.show("重新读取完成，但没有识别到条目", { bad: true, duration: 6000 });
   } catch (e) {
-    toast.show("重新读取失败：" + e, "bad");
+    toast.show("重新读取失败：" + e, { bad: true, duration: 6000 });
   } finally {
     busy.value = false;
   }
