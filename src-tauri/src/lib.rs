@@ -2480,7 +2480,12 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
             let _ = others.join();
         });
         // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
+        // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
+        // 【关键】并行跑完后强制推一次完整 UI：GRUB 分区扫描结果虽已写入 AppState，
+        // 但并行线程里 refresh_and_update 先 publish 的是「还没扫 GRUB」的快照；
+        // 不在这里补推一次，前端就停在旧快照上 —— 这就是「输完密码却看不到后续结果」。
+        crate::ui_state::publish_ui(&handle);
     })
     .await
     .map_err(|e| format!("扫描任务失败: {e}"))?;
