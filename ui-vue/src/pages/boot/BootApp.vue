@@ -304,13 +304,9 @@ const loaders = computed<LoaderInfo[]>(() => {
       perm: meta.perm,
       detected,
       nextBoot: entries.find((e) => e.def) ?? null,
-      // OC 的「健康」= 免密助手真实状态（旧版 l.healthText 从 helper 来）；其余按条目数
-      healthText:
-        id === "opencore" && ui.state?.helper?.supported
-          ? (ui.state.helper.installed
-              ? (ui.state.helper.stale ? "免密已开启（旧构建，建议重装）" : "免密已开启：root 助手在写 OCBt*")
-              : "root 助手未安装（每次设默认需输密码）")
-          : count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
+      // 健康文案统一按条目数（OpenCore 不再显示「免密已开启/旧构建建议重装」等提示——
+      // 免密提权入口已统一到「引导高级设置」总入口）。
+      healthText: count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
     });
   }
   return list;
