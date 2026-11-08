@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import PcMenu from "@/components/hub/PcMenu.vue";
+import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
+import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
@@ -89,9 +91,33 @@ function showToast(text: string) {
 }
 
 const emit = defineEmits<{ (e: "addRemote"): void; (e: "menuAction", act: string): void; (e: "sysInfo", id: string): void }>();
+// 服务端编辑/列表弹窗（与「电脑列表」同一套组件，原地弹出、不跳页）
+const rsEditOpen = ref(false);
+const rsListOpen = ref(false);
+const rsEditing = ref<string>("");
+function openRemoteEdit(id: string) { rsEditing.value = id; rsEditOpen.value = true; }
+async function saveRemote(payload: Record<string, unknown>) {
+  rsEditOpen.value = false;
+  try {
+    await call("remote_save", { server: payload });
+    await remote.load();
+  } catch { /* 忽略 */ }
+}
 function onMenuAction(act: string) {
-  if (act === "add") emit("addRemote");
-  else emit("menuAction", act);
+  // 这些动作都属于「电脑」页本身，原地弹窗/操作，**不跳转到电脑列表页**。
+  if (act === "add") { rsEditing.value = ""; rsEditOpen.value = true; }
+  else if (act === "edit") {
+    if (!activeId.value || activeId.value === "local") { showToast("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑"); return; }
+    openRemoteEdit(activeId.value);
+  }
+  else if (act === "list") { rsListOpen.value = true; }
+  else if (act === "reloadCurrent") {
+    if (!activeId.value || activeId.value === "local") { showToast("先点上方标签选中一台电脑，再重载"); return; }
+    showToast("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    void remote.refreshBoot(activeId.value).catch((e) => showToast("重载失败：" + e));
+  }
+  else if (act === "reloadAll") { void remote.refreshAllBoot().catch(() => {}); }
+  else { emit("menuAction", act); }
 }
 
 function sendPower(action: string) {
@@ -395,6 +421,22 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
         重载此页（重新探测地址）
       </button>
     </div>
+
+    <!-- 服务端编辑 / 列表弹窗：与「电脑列表」同一套组件，在「电脑」页原地弹出 -->
+    <RemoteEditDialog
+      :open="rsEditOpen"
+      :remote="remote.servers.find((s) => s.id === rsEditing) ?? null"
+      @save="saveRemote"
+      @close="rsEditOpen = false"
+    />
+    <RemoteListDialog
+      :open="rsListOpen"
+      :servers="remote.servers"
+      @edit="openRemoteEdit"
+      @remove="remote.remove($event)"
+      @add="rsEditing = ''; rsEditOpen = true"
+      @close="rsListOpen = false"
+    />
   </div>
 </template>
 
