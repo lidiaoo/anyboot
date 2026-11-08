@@ -5409,3 +5409,31 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   }
   .settings .setting input[type="checkbox"] { align-self: flex-start; }
 }
+
+/* 2026-11-08 修复「引导高级设置预演下方一大片空白」：
+   系统引导页用 body[data-ba-fill] / #tab-boot.ba-fill 让主题撑满窗口(列表自己滚)；
+   但预演区(.k-prev)也吃到了这条全局 fill 链 → 主题容器被撑到固定高，内容短时底下空一片。
+   预演不撑满：内部整条 flex 链改成按内容高(flex:none / height:auto)，列表整段展开，
+   内容少就贴底、不再留白。 */
+.k-prev .ba-theme-root,
+.k-prev .ba-theme-root > .k-stage,
+.k-prev .k-stage,
+.k-prev .k-region,
+.k-prev .k-rbody,
+.k-prev .k-theme-fit,
+.k-prev .k-theme-fit > * {
+  flex: none !important;
+  height: auto !important;
+  max-height: none !important;
+}
+/* 主题自己的滚动列表也改为按内容展开（否则 flex:1 撑满仍会留白） */
+.k-prev .la-list,
+.k-prev .lb-list,
+.k-prev .lc-list,
+.k-prev .lg-results,
+.k-prev .li-grid,
+.k-prev .lj-c2 {
+  flex: none !important;
+  overflow: visible !important;
+  max-height: none !important;
+}
