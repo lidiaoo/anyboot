@@ -24,20 +24,28 @@ const selectedId = ref("");
 
 onMounted(async () => {
   if (!store.loaded) await store.load();
-  // 旧版：初始不自动选中（跟随「服务器」页的全局选中项，默认无）→ 通用提示
+  // 默认选第一台 SSH 服务器（有就直接可开终端）
+  if (!selectedId.value && sshServers.value.length) selectedId.value = sshServers.value[0].id;
 });
 
-const hint = computed(() =>
-  sshServers.value.length
-    ? `当前选中：${store.displayAddr(sshServers.value.find((s) => s.id === selectedId.value)!)}。点下方按钮打开终端（PTY + 系统 ssh，独立窗口）。`
-    : "在「服务器」页选中一台 SSH 服务器后打开终端（PTY + 系统 ssh，独立窗口）。",
-);
+const hint = computed(() => {
+  if (!sshServers.value.length) return "还没有 SSH 服务器。先到「服务器」页添加一台，再回来打开终端。";
+  const s = sshServers.value.find((x) => x.id === selectedId.value);
+  if (!s) return "选一台 SSH 服务器后点「打开终端」（PTY + 系统 ssh，独立窗口）。";
+  return `当前选中：${store.displayAddr(s)}。点下方按钮打开终端（PTY + 系统 ssh，独立窗口）。`;
+});
 
 /** 按钮文案（旧版：有选中时「打开终端 · 名称」） */
 const termBtnText = computed(() => {
   const s = sshServers.value.find((x) => x.id === selectedId.value);
   return s ? `打开终端 · ${s.name || "(未命名)"}` : "打开终端";
 });
+
+function goServers() {
+  // 切到左侧「服务器」页（模拟点导航，HubApp 用 currentPage 管切页）
+  const btn = document.querySelector<HTMLElement>('.snav[data-page=servers]');
+  btn?.click();
+}
 
 function openTerminal() {
   if (!isTauri()) {
@@ -67,10 +75,31 @@ function openTerminal() {
       <rect x="2" y="4" width="20" height="14" rx="2" />
       <path d="M6 9l3 3-3 3" />
     </svg>
-    <p class="t">终端</p>
-    <p class="s" id="termPageHint">{{ hint }}</p>
-    <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
-      {{ termBtnText }}
-    </button>
+
+    <!-- 空状态：还没有任何 SSH 服务器 -->
+    <template v-if="!sshServers.length">
+      <p class="t">还没有 SSH 服务器</p>
+      <p class="s" id="termPageHint">终端需要先添加一台 SSH 服务器。到左侧「服务器」页点「添加服务器」配好地址 / 账号 / 密码或密钥后，再回来打开终端。</p>
+      <button type="button" class="btn" @click="goServers">去「服务器」页添加</button>
+    </template>
+
+    <!-- 有服务器：选一台 + 打开 -->
+    <template v-else>
+      <p class="t">终端</p>
+      <select
+        class="term-server-select"
+        aria-label="选择要连接的 SSH 服务器"
+        :value="selectedId"
+        @change="selectedId = ($event.target as HTMLSelectElement).value"
+      >
+        <option v-for="s in sshServers" :key="s.id" :value="s.id">
+          {{ s.name || "(未命名)" }} · {{ store.displayAddr(s) }}
+        </option>
+      </select>
+      <p class="s" id="termPageHint">{{ hint }}</p>
+      <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
+        {{ termBtnText }}
+      </button>
+    </template>
   </div>
 </template>

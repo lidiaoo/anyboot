@@ -2363,3 +2363,11 @@
   margin: 8px; padding: 8px; border-radius: 8px; border: 1px solid rgb(var(--line));
   background: transparent; color: rgb(var(--fg)); font: inherit; font-size: 12px; cursor: pointer;
 }
+
+/* 终端页：服务器选择下拉 */
+.term-server-select {
+  width: 100%; max-width: 420px; margin: 6px auto;
+  padding: 8px 10px; border: 1px solid rgb(var(--line-strong)); border-radius: 8px;
+  background: rgb(var(--input-bg, var(--panel))); color: rgb(var(--fg));
+  font: inherit; font-size: 13px;
+}
