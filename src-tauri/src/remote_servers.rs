@@ -1503,39 +1503,27 @@ fn power_query_path(action: &str, token: &str) -> String {
 /// 手写 TCP 的单次 GET（LAN 直连 / 跳板端点共用）：返回 (status, body)。
 /// 跳板链路电源动作服务端要等机器响应，读超时放宽（调用方传）。
 fn lan_http_get(target: &str, path_and_query: &str, read_timeout_secs: u64) -> Result<(u16, String), String> {
-    let mut stream = TcpStream::connect(target)
-        .map_err(|error| format!("连接 {target} 失败: {error}"))
-        .and_then(|stream| {
-            stream
-                .set_read_timeout(Some(Duration::from_secs(read_timeout_secs)))
-                .map_err(|error| format!("设置读超时失败: {error}"))?;
-            stream
-                .set_write_timeout(Some(Duration::from_secs(4)))
-                .map_err(|error| format!("设置写超时失败: {error}"))?;
-            Ok(stream)
-        })?;
-    let request = format!(
-        "GET {path_and_query} HTTP/1.1\r\nHost: {target}\r\nConnection: close\r\n\r\n"
-    );
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| format!("发送请求失败: {error}"))?;
-    let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|error| format!("读取响应失败: {error}"))?;
-    let text = String::from_utf8_lossy(&raw);
-    let status = text
-        .split_whitespace()
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .unwrap_or(0);
-    let body = match text.find("\r\n\r\n") {
-        Some(index) => text[index + 4..].to_string(),
-        None => String::new(),
-    };
-    Ok((status, body))
+    // 【修复】改用 ureq（与 HTTPS 远程同一客户端）：自动处理 `Transfer-Encoding: chunked`、
+    // Content-Length、超时。之前手写 TCP + read_to_end 对 chunked 大响应(如 /api/ui-state)
+    // 拿到的是带块大小行的原始分块数据 → JSON 解析失败("trailing characters"/"EOF at 8194")
+    // → 误判远程离线、电脑列表「一直读取中」。
+    let url = format!("http://{target}{path_and_query}");
+    let timeout = Duration::from_secs(read_timeout_secs);
+    match ureq::get(&url).timeout(timeout).call() {
+        Ok(response) => {
+            let status = response.status();
+            let body = response.into_string().map_err(|e| format!("读响应失败: {e}"))?;
+            Ok((status, body))
+        }
+        // 4xx/5xx 在 ureq 里是 Err::Status；把状态码与 body 取回来交给上层判定（401 等）
+        Err(ureq::Error::Status(code, response)) => {
+            let body = response.into_string().unwrap_or_default();
+            Ok((code, body))
+        }
+        Err(other) => Err(format!("连接 {target} 失败: {other}")),
+    }
 }
+
 
 /// 电源接口的局域网那一路（手写 TCP；route_candidates 之外保留给单测与直调）。
 fn remote_http_power_lan(server: &RemoteServer, action: &str) -> Result<String, String> {
@@ -4675,18 +4663,28 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             let result = match cand.kind.as_str() {
                 "lan" => probe_health(&cand.origin, per_kind),
                 "jump" => {
-                    let state = app.state::<RemoteJumpState>();
-                    match remote_endpoint_inner(
-                        app,
-                        state.inner(),
-                        server_id,
-                        Some(cand.origin.as_str()),
-                    ) {
-                        Ok(endpoint) => probe_health(
-                            &format!("{}:{}", endpoint.host, endpoint.port),
-                            per_kind,
-                        ),
-                        Err(error) => Err(error),
+                    // 【修复】先按 origin **直连探测一次**（短超时）：很多"跳板"配置其实是多余的
+                    // （如 PC 这台就是本机，地址 192.168.0.x:12300 直连即可达）。之前一律先建 ssh
+                    // 跳板 → 多地址串行 ssh 超时累加 → remote_boot_info 卡 20s+「一直读取中」。
+                    // 直连通了就直接用；不通再回落走 ssh 跳板。
+                    let quick = per_kind.min(Duration::from_millis(1500));
+                    match probe_health(&cand.origin, quick) {
+                        Ok(v) => Ok(v),
+                        Err(_) => {
+                            let state = app.state::<RemoteJumpState>();
+                            match remote_endpoint_inner(
+                                app,
+                                state.inner(),
+                                server_id,
+                                Some(cand.origin.as_str()),
+                            ) {
+                                Ok(endpoint) => probe_health(
+                                    &format!("{}:{}", endpoint.host, endpoint.port),
+                                    per_kind,
+                                ),
+                                Err(error) => Err(error),
+                            }
+                        }
                     }
                 }
                 _ => probe_remote_health(&cand.origin, per_kind),
