@@ -157,9 +157,9 @@ export const switchSystem = (system: string) => call<void>("switch_system", { sy
 /** 卸载临时挂载 */
 export const unmountTemporary = () => call<void>("unmount_temporary");
 /** 开机自启 */
-export const setAutostart = (on: boolean) => call<void>("set_autostart", { on });
+export const setAutostart = (on: boolean) => call<void>("set_autostart", { enabled: on });
 /** 启动时收进托盘 */
-export const setStartInTray = (on: boolean) => call<void>("set_start_in_tray", { on });
+export const setStartInTray = (on: boolean) => call<void>("set_start_in_tray", { enabled: on });
 /** 启动时使用管理员扫描（开启后启动主动扫所有引导器） */
 export const setStartupScanWithAdmin = (enabled: boolean) =>
   call<void>("set_startup_scan_with_admin", { enabled });
@@ -171,7 +171,7 @@ export const runStartupAdminScan = (allowPrompt: boolean) =>
   call<void>("run_startup_admin_scan", { allowPrompt });
 /** 从 Dock / 任务栏隐藏 */
 export const setHideFromDockTaskbar = (on: boolean) =>
-  call<void>("set_hide_from_dock_taskbar", { on });
+  call<void>("set_hide_from_dock_taskbar", { enabled: on });
 /** 关闭窗口的行为：tray 收进托盘 / quit 退出 */
 export const setCloseAction = (action: "tray" | "quit") =>
   call<void>("set_close_action", { action });
