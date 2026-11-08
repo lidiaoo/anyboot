@@ -196,9 +196,10 @@ onMounted(async () => {
 const remoteAddSeed = ref(0);
 function onHomeMenuAction(act: string) {
   if (act === "add") { openRemoteAdd(); return; }
-  // edit/list/reload 都切到电脑列表页处理（那里有完整弹层）
+  // 【修复】edit/list/reload 只切到「电脑列表」页，**不能递增 addSeed** ——
+  // 之前一律 +1 会让 ComputerList 误以为要「添加电脑」，弹出「连接 AnyBoot 服务端」空表单
+  // （用户：点电脑列表却弹窗，但列表里明明有数据）。
   currentPage.value = "computers";
-  remoteAddSeed.value += 1;
 }
 
 function openRemoteAdd() {

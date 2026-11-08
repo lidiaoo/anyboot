@@ -211,10 +211,16 @@ watch(() => settings.dataRefreshSec, startTimer);
  * 此刻 watch 的 prev 已经等于新 seed → 不会触发。所以在 onMounted 里
  * 检查一次「挂载时 seed 已 > 0 且本组件正是因此被创建」。
  */
-let addSeedConsumed = false;
+// 【修复】组件是 v-if 按需挂载的，每次重进「电脑列表」页都会重建 —— 组件内普通变量
+// 会随 setup 重置。用 sessionStorage 记住「已消费到哪个 seed」跨重建保留：只有
+// addSeed 比上次消费值更大（真正新点了一次「添加」）才弹，否则不误弹空表单。
+const ADD_SEED_KEY = "anyboot.hub.addSeedConsumed";
 function consumeAddSeed() {
-  if (addSeedConsumed || !props.addSeed) return;
-  addSeedConsumed = true;
+  if (!props.addSeed) return;
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(ADD_SEED_KEY) ?? 0) || 0; } catch { last = 0; }
+  if (props.addSeed <= last) return;
+  try { sessionStorage.setItem(ADD_SEED_KEY, String(props.addSeed)); } catch { /* ignore */ }
   rsEditing.value = "";
   rsEditOpen.value = true;
 }
