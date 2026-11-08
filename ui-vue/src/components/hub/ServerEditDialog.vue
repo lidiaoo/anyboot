@@ -140,9 +140,15 @@ function submit() {
   emit("save", buildPayload());
 }
 
-function doTest() {
+async function doTest() {
   testLine.value = "正在测试…";
-  emit("test", buildPayload());
+  try {
+    const { call } = await import("@/api/tauri");
+    const r = await call<{ ok?: boolean; message?: string; ms?: number }>("hub_test_server", { server: buildPayload() });
+    testLine.value = r?.ok ? `通 · ${r.ms ?? "?"} ms` : (r?.message || "不通");
+  } catch (e) {
+    testLine.value = "测试失败：" + e;
+  }
 }
 </script>
 
