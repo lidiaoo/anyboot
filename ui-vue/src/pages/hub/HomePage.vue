@@ -149,14 +149,19 @@ const currentName = computed(() => {
 const OS_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
 const chips = computed(() => [
   { id: "local", name: "本机", sub: "默认 · 本地", os: "", conn: "本地", addr: "" },
-  ...remote.servers.map((s) => ({
-    id: s.id,
-    name: s.name,
-    sub: "",
-    os: String(s.machine_os || "").trim().toLowerCase(),
-    conn: "未连接",
-    addr: (s.addresses && s.addresses[0]) || "",
-  })),
+  ...remote.servers.map((s) => {
+    // 【修复】conn 之前写死「未连接」永远不更新，和「电脑列表」的在线判定不一致
+    // （电脑列表用 remote.bootInfo 的 online，这里却恒为未连接）。改为读同一份 bootInfo。
+    const online = remote.bootInfo.get(s.id)?.online ?? false;
+    return {
+      id: s.id,
+      name: s.name,
+      sub: "",
+      os: String(s.machine_os || "").trim().toLowerCase(),
+      conn: online ? "在线" : "未连接",
+      addr: (s.addresses && s.addresses[0]) || "",
+    };
+  }),
 ]);
 
 onMounted(async () => {
@@ -169,6 +174,8 @@ onMounted(async () => {
   } catch {
     localEndpoint.value = null;
   }
+  // 拉每台远程电脑的在线状态（bootInfo.online）——否则标签 conn 无从判断，恒显示「未连接」。
+  void Promise.all(remote.servers.map((s) => remote.refreshBoot(s.id).catch(() => {})));
   await ensureRemoteUrl(activeId.value);
 });
 
