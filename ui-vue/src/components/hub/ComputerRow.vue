@@ -269,16 +269,24 @@ function onRowClick() {
           </button>
         </div>
       </div>
+      <!-- 通道列（systemd-boot / OpenCore / Clover）：像移动端一样每个通道一列。
+           info.channels 是 BootGroup 结构（kind/title/available/current），不是 RemoteChannel，
+           之前误读 id/label/detected/currentDefault → 全空、只显示「引导器 启动项/未检测到」。 -->
       <div
         v-for="ch in info?.channels ?? []"
-        :key="(ch as any).id"
+        :key="ch.kind"
         class="cq-col cq-col-boot cq-col-boot--ch"
         role="cell"
-        :data-label="`${(ch as any).label || '引导器'} 启动项`"
+        :data-label="`${ch.title || '引导器'} 启动项`"
       >
-        <div class="cq-boot" :class="{ 'cq-boot--none': !(ch as any).detected }">
-          <button type="button" class="cq-boot-btn" disabled>
-            <span class="t">{{ (ch as any).currentDefault || ((ch as any).detected ? "未选择" : "未检测到") }}</span>
+        <div class="cq-boot" :class="{ 'cq-boot--none': !ch.available }">
+          <button
+            type="button"
+            class="cq-boot-btn"
+            :disabled="!ch.available || !ch.current"
+            @click.stop="emit('switchBoot', { serverId: row.id, kind: ch.kind })"
+          >
+            <span class="t">{{ ch.current || (ch.available ? "未选择" : "未检测到") }}</span>
           </button>
         </div>
       </div>

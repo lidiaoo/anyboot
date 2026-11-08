@@ -413,6 +413,6 @@ export interface RemoteBootInfo {
   error: string;
   refind: RemoteBootGroup;
   grub: RemoteBootGroup;
-  channels: unknown[];
+  channels: RemoteBootGroup[];
   machineOs?: string;
 }
