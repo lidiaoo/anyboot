@@ -1934,7 +1934,10 @@
   /* 一条配对 = 两行 flex：第一行「地址 + 车道 + 上移/下移/删除 + 启用」，第二行「备注 + 令牌 + 超时 + 来源」。
      原来十个元素挤一行（固定宽合计 560+ px），在 432px 的弹窗里必然把地址框压扁、右侧按钮溢出。 */
   .pb-row {
-    display: flex; flex-direction: column; gap: 6px; padding: 7px 0;
+    /* 每条配对一行：地址·备注·令牌·超时·启用·展示·删除 横向排布，窄了就换行。
+       之前 flex-direction:column → 每个 input 各占一行、且 .pb-addr 的 flex-basis 在列方向被当高度
+       → 地址/备注/令牌变成一个个超高空框(用户 2026-11-08 截图)。 */
+    display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; padding: 7px 0;
     border-top: 1px dashed rgb(var(--line));
   }
   .pb-row:first-of-type { border-top: 0; }
@@ -1947,7 +1950,7 @@
   .pb-showprobe, .pb-swtag { display: inline-flex; align-items: center; gap: 3px; flex: none; }
   .pb-showprobe-l, .pb-swtag-l { font-size: 10px; color: rgb(var(--fg-faint)); user-select: none; }
   .pb-addr {
-    flex: 1 1 200px; min-width: 0; padding: 4px 7px; font-size: 11.5px;
+    flex: 2 1 240px; min-width: 160px; padding: 4px 7px; font-size: 11.5px;
     border: 1px solid rgb(var(--line)); border-radius: 7px;
     background: rgb(var(--elevate)); color: rgb(var(--fg)); outline: none;
   }
