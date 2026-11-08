@@ -38,6 +38,8 @@ const props = defineProps<{
   orderIndex: number;
   /** remotes 总数（判断 ↑↓ 是否到头） */
   orderTotal: number;
+  /** 所有电脑里检测到(available)的通道 kind 并集（有序），保证各行通道列对齐（旧版 cqBootColumns） */
+  channelKinds?: string[];
 }>();
 
 const emit = defineEmits<{
@@ -88,9 +90,10 @@ const statusLabel = computed(() => {
 /** 系统徽标 */
 const osBadge = computed(() => {
   const os = String(props.row.machine_os ?? "").toLowerCase();
-  if (os.includes("win")) return { text: "WIN", kind: "windows" };
-  if (os.includes("mac")) return { mac: true, text: "MAC", kind: "macos" };
-  if (os.includes("linux")) return { text: "LNX", kind: "linux" };
+  // 照旧版：OS 徽标用全称 Windows / macOS / Linux（不是缩写）
+  if (os.includes("win")) return { text: "Windows", kind: "windows" };
+  if (os.includes("mac")) return { mac: true, text: "macOS", kind: "macos" };
+  if (os.includes("linux")) return { text: "Linux", kind: "linux" };
   return null;
 });
 
@@ -152,6 +155,16 @@ const powerHints = computed(() =>
   })),
 );
 
+/** 该行 info.channels 里对应 kind 的通道（无则 undefined） */
+function channelOf(kind: string) {
+  return (props.info?.channels ?? []).find((c) => c.kind === kind);
+}
+/** 通道 kind → 显示名（channel:opencore → OpenCore） */
+function channelTitle(kind: string): string {
+  const base = kind.startsWith("channel:") ? kind.slice(8) : kind;
+  const map: Record<string, string> = { sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" };
+  return map[base] ?? channelOf(kind)?.title ?? base;
+}
 function onRowClick() {
   emit("select", props.row.id);
 }
@@ -285,24 +298,23 @@ function onRowClick() {
           </button>
         </div>
       </div>
-      <!-- 通道列（systemd-boot / OpenCore / Clover）：像移动端一样每个通道一列。
-           info.channels 是 BootGroup 结构（kind/title/available/current），不是 RemoteChannel，
-           之前误读 id/label/detected/currentDefault → 全空、只显示「引导器 启动项/未检测到」。 -->
+      <!-- 通道列（systemd-boot / OpenCore / Clover）：按「所有电脑检测到的通道并集」渲染，
+           保证各行通道列对齐（旧版 cqBootColumns 语义）。某行没检测到该通道 → 该列显示「未检测到」。 -->
       <div
-        v-for="ch in info?.channels ?? []"
-        :key="ch.kind"
+        v-for="kind in (channelKinds ?? [])"
+        :key="kind"
         class="cq-col cq-col-boot cq-col-boot--ch"
         role="cell"
-        :data-label="`${ch.title || '引导器'} 启动项`"
+        :data-label="`${channelTitle(kind)} 启动项`"
       >
-        <div class="cq-boot" :class="{ 'cq-boot--none': !ch.available }">
+        <div class="cq-boot" :class="{ 'cq-boot--none': !channelOf(kind)?.available }">
           <button
             type="button"
             class="cq-boot-btn"
-            :disabled="!ch.available || !(ch.options && ch.options.length)"
-            @click.stop="openPicker(ch.kind)"
+            :disabled="!channelOf(kind)?.available || !(channelOf(kind)?.options?.length)"
+            @click.stop="openPicker(kind)"
           >
-            <span class="t">{{ ch.current || (ch.available ? "未选择" : "未检测到") }}</span>
+            <span class="t">{{ channelOf(kind)?.current || (channelOf(kind)?.available ? "未选择" : "未检测到") }}</span>
           </button>
         </div>
       </div>

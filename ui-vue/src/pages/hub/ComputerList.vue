@@ -125,6 +125,23 @@ const rows = computed(() => {
   return list;
 });
 
+/** 所有电脑里「检测到(available)」的通道 kind 并集（固定顺序 sdboot/opencore/clover），
+ *  与旧版 cqBootColumns 一致：保证各行通道列对齐，某行没检测到就占一列显示「未检测到」。 */
+const CHANNEL_ORDER = ["channel:sdboot", "channel:opencore", "channel:clover"];
+const channelKinds = computed<string[]>(() => {
+  const seen = new Set<string>();
+  for (const row of allRows.value) {
+    const info = infoOf(row.id);
+    for (const ch of info?.channels ?? []) {
+      if (ch.available) seen.add(ch.kind);
+    }
+  }
+  // 按固定顺序排序，其余未知通道追加在后
+  const ordered = CHANNEL_ORDER.filter((k) => seen.has(k));
+  for (const k of seen) if (!ordered.includes(k)) ordered.push(k);
+  return ordered;
+});
+
 const stats = computed(() => {
   let online = 0;
   let pending = 0;
@@ -541,6 +558,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
             :key="row.id"
             :row="row"
             :info="infoOf(row.id)"
+            :channel-kinds="channelKinds"
             :pending="isPending(row.id)"
             :selected="activeId === row.id"
             :sort-mode="sortMode"

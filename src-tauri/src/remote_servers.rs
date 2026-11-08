@@ -4615,7 +4615,9 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         };
         info.ok = true;
         info.online = true;
-        info.addr = "127.0.0.1".to_string();
+        // 旧版状态里本机显示「在线 127.0.0.1:<port>」，这里带上实际端口
+        let port = { let p = crate::stored_settings(app).http_port; if p == 0 { 12300 } else { p } };
+        info.addr = format!("127.0.0.1:{port}");
         return Ok(info);
     }
     let server = load_store(app)?
