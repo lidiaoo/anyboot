@@ -10,7 +10,7 @@ import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
-import { setStartupScanWithAdmin, setHelperReminderSnooze } from "@/api/tauri";
+import { setStartupScanWithAdmin, setHelperReminderSnooze, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
@@ -68,6 +68,8 @@ function loaderPerm(id: string): string {
 }
 /** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
 const helperBusy = ref(false);
+/** 是否桌面端(Tauri)：免密提权助手的管理只在桌面本机；移动端禁用交互 */
+const isDesktop = isTauri();
 const toast = useToastStore();
 /** 助手操作的阶段文案（给按钮/状态当"进行中"反馈，让用户知道在等什么） */
 const helperBusyLabel = ref("");
@@ -116,8 +118,9 @@ async function toggleBootHelper(): Promise<void> {
   } finally {
     helperBusy.value = false;
     helperBusyLabel.value = "";
-    // 操作后主动拉一次设置，让状态标签尽快从「未开启」变「已开启」等
-    void call("get_settings").catch(() => {});
+    // 后端 boot_helper 成功后会 publish_ui（推送新 helper 状态）；这里再主动拉一次快照兜底，
+    // 确保状态标签/按钮立刻回显（之前只 get_settings 不更新 helper 快照 → 点完不回显）。
+    void ui.pollOnce().catch(() => {});
   }
 }
 const message = ref("");
@@ -271,11 +274,14 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
           {{ helperBusy ? "处理中…" : (ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启") }}
         </span>
         <span class="grow" />
-        <button type="button" class="btn sm" :disabled="helperBusy" @click="toggleBootHelper">
+        <button type="button" class="btn sm" :disabled="helperBusy || !isDesktop" @click="toggleBootHelper">
           <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
           {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴") }}
         </button>
       </div>
+      <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
+        免密提权助手仅在电脑端(本机)可管理，移动端不支持开启/关闭。
+      </small>
       <small class="helper-hint">{{ ui.state.helper.text }}</small>
       <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
         点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
@@ -287,6 +293,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
           <input
             type="checkbox"
+            :disabled="!isDesktop"
             :checked="ui.settings?.startupScanWithAdmin !== false"
             @change="toggleStartupAdminScan"
           />

@@ -2430,6 +2430,15 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
     Ok(publish_settings(&app))
 }
 
+/// 免密助手 开启/关闭/重装：执行后**主动 publish_ui**，让前端状态标签立刻回显
+/// （之前只 refresh 设置不推快照 → 点完 installed 状态不变，用户以为没生效）。
+#[tauri::command]
+async fn boot_helper(app: AppHandle, action: String) -> Result<String, String> {
+    let result = crate::helper_install::boot_helper(action).await;
+    crate::ui_state::publish_ui(&app);
+    result
+}
+
 #[tauri::command]
 fn set_boot_adv(app: AppHandle, json: String) -> Result<SettingsView, String> {
     trace(&app, "command", "set_boot_adv");
@@ -3735,7 +3744,7 @@ pub fn run() {
             channels::linux_grub::linux_grub_switch,
             channels::linux_grub::linux_grub_helper_ready,
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
-            helper_install::boot_helper,
+            boot_helper,
             set_startup_scan_with_admin,
             set_boot_adv,
             set_helper_reminder_snooze,

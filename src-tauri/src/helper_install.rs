@@ -568,8 +568,8 @@ pub(crate) fn uninstall() -> Result<String, String> {
     Err("这个平台没有免密助手".to_string())
 }
 
-/// 前端「开启 / 关闭免密」的唯一入口。
-#[tauri::command]
+/// 开启 / 关闭 / 重装免密助手的实现（由 lib.rs 的 `boot_helper` 命令包装后暴露给前端，
+/// 那个包装会在执行后 publish_ui 让状态回显）。
 pub(crate) async fn boot_helper(action: String) -> Result<String, String> {
     // async + spawn_blocking：install/uninstall 会弹系统授权框、阻塞等用户输入
     // （十几秒）。若在主线程跑，会把整个 UI 卡住 —— 用户看不到「开启中」、转圈也不动。

@@ -6,7 +6,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
-import { runStartupAdminScan } from "@/api/tauri";
+import { runStartupAdminScan, isTauri } from "@/api/tauri";
 import HelperPrompt from "@/components/boot/HelperPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
@@ -218,6 +218,11 @@ onMounted(async () => {
       if (snoozed) {
         // 处于「取消提醒」期：不弹建议窗，直接走系统密码框做管理员扫描
         await runStartupAdminScan(true).catch(() => {});
+        return;
+      }
+      // 免密建议弹窗只在**桌面端(Tauri)**弹：移动端(远程/浏览器)不弹，也不需要管理免密助手。
+      if (!isTauri()) {
+        // 移动端：不做 root 扫描（管理员扫描只在桌面本机跑），直接返回。
         return;
       }
       // 免密未就绪、未取消提醒：先弹免密建议窗（含取消提醒）；用户操作完再决定扫描方式
