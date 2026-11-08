@@ -438,7 +438,7 @@ async function openServer(server: string | Record<string, unknown>) {
     if (!session) return;
     // open 已返回 → 把攒着的数据写进去
     flushPending(session);
-    if (!isTauri()) startWebPoll(session.id);
+    if (!isTauri()) startWebPoll();
     connText.value = "已连接";
     connOk.value = true;
   } catch (error) {
@@ -449,18 +449,40 @@ async function openServer(server: string | Record<string, unknown>) {
 }
 
 /** web 端：单会话输出轮询（100ms）——把 hub_term_read 的增量写进 xterm。 */
-function startWebPoll(sessionId: string) {
+/** web 端移除一个会话标签（等价桌面端收到 hub-term-closed 的处理）。 */
+function removeWebSession(sessionId: string) {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  webCursors.delete(sessionId);
+  if (!session) return;
+  session.term.dispose();
+  session.host.remove();
+  sessions.value = sessions.value.filter((s) => s.id !== sessionId);
+  if (activeId.value === sessionId) {
+    activeId.value = sessions.value[0]?.id ?? "";
+    showActive();
+  }
+}
+
+/** web 端：全局单一轮询（100ms）遍历所有会话，读各自输出增量并写进 xterm。
+ *  之前每会话各起一条 tick 但共用一个 webPoll 定时器 → 多标签互相覆盖只剩一个在跑。 */
+function startWebPoll() {
+  if (webPoll !== null) return;
   const tick = async () => {
-    if (webPoll === null) return; // 已停
-    try {
-      const after = webCursors.get(sessionId) ?? 0;
-      const r = await call<{ data?: string; cursor?: number }>("hub_term_read", { sessionId, after });
-      if (r?.cursor !== undefined) webCursors.set(sessionId, r.cursor);
-      if (r?.data) writeData(sessionId, r.data);
-    } catch { /* 会话可能已关闭，忽略 */ }
+    if (webPoll === null) return;
+    for (const s of [...sessions.value]) {
+      try {
+        const after = webCursors.get(s.id) ?? 0;
+        const r = await call<{ data?: string; cursor?: number }>("hub_term_read", { sessionId: s.id, after });
+        if (r?.cursor !== undefined) webCursors.set(s.id, r.cursor);
+        if (r?.data) writeData(s.id, r.data);
+      } catch (e) {
+        // 会话不存在/已关闭 → 移除该标签（web 没有 hub-term-closed 事件）
+        if (/不存在|关闭|unknown|not found/i.test(String(e))) removeWebSession(s.id);
+      }
+    }
     if (webPoll !== null) webPoll = window.setTimeout(tick, 100);
   };
-  if (webPoll === null) webPoll = window.setTimeout(tick, 100);
+  webPoll = window.setTimeout(tick, 100);
 }
 
 onUnmounted(() => {
