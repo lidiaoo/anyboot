@@ -20,7 +20,6 @@ const emit = defineEmits<{
 }>();
 
 const busy = ref(false);
-const showSnooze = ref(false);
 const error = ref("");
 
 async function install() {
@@ -69,21 +68,15 @@ function cancel() {
           {{ busy ? "授权中…" : "开启免密助手（输一次密码）" }}
         </button>
 
-        <template v-if="!showSnooze">
-          <button type="button" class="btn ghost" :disabled="busy" @click="showSnooze = true">
-            取消提醒…
-          </button>
-          <button type="button" class="btn ghost" :disabled="busy" @click="cancel">暂不</button>
-        </template>
-        <template v-else>
-          <small style="font-size: 12px; color: var(--text-faint)">在下列时间内不再提醒：</small>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap">
-            <button type="button" class="btn sm" @click="snooze(1)">1 天</button>
-            <button type="button" class="btn sm" @click="snooze(7)">7 天</button>
-            <button type="button" class="btn sm" @click="snooze(30)">30 天</button>
-            <button type="button" class="btn sm" @click="snooze(0)">永久</button>
-          </div>
-        </template>
+        <!-- 取消提醒：直接展示 1/7/30 天/永久（不再折叠成「取消提醒…」按钮） -->
+        <small style="font-size: 12px; color: var(--text-faint)">在下列时间内不再提醒：</small>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(1)">1 天</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(7)">7 天</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(30)">30 天</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(0)">永久</button>
+        </div>
+        <button type="button" class="btn ghost" :disabled="busy" @click="cancel">暂不</button>
       </div>
     </div>
   </div>
