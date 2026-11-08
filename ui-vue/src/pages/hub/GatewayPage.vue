@@ -406,6 +406,13 @@ const TABS: { key: TabKey; label: string; dot?: boolean }[] = [
 
 const cfUrl = computed(() => config.value?.tunnel?.url ?? "");
 const cfRunning = computed(() => Boolean(config.value?.tunnel?.running));
+// 三个 tab 的状态点：真实反映各通道是否在运行（之前 tsn 分支漏接、永远 off）。
+function tabDotState(key: string): "on" | "off" {
+  if (key === "cf") return cfRunning.value ? "on" : "off";
+  if (key === "ts") return tsStatus.value?.running ? "on" : "off";
+  if (key === "tsn") return tsnRunning.value ? "on" : "off";
+  return "off";
+}
 const cfInstalled = computed(() => Boolean(config.value?.binary?.installed));
 /** 残留通道 pid 列表（旧版 gateway_tunnel_orphans 返回） */
 interface OrphanTunnel { pid: number; url?: string; }
@@ -801,17 +808,7 @@ function deletePair(id: string) {
         v-if="tab.dot"
         :id="tab.key === 'cf' ? 'gwTabDotCf' : tab.key === 'ts' ? 'gwTabDotTs' : 'gwTabDotTsn'"
         class="gw-tab-dot"
-        :data-st="
-          tab.key === 'cf'
-            ? cfRunning
-              ? 'on'
-              : 'off'
-            : tab.key === 'ts'
-              ? tsStatus?.running
-                ? 'on'
-                : 'off'
-              : 'off'
-        "
+        :data-st="tabDotState(tab.key)"
       />
       {{ tab.label }}
     </button>
