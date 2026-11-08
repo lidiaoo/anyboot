@@ -3297,6 +3297,16 @@ pub fn run() {
             let app = window.app_handle().clone();
             api.prevent_close();
             if stored_settings(&app).close_action == CloseAction::Quit {
+                // 【修复】关主窗不要顺带关掉「远程管理」窗口：若它还开着（可见），
+                // 只隐藏主窗、不退出进程，让远程管理窗口继续用；它关了之后主窗再关才真正退出。
+                let hub_open = app
+                    .get_webview_window(HUB_WINDOW_LABEL)
+                    .map(|w| w.is_visible().unwrap_or(false))
+                    .unwrap_or(false);
+                if hub_open {
+                    let _ = window.hide();
+                    return;
+                }
                 app.exit(0);
                 return;
             }

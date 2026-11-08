@@ -838,7 +838,7 @@ impl Default for Settings {
             startup_scan_with_admin: true,
             helper_reminder_snooze_until: 0,
             main_auto_hide: false,
-            main_always_on_top: true,
+            main_always_on_top: false,
             main_auto_hide_edge_distance: 24,
             main_dock_strip_edge_gap: 0,
             main_dock_strip_hover_ms: 0,
