@@ -755,6 +755,59 @@ pub(crate) fn remote_ui_command_inner(
             )?)
             .map_err(|error| format!("序列化失败: {error}"))
         }
+        // ---- 远程管理：编辑框/列表/电源/切换等（网页/手机端也要能操作）----
+        "remote_save" => {
+            let server: crate::remote_servers::RemoteServer = serde_json::from_value(
+                args.get("server").cloned().unwrap_or(serde_json::Value::Null),
+            )
+            .map_err(|e| format!("服务器参数不合法: {e}"))?;
+            crate::remote_servers::remote_save(app.clone(), server)
+        }
+        "remote_delete" => res_unit(tauri::async_runtime::block_on(
+            crate::remote_servers::remote_delete(app.clone(), ui_str(args, "id")?),
+        )),
+        "remote_touch" => serde_json::to_value(crate::remote_servers::remote_touch(
+            app.clone(),
+            ui_str(args, "id")?,
+        )?)
+        .map_err(|e| format!("序列化失败: {e}")),
+        "remote_set_connect_all" => res_unit(crate::remote_servers::remote_set_connect_all(
+            app.clone(),
+            ui_bool(args, "on")?,
+        )),
+        "remote_reorder" => {
+            let ids: Vec<String> = serde_json::from_value(
+                args.get("ids").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+            )
+            .map_err(|e| format!("ids 不合法: {e}"))?;
+            serde_json::to_value(crate::remote_servers::remote_reorder(app.clone(), ids)?)
+                .map_err(|e| format!("序列化失败: {e}"))
+        }
+        "remote_power" => {
+            let sid = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+            let action = ui_str(args, "action")?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::remote_servers::remote_power(app.clone(), sid, action),
+            )?)
+            .map_err(|e| format!("序列化失败: {e}"))
+        }
+        "remote_boot_switch" => {
+            let sid = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+            let kind = ui_str(args, "kind")?;
+            let value = ui_str(args, "value")?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::remote_servers::remote_boot_switch(app.clone(), sid, kind, value),
+            )?)
+            .map_err(|e| format!("序列化失败: {e}"))
+        }
+        "remote_test_via" => {
+            let sid = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+            let address = ui_opt_str(args, "address");
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::remote_servers::remote_test_via(app.clone(), sid, address),
+            ))
+            .map_err(|e| format!("序列化失败: {e}"))
+        }
         // ---- 引导切换 / 扫描 ----
         "refresh" => status_value(refresh(app.clone())),
         // 注意：网页 / 手机端的 switch_system 在 handle_ui_command_request 里

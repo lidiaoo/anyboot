@@ -138,6 +138,8 @@ interface PairRowItem {
   tunnel_id?: string;
 }
 const pairs = ref<PairRowItem[]>([]);
+/** 通道粒度的「是否展示」隐藏列表（旧版 route_probe_hidden）：命中的通道在电脑列表整行不展示连通性，探测/连接照常。 */
+const routeProbeHidden = ref<string[]>([]);
 const PAIR_BLOCKS_UI = [
   { id: "cloudflare", label: "Cloudflare" },
   { id: "ts", label: "Tailscale" },
@@ -306,6 +308,7 @@ watch(
       hasToken.value = false;
       rows.value = [{ addr: "", macList: [], jump: "" }];
       pairs.value = [];
+      routeProbeHidden.value = [];
       routeOrder.value = [...ROUTE_IDS];
       routeDisabled.value = {};
       routeTimeout.value = {};
@@ -349,6 +352,24 @@ watch(
     if (bp && typeof bp === "object") blockProbe.value = { ...bp };
     const bt = (r as Record<string, unknown>).blockTimeouts as Record<string, string> | undefined;
     if (bt && typeof bt === "object") blockTimeouts.value = { ...bt };
+    // 读入连接配对（含 show_probe）与通道粒度展示隐藏——否则保存时会被后端 default 清空（数据丢失）
+    const pr2 = (r as Record<string, unknown>).pairs;
+    if (Array.isArray(pr2)) {
+      pairs.value = pr2.map((x) => {
+        const o = x as Record<string, unknown>;
+        return {
+          id: o.id ? String(o.id) : undefined,
+          kind: String(o.kind ?? ""), addr: String(o.addr ?? ""), lane: o.lane ? String(o.lane) : undefined,
+          note: String(o.note ?? ""), token: String(o.token ?? ""),
+          probe_timeout_ms: Number(o.probe_timeout_ms ?? 0), enabled: o.enabled !== false,
+          show_probe: o.show_probe !== false, mid: o.mid ? String(o.mid) : undefined,
+          os: o.os ? String(o.os) : undefined, host: o.host ? String(o.host) : undefined,
+          tunnel_id: o.tunnel_id ? String(o.tunnel_id) : undefined,
+        } as PairRowItem;
+      });
+    } else { pairs.value = []; }
+    const rph = (r as Record<string, unknown>).route_probe_hidden;
+    routeProbeHidden.value = Array.isArray(rph) ? rph.map(String) : [];
     // 把 addresses + macs 摊平成行
     const addrs = r.addresses ?? [];
     const macs = (r.macs ?? {}) as Record<string, string[]>;
@@ -402,6 +423,13 @@ function submit() {
     macs,
     route_order: routeOrder.value,
     route_disabled: routeDisabled.value,
+    route_probe_hidden: routeProbeHidden.value,
+    pairs: pairs.value.map((p) => ({
+      id: p.id ?? "", kind: p.kind, addr: p.addr, lane: p.lane ?? "",
+      note: p.note, token: p.token, probe_timeout_ms: p.probe_timeout_ms,
+      enabled: p.enabled, show_probe: p.show_probe, mid: p.mid ?? "",
+      os: p.os ?? "", host: p.host ?? "", tunnel_id: p.tunnel_id ?? "",
+    })),
     route_timeout: routeTimeout.value,
     power_routes: powerRoutes.value.map((r) => ({
       action: r.action, mode: r.mode, target: r.target, port: r.port,
