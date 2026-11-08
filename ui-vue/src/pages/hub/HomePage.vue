@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import PcMenu from "@/components/hub/PcMenu.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
+import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
@@ -232,9 +233,24 @@ watch(activeId, async (id) => {
 });
 
 /** 标签右键：定位到该标签并打开 ⋮ 菜单（旧版 hub.html:9775 contextmenu） */
+const chipMenuId = ref<string>("");
+const sysInfoId = ref<string | null>(null);
+const sysInfoTitle = computed(() => remote.servers.find((s) => s.id === sysInfoId.value)?.name ?? chips.value.find((c) => c.id === sysInfoId.value)?.name ?? "");
 function openChipMenuAt(id: string) {
   activeId.value = id;
+  chipMenuId.value = id;
   chipMenuOpen.value = true;
+}
+function chipEdit() {
+  chipMenuOpen.value = false;
+  if (!chipMenuId.value || chipMenuId.value === "local") { showToast("本机是默认连接，不可编辑"); return; }
+  openRemoteEdit(chipMenuId.value);
+}
+function chipSysInfo(id?: string) {
+  chipMenuOpen.value = false;
+  const target = id || chipMenuId.value;
+  if (!target) return;
+  sysInfoId.value = target;
 }
 
 function selectChip(id: string) {
@@ -285,7 +301,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
             class="os-badge"
             :data-os="chip.os"
             :title="`系统：${OS_LABELS[chip.os]}（点开看详细信息）`"
-            @click.stop="emit('sysInfo', chip.id)"
+            @click.stop="chipSysInfo(chip.id)"
             @mousedown.stop
           >{{ OS_LABELS[chip.os] }}</button>
           <span v-if="chip.id !== 'local'" class="chip-conn">{{ chip.conn }}</span>
@@ -408,11 +424,11 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
     <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" aria-label="标签菜单">
-      <button role="menuitem" @click="chipMenuOpen = false">
+      <button role="menuitem" @click="chipEdit">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
         编辑这个服务端
       </button>
-      <button role="menuitem" @click="chipMenuOpen = false">
+      <button role="menuitem" @click="chipSysInfo()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
         系统信息（系统 / CPU / 内存）
       </button>
@@ -437,6 +453,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
       @add="rsEditing = ''; rsEditOpen = true"
       @close="rsListOpen = false"
     />
+    <SystemInfoDialog :server-id="sysInfoId" :title="sysInfoTitle" @close="sysInfoId = null" />
   </div>
 </template>
 
