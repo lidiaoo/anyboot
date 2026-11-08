@@ -2,7 +2,7 @@
 const toast = useToastStore();
 const ui = useUiStateStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
 import { useToastStore } from "@/stores/toast";
@@ -478,6 +478,14 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
 }
 
 onMounted(async () => {
+  // 【修复】浏览器/手机端(非 Tauri)：没有 tauri event/listen，原有的 listen 调用会抛错
+  // 中断 onMounted → 后面 refreshAll 不执行 → 三个通道 dot 全灰。这里非 Tauri 直接拉数据。
+  if (!isTauri()) {
+    await refreshAll();
+    await refreshFunnel();
+    await refreshTsn();
+    return;
+  }
   // 旧版监听的事件（补齐）
   const { listen } = await import("@tauri-apps/api/event");
   const offs: (() => void)[] = [];
