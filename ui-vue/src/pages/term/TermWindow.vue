@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { onMounted, onUnmounted, ref } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
 /**
@@ -51,6 +51,9 @@ interface Session {
 
 const termHostRef = ref<HTMLElement | null>(null);
 const sessions = ref<Session[]>([]);
+/** web 端：每会话已读到的输出游标 + 轮询定时器 */
+const webCursors = new Map<string, number>();
+let webPoll: number | null = null;
 const activeId = ref("");
 const connText = ref("—");
 const connOk = ref(false);
@@ -327,6 +330,17 @@ onMounted(async () => {
     servers.value = [];
   }
 
+  if (!isTauri()) {
+    // 网页端：无 Tauri 事件。从 URL ?serverId= 打开会话，输出靠轮询 hub_term_read。
+    try {
+      const q = new URLSearchParams(location.search);
+      const sid = q.get("serverId") || q.get("server") || "";
+      if (sid) await openServer(sid);
+    } catch { /* ignore */ }
+    const { listen: _l } = { listen: null }; void _l;
+    return;
+  }
+
   const { listen } = await import("@tauri-apps/api/event");
 
   // 数据流
@@ -410,9 +424,10 @@ async function openServer(server: string | Record<string, unknown>) {
   connText.value = "连接中…";
   connOk.value = false;
   try {
-    const result = await call<{ id: string; title?: string }>("hub_term_open", {
-      server: serverObj ?? sid,
-    });
+    const result = await call<{ id: string; title?: string }>(
+      isTauri() ? "hub_term_open" : "hub_term_open_web",
+      { server: serverObj ?? sid },
+    );
     const session = await createSession(result.id, result.title || "终端");
     if (session) {
       session.serverId = sid;
@@ -423,6 +438,7 @@ async function openServer(server: string | Record<string, unknown>) {
     if (!session) return;
     // open 已返回 → 把攒着的数据写进去
     flushPending(session);
+    if (!isTauri()) startWebPoll(session.id);
     connText.value = "已连接";
     connOk.value = true;
   } catch (error) {
@@ -432,7 +448,23 @@ async function openServer(server: string | Record<string, unknown>) {
   }
 }
 
+/** web 端：单会话输出轮询（100ms）——把 hub_term_read 的增量写进 xterm。 */
+function startWebPoll(sessionId: string) {
+  const tick = async () => {
+    if (webPoll === null) return; // 已停
+    try {
+      const after = webCursors.get(sessionId) ?? 0;
+      const r = await call<{ data?: string; cursor?: number }>("hub_term_read", { sessionId, after });
+      if (r?.cursor !== undefined) webCursors.set(sessionId, r.cursor);
+      if (r?.data) writeData(sessionId, r.data);
+    } catch { /* 会话可能已关闭，忽略 */ }
+    if (webPoll !== null) webPoll = window.setTimeout(tick, 100);
+  };
+  if (webPoll === null) webPoll = window.setTimeout(tick, 100);
+}
+
 onUnmounted(() => {
+  if (webPoll !== null) { window.clearTimeout(webPoll); webPoll = null; }
   for (const off of unlisteners) off();
   for (const session of sessions.value) session.term.dispose();
 });

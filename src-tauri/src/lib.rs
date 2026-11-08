@@ -3774,6 +3774,8 @@ pub fn run() {
             set_helper_reminder_snooze,
             run_startup_admin_scan,
             hub_term::hub_term_open,
+            hub_term::hub_term_open_web,
+            hub_term::hub_term_read,
             hub_term::hub_term_write,
             hub_term::hub_term_resize,
             hub_term::hub_term_close,

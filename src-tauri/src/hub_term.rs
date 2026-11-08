@@ -70,6 +70,9 @@ pub struct TermSession {
     /// 结束照常自动关窗。ssh 自己 abnormal 退出（连不上/认证失败/指纹被拒）
     /// 则**不**自动关窗 —— 报错文本留在死标签里让用户看清死因（闪关即黑箱）。
     user_closed: AtomicBool,
+    /// 输出环形缓冲（web 端无 window 事件，靠 hub_term_read 轮询这段增量读）。
+    /// (cursor 累计已写字节数, 最近若干字节)。桌面端仍走 emit，不影响。
+    output_buf: Arc<Mutex<(u64, Vec<u8>)>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -449,9 +452,11 @@ fn open_term_session(
         input,
         killer: Mutex::new(killer),
         user_closed: AtomicBool::new(false),
+        output_buf: Arc::new(Mutex::new((0u64, Vec::<u8>::new()))),
     });
     // 等待线程要看 user_closed（用户主动 ✕ = 干净收尾），在入表前先留一个把手
     let wait_session = session.clone();
+    let read_buf = session.output_buf.clone();
     app.state::<HubTermState>()
         .sessions
         .lock()
@@ -466,7 +471,7 @@ fn open_term_session(
     let read_tail = tail.clone();
     std::thread::Builder::new()
         .name(format!("hub-term-read-{id}"))
-        .spawn(move || pump_output(&emit_app, &read_id, &read_window, reader, read_tail))
+        .spawn(move || pump_output(&emit_app, &read_id, &read_window, reader, read_tail, read_buf))
         .map_err(|error| format!("无法启动读线程: {error}"))?;
 
     // 等待线程：ssh 退出 → hub-term-closed（发给承载窗口），并从会话表摘除
@@ -624,6 +629,7 @@ fn pump_output(
     window: &str,
     mut reader: Box<dyn Read + Send>,
     tail: Arc<Mutex<Vec<u8>>>,
+    output_buf: Arc<Mutex<(u64, Vec<u8>)>>,
 ) {
     let mut chunk = [0u8; 8192];
     loop {
@@ -637,13 +643,18 @@ fn pump_output(
                         buf.drain(..cut);
                     }
                 }
+                // 写入 web 读取缓冲（环形，最多留 256KB）
+                if let Ok(mut b) = output_buf.lock() {
+                    b.0 = b.0.wrapping_add(n as u64);
+                    b.1.extend_from_slice(&chunk[..n]);
+                    if b.1.len() > 256 * 1024 { let cut = b.1.len() - 256 * 1024; b.1.drain(..cut); }
+                }
                 let payload = json!({
                     "id": id,
                     "data": B64.encode(&chunk[..n]),
                 });
-                if app.emit_to(window, EVENT_DATA, payload).is_err() {
-                    break; // 窗口没了，没必要再读
-                }
+                // 桌面窗口事件：web 会话(window="web")发不到窗口，emit_to 会 Err → 不能因此 break。
+                let _ = app.emit_to(window, EVENT_DATA, payload);
             }
             Err(error) => {
                 if error.kind() != std::io::ErrorKind::Interrupted {
@@ -915,4 +926,41 @@ mod tests {
             Some("cd '/a'\\''b/c'; exec \"$SHELL\" -l".to_string())
         );
     }
+}
+
+// ==================== web 端（浏览器，无 Tauri 窗口/事件） ====================
+/// 网页端打开终端：建会话（不绑任何 Tauri 窗口，`window` 记为 "web"），
+/// 输出经 `hub_term_read` 轮询增量读取。功能与桌面端 hub_term_open 一致。
+#[tauri::command]
+pub async fn hub_term_open_web(app: AppHandle, server: HubServer) -> Result<TermMeta, String> {
+    // "web" 不是真实窗口 label：pump/等待线程的 emit_to("web") 会失败但被忽略，
+    // 输出改由 output_buf 供 hub_term_read 读取。
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || open_term_session(&app2, "web", server))
+        .await
+        .map_err(|e| format!("打开终端任务失败: {e}"))?
+}
+
+/// 网页端读取某会话自 `after` 起的输出增量（base64）。返回 {data, cursor}：
+/// 下次带 cursor 作为 after 继续读。data 为空表示暂无新输出。
+#[tauri::command]
+pub fn hub_term_read(
+    state: tauri::State<'_, HubTermState>,
+    session_id: String,
+    after: u64,
+) -> Result<serde_json::Value, String> {
+    let sessions = state.sessions.lock().map_err(|_| "会话表已被锁死")?;
+    let session = sessions.get(&session_id).ok_or_else(|| "会话不存在（可能已关闭）".to_string())?;
+    let buf = session.output_buf.lock().map_err(|_| "输出缓冲锁死")?;
+    let (cursor, bytes) = &*buf;
+    // 环形缓冲里保留的是最近 N 字节；起始 offset = cursor - bytes.len()
+    let start = cursor.saturating_sub(bytes.len() as u64);
+    let data = if after <= start {
+        // 客户端落后太多（被环形覆盖）→ 给它当前全部
+        bytes.clone()
+    } else {
+        let skip = (after - start) as usize;
+        if skip >= bytes.len() { Vec::new() } else { bytes[skip..].to_vec() }
+    };
+    Ok(json!({ "data": B64.encode(&data), "cursor": *cursor }))
 }

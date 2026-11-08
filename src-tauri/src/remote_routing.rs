@@ -859,6 +859,37 @@ pub(crate) fn remote_ui_command_inner(
             ))
             .map_err(|e| format!("序列化失败: {e}"))
         }
+        // ---- web 端终端（浏览器无 Tauri 窗口/事件，输出靠轮询 hub_term_read）----
+        "hub_term_open_web" => {
+            let server = sftp_server_from_args(&app, args)?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_term::hub_term_open_web(app.clone(), server),
+            )?).map_err(|e| format!("序列化失败: {e}"))
+        }
+        "hub_term_read" => {
+            let session_id = ui_str(args, "sessionId").or_else(|_| ui_str(args, "session_id"))?;
+            let after = args.get("after").and_then(|v| v.as_u64()).unwrap_or(0);
+            let state = app.state::<crate::hub_term::HubTermState>();
+            crate::hub_term::hub_term_read(state, session_id, after)
+        }
+        "hub_term_write" => {
+            let session_id = ui_str(args, "sessionId").or_else(|_| ui_str(args, "session_id"))?;
+            let data = ui_str(args, "data")?;
+            let state = app.state::<crate::hub_term::HubTermState>();
+            res_unit(crate::hub_term::hub_term_write(state, session_id, data))
+        }
+        "hub_term_resize" => {
+            let session_id = ui_str(args, "sessionId").or_else(|_| ui_str(args, "session_id"))?;
+            let rows = args.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+            let cols = args.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+            let state = app.state::<crate::hub_term::HubTermState>();
+            res_unit(crate::hub_term::hub_term_resize(state, session_id, rows, cols))
+        }
+        "hub_term_close" => {
+            let session_id = ui_str(args, "sessionId").or_else(|_| ui_str(args, "session_id"))?;
+            let state = app.state::<crate::hub_term::HubTermState>();
+            res_unit(crate::hub_term::hub_term_close(state, session_id))
+        }
         // ---- 引导切换 / 扫描 ----
         "refresh" => status_value(refresh(app.clone())),
         // 注意：网页 / 手机端的 switch_system 在 handle_ui_command_request 里

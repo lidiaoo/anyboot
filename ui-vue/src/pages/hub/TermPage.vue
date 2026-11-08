@@ -47,9 +47,15 @@ function goServers() {
   btn?.click();
 }
 
-function openTerminal() {
+async function openTerminal() {
   if (!isTauri()) {
-    toast.show("终端需要应用环境", "bad");
+    // 网页端：本机 HTTP 已提供 hub-term.html；带 token + serverId 在新标签打开
+    if (!selectedId.value) { toast.show("先在下方选一台 SSH 服务器", "bad"); return; }
+    try {
+      const { getAuthToken } = await import("@/api/http");
+      const tok = encodeURIComponent(getAuthToken());
+      window.open(`/hub-term.html?token=${tok}&serverId=${encodeURIComponent(selectedId.value)}`, "_blank");
+    } catch { /* ignore */ }
     return;
   }
   if (!selectedId.value) {
