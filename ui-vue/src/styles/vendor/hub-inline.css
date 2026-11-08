@@ -1198,7 +1198,9 @@
   .cq-stat--off b { color: rgb(var(--fg-dim)); }
   .cq-stat--pend b { color: rgb(var(--warn)); }
   .cq-toolbar {
-    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    /* 桌面端不换行：让 .cq-spacer 把「操作说明/排序/刷新/⋮」顶到最右（用户：三个点要在最右边）。
+       之前 flex-wrap:wrap 时内容一多就换行 → ⋮ 掉到第二行最左。窄屏(≤560)再恢复换行见下。 */
+    flex: none; display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
     padding: 0 20px 12px;
   }
   /* ---- 排序：模式下拉（复用 .pc-menu 皮）+ 自定义模式的行内 ↑↓ ---- */
@@ -1588,6 +1590,7 @@
     .cq-seg button, .cq-stat { white-space: nowrap; }
     .cq-seg { flex-wrap: wrap; }
     .cq-head, .cq-toolbar { padding-left: 12px; padding-right: 12px; }
+    .cq-toolbar { flex-wrap: wrap; }
     .cq-search { flex: 1 1 100%; }
     .cq-card { margin: 0 12px 12px; }
     .cq-help { margin: 0 12px 12px; }
