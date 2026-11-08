@@ -8,6 +8,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { BOOT_ADV_KEY } from "@/api/constants";
+import { call } from "@/api/tauri";
 import type { LayoutMode, ThemeKey } from "@/pages/boot/themes/registry";
 import { THEME_LAYOUT_MODES } from "@/pages/boot/themes/registry";
 
@@ -109,7 +110,36 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     return out;
   });
 
+  /** 写后端 settings（防抖 400ms，避免拖拽排序时高频写盘）。整包 JSON 存本机，
+   *  桌面+移动端(远程)读同一份 —— 换设备/清缓存不丢。 */
+  let backendTimer: number | undefined;
+  function syncBackend() {
+    if (backendTimer) window.clearTimeout(backendTimer);
+    backendTimer = window.setTimeout(() => {
+      void call("set_boot_adv", { json: JSON.stringify(state.value) }).catch(() => {});
+    }, 400);
+  }
+
+  /** 启动时用后端存的编排覆盖本地（后端有值才用；空则保持 localStorage）。
+   *  解决「移动端/换设备取消勾选重开又勾上」——统一以本机后端为准。 */
+  function hydrateFromBackend(json: string | null | undefined): void {
+    if (!json || !json.trim()) return;
+    try {
+      const parsed = JSON.parse(json) as Partial<BootAdvState>;
+      state.value = {
+        ...state.value,
+        ...parsed,
+        visible: { ...DEFAULT_STATE.visible, ...(parsed.visible ?? {}) },
+        side: { ...(parsed.side ?? {}) },
+        order: Array.isArray(parsed.order) && parsed.order.length ? parsed.order : [...LOADER_IDS],
+      };
+    } catch {
+      /* 坏数据忽略 */
+    }
+  }
+
   function save() {
+    // 本地 localStorage 照存（兜底、离线可用）；同时同步后端（跨端一致）。
     try {
       if (guestTheme.value) {
         // 【修复】访客模式（远程/移动端 URL 带 abTheme）**只不覆盖主题偏好**，
@@ -132,6 +162,7 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     } catch {
       /* 存不了就本次会话有效 */
     }
+    syncBackend();
   }
 
   // 任何字段变动都自动保存（旧实现是每个 setter 里手动调 saveState）
@@ -194,5 +225,6 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     setRatio,
     setStyle,
     setNextBoot,
+    hydrateFromBackend,
   };
 });

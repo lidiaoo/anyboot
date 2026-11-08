@@ -686,6 +686,10 @@ pub(crate) struct Settings {
     /// rEFInd 的读取方式（自动扫描 / 手动处理）：决定「下次启动」与托盘那块
     /// 按哪份数据判选中项 —— 自动看 `refindSim.lastBoot`，手动看 vars 快照的
     /// `active`（三行系统里标「已选择」的那条）。默认自动。
+    /// 引导页「高级设置」的编排状态（可见引导器/顺序/左右分列/布局/比例）整包 JSON。
+    /// 存后端而非浏览器 localStorage：桌面+移动端(远程)读同一份，换设备/清缓存不丢。
+    #[serde(default)]
+    pub(crate) boot_adv_json: String,
     pub(crate) refind_mode: LoaderMode,
     /// GRUB 的读取方式（自动读取 / 手动解析）：决定「下次启动」与托盘那块
     /// 用 `linuxGrub`（Linux 分区里的 grub.cfg + grubenv）还是 ESP 上那份
@@ -828,6 +832,7 @@ impl Default for Settings {
             grub_list_view: "inline".to_string(),
             grub_list_format: "minimal".to_string(),
             linux_grub_dev: String::new(),
+            boot_adv_json: String::new(),
             refind_mode: LoaderMode::Auto,
             grub_mode: LoaderMode::Auto,
             startup_scan_with_admin: true,

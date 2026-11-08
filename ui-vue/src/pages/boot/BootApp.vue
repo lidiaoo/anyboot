@@ -190,6 +190,9 @@ watch(() => (ui.state as unknown as { docked?: boolean; dockEdge?: string } | nu
 
 onMounted(async () => {
   await ui.start();
+  // 引导节目录用**本机后端**存的编排（visible/order/side/layout）覆盖本地 —— 跨端一致，
+  // 移动端取消勾选后重开也不会又勾上（后端有值才覆盖，空则保持 localStorage）。
+  adv.hydrateFromBackend((ui.settings as { bootAdvJson?: string } | null)?.bootAdvJson);
   // 启动扫描策略（用户定案修正 2026-11-07）：
   //   **勾选「启动时使用管理员扫描」= 启动一定用管理员权限扫描所有引导器**
   //   （GRUB 自动 + rEFInd 内核）。没免密就弹系统密码授权框扫；取消勾选才不用 root 扫。

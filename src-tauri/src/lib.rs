@@ -2431,6 +2431,15 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
 }
 
 #[tauri::command]
+fn set_boot_adv(app: AppHandle, json: String) -> Result<SettingsView, String> {
+    trace(&app, "command", "set_boot_adv");
+    let mut settings = stored_settings(&app);
+    settings.boot_adv_json = json;
+    save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+#[tauri::command]
 fn set_startup_scan_with_admin(app: AppHandle, enabled: bool) -> Result<SettingsView, String> {
     trace(&app, "command", &format!("set_startup_scan_with_admin enabled={enabled}"));
     let mut settings = stored_settings(&app);
@@ -3728,6 +3737,7 @@ pub fn run() {
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             helper_install::boot_helper,
             set_startup_scan_with_admin,
+            set_boot_adv,
             set_helper_reminder_snooze,
             run_startup_admin_scan,
             hub_term::hub_term_open,
