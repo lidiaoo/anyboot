@@ -1061,6 +1061,8 @@
   }
   .pc-chip:hover { color: rgb(var(--fg-dim)); }
   .pc-chip .dot { width: 8px; height: 8px; border-radius: 999px; background: rgb(var(--fg-faint)); flex: none; }
+  /* 在线绿点：比 .dot.ok 更具体，否则被上一条 .pc-chip .dot 的灰底覆盖 */
+  .pc-chip .dot.ok { background: rgb(var(--ok)); }
   .pc-chip.active { background: rgb(var(--accent)); color: #fff; font-weight: 600; }
   .pc-chip.active .dot { background: rgba(255, 255, 255, .9); }
   .pc-chip .mini {

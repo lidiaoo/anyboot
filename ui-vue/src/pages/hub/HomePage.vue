@@ -175,7 +175,7 @@ const currentName = computed(() => {
 
 const OS_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
 const chips = computed(() => [
-  { id: "local", name: "本机", sub: "默认 · 本地", os: "", conn: "本地", addr: "" },
+  { id: "local", name: "本机", sub: "默认 · 本地", os: "", conn: "本地", addr: "", online: true },
   ...remote.servers.map((s) => {
     // 【修复】conn 之前写死「未连接」永远不更新，和「电脑列表」的在线判定不一致
     // （电脑列表用 remote.bootInfo 的 online，这里却恒为未连接）。改为读同一份 bootInfo。
@@ -187,6 +187,7 @@ const chips = computed(() => [
       os: String(s.machine_os || "").trim().toLowerCase(),
       conn: online ? "在线" : "未连接",
       addr: (s.addresses && s.addresses[0]) || "",
+      online,
     };
   }),
 ]);
@@ -292,7 +293,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           @click="selectChip(chip.id)"
           @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
-          <span class="dot" aria-hidden="true" />
+          <span class="dot" :class="{ ok: chip.online }" aria-hidden="true" :title="chip.online ? '在线' : '未连接'" />
           {{ chip.name }}
           <span v-if="chip.sub" class="mini">{{ chip.sub }}</span>
           <button
