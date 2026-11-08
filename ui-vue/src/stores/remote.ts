@@ -41,6 +41,10 @@ export const useRemoteStore = defineStore("remote", () => {
   const bootInfo = ref(new Map<string, RemoteBootInfo>());
   /** 每台电脑的连续失败计数（弱网容忍） */
   const failCounts = ref(new Map<string, number>());
+  /** 每台服务器「测试连接」的结果文字（serverId → '通 · N ms' / '不通：原因'）。
+   *  ServersPage 的连通性/延迟/延迟趋势都从这份读；之前 store 里根本没有这个 Map →
+   *  点「测试连接」无任何反馈。 */
+  const testResults = ref(new Map<string, string>());
   /** 正在读取的电脑 id */
   const loading = ref(new Set<string>());
   const loaded = ref(false);
@@ -176,7 +180,30 @@ export const useRemoteStore = defineStore("remote", () => {
 
   /** 测试连接（探活） */
   async function test(payload: Record<string, unknown>): Promise<unknown> {
-    return call("remote_test", payload);
+    // 【修复】之前直接把整个 HubServer 对象传给 remote_test，但该命令要扁平参数
+    // (addresses/probe_mode/...)，对不上 → 测试无效、始终「不通」。
+    // 改用 remote_test_via：只传 serverId，后端自己查 profile 逐通道探测（与编辑对话框一致）。
+    const id = String(payload.id ?? payload.serverId ?? "");
+    let text = "不通";
+    try {
+      const r = await call<{ ok?: boolean; ms?: number; addr?: string; error?: string }>(
+        "remote_test_via",
+        { serverId: id, address: null },
+      );
+      text = r?.ok ? `通 · ${r.ms ?? 0} ms` : `不通：${r?.error ?? ""}`;
+    } catch (e) {
+      text = `不通：${e}`;
+    }
+    if (id) {
+      testResults.value.set(id, text);
+      testResults.value = new Map(testResults.value);
+    }
+    return text;
+  }
+
+  /** 测试全部服务器连接（ServersPage 顶部「刷新」按钮） */
+  async function testAll(): Promise<void> {
+    await Promise.all((servers.value ?? []).map((s) => test({ id: s.id }).catch(() => {})));
   }
 
   const totalOnline = computed(
@@ -193,7 +220,9 @@ export const useRemoteStore = defineStore("remote", () => {
     loaded,
     lastError,
     totalOnline,
+    testResults,
     // 动作
+    testAll,
     load,
     refreshBoot,
     refreshAllBoot,
