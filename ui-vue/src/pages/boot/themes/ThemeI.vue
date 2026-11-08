@@ -249,7 +249,7 @@ function closeSheet() {
             </template>
             <template v-else-if="sheetLoader">
               <BootList :loader="sheetLoader.id" @select="(s) => onSelect?.(s)" />
-              <LoaderSettings :loader="sheetLoader.id" default-open />
+              <LoaderSettings :loader="sheetLoader.id" />
             </template>
           </div>
         </div>
