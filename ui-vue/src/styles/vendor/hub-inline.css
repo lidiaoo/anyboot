@@ -2336,3 +2336,25 @@
   }
 
         
+/* 电脑行「启动项选择器」弹层 */
+.cq-picker-overlay {
+  position: fixed; inset: 0; z-index: 50; background: rgb(0 0 0 / .28);
+  display: grid; place-items: center;
+}
+.cq-picker {
+  width: min(420px, 86vw); max-height: 70vh; display: flex; flex-direction: column;
+  background: rgb(var(--card)); border: 1px solid rgb(var(--line)); border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / .3); overflow: hidden;
+}
+.cq-picker-head { padding: 12px 14px; font-weight: 600; font-size: 13px; border-bottom: 1px solid rgb(var(--line)); }
+.cq-picker-list { overflow-y: auto; padding: 6px; }
+.cq-picker-item {
+  display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px;
+  border: 0; background: transparent; color: rgb(var(--fg)); font: inherit; font-size: 13px; cursor: pointer;
+  text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+}
+.cq-picker-item:hover { background: rgb(var(--elevate)); }
+.cq-picker-cancel {
+  margin: 8px; padding: 8px; border-radius: 8px; border: 1px solid rgb(var(--line));
+  background: transparent; color: rgb(var(--fg)); font: inherit; font-size: 12px; cursor: pointer;
+}

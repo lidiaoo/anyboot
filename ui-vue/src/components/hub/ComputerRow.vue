@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import type { RemoteProfile } from "@/stores/remote";
 import type { RemoteBootInfo } from "@/api/types";
 
@@ -54,6 +54,22 @@ const emit = defineEmits<{
 }>();
 
 const isLocal = computed(() => props.row.id === "local");
+/** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
+const picker = ref<{ kind: string; title: string; options: { value: string; label: string }[] } | null>(null);
+function openPicker(kind: string) {
+  const group = kind === "refind" ? props.info?.refind : kind === "grub" ? props.info?.grub
+    : (props.info?.channels ?? []).find((c) => c.kind === kind);
+  const opts = ((group as { options?: { value?: string; label?: string; header?: boolean; fixed?: boolean }[] })?.options ?? [])
+    .filter((o) => !o.header && (o.value ?? "").trim() !== "")
+    .map((o) => ({ value: String(o.value), label: String(o.label ?? o.value) }));
+  if (!opts.length) return; // 没有可选项就别弹
+  picker.value = { kind, title: (group as { title?: string })?.title ?? kind, options: opts };
+}
+function chooseBoot(value: string) {
+  const pk = picker.value; if (!pk) return;
+  picker.value = null;
+  emit("switchBoot", { serverId: props.row.id, kind: pk.kind, value });
+}
 /** 旧版：本机恒在线（hub 自身在跑）；远端看 remote_boot_info 的 online */
 const online = computed(() => (isLocal.value ? true : (props.info?.online ?? false)));
 const loading = computed(() => props.info === undefined && !isLocal.value);
@@ -249,7 +265,7 @@ function onRowClick() {
             type="button"
             class="cq-boot-btn"
             :disabled="!bootUsable('refind')"
-            @click.stop="emit('switchBoot', { serverId: row.id, kind: 'refind' })"
+            @click.stop="openPicker('refind')"
           >
             <span v-if="bootState('refind').dot" class="k" :class="'k-' + bootState('refind').dot" />
             <span class="t">{{ bootState("refind").label }}</span>
@@ -262,7 +278,7 @@ function onRowClick() {
             type="button"
             class="cq-boot-btn"
             :disabled="!bootUsable('grub')"
-            @click.stop="emit('switchBoot', { serverId: row.id, kind: 'grub' })"
+            @click.stop="openPicker('grub')"
           >
             <span v-if="bootState('grub').dot" class="k" :class="'k-' + bootState('grub').dot" />
             <span class="t">{{ bootState("grub").label }}</span>
@@ -283,8 +299,8 @@ function onRowClick() {
           <button
             type="button"
             class="cq-boot-btn"
-            :disabled="!ch.available || !ch.current"
-            @click.stop="emit('switchBoot', { serverId: row.id, kind: ch.kind })"
+            :disabled="!ch.available || !(ch.options && ch.options.length)"
+            @click.stop="openPicker(ch.kind)"
           >
             <span class="t">{{ ch.current || (ch.available ? "未选择" : "未检测到") }}</span>
           </button>
@@ -314,6 +330,23 @@ function onRowClick() {
             <span class="hint">{{ spec.hint }}</span>
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- 启动项选择器：点启动项列弹出该引导器的可选条目，选中带 value 切换下次启动 -->
+    <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
+      <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="`${picker.title} · 选择启动项`">
+        <div class="cq-picker-head">{{ picker.title }} · 选择下次启动</div>
+        <div class="cq-picker-list">
+          <button
+            v-for="opt in picker.options"
+            :key="opt.value"
+            type="button"
+            class="cq-picker-item"
+            @click="chooseBoot(opt.value)"
+          >{{ opt.label }}</button>
+        </div>
+        <button type="button" class="cq-picker-cancel" @click="picker = null">取消</button>
       </div>
     </div>
   </div>
