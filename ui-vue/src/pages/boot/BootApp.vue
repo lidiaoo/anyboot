@@ -303,6 +303,35 @@ function loaderDefaultTitle(id: LoaderId | string): string {
   const hit = cur ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000")) : undefined;
   return hit?.title || cur || ch?.lastBoot || "未知";
 }
+/** 引导器状态点(绿/黄/灰)——反映**真实健康**，不是只判"检测到没有"。
+ *  · refind/grub 没有 channel 对象，用各自的 issues/error 判；
+ *  · sdboot/opencore/clover 用后端算好的 channel.chip(ok/warn/off，含 health 判定)。
+ *  之前一律 `!detected ? off : ok`，warn 永远不出现 → "检测到但有问题的"也显示纯绿，不合理。 */
+function loaderState(id: string): "ok" | "warn" | "off" {
+  const hasWarn = (issues?: { severity?: string }[] | null) =>
+    !!issues && issues.some((i) => (i.severity || "").toLowerCase() === "warn");
+  if (id === "refind") {
+    const sim = ui.refindSim;
+    if (!sim) return "off"; // 还没探测
+    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn"; // 有配置但 0 条目
+    return hasWarn(sim.issues) ? "warn" : "ok";
+  }
+  if (id === "grub") {
+    const g = ui.linuxGrub;
+    if (!g) return "off";
+    if (g.error) return "warn";
+    if (!(g.entries?.length) && hasWarn(g.issues)) return "warn";
+    return hasWarn(g.issues) ? "warn" : "ok";
+  }
+  // 通道：detected=false → off；否则用后端 chip 的真实档(ok/warn)
+  const ch = ui.channels.find((c) => c.id === id);
+  if (!ch || !ch.detected) return "off";
+  const chip = String((ch as { chip?: string }).chip || "");
+  if (chip === "warn") return "warn";
+  if (chip === "off") return "off";
+  return "ok";
+}
+
 const loaders = computed<LoaderInfo[]>(() => {
   const list: LoaderInfo[] = [];
   for (const id of adv.enabledLoaders) {
@@ -319,7 +348,7 @@ const loaders = computed<LoaderInfo[]>(() => {
     list.push({
       id,
       name: meta.name,
-      state: !detected ? "off" : "ok",
+      state: loaderState(id),
       entries,
       esp: loaderEspText(id),
       perm: meta.perm,
