@@ -761,6 +761,22 @@ pub(crate) fn remote_ui_command_inner(
             let to = ui_str(args, "to")?;
             res_unit(tauri::async_runtime::block_on(crate::hub_sftp::hub_sftp_copy(app.clone(), server, from, to)))
         }
+        "hub_sftp_download_bytes" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let remote_path = ui_str(args, "remotePath").or_else(|_| ui_str(args, "path"))?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_sftp::hub_sftp_download_bytes(app.clone(), server, remote_path),
+            )?).map_err(|e| format!("序列化失败: {e}"))
+        }
+        "hub_sftp_upload_bytes" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let remote_dir = ui_str(args, "remoteDir").or_else(|_| ui_str(args, "dir")).unwrap_or_default();
+            let filename = ui_str(args, "filename")?;
+            let data_b64 = ui_str(args, "dataB64").or_else(|_| ui_str(args, "data"))?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_sftp::hub_sftp_upload_bytes(app.clone(), server, remote_dir, filename, data_b64),
+            )?).map_err(|e| format!("序列化失败: {e}"))
+        }
         "hub_sftp_readlink" => {
             let server = sftp_server_from_args(&app, args)?;
             let path = ui_str(args, "path")?;

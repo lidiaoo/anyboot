@@ -18,6 +18,7 @@
 //!   网络中断、窗口重开（自动重挂）、应用重启后（传输页手动续传）都走
 //!   同一条续传路径 —— 与手机端 TransferManager 的暂停/续传/放弃三键对齐。
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::VecDeque;
@@ -1903,4 +1904,71 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
     }
+}
+
+// ==================== web 端上传/下载（浏览器无本地路径/文件对话框） ====================
+/// 网页端下载：把远端文件读成字节，base64 返回（前端用 Blob 触发浏览器下载）。
+/// 走 run_sftp_batch（同步、无窗口/事件），临时落到系统 temp 再读回删除。
+#[tauri::command]
+pub async fn hub_sftp_download_bytes(
+    app: AppHandle,
+    server: HubServer,
+    remote_path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let server = server.normalize();
+        if server.id.is_empty() {
+            return Err("该服务器还没保存档案，无法自动认证".to_string());
+        }
+        let tmp = std::env::temp_dir().join(format!(
+            "anyboot-dl-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let tmp_display = tmp.display().to_string();
+        let commands = format!("get {} {}\n", sftp_quote(&remote_path), sftp_quote(&tmp_display));
+        let res = run_sftp_batch(&app, &server, &commands);
+        let bytes = std::fs::read(&tmp).map_err(|e| format!("读取下载文件失败: {e}"));
+        let _ = std::fs::remove_file(&tmp);
+        res?;
+        let bytes = bytes?;
+        Ok(B64.encode(bytes))
+    })
+    .await
+    .map_err(|e| format!("下载任务失败: {e}"))?
+}
+
+/// 网页端上传：base64 内容 → 临时文件 → sftp put 到远端目录。返回远端完整路径。
+#[tauri::command]
+pub async fn hub_sftp_upload_bytes(
+    app: AppHandle,
+    server: HubServer,
+    remote_dir: String,
+    filename: String,
+    data_b64: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let server = server.normalize();
+        if server.id.is_empty() {
+            return Err("该服务器还没保存档案，无法自动认证".to_string());
+        }
+        let bytes = B64.decode(data_b64.as_bytes()).map_err(|e| format!("上传内容不是合法 base64: {e}"))?;
+        let tmp = std::env::temp_dir().join(format!(
+            "anyboot-ul-{}-{}-{}",
+            std::process::id(),
+            now_ms(),
+            filename.replace(['/', '\\'], "_")
+        ));
+        std::fs::write(&tmp, &bytes).map_err(|e| format!("写临时文件失败: {e}"))?;
+        let tmp_display = tmp.display().to_string();
+        let dir = remote_dir.trim_end_matches('/');
+        let remote_full = format!("{}/{}", if dir.is_empty() { "." } else { dir }, filename);
+        let commands = format!("put {} {}\n", sftp_quote(&tmp_display), sftp_quote(&remote_full));
+        let res = run_sftp_batch(&app, &server, &commands);
+        let _ = std::fs::remove_file(&tmp);
+        res?;
+        Ok(remote_full)
+    })
+    .await
+    .map_err(|e| format!("上传任务失败: {e}"))?
 }

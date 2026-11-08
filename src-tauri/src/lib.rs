@@ -3784,6 +3784,8 @@ pub fn run() {
             hub_sftp::hub_sftp_take_pending,
             hub_sftp::hub_sftp_home,
             hub_sftp::hub_sftp_list,
+            hub_sftp::hub_sftp_download_bytes,
+            hub_sftp::hub_sftp_upload_bytes,
             hub_sftp::hub_sftp_mkdir,
             hub_sftp::hub_sftp_remove,
             hub_sftp::hub_sftp_transfer_ctl,

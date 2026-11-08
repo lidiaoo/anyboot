@@ -350,6 +350,30 @@ function selectEntry(entry: SftpEntry) {
 }
 
 async function upload() {
+  if (!isTauri()) {
+    // 网页端：浏览器 File picker → base64 → hub_sftp_upload_bytes
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.onchange = async () => {
+      const files = Array.from(input.files ?? []);
+      if (!files.length) return;
+      try {
+        for (const f of files) {
+          const buf = await f.arrayBuffer();
+          const b64 = arrayBufferToB64(buf);
+          await call("hub_sftp_upload_bytes", {
+            server: sshServers.value.find((s) => s.id === serverId.value),
+            remoteDir: cwd.value, filename: f.name, dataB64: b64,
+          });
+        }
+        showToast("已上传 " + files.length + " 个文件");
+        await listDir(cwd.value);
+      } catch (e) { errorText.value = String(e); }
+    };
+    input.click();
+    return;
+  }
   try {
     const uploaded = (await call("hub_sftp_upload", {
       server: sshServers.value.find((s) => s.id === serverId.value),
@@ -367,6 +391,23 @@ async function upload() {
 async function download() {
   const entry = entries.value.find((e) => e.path === selectedPath.value);
   if (!selectedPath.value || !entry) return;
+  if (!isTauri()) {
+    // 网页端：hub_sftp_download_bytes 拿 base64 → Blob 触发浏览器下载
+    try {
+      const b64 = await call<string>("hub_sftp_download_bytes", {
+        server: sshServers.value.find((s) => s.id === serverId.value),
+        remotePath: selectedPath.value,
+      });
+      const buf = b64ToArrayBuffer(String(b64));
+      const blob = new Blob([buf]);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = entry.name; document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      showToast("已下载 " + entry.name);
+    } catch (e) { showToast("下载失败：" + e); }
+    return;
+  }
   try {
     // 下载路径取终端设置的「下载路径」（旧版：空/~ = 未设置 → 系统下载目录）
     let downDir = "";
@@ -390,6 +431,23 @@ async function download() {
   } catch (error) {
     showToast("下载失败：" + error);
   }
+}
+
+// base64 <-> ArrayBuffer（浏览器环境）
+function arrayBufferToB64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CH)) as unknown as number[]);
+  }
+  return btoa(bin);
+}
+function b64ToArrayBuffer(b64: string): ArrayBuffer {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
 }
 
 function startMkdir() {
