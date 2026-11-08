@@ -110,8 +110,24 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
   });
 
   function save() {
-    if (guestTheme.value) return; // 访客模式不写回
     try {
+      if (guestTheme.value) {
+        // 【修复】访客模式（远程/移动端 URL 带 abTheme）**只不覆盖主题偏好**，
+        // 但不能整个跳过 —— 否则远程端取消勾选的 visible/order/side 全不保存，
+        // 退出重开又被恢复成默认（用户报「移动端取消勾选 sdboot/clover 重开又勾上」）。
+        // 做法：保留本地已存的 theme，其余字段用当前 state 写回。
+        let prevTheme: unknown;
+        try {
+          const raw = localStorage.getItem(BOOT_ADV_KEY);
+          prevTheme = raw ? (JSON.parse(raw) as { theme?: unknown }).theme : undefined;
+        } catch {
+          prevTheme = undefined;
+        }
+        const toSave = { ...state.value };
+        if (prevTheme !== undefined) toSave.theme = prevTheme as typeof toSave.theme;
+        localStorage.setItem(BOOT_ADV_KEY, JSON.stringify(toSave));
+        return;
+      }
       localStorage.setItem(BOOT_ADV_KEY, JSON.stringify(state.value));
     } catch {
       /* 存不了就本次会话有效 */
