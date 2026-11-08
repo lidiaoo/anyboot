@@ -72,6 +72,9 @@ const rightProps = computed(() => ({ ...themeProps.value, loaders: loadersFor(1)
 
 /** 左右布局：layout === "lr" */
 const splitH = computed(() => props.layout === "lr");
+/** 是否真的需要右列：lr 且右列确有引导器。右列没内容时不渲染第二个 k-region，
+ *  避免窄屏浏览器不支持 CSS :has() 时露出一个空的第二个预演框（用户会看成"两个预演列表"）。 */
+const hasRight = computed(() => splitH.value && loadersFor(1).length > 0);
 
 /** 当前比例（受控 + 本地兜底） */
 const localRatio = ref(props.ratio ?? 0.5);
@@ -122,7 +125,7 @@ function resetRatio() {
       :class="{ h: splitH }"
     >
     <!-- 左（或唯一）列 -->
-    <section class="k-region" :style="splitH ? { width: firstWidth, flex: 'none' } : undefined">
+    <section class="k-region" :style="hasRight ? { width: firstWidth, flex: 'none' } : undefined">
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
           <component :is="component" v-bind="{ ...leftProps, rows: props.rows, defaultEntrySelector: props.defaultEntrySelector }" @reorder="(order: string[]) => emit('reorder', order)">
@@ -134,7 +137,7 @@ function resetRatio() {
 
     <!-- 左右拖拽条（旧版 boot-adv.js:2702 makeSplit） -->
     <div
-      v-if="splitH"
+      v-if="hasRight"
       class="k-split"
       :class="{ 'is-drag': dragging }"
       title="拖动调整左右两列的大小（双击恢复对半分）"
@@ -145,7 +148,7 @@ function resetRatio() {
     />
 
     <!-- 右列（仅左右布局） -->
-    <section v-if="splitH" class="k-region" style="flex: 1">
+    <section v-if="hasRight" class="k-region" style="flex: 1">
       <div class="k-rbody is-theme">
         <div class="k-theme-fit">
           <component :is="component" v-bind="{ ...rightProps, rows: props.rows }" @reorder="(order: string[]) => emit('reorder', order)" />
