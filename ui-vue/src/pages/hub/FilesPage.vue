@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const toast = useToastStore();
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { call } from "@/api/tauri";
 import { useServersStore } from "@/stores/servers";
 import { useToastStore } from "@/stores/toast";
@@ -141,6 +141,10 @@ async function confirmDest() {
 const sshServers = computed(() => store.servers.filter((s) => s.protocol === "ssh"));
 /** 当前选中的服务器对象（hub_sftp_* 要传整个对象而不是 id） */
 const currentServer = computed(() => sshServers.value.find((s) => s.id === serverId.value));
+// 【修复】切换服务器下拉后列表不刷新：之前靠 <select @change="listDir('')">，但 v-model 的
+// serverId 与 @change 同事件、顺序不保证，listDir 可能仍用旧 currentServer。改为 watch serverId：
+// 无论 v-model 还是代码切换，一变就按新服务器重新列目录。初始化首设不重复拉（旧值为空跳过）。
+watch(serverId, (nv, ov) => { if (nv && ov !== undefined && nv !== ov) void listDir(""); });
 const connected = computed(() => !errorText.value);
 
 /** 面包屑（旧版 .fb-crumbs） */
@@ -402,7 +406,7 @@ function pct(task: XferTask): number {
 
 <template>
   <div class="fb-topbar">
-    <select id="fbServer" v-model="serverId" class="fb-select" aria-label="选择服务器" @change="listDir('')">
+    <select id="fbServer" v-model="serverId" class="fb-select" aria-label="选择服务器">
       <option v-for="server in sshServers" :key="server.id" :value="server.id">
         {{ server.name }} · {{ store.displayAddr(server) }}
       </option>
