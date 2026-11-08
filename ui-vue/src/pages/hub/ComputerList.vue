@@ -373,7 +373,10 @@ function renmoteRow(id: string) {
 /** 用系统浏览器打开某台电脑的页面（旧版 remote_open_page） */
 async function openInBrowser(id: string) {
   const info = infoOf(id);
-  const url = info?.addr ? `http://${info.addr}/hub.html` : "";
+  // 【修复】必须带 token：否则浏览器打开后主界面拿不到 token（旧版也会弹 token 输入框兜底）。
+  const row = remote.servers.find((s) => s.id === id);
+  const token = encodeURIComponent(row?.token ?? "");
+  const url = info?.addr ? `http://${info.addr}/?token=${token}` : "";
   if (!url) {
     toast.show("这台电脑还没有可直连打开的地址", "bad");
     return;

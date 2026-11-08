@@ -39,6 +39,11 @@ let authToken = "";
 try {
   const fromUrl = new URLSearchParams(location.search).get("token");
   if (fromUrl) authToken = fromUrl.trim();
+  // URL 没带 token 时，读上次用户手输存下的 cookie（刷新/后续沿用，避免每次都要输）
+  if (!authToken) {
+    const m = document.cookie.match(/(?:^|;\s*)anyboot_token=([^;]+)/);
+    if (m) authToken = decodeURIComponent(m[1]).trim();
+  }
 } catch {
   /* 非浏览器环境忽略 */
 }

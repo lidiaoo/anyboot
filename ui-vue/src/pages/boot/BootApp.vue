@@ -8,6 +8,7 @@ import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
 import { runStartupAdminScan, isTauri } from "@/api/tauri";
 import HelperPrompt from "@/components/boot/HelperPrompt.vue";
+import TokenPrompt from "@/components/boot/TokenPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import { simRows, grubRows, refindVariableRows } from "@/pages/boot/bootRows";
@@ -384,6 +385,12 @@ const nextBootRows = computed(() =>
 const toast = useToastStore();
 /** 「需要开免密」的启动提示弹窗是否显示 */
 const helperPromptVisible = ref(false);
+/** 浏览器/手机端需要输入 token（无 token 或 401）：由 ui.remoteTokenMissing 驱动 */
+const needToken = computed(() => !isTauri() && ui.remoteTokenMissing);
+async function onTokenConfirmed() {
+  // 填了 token：重启传输（ui.start 会按新 authToken 重连并拉快照）
+  await ui.start().catch(() => {});
+}
 /** 弹窗用户操作完毕后：装了免密→静默扫；取消提醒/暂不→本次不扫 */
 async function onHelperPromptResolved(action: "installed" | "snoozed" | "cancelled") {
   helperPromptVisible.value = false;
@@ -743,4 +750,5 @@ const statusHidden = computed(() => {
     <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="dismissStatusBar">×</button>
   </div>
   <HelperPrompt v-if="helperPromptVisible" @resolved="onHelperPromptResolved" />
+  <TokenPrompt v-if="needToken" @confirmed="onTokenConfirmed" />
 </template>

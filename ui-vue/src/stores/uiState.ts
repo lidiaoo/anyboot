@@ -280,7 +280,11 @@ export const useUiStateStore = defineStore("uiState", () => {
   async function pollOnce() {
     try {
       const { fetchUiState, getAuthToken } = await import("@/api/http");
-      if (!getAuthToken()) return;
+      if (!getAuthToken()) {
+        // 浏览器/手机端无 token：标记缺 token → 触发输入框（旧版就在此时弹 token 输入）
+        remoteTokenMissing.value = true;
+        return;
+      }
       applySnapshot(await fetchUiState(), { force: true });
     } catch (error) {
       if (error instanceof (await import("@/api/http")).AuthError) {
