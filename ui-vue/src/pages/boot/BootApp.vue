@@ -652,7 +652,10 @@ const statusHidden = computed(() => {
       <div
         :class="[
           'tab-panel',
-          { active: currentTab === 'boot', 'ba-arranged ba-fill': adv.effectiveTheme !== 'K' },
+          // ba-fill 决定 #tab-boot 和主题走「撑满整页」布局；只在系统引导 tab 生效。
+          // 之前无条件挂 → #tab-boot.ba-fill{display:flex} 会压过 .tab-panel:not(.active){display:none}
+          // → 非系统引导 tab(如引导高级设置)时系统引导列表仍显示(手机浏览器尤明显)。
+          { active: currentTab === 'boot', 'ba-arranged ba-fill': adv.effectiveTheme !== 'K' && currentTab === 'boot' },
         ]"
         id="tab-boot"
       >
