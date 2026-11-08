@@ -1298,12 +1298,11 @@
     cursor: pointer;
   }
   .cq-row:hover { background: rgb(var(--elevate) / .55); }
-  /* 选中（=当前电脑）：accent 底色 + 左侧色条，比 hover 明显一档 */
-    .cq-row.cq-selected {
+  /* 选中（=当前电脑）：**只改背景色高亮，不改任何布局/尺寸/左侧色条** ——
+     用户 2026-11-08：选中只是状态变化，复用同一行、不要因选中变样。 */
+  .cq-row.cq-selected {
     background: rgb(var(--accent) / .10);
-    box-shadow: inset 3px 0 0 rgb(var(--accent));
-    /* 名字折行后行高要能长高（选中行尤其） */
-    align-items: flex-start;
+    border-color: rgb(var(--accent) / .45);
   }
   /* 列：头部行里电脑位吃满剩余宽，状态 / 更多靠右 */
   .cq-col { min-width: 0; }

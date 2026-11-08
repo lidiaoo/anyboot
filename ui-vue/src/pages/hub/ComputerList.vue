@@ -182,6 +182,11 @@ onMounted(async () => {
     try { await remote.load(); } catch { /* 忽略 */ }
   }
   startTimer();
+  // 【修复选中前后布局跳动】进列表就预拉所有电脑的引导项/在线状态（对齐旧版
+  // cqRefresh「重新探测全部电脑」）。之前只有选中某行或定时器 tick 才 load，
+  // 导致「读取中(矮) → 加载完(高)」行高跳动，看着像"选中就变形"。预拉后数据齐、行高稳定，
+  // 选中只加高亮不改尺寸。
+  void Promise.all(remote.servers.map((s) => remote.refreshBoot(s.id).catch(() => {})));
 
   // 验收信息写进 trace（macOS 无法 attach devtools）
   window.setTimeout(() => {
