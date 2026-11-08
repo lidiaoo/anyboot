@@ -711,7 +711,7 @@ const statusHidden = computed(() => {
               <b>{{ loaders.find((l) => l.id === id)?.name ?? id }} 启动项</b>
               <span class="cnt">· {{ bootRowsByLoader[id]?.length ?? 0 }} 项</span>
             </div>
-            <BootList :loader="id" />
+            <BootList :loader="id" @select="(sel: string) => adv.setSelection(id, sel)" />
             <LoaderSettings :loader="id" />
           </div>
         </ThemeHost>

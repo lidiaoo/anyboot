@@ -5391,3 +5391,21 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   vertical-align: -1px; animation: btn-spin 0.7s linear infinite;
 }
 @keyframes btn-spin { to { transform: rotate(360deg); } }
+
+/* 2026-11-08 基本设置(应用设置)小屏自适应：窄屏下每行竖排，输入控件限宽不再溢出右边界 */
+@media (max-width: 640px) {
+  .settings .setting {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .settings .setting-text { min-width: 0; }
+  .settings .setting input[type="number"],
+  .settings .setting input[type="text"],
+  .settings .setting select {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .settings .setting input[type="checkbox"] { align-self: flex-start; }
+}

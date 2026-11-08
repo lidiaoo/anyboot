@@ -71,6 +71,15 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
 
   /** 访客主题：远程查看时 URL 带 `abTheme=<字母>`，只影响渲染、不写回本地 */
   const guestTheme = ref<string>("");
+  /** G 布局当前选中的条目（引导器 + selector），供右侧「选中项」+ 置顶副本用。
+   *  BootList 在 BootApp 的 slot 里、ThemeG 在组件内，靠这个 store 跨作用域共享。 */
+  const selection = ref<{ loader: LoaderId; selector: string } | null>(null);
+  function setSelection(loader: LoaderId, selector: string): void {
+    selection.value = { loader, selector };
+  }
+  function clearSelection(): void {
+    selection.value = null;
+  }
   try {
     const fromUrl = (new URLSearchParams(location.search).get("abTheme") || "").toUpperCase();
     if (/^[A-K]$/.test(fromUrl)) guestTheme.value = fromUrl;
@@ -212,6 +221,9 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
   return {
     state,
     guestTheme,
+    selection,
+    setSelection,
+    clearSelection,
     effectiveTheme,
     effectiveLayout,
     supportsSplit,

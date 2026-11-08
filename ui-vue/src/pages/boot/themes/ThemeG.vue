@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useBootAdvStore } from "@/stores/bootAdv";
 import type { EntryData } from "@/components/boot/types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
@@ -162,7 +163,14 @@ const results = computed(() => {
 });
 
 /** 当前高亮的条目（右侧预览用） */
-const selected = ref<{ loader: string; selector: string } | null>(null);
+const adv = useBootAdvStore();
+/** 系统页（有 slot，列表由 BootList 渲染）时，选中状态来自 store（BootList @select 写入）；
+ *  预演 fallback 时用本地 selectedLocal。二者合并成 `selected` 统一用。 */
+/** 选中项统一走 store（BootList @select 与预演 fallback 点击都写它）——系统页与预演共用。 */
+const selected = computed<{ loader: string; selector: string } | null>(() => {
+  const s = adv.selection;
+  return s ? { loader: s.loader as string, selector: s.selector } : null;
+});
 /** 「引导器设置」应跟随「当前引导器」，与有没有条目无关：
  *  ① 筛选在某个具体引导器上 → 用该引导器；
  *  ② 否则用当前选中项所属引导器；
@@ -171,7 +179,7 @@ const selected = ref<{ loader: string; selector: string } | null>(null);
 watch(results, (groups) => {
   if (!selected.value && groups.length && groups[0].entries.length) {
     const first = groups[0].entries.find((e) => e.selector); 
-    if (first?.selector) selected.value = { loader: groups[0].loader.id, selector: first.selector };
+    if (first?.selector) adv.setSelection(groups[0].loader.id as any, first.selector);
   }
 });
 
@@ -185,7 +193,7 @@ watch(
   () => results.value.map((g) => `${g.loader.id}:${g.entries.length}`).join(","),
   () => {
     // 结果集变了，原来的选中项可能已经不在了
-    if (selected.value && !selectedEntry.value) selected.value = null;
+    if (selected.value && !selectedEntry.value) adv.clearSelection();
   },
 );
 
@@ -204,25 +212,33 @@ watch([query, filter, () => props.rows], async () => {
   const root = resultsRoot.value;
   if (!root) return;
   const q = query.value.trim().toLowerCase();
-  // 每个引导器组：组头 + 区块
-  const groups = root.querySelectorAll(".lg-group[data-loader-id]");
-  groups.forEach((g) => {
-    const id = (g as HTMLElement).dataset.loaderId;
-    const section = root.querySelector(`[data-loader-section="${id}"]`);
+  // 系统页的区块是 .boot-loader-block[data-loader-section]（不是预演的 .lg-group），
+  // 这里统一按 [data-loader-section] 处理：filter 命中才显示，其余隐藏；
+  // 搜索时对区块内的行做 ba-g-hide。
+  const sections = root.querySelectorAll("[data-loader-section]");
+  sections.forEach((section) => {
+    const el = section as HTMLElement;
+    const id = el.dataset.loaderSection || "";
     const show = filter.value === "all" || filter.value === id;
-    (g as HTMLElement).style.display = show ? "" : "none";
-    if (section) (section as HTMLElement).style.display = show ? "" : "none";
-    if (!show || !section) return;
-    let hits = 0;
-    section.querySelectorAll(".grub-entry").forEach((row) => {
-      const ok = !q || (row.textContent || "").toLowerCase().includes(q);
-      row.classList.toggle("ba-g-hide", !ok);
-      if (ok) hits++;
-    });
-    if (q && !hits) {
-      (g as HTMLElement).style.display = "none";
-      (section as HTMLElement).style.display = "none";
+    el.style.display = show ? "" : "none";
+    if (!show) return;
+    if (q) {
+      let hits = 0;
+      el.querySelectorAll(".grub-entry").forEach((row) => {
+        const ok = (row.textContent || "").toLowerCase().includes(q);
+        row.classList.toggle("ba-g-hide", !ok);
+        if (ok) hits++;
+      });
+      if (!hits) el.style.display = "none";
+    } else {
+      // 清掉上次搜索留下的隐藏
+      el.querySelectorAll(".grub-entry").forEach((row) => row.classList.remove("ba-g-hide"));
     }
+  });
+  // 兼容预演 fallback 的 .lg-group 组头显示/隐藏
+  root.querySelectorAll(".lg-group[data-loader-id]").forEach((g) => {
+    const id = (g as HTMLElement).dataset.loaderId;
+    (g as HTMLElement).style.display = (filter.value === "all" || filter.value === id) ? "" : "none";
   });
 });
 const selectedLoaderState = computed(
@@ -262,7 +278,7 @@ const selectedLoaderState = computed(
             v-if="selectedEntry"
             type="button"
             class="lg-item grub-entry is-pinned active"
-            @click="selected = { loader: selected!.loader, selector: selected!.selector }"
+            @click="adv.setSelection(selected!.loader as any, selected!.selector)"
           ><span class="grub-entry-name">{{ selectedEntry.name }}</span></button>
           <template v-for="g in results" :key="g.loader.id">
             <div v-if="g.entries.length" class="lg-group">{{ g.loader.name }} · {{ g.entries.length }} 项</div>
@@ -272,7 +288,7 @@ const selectedLoaderState = computed(
               type="button"
               class="lg-item grub-entry"
               :class="[{ active: selected && selected.loader === g.loader.id && selected.selector === e.selector }]"
-              @click="selected = { loader: g.loader.id, selector: e.selector || '' }"
+              @click="adv.setSelection(g.loader.id as any, e.selector || '')"
             >
               <span class="grub-entry-name">{{ e.name }}</span>
             </button>
