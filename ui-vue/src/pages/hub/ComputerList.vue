@@ -12,7 +12,7 @@ import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import { useToastStore } from "@/stores/toast";
 import { useEscape } from "@/composables/useEscape";
 
-const props = defineProps<{ addSeed?: number }>();
+const props = defineProps<{ addSeed?: number; remoteAction?: { act: string; n: number } }>();
 
 /**
  * 电脑列表（原 `ui/hub.html` 的 `#page-computers`）。
@@ -247,6 +247,30 @@ function consumeAddSeed() {
   rsEditOpen.value = true;
 }
 watch(() => props.addSeed, consumeAddSeed);
+
+// 顶栏 ⋮ 的 edit/list/reloadCurrent/reloadAll → 执行真实动作（不再是空选项）
+watch(() => props.remoteAction?.n, () => {
+  const act = props.remoteAction?.act ?? "";
+  if (!act) return;
+  if (act === "edit") {
+    if (!activeId.value || activeId.value === "local") {
+      toast.show("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑");
+      return;
+    }
+    openRemoteEdit(activeId.value);
+  } else if (act === "list") {
+    rsListOpen.value = true;
+  } else if (act === "reloadCurrent") {
+    if (!activeId.value || activeId.value === "local") {
+      toast.show("先点一行电脑选中它，再重载", "bad");
+      return;
+    }
+    toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    void remote.refreshBoot(activeId.value).catch((e) => toast.show("重载失败：" + e, "bad"));
+  } else if (act === "reloadAll") {
+    void manualRefresh();
+  }
+});
 
 /** 事件解绑句柄 */
 const unlisteners: (() => void)[] = [];

@@ -194,12 +194,15 @@ onMounted(async () => {
  * 这里切到「电脑列表」页 —— 服务端编辑弹层挂在那里。
  */
 const remoteAddSeed = ref(0);
+/** 顶栏 ⋮ 的 edit/list/reloadCurrent/reloadAll 动作信号（传给 ComputerList 执行真实逻辑，
+ *  避免变成"只切页的空选项"）。n 递增触发 watch。 */
+const remoteAction = ref<{ act: string; n: number }>({ act: "", n: 0 });
 function onHomeMenuAction(act: string) {
   if (act === "add") { openRemoteAdd(); return; }
-  // 【修复】edit/list/reload 只切到「电脑列表」页，**不能递增 addSeed** ——
-  // 之前一律 +1 会让 ComputerList 误以为要「添加电脑」，弹出「连接 AnyBoot 服务端」空表单
-  // （用户：点电脑列表却弹窗，但列表里明明有数据）。
+  // edit/list/reloadCurrent/reloadAll：切到「电脑列表」页并由它执行真实动作（打开编辑/列表、
+  // 重载当前/全部）。**不递增 addSeed**（否则误弹"添加电脑"空表单）。
   currentPage.value = "computers";
+  remoteAction.value = { act, n: remoteAction.value.n + 1 };
 }
 
 function openRemoteAdd() {
@@ -364,7 +367,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
            这样的作用域选择器（如 `html.light #page-files { --fb-blue: ... }`），
            少了 id 那些变量就不生效（面包屑会变成黑块）。 -->
       <section class="page active" :id="`page-${currentPage}`">
-        <ComputerList v-if="currentPage === 'computers'" :add-seed="remoteAddSeed" />
+        <ComputerList v-if="currentPage === 'computers'" :add-seed="remoteAddSeed" :remote-action="remoteAction" />
         <ServersPage v-else-if="currentPage === 'servers'" />
         <AboutPage v-else-if="currentPage === 'about'" />
         <HomePage v-else-if="currentPage === 'home'" @add-remote="openRemoteAdd" @menu-action="onHomeMenuAction" />
