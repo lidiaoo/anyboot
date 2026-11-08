@@ -3403,7 +3403,12 @@ fn remote_endpoint_inner(
             Some(code) => format!("退出码 {code}"),
             None => "被信号终止".to_string(),
         };
-        return Err(format!("跳板转发未能建立（ssh 提前退出：{detail}）"));
+        // 【修复】跳板建立失败时**回落直连**（用原始 host:port），而不是直接报错。
+        // 典型：PC 这台其实就是本机（192.168.0.x:12300），没必要走 ssh 跳板；
+        // 若用户给某地址配了失效跳板，直接连 raw 地址往往反而连得上（与「谁在线用谁」一致）。
+        // 否则「电脑」页点 PC 标签会因 remote_endpoint 报错 → iframe 空白。
+        eprintln!("[remote_endpoint] 跳板转发失败（{detail}），回落直连 {host}:{port}");
+        return Ok(RemoteEndpoint { host, port, via_jump: false });
     }
     if let Ok(mut map) = state.forwards.lock() {
         map.insert(key, JumpForward { child, local_port, target });
