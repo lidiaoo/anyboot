@@ -205,12 +205,19 @@ async function listDir(path: string) {
   loading.value = true;
   errorText.value = "";
   try {
-    const result = await call<{ cwd: string; entries: SftpEntry[] }>("hub_sftp_list", {
+    // 【修复】后端 hub_sftp_list 返回的是**纯数组 Vec<SftpEntry>**，不是 {cwd, entries}；
+    // 之前读 result.entries → undefined → 列表永远空（"这个目录是空的"）。改为直接读数组。
+    // path 为空 = 先取远端家目录再列。
+    let target = path;
+    if (!target) {
+      target = (await call<string>("hub_sftp_home", { server: currentServer.value })) || "/";
+    }
+    const result = await call<SftpEntry[]>("hub_sftp_list", {
       server: currentServer.value,
-      path,
+      path: target,
     });
-    cwd.value = result?.cwd ?? path;
-    entries.value = result?.entries ?? [];
+    cwd.value = target;
+    entries.value = Array.isArray(result) ? result : [];
   } catch (error) {
     errorText.value = String(error);
     entries.value = [];
