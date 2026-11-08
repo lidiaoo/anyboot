@@ -935,6 +935,8 @@ pub(crate) fn remote_ui_command_inner(
         "set_start_in_tray" => {
             settings_value(set_start_in_tray(app.clone(), ui_bool(args, "enabled")?))
         }
+        // 移动端/网页远程控制引导器开关（visible/order/side）—— 存本机后端，跨端一致。
+        "set_boot_adv" => settings_value(set_boot_adv(app.clone(), ui_str(args, "json")?)),
         // ---- 外观 ----
         "set_theme" => res_unit(set_theme(app.clone(), ui_str(args, "theme")?)),
         "set_opacity" => res_unit(set_opacity(app.clone(), ui_u32(args, "percent")?)),
