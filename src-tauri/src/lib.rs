@@ -3311,8 +3311,22 @@ pub fn run() {
                 return;
             }
             let _ = window.hide();
-            #[cfg(target_os = "macos")]
-            let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            // 【修复】关主窗不要连带"隐藏/关掉"远程管理窗口：
+            // 有远程管理窗口开着时，**不切换成 Accessory 后台策略**（那会让整个 App 退到后台、
+            // 远程管理窗口随之从屏幕消失，看起来就像"被一起关了"）。保持前台，hub 继续显示。
+            let hub_open = app
+                .get_webview_window(HUB_WINDOW_LABEL)
+                .map(|w| w.is_visible().unwrap_or(false))
+                .unwrap_or(false);
+            if hub_open {
+                if let Some(hub) = app.get_webview_window(HUB_WINDOW_LABEL) {
+                    let _ = hub.show();
+                    let _ = hub.set_focus();
+                }
+            } else {
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
         })
         .setup(|app| {
             // —— 单实例守卫（放在最前面）——
