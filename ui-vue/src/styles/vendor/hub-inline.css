@@ -2371,3 +2371,16 @@
   background: rgb(var(--input-bg, var(--panel))); color: rgb(var(--fg));
   font: inherit; font-size: 13px;
 }
+
+/* 电脑行：连接通道连通性明细（逐通道） */
+.cq-connect { display: flex; flex-wrap: wrap; gap: 6px 10px; padding: 4px 0 2px; }
+.cq-conn-item {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+  padding: 3px 8px; border-radius: 7px; border: 1px solid rgb(var(--line));
+  background: rgb(var(--elevate)); color: rgb(var(--fg-dim));
+}
+.cq-conn-item.is-bad { border-color: rgb(var(--bad) / .4); }
+.cq-conn-kind { font-weight: 600; color: rgb(var(--fg)); }
+.cq-conn-st { color: rgb(var(--ok)); }
+.cq-conn-item.is-bad .cq-conn-st { color: rgb(var(--bad)); }
+.cq-conn-addr { color: rgb(var(--fg-faint)); }

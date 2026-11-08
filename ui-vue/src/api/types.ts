@@ -414,5 +414,6 @@ export interface RemoteBootInfo {
   refind: RemoteBootGroup;
   grub: RemoteBootGroup;
   channels: RemoteBootGroup[];
+  probe_results?: { address: string; ok: boolean; ms: number; error: string; kind?: string; pair_id?: string; remote?: boolean }[];
   machineOs?: string;
 }

@@ -3539,6 +3539,10 @@ pub struct RemoteBootInfo {
     /// `ChannelView`，这里转成和 rEFInd/GRUB 同构的 `BootGroup`，前端一套渲染）。
     /// 顺序跟 `channels::boot_channels` 一致（sdboot → opencore → clover）。
     pub channels: Vec<BootGroup>,
+    /// 各连接通道(逐候选地址)的探测明细（电脑列表"是否展示连通性"用）；
+    /// has_jump 走串行分支时也逐条收集，engine 分支直接复用 outcome.results。
+    #[serde(default)]
+    pub probe_results: Vec<ProbeOutcome>,
 }
 
 /// GRUB 条目名 → 图标分类（纯函数，便于单测）。
@@ -4658,6 +4662,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     let has_jump = candidates.iter().any(|cand| cand.kind == "jump");
     let mut last_error = String::from("没有可用连接通道");
     let mut winner: Option<(u64, String, String, String)> = None;
+    let mut collected: Vec<ProbeOutcome> = Vec::new();
     if has_jump {
         for cand in &candidates {
             // 超时按候选自己算（配对走条目→区块→全局三层继承，lan/jump 走通道表）
@@ -4693,10 +4698,22 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             };
             match result {
                 Ok((ms, machine_id, machine_name)) => {
+                    collected.push(ProbeOutcome {
+                        address: cand.origin.clone(), ok: true, ms,
+                        error: String::new(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
+                        kind: cand.kind.clone(), pair_id: String::new(),
+                    });
                     winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
                     break;
                 }
-                Err(error) => last_error = error,
+                Err(error) => {
+                    collected.push(ProbeOutcome {
+                        address: cand.origin.clone(), ok: false, ms: 0,
+                        error: error.clone(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
+                        kind: cand.kind.clone(), pair_id: String::new(),
+                    });
+                    last_error = error;
+                }
             }
         }
     } else {
@@ -4732,6 +4749,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             server.probe_timeout_ms,
             &server.block_probe_mode,
         );
+        collected = outcome.results.clone();
         if outcome.ok {
             winner = Some((
                 outcome.ms,
@@ -4747,6 +4765,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
         Some((ms, machine_id, machine_name, addr)) => (Ok((ms, machine_id, machine_name)), addr),
         None => (Err(last_error), probe_addr),
     };
+    info.probe_results = collected;
     match probe {
         Ok(_) => {
             info.online = true;

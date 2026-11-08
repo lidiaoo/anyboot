@@ -110,6 +110,14 @@ function moveRoute(i: number, dir: number) {
   [arr[i], arr[j]] = [arr[j]!, arr[i]!];
   routeOrder.value = arr;
 }
+/** 通道粒度「是否展示」：命中 routeProbeHidden → 电脑列表不展示该通道连通性（探测/连接照常） */
+function toggleRouteShow(kind: string) {
+  if (routeProbeHidden.value.includes(kind)) {
+    routeProbeHidden.value = routeProbeHidden.value.filter((k) => k !== kind);
+  } else {
+    routeProbeHidden.value = [...routeProbeHidden.value, kind];
+  }
+}
 function toggleRouteEnabled(kind: string) {
   routeDisabled.value = { ...routeDisabled.value, [kind]: !routeDisabled.value[kind] };
 }
@@ -632,6 +640,11 @@ function submit() {
                   <input type="checkbox" :checked="!routeDisabled[kind]" @change="toggleRouteEnabled(kind)" />
                   <span class="trk" aria-hidden="true" />
                 </label>
+                <label class="switch" :title="ROUTE_LABELS[kind] + ' 通道在电脑列表是否展示连通性（关掉只隐藏展示，探测/连接照常）'" style="margin-left:8px">
+                  <input type="checkbox" :checked="!routeProbeHidden.includes(kind)" @change="toggleRouteShow(kind)" />
+                  <span class="trk" aria-hidden="true" />
+                </label>
+                <span class="rp-showlbl" title="展示">展示</span>
               </div>
               <p class="field-hint">按住 ☰ 上下拖动调整顺序（或点 ↑↓）；探活与接口请求按此顺序逐通道试，第一个通的就走谁。每个通道可以单独设探测超时：局域网一般 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒，互不牵连。留空的那一格就用下面的默认值。</p>
             </div>

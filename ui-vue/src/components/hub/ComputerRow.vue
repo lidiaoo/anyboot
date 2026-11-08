@@ -122,6 +122,26 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
     dot: hit?.class || "",
   };
 }
+/** 连接通道连通性行（旧版 cq-dev-line 逐通道探测明细）：受通道粒度 route_probe_hidden 与
+ *  配对级 show_probe 控制——被隐藏的不展示，探测/连接照常。 */
+const ROUTE_LABELS: Record<string, string> = {
+  lan: "直连", jump: "跳板", tunnel: "Cloudflare", ts: "Tailscale", funnel: "Funnel", tsnet: "内置",
+};
+const connectLines = computed(() => {
+  const rows = props.info?.probe_results ?? [];
+  const r = props.row as Record<string, unknown>;
+  const hidden = new Set<string>((r.route_probe_hidden as string[] | undefined) ?? []);
+  const pairs = (r.pairs as { id?: string; show_probe?: boolean }[] | undefined) ?? [];
+  const hiddenPair = new Set(pairs.filter((pp) => pp.show_probe === false).map((pp) => String(pp.id ?? "")));
+  if (!hidden) return [];
+  return rows
+    .filter((x) => !(x.kind && hidden.has(x.kind)))       // 通道粒度隐藏
+    .filter((x) => !(x.pair_id && hiddenPair.has(x.pair_id))) // 配对级隐藏
+    .map((x) => ({
+      kindLabel: ROUTE_LABELS[x.kind ?? ""] ?? (x.remote ? "远程" : x.kind || "直连"),
+      address: x.address, ok: x.ok, ms: x.ms, error: x.error,
+    }));
+});
 function bootUsable(kind: "refind" | "grub") {
   const group = props.info?.[kind];
   return Boolean(group?.available) && online.value;
@@ -318,6 +338,15 @@ function onRowClick() {
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- 连接通道连通性（旧版 cq-dev-line 逐通道探测）：受「是否展示连通性」控制 -->
+    <div v-if="connectLines.length" class="cq-connect">
+      <span v-for="(ln, i) in connectLines" :key="i" class="cq-conn-item" :class="{ 'is-bad': !ln.ok }" :title="ln.ok ? '' : ln.error">
+        <span class="cq-conn-kind">{{ ln.kindLabel }}</span>
+        <span class="cq-conn-addr mono">{{ ln.address }}</span>
+        <span class="cq-conn-st">{{ ln.ok ? ('通 · ' + ln.ms + ' ms') : (ln.error ? '不通' : '不通') }}</span>
+      </span>
     </div>
 
     <!-- 电源区 -->

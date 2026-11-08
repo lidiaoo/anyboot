@@ -45,6 +45,8 @@ export const useRemoteStore = defineStore("remote", () => {
    *  ServersPage 的连通性/延迟/延迟趋势都从这份读；之前 store 里根本没有这个 Map →
    *  点「测试连接」无任何反馈。 */
   const testResults = ref(new Map<string, string>());
+  /** 每台电脑各连接通道的探测明细（remote_test_via 的 results；电脑列表逐通道连通性展示用） */
+  const probeResults = ref(new Map<string, { kind: string; address: string; ok: boolean; ms: number; error: string; pair_id?: string; remote?: boolean }[]>());
   /** 正在读取的电脑 id */
   const loading = ref(new Set<string>());
   const loaded = ref(false);
@@ -221,6 +223,7 @@ export const useRemoteStore = defineStore("remote", () => {
     lastError,
     totalOnline,
     testResults,
+    probeResults,
     // 动作
     testAll,
     load,
