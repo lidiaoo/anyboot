@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 
 /**
  * 文件窗（原 `ui/hub-files.html`，1262 行）—— hub_sftp 命令族 16 个。
@@ -229,6 +229,17 @@ onMounted(async () => {
     )) ?? [];
   } catch {
     servers.value = [];
+  }
+  const browser = !isTauri();
+  if (browser) {
+    // 网页端：服务器从 URL 参数带进来（?serverId=…），没有 take_pending/listen 那套。
+    try {
+      const q = new URLSearchParams(location.search);
+      const sid = q.get("serverId") || q.get("server") || "";
+      if (sid) { serverId.value = sid; await openHome(); }
+    } catch { /* ignore */ }
+    void refreshTransfers();
+    return;
   }
   // 旧版 boot：hub_sftp_take_pending 取排队服务器；无 → 空态「没有指定服务器」
   try {

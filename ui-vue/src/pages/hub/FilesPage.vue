@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import { useServersStore } from "@/stores/servers";
 import { useToastStore } from "@/stores/toast";
 
@@ -177,23 +177,26 @@ onMounted(async () => {
   }, 1000);
   onUnmounted(() => window.clearInterval(txPollTimer));
 
-  const { listen } = await import("@tauri-apps/api/event");
-  unlisteners.push(
-    await listen<XferTask>("hub-sftp-progress", (event) => {
-      const task = event.payload;
-      const index = transfers.value.findIndex((t) => t.key === task.key);
-      transfers.value =
-        index >= 0 ? transfers.value.map((t, i) => (i === index ? task : t)) : [...transfers.value, task];
-    }),
-  );
-  unlisteners.push(
-    await listen<string>("hub-files-open-server", async (event) => {
-      if (event.payload) {
-        serverId.value = event.payload;
-        await listDir("");
-      }
-    }),
-  );
+  // Tauri 事件（进度 / 切换服务器）仅桌面端有；网页端靠 1s 轮询 + URL serverId，跳过 listen。
+  if (isTauri()) {
+    const { listen } = await import("@tauri-apps/api/event");
+    unlisteners.push(
+      await listen<XferTask>("hub-sftp-progress", (event) => {
+        const task = event.payload;
+        const index = transfers.value.findIndex((t) => t.key === task.key);
+        transfers.value =
+          index >= 0 ? transfers.value.map((t, i) => (i === index ? task : t)) : [...transfers.value, task];
+      }),
+    );
+    unlisteners.push(
+      await listen<string>("hub-files-open-server", async (event) => {
+        if (event.payload) {
+          serverId.value = event.payload;
+          await listDir("");
+        }
+      }),
+    );
+  }
 });
 
 onUnmounted(() => {
@@ -383,8 +386,17 @@ async function transferCtl(action: "pause" | "resume" | "abandon") {
   }
 }
 
-function openInWindow() {
+async function openInWindow() {
   if (!serverId.value) return;
+  if (!isTauri()) {
+    // 网页端：本机 HTTP 已提供 hub-files.html；带 token + serverId 在新标签打开
+    try {
+      const { getAuthToken } = await import("@/api/http");
+      const tok = encodeURIComponent(getAuthToken());
+      window.open(`/hub-files.html?token=${tok}&serverId=${encodeURIComponent(serverId.value)}`, "_blank");
+    } catch { /* ignore */ }
+    return;
+  }
   void call("hub_open_files_window", { serverId: serverId.value }).catch(() => {});
 }
 

@@ -576,6 +576,20 @@ pub(crate) fn ui_command_is_local_only(cmd: &str) -> bool {
     cmd == "confirm_pending"
 }
 
+/// 从 args 取 HubServer：优先整份 `server` 对象，其次 `serverId` 查 hub_list_servers。
+fn sftp_server_from_args(app: &AppHandle, args: &serde_json::Value) -> Result<crate::hub::HubServer, String> {
+    if let Some(obj) = args.get("server") {
+        if !obj.is_null() {
+            return serde_json::from_value(obj.clone()).map_err(|e| format!("server 参数非法: {e}"));
+        }
+    }
+    let server_id = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
+    crate::hub::hub_list_servers(app.clone())?
+        .into_iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("找不到服务器 {server_id}"))
+}
+
 pub(crate) fn ui_str(args: &serde_json::Value, key: &str) -> Result<String, String> {
     args.get(key)
         .and_then(|value| value.as_str())
@@ -716,6 +730,43 @@ pub(crate) fn remote_ui_command_inner(
             let state = app.state::<crate::hub_sftp::HubSftpState>();
             crate::hub_sftp::hub_sftp_transfer_list(state)
                 .and_then(|v| serde_json::to_value(v).map_err(|e| format!("序列化失败: {e}")))
+        }
+        // ---- SFTP 其余 CRUD（网页/手机端文件页用；与远程管理窗口同一套命令）----
+        "hub_sftp_home" => {
+            let server = sftp_server_from_args(&app, args)?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_sftp::hub_sftp_home(app.clone(), server),
+            )?).map_err(|e| format!("序列化失败: {e}"))
+        }
+        "hub_sftp_mkdir" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let path = ui_str(args, "path")?;
+            res_unit(tauri::async_runtime::block_on(crate::hub_sftp::hub_sftp_mkdir(app.clone(), server, path)))
+        }
+        "hub_sftp_remove" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let path = ui_str(args, "path")?;
+            let is_dir = ui_bool(args, "isDir").or_else(|_| ui_bool(args, "is_dir")).unwrap_or(false);
+            res_unit(tauri::async_runtime::block_on(crate::hub_sftp::hub_sftp_remove(app.clone(), server, path, is_dir)))
+        }
+        "hub_sftp_rename" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let from = ui_str(args, "from")?;
+            let to = ui_str(args, "to")?;
+            res_unit(tauri::async_runtime::block_on(crate::hub_sftp::hub_sftp_rename(app.clone(), server, from, to)))
+        }
+        "hub_sftp_copy" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let from = ui_str(args, "from")?;
+            let to = ui_str(args, "to")?;
+            res_unit(tauri::async_runtime::block_on(crate::hub_sftp::hub_sftp_copy(app.clone(), server, from, to)))
+        }
+        "hub_sftp_readlink" => {
+            let server = sftp_server_from_args(&app, args)?;
+            let path = ui_str(args, "path")?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub_sftp::hub_sftp_readlink(app.clone(), server, path),
+            )?).map_err(|e| format!("序列化失败: {e}"))
         }
         "hub_sftp_list" => {
             let path = ui_str(args, "path").unwrap_or_default();
