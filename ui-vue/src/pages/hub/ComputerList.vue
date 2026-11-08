@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const toast = useToastStore();
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { useRemoteStore, type RemoteProfile } from "@/stores/remote";
 import { useSettingsStore } from "@/stores/settings";
@@ -58,6 +58,20 @@ const sortMode = ref<"custom" | "name" | "recent">(
 );
 /** 排序菜单开合（旧版 #cqSortMenu） */
 const sortMenuOpen = ref(false);
+const sortBtnRef = ref<HTMLElement | null>(null);
+// 排序菜单是 position:fixed，必须按锚点按钮算 top/left（旧版 7584 同款）：
+// 之前只有 width 没 top/left → 飘到窗口左上/右上。打开时算一次，clamp 到窗口内。
+watch(sortMenuOpen, async (open) => {
+  if (!open) return;
+  await nextTick();
+  const btn = sortBtnRef.value;
+  const menu = document.getElementById("cqSortMenu");
+  if (!btn || !menu) return;
+  const rect = btn.getBoundingClientRect();
+  const width = menu.offsetWidth || 244;
+  menu.style.top = rect.bottom + 6 + "px";
+  menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + "px";
+});
 const SORT_LABELS: Record<"custom" | "name" | "recent", string> = {
   custom: "自定义",
   name: "按名称",
@@ -536,6 +550,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
       <button
         type="button"
         id="cqSort"
+        ref="sortBtnRef"
         class="link-btn menu-anchor"
         title="选择电脑列表的排序方式（电脑页标签栏跟着同一套顺序）"
         :aria-expanded="sortMenuOpen"
