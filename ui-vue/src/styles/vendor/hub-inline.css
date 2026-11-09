@@ -2398,3 +2398,10 @@
 }
 .btn.small.seg-on:hover,
 .seg-row .btn.seg-on:hover { filter: brightness(1.08); }
+
+/* 侧栏头：主界面 + 折叠两个动作按钮紧挨（收起态也贴近，不散开） */
+.side-head-actions { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
+.side.collapsed .side-head-actions { margin-left: 0; flex-direction: column; gap: 2px; }
+
+/* 收起态：60px 图标栏，隐藏品牌文字（只留 logo + 主界面/折叠两按钮，紧凑） */
+.side.collapsed .side-name { display: none; }

@@ -79,6 +79,9 @@ async function goMain() {
 /** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
 function toggleNav() {
   navCollapsed.value = !navCollapsed.value;
+  // 内联 width 会盖过 .side.collapsed{width:60px}：收起时清内联、展开时恢复记忆宽度
+  const el = document.querySelector<HTMLElement>(".side");
+  if (el) el.style.width = navCollapsed.value ? "" : `${sideWidth.value}px`;
   try { localStorage.setItem("ab-hub-side", navCollapsed.value ? "collapsed" : "expanded"); } catch { /* 忽略 */ }
 }
 // 旧版 ab-hub-side：记住侧栏收起状态（collapsed/expanded）
@@ -294,16 +297,18 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
           <b>AnyBoot</b>
           <i class="mono" id="sideVersion">remote</i>
         </span>
+        <span class="side-head-actions">
         <button
           id="sideHome"
           class="icon-btn side-toggle"
-          title="回到主界面（系统引导）"
-          aria-label="回到主界面"
+          title="主界面（系统引导）"
+          aria-label="打开主界面（系统引导）"
           @click="goMain"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 10.5 12 3l9 7.5" />
-            <path d="M5 9.5V20h14V9.5" />
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M8 21h8M12 17v4" />
+            <path d="M6 9h6M6 12h4" />
           </svg>
         </button>
         <button
@@ -326,6 +331,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
             <path id="sideChevron" d="M11 17l-5-5 5-5M18 17l-5-5 5-5" />
           </svg>
         </button>
+        </span>
       </div>
 
       <nav class="side-nav" id="hubSideNav" aria-label="导航">
