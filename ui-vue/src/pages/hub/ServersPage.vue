@@ -199,17 +199,29 @@ async function deleteTunnel(id: string) {
   }
 }
 
-/** 浏览文件（旧版 #filesBtn → hub_open_files_window） */
-function openFiles(server: HubServer) {
-  if (!isTauri()) { toast.show("文件浏览需要应用环境", "bad"); return; }
+/** 浏览文件（旧版 #filesBtn → hub_open_files_window；网页端直接开 hub-files.html） */
+async function openFiles(server: HubServer) {
   if (server.protocol !== "ssh") return;
+  if (!isTauri()) {
+    try {
+      const { getAuthToken } = await import("@/api/http");
+      window.open(`/hub-files.html?token=${encodeURIComponent(getAuthToken())}&serverId=${encodeURIComponent(server.id)}`, "_blank");
+    } catch { /* ignore */ }
+    return;
+  }
   void import("@/api/tauri").then(({ call }) =>
     call("hub_open_files_window", { serverId: server.id }).catch((e) => toast.show("打开文件浏览失败：" + e, "bad")),
   );
 }
 
-function openTerminal(server: HubServer) {
-  if (!isTauri()) { toast.show("终端需要应用环境", "bad"); return; }
+async function openTerminal(server: HubServer) {
+  if (!isTauri()) {
+    try {
+      const { getAuthToken } = await import("@/api/http");
+      window.open(`/hub-term.html?token=${encodeURIComponent(getAuthToken())}&serverId=${encodeURIComponent(server.id)}`, "_blank");
+    } catch { /* ignore */ }
+    return;
+  }
   void import("@/api/tauri").then(({ call }) =>
     call("hub_open_term_window", { serverId: server.id }).catch((e) => toast.show("打开终端失败：" + e, "bad")),
   );
