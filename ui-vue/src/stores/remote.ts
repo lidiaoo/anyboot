@@ -121,8 +121,9 @@ export const useRemoteStore = defineStore("remote", () => {
    * **弱网容忍（2026-11-02 用户定案）**：连续失败达到阈值才判离线，
    * 未达阈值时保留上一份数据，卡片不会闪烁。
    */
-  async function refreshBoot(id: string): Promise<void> {
-    if (loading.value.has(id)) return;
+  async function refreshBoot(id: string, force = false): Promise<void> {
+    // force=true（用户手动点刷新/重探）时跳过 loading 早退：否则定时器正在探这台时手动点会被静默忽略 → "没效果"
+    if (!force && loading.value.has(id)) return;
     loading.value.add(id);
     try {
       const info = await call<RemoteBootInfo>("remote_boot_info", { serverId: id });
@@ -151,9 +152,9 @@ export const useRemoteStore = defineStore("remote", () => {
   }
 
   /** 批量刷新（含本机行 `local`） */
-  async function refreshAllBoot(): Promise<void> {
+  async function refreshAllBoot(force = false): Promise<void> {
     const ids = ["local", ...servers.value.map((s) => s.id)];
-    await Promise.all(ids.map((id) => refreshBoot(id)));
+    await Promise.all(ids.map((id) => refreshBoot(id, force)));
   }
 
   /** 保存档案 */

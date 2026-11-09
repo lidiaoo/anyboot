@@ -177,7 +177,7 @@ async function manualRefresh() {
   refreshing.value = true;
   toast.show("正在重新探测全部电脑…");
   try {
-    await remote.refreshAllBoot();
+    await remote.refreshAllBoot(true);
     toast.show("全部电脑已重连重载");
   } catch (e) {
     toast.show("探测失败：" + e, "bad");
@@ -280,7 +280,7 @@ watch(() => props.remoteAction?.n, () => {
       return;
     }
     toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
-    void remote.refreshBoot(activeId.value).catch((e) => toast.show("重载失败：" + e, "bad"));
+    void remote.refreshBoot(activeId.value, true).catch((e) => toast.show("重载失败：" + e, "bad"));
   } else if (act === "reloadAll") {
     void manualRefresh();
   }
@@ -318,9 +318,10 @@ function onMenuAction(act: string) {
       return;
     }
     toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
-    void import("@/api/tauri").then(({ call }) => call("remote_boot_info", { serverId: activeId.value }).catch((e) => toast.show("重载失败：" + e, "bad")));
+    // 必须走 store.refreshBoot：它把 remote_boot_info 结果存进 store 并刷新行；直接 call 只拿数据不更新 UI
+    void remote.refreshBoot(activeId.value).catch((e) => toast.show("重载失败：" + e, "bad"));
   } else if (act === "reloadAll") {
-    void import("@/api/tauri").then(({ call }) => call("remote_list").catch(() => {}));
+    void manualRefresh();
   }
 }
 
@@ -412,9 +413,14 @@ function rowMenuAction(action: string, id: string) {
     case "browser":
       void openInBrowser(id);
       break;
-    case "refresh":
-      void remote.refreshBoot(id).catch((e) => toast.show("重新探测失败：" + e, "bad"));
+    case "refresh": {
+      const nm = remote.servers.find((s) => s.id === id)?.name ?? "";
+      toast.show("正在重新探测「" + nm + "」…");
+      void remote.refreshBoot(id, true)
+        .then(() => toast.show("「" + nm + "」已重新探测"))
+        .catch((e) => toast.show("重新探测失败：" + e, "bad"));
       break;
+    }
     case "sysinfo":
       sysInfoId.value = id;
       break;
