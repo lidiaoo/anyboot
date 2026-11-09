@@ -124,6 +124,23 @@ pub(crate) fn local_ipv4() -> String {
     "127.0.0.1".to_string()
 }
 
+/// addr 是否指向本机（127.0.0.1 / localhost / 本机网卡 IP）。用于探测时把「探自己」改成进程内直判，
+/// 避免探测自连自身 HTTP 服务占用 worker（web 多机并发探测自锁）。
+pub(crate) fn is_local_ip(addr: &str) -> bool {
+    let a = addr.trim();
+    if a == "127.0.0.1" || a == "localhost" || a == "::1" { return true; }
+    // UDP connect 到目标（不发包）：若内核选的源地址 == 目标，说明目标就是本机某块网卡 IP。
+    // 这对多 IP 主机（如同时有 .121/.204）也正确——不能只跟 UDP 出口 IP 比。
+    if let Ok(s) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if s.connect((a, 9)).is_ok() {
+            if let Ok(local) = s.local_addr() {
+                if local.ip().to_string() == a { return true; }
+            }
+        }
+    }
+    false
+}
+
 /// HTTP 运行态：进程级单例。
 ///
 /// 刻意不放进 Tauri 的 State——`app.state::<T>()` 返回的句柄是临时值，

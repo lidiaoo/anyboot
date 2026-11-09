@@ -4679,12 +4679,36 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     for cand in &candidates {
         match cand.kind.as_str() {
             "lan" => {
+                // 本机地址探测走「进程内直判」，不发 HTTP 自连自身服务——否则会占用本进程 HTTP worker
+                // 导致 web/多机并发探测时 worker 自锁超时（用户：本机地址直连能访问却探测超时）。
+                let local_ip = crate::http_server::local_ipv4();
+                let local_port = crate::stored_settings(app).http_port;
+                let mid = crate::stored_settings(app).machine_id.clone();
+                let mname = crate::http_server::machine_name();
+                let m_os = if cfg!(target_os = "macos") { "macos" } else if cfg!(windows) { "windows" } else { "linux" };
                 for raw in &server.addresses {
-                    let (address, _) = split_address(raw);
-                    if !address.is_empty() {
+                    // 拆 host / port（split_address 不拆端口，它第二项是 token）；支持 192.168.0.121:12300
+                    let raw_trim = raw.trim();
+                    let (host, port): (String, u16) = match raw_trim.rsplit_once(':') {
+                        Some((h, p)) if !h.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() =>
+                            (h.to_string(), p.parse().unwrap_or(0)),
+                        _ => (raw_trim.to_string(), 0),
+                    };
+                    if host.is_empty() { continue; }
+                    let is_self = host == "127.0.0.1" || host == "localhost"
+                        || (!local_ip.is_empty() && host == local_ip)
+                        || crate::http_server::is_local_ip(&host);
+                    if is_self && (port == local_port || port == 0) {
+                        // 本进程就是目标：直接返回本机 health（0ms），不 TCP/HTTP
+                        pre_collected.push(ProbeOutcome {
+                            address: raw.trim().to_string(), ok: true, ms: 0,
+                            error: String::new(), remote: false,
+                            kind: "lan".to_string(), pair_id: String::new(),
+                        });
+                    } else {
                         engine_candidates.push(RouteTestCandidate {
                             kind: "lan".to_string(),
-                            origin: address,
+                            origin: raw_trim.to_string(),
                             timeout_ms: server.probe_timeout_for("lan").as_millis() as u64,
                             pair_id: String::new(),
                             display: String::new(),
@@ -4758,8 +4782,11 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     }
     if outcome.ok {
         winner = Some((outcome.ms, outcome.machine_id.clone(), outcome.machine_name.clone(), outcome.addr.clone()));
-    } else if !collected.iter().any(|o| o.ok) {
-        last_error = outcome.error;
+    } else if let Some(ok) = collected.iter().find(|o| o.ok) {
+        // 引擎判据(engine 候选)全挂，但预收集里有通的（如本机地址进程内直判）→ 用它当赢家
+        winner = Some((ok.ms, String::new(), String::new(), ok.address.clone()));
+    } else {
+        last_error = outcome.error.clone();
     }
     let (probe, winner_addr) = match winner {
         Some((ms, machine_id, machine_name, addr)) => (Ok((ms, machine_id, machine_name)), addr),
