@@ -528,6 +528,8 @@ pub(crate) struct RouteCandidate {
     pub token: String,
     /// 这条候选的探测超时（毫秒，已按三层继承算好并夹到 [200, 30000]）
     pub timeout_ms: u64,
+    /// 配对来源 id（远程接入配对行；lan/jump 为空）—— 列表按它把探测结果对回「哪条配对的展示开关」。
+    pub pair_id: String,
 }
 
 /// remote_test 的结果：addr/ms 是选中的赢家；results 是全部候选地址的逐行结果
@@ -734,6 +736,7 @@ impl RemoteServer {
                         origin: pair.addr.clone(),
                         token: pair.token.clone(),
                         timeout_ms: self.probe_timeout_for_pair(pair).as_millis() as u64,
+                        pair_id: pair.id.clone(),
                     });
                 }
                 continue;
@@ -755,6 +758,7 @@ impl RemoteServer {
                             origin: with_default_port(addr),
                             token: self.token.clone(),
                             timeout_ms: self.probe_timeout_for("lan").as_millis() as u64,
+                            pair_id: String::new(),
                         });
                     }
                 }
@@ -768,6 +772,7 @@ impl RemoteServer {
                             origin: with_default_port(&address),
                             token: self.token.clone(),
                             timeout_ms: self.probe_timeout_for("jump").as_millis() as u64,
+                            pair_id: String::new(),
                         });
                     }
                 }
@@ -4701,7 +4706,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                     collected.push(ProbeOutcome {
                         address: cand.origin.clone(), ok: true, ms,
                         error: String::new(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
-                        kind: cand.kind.clone(), pair_id: String::new(),
+                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
                     });
                     winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
                     break;
@@ -4710,7 +4715,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                     collected.push(ProbeOutcome {
                         address: cand.origin.clone(), ok: false, ms: 0,
                         error: error.clone(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
-                        kind: cand.kind.clone(), pair_id: String::new(),
+                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
                     });
                     last_error = error;
                 }
