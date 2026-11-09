@@ -134,6 +134,8 @@ interface TsnStatus {
   url?: string;
   error?: string;
   setupUrl?: string;
+  /** 内置引擎登录链接（后端从 tsnet 输出抠出的 login.tailscale.com 链接），序列化 loginUrl */
+  loginUrl?: string;
 }
 const tsnStatus = ref<TsnStatus | null>(null);
 const tsnKey = ref("");
@@ -161,20 +163,30 @@ function tsnToggle() {
 /** 去开通 Funnel（旧版 #tsnSetupBtn，由 sidecar 给的 setupUrl） */
 /** 打开 Tailscale 登录页（旧版校验 URL 必须是 login.tailscale.com） */
 function copyLoginUrl() {
-  if (!loginUrl.value) { toast.show("还没有登录链接 —— 先点连接或重新生成", "bad"); return; }
-  void navigator.clipboard.writeText(loginUrl.value).then(() => toast.show("登录链接已复制")).catch(() => toast.show("复制失败", "bad"));
+  const url = loginLink();
+  if (!url) { toast.show("还没有登录链接 —— 先点连接或重新生成", "bad"); return; }
+  const done = () => toast.show("登录链接已复制（约 10 分钟内有效，过期点「重新生成链接」）");
+  try {
+    if (navigator.clipboard && window.isSecureContext) { void navigator.clipboard.writeText(url).then(done).catch(() => toast.show("复制失败", "bad")); return; }
+  } catch { /* fallthrough */ }
+  try { const ta=document.createElement("textarea"); ta.value=url; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); } catch { toast.show("复制失败，请手动复制：" + url, "bad"); }
 }
 function regenLoginUrl() {
   // 旧版：把开关关开一次重新生成登录链接（不是单独 IPC）
   toggleTailscale();
 }
 
-function openLoginPage() {
-  const url = loginUrl.value;
-  if (!/^https:\/\/login\.tailscale\.com\//.test(url)) {
-    toast.show("登录地址无效", "bad");
-    return;
-  }
+// 登录链接受 login.tailscale.com 白名单校验（旧版双保险）。内置引擎优先用后端
+// tsnet_status 返回的 setupUrl（web/PC 都能拿，不依赖 Tauri 事件）；事件捕获的 loginUrl 作兜底。
+function loginLink(): string {
+  const cands = [tsnStatus.value?.loginUrl, loginUrl.value].filter(Boolean) as string[];
+  return cands.find((u) => /^https:\/\/login\.tailscale\.com\//.test(u)) ?? "";
+}
+async function openLoginPage() {
+  const url = loginLink();
+  if (!url) { toast.show("还没有有效登录链接 —— 先点连接或重新生成", "bad"); return; }
+  const { isTauri } = await import("@/api/tauri");
+  if (!isTauri()) { const w = window.open(url, "_blank"); if (!w) toast.show("浏览器拦截了弹窗，请允许后重试", "bad"); return; }
   void call("remote_open_page", { url }).catch((e) => toast.show("打开登录页失败：" + e, "bad"));
 }
 
