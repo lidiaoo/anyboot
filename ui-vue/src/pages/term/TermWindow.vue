@@ -465,6 +465,7 @@ function removeWebSession(sessionId: string) {
 
 /** web 端：全局单一轮询（100ms）遍历所有会话，读各自输出增量并写进 xterm。
  *  之前每会话各起一条 tick 但共用一个 webPoll 定时器 → 多标签互相覆盖只剩一个在跑。 */
+const webReadFails = new Map<string, number>();
 function startWebPoll() {
   if (webPoll !== null) return;
   const tick = async () => {
@@ -475,9 +476,14 @@ function startWebPoll() {
         const r = await call<{ data?: string; cursor?: number }>("hub_term_read", { sessionId: s.id, after });
         if (r?.cursor !== undefined) webCursors.set(s.id, r.cursor);
         if (r?.data) writeData(s.id, r.data);
+        webReadFails.delete(s.id);
       } catch (e) {
-        // 会话不存在/已关闭 → 移除该标签（web 没有 hub-term-closed 事件）
-        if (/不存在|关闭|unknown|not found/i.test(String(e))) removeWebSession(s.id);
+        // 会话不存在/已关闭才移除；且需连续 3 次(避免首帧后端未就绪误删)
+        if (/不存在|关闭|unknown|not found/i.test(String(e))) {
+          const n = (webReadFails.get(s.id) ?? 0) + 1;
+          webReadFails.set(s.id, n);
+          if (n >= 3) { webReadFails.delete(s.id); removeWebSession(s.id); }
+        }
       }
     }
     if (webPoll !== null) webPoll = window.setTimeout(tick, 100);
