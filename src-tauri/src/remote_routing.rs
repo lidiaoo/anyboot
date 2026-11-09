@@ -923,6 +923,47 @@ pub(crate) fn remote_ui_command_inner(
             let state = app.state::<crate::hub_term::HubTermState>();
             res_unit(crate::hub_term::hub_term_close(state, session_id))
         }
+        // ---- 远程接入（Gateway）：网页/手机端也要能操作 Cloudflare/Tailscale/TSN 全功能 ----
+        "gateway_binary_download" => serde_json::to_value(crate::hub_gateway::gateway_binary_download(app.clone())).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_binary_set_manual" => serde_json::to_value(crate::hub_gateway::gateway_binary_set_manual(app.clone(), ui_str(args, "path")?)).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_binary_uninstall" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_binary_uninstall(app.clone(), args.get("keepData").and_then(|v| v.as_bool())))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_clear_credentials" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_clear_credentials(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_pair_list" => serde_json::to_value(crate::hub_gateway::gateway_pair_list(app.clone())).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_pair_delete" => serde_json::to_value(crate::hub_gateway::gateway_pair_delete(app.clone(), ui_str(args, "id")?)).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_pair_reissue" => serde_json::to_value(crate::hub_gateway::gateway_pair_reissue(app.clone(), ui_str(args, "id")?, ui_str(args, "tunnel").unwrap_or_default(), args.get("kind").and_then(|v| v.as_str()).map(|s| s.to_string()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_pair_revoke" => serde_json::to_value(crate::hub_gateway::gateway_pair_revoke(app.clone(), ui_str(args, "id")?)).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_save_config" => serde_json::to_value(crate::hub_gateway::gateway_save_config(app.clone(), ui_str(args, "mode").unwrap_or_default(), ui_str(args, "namedToken").unwrap_or_default(), ui_str(args, "namedUrl").unwrap_or_default(), args.get("autostart").and_then(|v| v.as_bool()).unwrap_or(false))?).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_set_autostart" => serde_json::to_value(crate::hub_gateway::gateway_set_autostart(app.clone(), ui_str(args, "channel")?, ui_bool(args, "enabled")?)?).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_start" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_tunnel_start(app.clone(), ui_str(args, "mode")?, ui_str(args, "namedToken").unwrap_or_default(), ui_str(args, "namedUrl").unwrap_or_default()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_stop" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_tunnel_stop(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_orphans" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_tunnel_orphans(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_adopt" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_tunnel_adopt(app.clone(), args.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_kill_orphan" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_gateway::gateway_tunnel_kill_orphan(app.clone(), args.get("pid").and_then(|v| v.as_u64()).unwrap_or(0) as u32))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_logs" => serde_json::to_value(crate::hub_gateway::gateway_tunnel_logs(app.state::<crate::hub_gateway::GatewayTunnelState>())).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tunnel_logs_clear" => { crate::hub_gateway::gateway_tunnel_logs_clear(app.state::<crate::hub_gateway::GatewayTunnelState>()); Ok(serde_json::Value::Null) }
+        "gateway_tailscale_status" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_status(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_toggle" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_toggle(app.clone(), ui_bool(args, "up")?))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_service" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_service(ui_str(args, "action")?))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_logs" => serde_json::to_value(crate::hub_tailscale::gateway_tailscale_logs(app.clone())).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_logs_clear" => { crate::hub_tailscale::gateway_tailscale_logs_clear(); Ok(serde_json::Value::Null) }
+        "gateway_tailscale_download" => res_unit(crate::hub_tailscale::gateway_tailscale_download(app.clone())),
+        "gateway_tailscale_install" => res_unit(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_install(app.clone(), ui_str(args, "path")?))),
+        "gateway_tailscale_launch_gui" => res_unit(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_launch_gui())),
+        "gateway_tailscale_open_extension_settings" => res_unit(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_open_extension_settings())),
+        "gateway_tailscale_set_authkey" => res_unit(crate::hub_tailscale::gateway_tailscale_set_authkey(app.clone(), ui_str(args, "key")?)),
+        "gateway_tailscale_logout" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_logout(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_uninstall" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_uninstall(app.clone(), args.get("keepData").and_then(|v| v.as_bool())))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_funnel_status" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_funnel_status())).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_funnel_enable" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_funnel_enable(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "gateway_tailscale_funnel_disable" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tailscale::gateway_tailscale_funnel_disable())).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_status" => serde_json::to_value(crate::hub_tsnet::tsnet_status()).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_enable" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tsnet::tsnet_enable(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_disable" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tsnet::tsnet_disable())).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_logout" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tsnet::tsnet_logout(app.clone()))).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_logs" => serde_json::to_value(crate::hub_tsnet::tsnet_logs()).map_err(|e| format!("序列化失败: {e}")),
+        "tsnet_logs_clear" => { crate::hub_tsnet::tsnet_logs_clear(); Ok(serde_json::Value::Null) }
+        "tsnet_set_authkey" => res_unit(crate::hub_tsnet::tsnet_set_authkey(app.clone(), ui_str(args, "key")?)),
+        "tsnet_uninstall" => serde_json::to_value(tauri::async_runtime::block_on(crate::hub_tsnet::tsnet_uninstall(app.clone(), args.get("keepData").and_then(|v| v.as_bool())))).map_err(|e| format!("序列化失败: {e}")),
         // ---- 引导切换 / 扫描 ----
         "refresh" => status_value(refresh(app.clone())),
         // 注意：网页 / 手机端的 switch_system 在 handle_ui_command_request 里

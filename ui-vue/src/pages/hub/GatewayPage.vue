@@ -445,6 +445,9 @@ async function refreshAll() {
   } catch {
     tsStatus.value = null;
   }
+  // 内置引擎(Tailscale 内置)状态也要跟着自动刷新，否则登录后「需要登录/已启用」不会自己变
+  await refreshTsn();
+  await refreshFunnel();
   try {
     pairs.value = (await call<PairRow[]>("gateway_pair_list")) ?? [];
   } catch {
