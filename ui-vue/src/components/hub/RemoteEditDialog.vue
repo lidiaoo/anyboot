@@ -343,6 +343,9 @@ watch(
     const rdArr = (r as Record<string, unknown>).route_disabled;
     routeDisabled.value = {};
     if (Array.isArray(rdArr)) for (const k of rdArr) routeDisabled.value = { ...routeDisabled.value, [String(k)]: true };
+    // 默认探测超时 ms→秒
+    const ptm = Number((r as Record<string, unknown>).probe_timeout_ms ?? 0);
+    probeTimeout.value = ptm > 0 ? ptm / 1000 : 3;
     // route_timeouts_ms(map,ms) → 秒
     const rtm = (r as Record<string, unknown>).route_timeouts_ms as Record<string, number> | undefined;
     routeTimeout.value = {};
@@ -464,6 +467,8 @@ function submit() {
       action: r.action, mode: r.mode, target: r.target, port: r.port,
       macs: r.macs, enabled: r.enabled, burst: r.burst, retry: r.retry,
     })),
+    // 默认探测超时（秒→ms；通道那格留空时用它）
+    probe_timeout_ms: probeTimeout.value > 0 ? Math.round(probeTimeout.value * 1000) : 0,
     block_probe_mode: blockProbe.value,
     block_timeouts_ms: Object.fromEntries(
       Object.entries(blockTimeouts.value)
