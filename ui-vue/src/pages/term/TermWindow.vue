@@ -352,9 +352,17 @@ onMounted(async () => {
 
   // 会话关闭
   unlisteners.push(
-    await listen<{ id: string }>("hub-term-closed", (event) => {
+    await listen<{ id: string; code?: number }>("hub-term-closed", (event) => {
       const session = sessions.value.find((s) => s.id === event.payload.id);
       if (!session) return;
+      const code = Number(event.payload.code ?? 0);
+      // 非 0 = ssh 异常退出(连不上/认证失败/被拒)。照 v0.2.5：把死因留在标签里，
+      // 不立刻 dispose（否则错误一闪没、只剩空白/「已连接」）。
+      if (code !== 0) {
+        try { session.term.write("\r\n\x1b[1;31m[连接已结束] SSH 退出码 " + code + " —— 目标机可能连不上或认证失败。\x1b[0m\r\n"); } catch { /* ignore */ }
+        if (activeId.value === session.id) { connText.value = "连接已断开"; connOk.value = false; }
+        return; // 保留标签，用户可手动关
+      }
       session.term.dispose();
       session.host.remove();
       sessions.value = sessions.value.filter((s) => s.id !== session.id);
@@ -466,11 +474,13 @@ function removeWebSession(sessionId: string) {
 /** web 端：全局单一轮询（100ms）遍历所有会话，读各自输出增量并写进 xterm。
  *  之前每会话各起一条 tick 但共用一个 webPoll 定时器 → 多标签互相覆盖只剩一个在跑。 */
 const webReadFails = new Map<string, number>();
+const webDead = new Set<string>();
 function startWebPoll() {
   if (webPoll !== null) return;
   const tick = async () => {
     if (webPoll === null) return;
     for (const s of [...sessions.value]) {
+      if (webDead.has(s.id)) continue; // 已判定会话结束：不再轮询，保留错误画面
       try {
         const after = webCursors.get(s.id) ?? 0;
         const r = await call<{ data?: string; cursor?: number }>("hub_term_read", { sessionId: s.id, after });
@@ -478,11 +488,17 @@ function startWebPoll() {
         if (r?.data) writeData(s.id, r.data);
         webReadFails.delete(s.id);
       } catch (e) {
-        // 会话不存在/已关闭才移除；且需连续 3 次(避免首帧后端未就绪误删)
+        // 后端会话已不存在 = ssh 已退出/连接失败。连续 3 次即判定结束：
+        // 在终端里写明原因(而不是静默删成空白、也不该一直显示「已连接」)，并把状态改成连接失败。
         if (/不存在|关闭|unknown|not found/i.test(String(e))) {
           const n = (webReadFails.get(s.id) ?? 0) + 1;
           webReadFails.set(s.id, n);
-          if (n >= 3) { webReadFails.delete(s.id); removeWebSession(s.id); }
+          if (n >= 3) {
+            webReadFails.delete(s.id);
+            webDead.add(s.id);
+            try { s.term.write("\r\n\x1b[1;31m[连接已结束] SSH 会话已断开 —— 目标机可能连不上或认证失败。\x1b[0m\r\n"); } catch { /* ignore */ }
+            if (activeId.value === s.id) { connText.value = "连接已断开"; connOk.value = false; }
+          }
         }
       }
     }
@@ -509,6 +525,11 @@ async function closeSession(id: string) {
   } catch {
     /* 关不掉就算了 */
   }
+  // 关标签要把本地会话/标签一起移除(之前只调后端，本地标签不消失)
+  webDead.delete(id);
+  webReadFails.delete(id);
+  webCursors.delete(id);
+  removeWebSession(id);
 }
 </script>
 
