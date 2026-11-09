@@ -195,10 +195,13 @@ async function checkUpdate() {
   checking.value = true;
   updateError.value = "";
   updateOpen.value = true;
+  // 立即进入「正在检查」态：meta 显示“正在检查新版本…”，按钮转圈/禁用——否则点了没反馈(用户:没滚轮)
+  update.value = { ...(update.value ?? {}), phase: "checking" } as UpdateState;
   try {
     update.value = await call<UpdateState>("update_check");
   } catch (error) {
     updateError.value = String(error);
+    update.value = { ...(update.value ?? {}), phase: "error" } as UpdateState;
   } finally {
     checking.value = false;
   }
@@ -231,8 +234,9 @@ function openPage(which: string) {
       <p class="about-ver mono" id="aboutVersion">v{{ version }} · 多系统启动管理器</p>
       <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
       <div class="about-hero-actions">
-        <button type="button" id="about-check-update" class="about-pill" @click="checkUpdate">
-          检查更新<span aria-hidden="true"> ›</span>
+        <button type="button" id="about-check-update" class="about-pill" :disabled="checking" @click="checkUpdate">
+          <span v-if="checking" class="spin" aria-hidden="true" />
+          {{ checking ? "检查中…" : "检查更新" }}<span v-if="!checking" aria-hidden="true"> ›</span>
         </button>
       </div>
     </div>
@@ -247,7 +251,8 @@ function openPage(which: string) {
         </div>
         <div class="update-actions" id="update-actions">
           <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
-            检查更新
+            <span v-if="checking" class="spin" aria-hidden="true" />
+            {{ checking ? "检查中…" : "检查更新" }}
           </button>
           <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">重试</button>
         </div>

@@ -2405,3 +2405,12 @@
 
 /* 收起态：60px 图标栏，隐藏品牌文字（只留 logo + 主界面/折叠两按钮，紧凑） */
 .side.collapsed .side-name { display: none; }
+
+/* 检查更新等按钮内联转圈指示 */
+.spin {
+  display:inline-block; width:13px; height:13px; flex:none; vertical-align:-2px; margin-right:5px;
+  border:2px solid rgb(var(--accent) / .35); border-top-color: rgb(var(--accent));
+  border-radius:50%; animation: ab-spin .7s linear infinite;
+}
+.btn.primary .spin { border-color: rgb(255 255 255 / .35); border-top-color:#fff; }
+@keyframes ab-spin { to { transform: rotate(360deg); } }
