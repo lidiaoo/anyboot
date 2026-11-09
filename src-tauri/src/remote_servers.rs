@@ -510,6 +510,9 @@ pub struct RouteTestCandidate {
     /// 配对 id（结果行按它回填）；lan / jump 为空
     #[serde(default)]
     pub pair_id: String,
+    /// 结果行记账地址（空 = 用 origin）。jump 用目标地址(origin 是 127.0.0.1 端点)。
+    #[serde(default)]
+    pub display: String,
 }
 
 /// 一个连接候选（[`RemoteServer::route_candidates`] 展开的结果）。
@@ -2515,6 +2518,7 @@ fn probe_candidates_blocking(
     let list: Vec<RouteTestCandidate> = candidates
         .into_iter()
         .map(|cand| RouteTestCandidate {
+            display: String::new(),
             kind: cand.kind.trim().to_lowercase(),
             origin: cand.origin.trim().to_string(),
             // 条目自带超时跟着走（配对算好的三层继承结果），没带就落通道表/全局默认
@@ -4664,93 +4668,17 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     // （并发首个 / 并发全部 / 串行 + 档案里的超时，跑在独立探测线程池里）；
     // 有跳板机时保留原来的串行循环 —— 跳板机端点要 AppHandle 解析，引擎里没有。
     let candidates = server.route_candidates();
-    let has_jump = candidates.iter().any(|cand| cand.kind == "jump");
-    let route_mode_all = normalize_probe_mode(&server.route_probe_mode) == "parallel_all";
     let mut last_error = String::from("没有可用连接通道");
     let mut winner: Option<(u64, String, String, String)> = None;
-    let mut collected: Vec<ProbeOutcome> = Vec::new();
-    if has_jump {
-        for cand in &candidates {
-            // 超时按候选自己算（配对走条目→区块→全局三层继承，lan/jump 走通道表）
-            let per_kind = Duration::from_millis(cand.timeout_ms);
-            let result = match cand.kind.as_str() {
-                "lan" => probe_health(&cand.origin, per_kind),
-                "jump" => {
-                    // 【修复】先按 origin **直连探测一次**（短超时）：很多"跳板"配置其实是多余的
-                    // （如 PC 这台就是本机，地址 192.168.0.x:12300 直连即可达）。之前一律先建 ssh
-                    // 跳板 → 多地址串行 ssh 超时累加 → remote_boot_info 卡 20s+「一直读取中」。
-                    // 直连通了就直接用；不通再回落走 ssh 跳板。
-                    let quick = per_kind.min(Duration::from_millis(1500));
-                    match probe_health(&cand.origin, quick) {
-                        Ok(v) => Ok(v),
-                        Err(_) => {
-                            let state = app.state::<RemoteJumpState>();
-                            match remote_endpoint_inner(
-                                app,
-                                state.inner(),
-                                server_id,
-                                Some(cand.origin.as_str()),
-                            ) {
-                                Ok(endpoint) => probe_health(
-                                    &format!("{}:{}", endpoint.host, endpoint.port),
-                                    per_kind,
-                                ),
-                                Err(error) => Err(error),
-                            }
-                        }
-                    }
-                }
-                _ => probe_remote_health(&cand.origin, per_kind),
-            };
-            match result {
-                Ok((ms, machine_id, machine_name)) => {
-                    collected.push(ProbeOutcome {
-                        address: cand.origin.clone(), ok: true, ms,
-                        error: String::new(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
-                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
-                    });
-                    if winner.is_none() {
-                        winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
-                    }
-                    // 连接策略：并发全部 → 全部探完、逐行报状态；串行/并发首个 → 首个通即停（其余标未探测）
-                    if route_mode_all {
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-                Err(error) => {
-                    collected.push(ProbeOutcome {
-                        address: cand.origin.clone(), ok: false, ms: 0,
-                        error: error.clone(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
-                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
-                    });
-                    last_error = error;
-                }
-            }
-        }
-        // 串行/并发首个：赢家已出后没轮到的通道，补一条「未探测」结果（列表显示「未测出」而非「不通」）
-        if !route_mode_all && winner.is_some() {
-            let sep = '\u{0}';
-            let done: std::collections::HashSet<String> = collected
-                .iter().map(|o| format!("{}{}{}", o.kind, sep, o.address)).collect();
-            for cand in &candidates {
-                let k = format!("{}{}{}", cand.kind, sep, cand.origin);
-                if !done.contains(&k) {
-                    collected.push(ProbeOutcome {
-                        address: cand.origin.clone(), ok: false, ms: 0,
-                        error: "未探测（其他通道先命中）".to_string(),
-                        remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
-                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
-                    });
-                }
-            }
-        }
-    } else {
-        // lan 在 route_candidates 里只占一条（它给请求路径用），探测要逐块网卡都试
-        let mut engine_candidates: Vec<RouteTestCandidate> = Vec::new();
-        for cand in &candidates {
-            if cand.kind == "lan" {
+    // 统一探测引擎（照移动端 ProbeEngine）：区块内部策略 / 多网卡探测对「有跳板机」的机器也生效。
+    // jump 候选先解析 SSH 转发端点(127.0.0.1:port)再交给引擎；引擎输出后把 jump 行地址换回目标地址记账。
+    // （保留：jump 先按目标地址 1.5s 短探，通就不建 ssh，性能与之前一致。）
+    let mut jump_display: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut engine_candidates: Vec<RouteTestCandidate> = Vec::new();
+    let mut pre_collected: Vec<ProbeOutcome> = Vec::new();
+    for cand in &candidates {
+        match cand.kind.as_str() {
+            "lan" => {
                 for raw in &server.addresses {
                     let (address, _) = split_address(raw);
                     if !address.is_empty() {
@@ -4758,38 +4686,80 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                             kind: "lan".to_string(),
                             origin: address,
                             timeout_ms: server.probe_timeout_for("lan").as_millis() as u64,
-                            ..Default::default()
+                            pair_id: String::new(),
+                            display: String::new(),
                         });
                     }
                 }
-            } else {
+            }
+            "jump" => {
+                let per_kind = Duration::from_millis(cand.timeout_ms);
+                // 先直连短探（很多"跳板"其实多余，地址直连即可达），通就记账不再建 ssh
+                let quick = per_kind.min(Duration::from_millis(1500));
+                if let Ok((ms, _mid, _mname)) = probe_health(&cand.origin, quick) {
+                    pre_collected.push(ProbeOutcome {
+                        address: cand.origin.clone(), ok: true, ms,
+                        error: String::new(), remote: false,
+                        kind: "jump".to_string(), pair_id: cand.pair_id.clone(),
+                    });
+                }
+                // 直连不通 → 解析 ssh 转发端点，端点交给引擎当普通地址探（区块策略生效）
+                let state = app.state::<RemoteJumpState>();
+                match remote_endpoint_inner(app, state.inner(), server_id, Some(cand.origin.as_str())) {
+                    Ok(endpoint) => {
+                        let eaddr = format!("{}:{}", endpoint.host, endpoint.port);
+                        jump_display.insert(eaddr.clone(), cand.origin.clone());
+                        engine_candidates.push(RouteTestCandidate {
+                            kind: "jump".to_string(),
+                            origin: eaddr,
+                            timeout_ms: cand.timeout_ms,
+                            pair_id: cand.pair_id.clone(),
+                            display: cand.origin.clone(),
+                        });
+                    }
+                    Err(error) => {
+                        pre_collected.push(ProbeOutcome {
+                            address: cand.origin.clone(), ok: false, ms: 0,
+                            error: error.clone(), remote: false,
+                            kind: "jump".to_string(), pair_id: cand.pair_id.clone(),
+                        });
+                    }
+                }
+            }
+            _ => {
                 engine_candidates.push(RouteTestCandidate {
                     kind: cand.kind.clone(),
                     origin: cand.origin.clone(),
                     timeout_ms: cand.timeout_ms,
-                    pair_id: String::new(),
+                    pair_id: cand.pair_id.clone(),
+                    display: String::new(),
                 });
             }
         }
-        let outcome = probe_candidates_blocking(
-            engine_candidates,
-            &normalize_probe_mode(&server.route_probe_mode),
-            &normalize_probe_mode(&server.probe_mode),
-            &server.route_timeouts_ms,
-            server.probe_timeout_ms,
-            &server.block_probe_mode,
-        );
-        collected = outcome.results.clone();
-        if outcome.ok {
-            winner = Some((
-                outcome.ms,
-                outcome.machine_id.clone(),
-                outcome.machine_name.clone(),
-                outcome.addr.clone(),
-            ));
-        } else {
-            last_error = outcome.error;
+    }
+    let outcome = probe_candidates_blocking(
+        engine_candidates,
+        &normalize_probe_mode(&server.route_probe_mode),
+        &normalize_probe_mode(&server.probe_mode),
+        &server.route_timeouts_ms,
+        server.probe_timeout_ms,
+        &server.block_probe_mode,
+    );
+    // 合并：预收集(jump直连/失败) + 引擎结果；jump 行的端点地址换回目标地址
+    let mut collected: Vec<ProbeOutcome> = pre_collected;
+    for o in outcome.results.iter() {
+        let mut oo = o.clone();
+        if oo.kind == "jump" {
+            if let Some(target) = jump_display.get(&oo.address) {
+                oo.address = target.clone();
+            }
         }
+        collected.push(oo);
+    }
+    if outcome.ok {
+        winner = Some((outcome.ms, outcome.machine_id.clone(), outcome.machine_name.clone(), outcome.addr.clone()));
+    } else if !collected.iter().any(|o| o.ok) {
+        last_error = outcome.error;
     }
     let (probe, winner_addr) = match winner {
         Some((ms, machine_id, machine_name, addr)) => (Ok((ms, machine_id, machine_name)), addr),
