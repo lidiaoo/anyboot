@@ -133,14 +133,25 @@ const connectLines = computed(() => {
   const hidden = new Set<string>((r.route_probe_hidden as string[] | undefined) ?? []);
   const pairs = (r.pairs as { id?: string; show_probe?: boolean }[] | undefined) ?? [];
   const hiddenPair = new Set(pairs.filter((pp) => pp.show_probe === false).map((pp) => String(pp.id ?? "")));
-  if (!hidden) return [];
   return rows
     .filter((x) => !(x.kind && hidden.has(x.kind)))       // 通道粒度隐藏
     .filter((x) => !(x.pair_id && hiddenPair.has(x.pair_id))) // 配对级隐藏
-    .map((x) => ({
-      kindLabel: ROUTE_LABELS[x.kind ?? ""] ?? (x.remote ? "远程" : x.kind || "直连"),
-      address: x.address, ok: x.ok, ms: x.ms, error: x.error,
-    }));
+    .map((x) => {
+      const kind = x.kind ?? "lan";
+      const skipped = !x.ok && /未测出|未探测/.test(x.error || "");
+      return {
+        dataK: kind === "tunnel" ? "tunnel" : kind === "tsnet" ? "tsnet" : kind,
+        kindLabel: ROUTE_LABELS[kind] ?? (x.remote ? "远程" : kind || "直连"),
+        address: x.address,
+        ok: x.ok,
+        ms: x.ms,
+        skipped,
+        // 探测 badge 文案（旧版 cqProbeBadge）：通=N ms / 未测出 / 不通
+        badge: x.ok ? `${x.ms} ms` : skipped ? "未测出" : "不通",
+        // 失败原因（旧版 cqProbeReason）：未测出/通过不垫
+        reason: x.ok || skipped ? "" : (x.error || "不通"),
+      };
+    });
 });
 function bootUsable(kind: "refind" | "grub") {
   const group = props.info?.[kind];
@@ -340,13 +351,16 @@ function onRowClick() {
       </div>
     </div>
 
-    <!-- 连接通道连通性（旧版 cq-dev-line 逐通道探测）：受「是否展示连通性」控制 -->
-    <div v-if="connectLines.length" class="cq-connect">
-      <span v-for="(ln, i) in connectLines" :key="i" class="cq-conn-item" :class="{ 'is-bad': !ln.ok }" :title="ln.ok ? '' : ln.error">
-        <span class="cq-conn-kind">{{ ln.kindLabel }}</span>
-        <span class="cq-conn-addr mono">{{ ln.address }}</span>
-        <span class="cq-conn-st">{{ ln.ok ? ('通 · ' + ln.ms + ' ms') : (ln.error ? '不通' : '不通') }}</span>
-      </span>
+    <!-- 连接通道连通性（旧版 cq-dev-line 逐地址/通道探测明细）：受「是否展示连通性」控制 -->
+    <div v-if="connectLines.length" class="cq-boot-meta" style="display:flex;flex-direction:column;gap:5px;width:100%">
+      <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
+        <div class="cq-dev-top">
+          <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
+          <span class="cq-probe-ms" :class="ln.ok ? 'ok' : (ln.skipped ? '' : 'bad')" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
+        </div>
+        <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
+        <span v-if="ln.reason" class="cq-dev-reason">{{ ln.reason }}</span>
+      </div>
     </div>
 
     <!-- 电源区 -->
