@@ -277,7 +277,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
 
 <template>
   <div class="shell" :class="{ 'nav-collapsed': navCollapsed }">
-    <aside class="side" id="hubSide" aria-label="远程管理导航">
+    <aside class="side" :class="{ collapsed: navCollapsed }" id="hubSide" aria-label="远程管理导航">
       <div class="side-head">
         <span class="side-logo" aria-hidden="true">A</span>
         <span class="side-name">
