@@ -370,6 +370,15 @@ watch(
     } else {
       powerRoutes.value = [];
     }
+    // 连接优先级探测方式 / 多网卡探测（之前只改 ref 不读档 → 重开回默认，看起来"选中不了"）
+    const shortOf = (raw: unknown): "first" | "all" | "serial" => {
+      const v = String(raw ?? "").trim();
+      if (v === "parallel_all" || v === "all") return "all";
+      if (v === "serial") return "serial";
+      return "first";
+    };
+    routeProbe.value = shortOf((r as Record<string, unknown>).route_probe_mode);
+    probeMode.value = shortOf((r as Record<string, unknown>).probe_mode);
     const bpm = (r as Record<string, unknown>).block_probe_mode as Record<string, string> | undefined;
     blockProbe.value = bpm && typeof bpm === "object" ? { ...bpm } : {};
     // block_timeouts_ms(map,ms) → 秒(字符串)
@@ -469,6 +478,9 @@ function submit() {
     })),
     // 默认探测超时（秒→ms；通道那格留空时用它）
     probe_timeout_ms: probeTimeout.value > 0 ? Math.round(probeTimeout.value * 1000) : 0,
+    // 连接优先级探测方式 / 多网卡探测（first↔parallel_first / all↔parallel_all / serial）
+    route_probe_mode: routeProbe.value === "all" ? "parallel_all" : routeProbe.value === "serial" ? "serial" : "parallel_first",
+    probe_mode: probeMode.value === "all" ? "parallel_all" : probeMode.value === "serial" ? "serial" : "parallel_first",
     block_probe_mode: blockProbe.value,
     block_timeouts_ms: Object.fromEntries(
       Object.entries(blockTimeouts.value)

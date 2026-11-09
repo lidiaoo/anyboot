@@ -2386,3 +2386,15 @@
 .cq-conn-st { color: rgb(var(--ok)); }
 .cq-conn-item.is-bad .cq-conn-st { color: rgb(var(--bad)); }
 .cq-conn-addr { color: rgb(var(--fg-faint)); }
+
+/* seg-row / seg 按钮「选中」高亮（连接优先级探测方式、多网卡探测、区块策略）。
+   v0.2.5 用 .primary 类切选中；Vue 用 seg-on，之前无样式 → 点了不亮（用户以为选中不了）。 */
+.btn.small.seg-on,
+.seg-row .btn.seg-on,
+.segmented .btn.seg-on {
+  background: rgb(var(--accent)) !important;
+  border-color: rgb(var(--accent)) !important;
+  color: #fff !important;
+}
+.btn.small.seg-on:hover,
+.seg-row .btn.seg-on:hover { filter: brightness(1.08); }
