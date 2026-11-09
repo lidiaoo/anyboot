@@ -132,10 +132,12 @@ export const useRemoteStore = defineStore("remote", () => {
       } else {
         const fails = (failCounts.value.get(id) ?? 0) + 1;
         failCounts.value.set(id, fails);
-        if (fails >= offlineRetryCount()) {
-          bootInfo.value.set(id, info); // 达阈值才真正标离线
+        // 【修复】首次拿到的数据(哪怕离线)也直接存：否则一开始就永远「读取中」，
+        // 连探测出来的地址/连通性明细都拿不到。之后才用阈值防在线/离线闪烁。
+        const first = !bootInfo.value.has(id);
+        if (first || fails >= offlineRetryCount()) {
+          bootInfo.value.set(id, info);
         }
-        // 未达阈值：保留上一份数据，卡片保持在线态
       }
     } catch (error) {
       const fails = (failCounts.value.get(id) ?? 0) + 1;
