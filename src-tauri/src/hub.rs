@@ -344,11 +344,19 @@ pub(crate) fn normalize_address(raw: &str, default_port: u16) -> Option<String> 
     if value.is_empty() {
         return None;
     }
-    let has_port = value
+    // 有端口且端口 > 0 才保留；端口 0（历史坏数据 / 用户没填）视同无端口 → 补默认。
+    let port_opt = value
         .rfind(':')
-        .is_some_and(|index| index + 1 < value.len() && value[index + 1..].chars().all(|c| c.is_ascii_digit()));
-    Some(if has_port {
+        .filter(|&index| index + 1 < value.len() && value[index + 1..].chars().all(|c| c.is_ascii_digit()))
+        .and_then(|index| value[index + 1..].parse::<u16>().ok());
+    let has_valid_port = matches!(port_opt, Some(p) if p > 0);
+    Some(if has_valid_port {
         value.to_string()
+    } else if let Some(index) = value.rfind(':') {
+        // 端口是 0：去掉 :0 换默认端口
+        let host = &value[..index];
+        if host.is_empty() { return None; }
+        format!("{host}:{default_port}")
     } else {
         format!("{value}:{default_port}")
     })

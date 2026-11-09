@@ -805,6 +805,23 @@ pub(crate) fn remote_ui_command_inner(
         // 之前白名单漏了它们 → 浏览器/手机访问 hub 时「未知或不受支持的命令」→ 空数据。
         "remote_list" => crate::remote_servers::remote_list(app.clone()),
         "local_http_endpoint" => crate::remote_servers::local_http_endpoint(app.clone()),
+        // ---- 服务器档案：网页/手机端编辑、删除、测试（同桌面一套命令）----
+        "hub_save_server" => {
+            let server: crate::hub::HubServer = serde_json::from_value(
+                args.get("server").cloned().unwrap_or(serde_json::Value::Null),
+            ).map_err(|e| format!("server 参数非法: {e}"))?;
+            serde_json::to_value(crate::hub::hub_save_server(app.clone(), server)?)
+                .map_err(|e| format!("序列化失败: {e}"))
+        }
+        "hub_delete_server" => res_unit(crate::hub::hub_delete_server(app.clone(), ui_str(args, "id")?)),
+        "hub_test_server" => {
+            let server: crate::hub::HubServer = serde_json::from_value(
+                args.get("server").cloned().unwrap_or(serde_json::Value::Null),
+            ).map_err(|e| format!("server 参数非法: {e}"))?;
+            serde_json::to_value(tauri::async_runtime::block_on(
+                crate::hub::hub_test_server(app.clone(), server),
+            )?).map_err(|e| format!("序列化失败: {e}"))
+        }
         "hub_list_servers" => serde_json::to_value(crate::hub::hub_list_servers(app.clone())?)
             .map_err(|error| format!("序列化失败: {error}")),
         "remote_boot_info" => {
