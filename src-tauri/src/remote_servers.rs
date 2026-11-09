@@ -4665,6 +4665,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     // 有跳板机时保留原来的串行循环 —— 跳板机端点要 AppHandle 解析，引擎里没有。
     let candidates = server.route_candidates();
     let has_jump = candidates.iter().any(|cand| cand.kind == "jump");
+    let route_mode_all = normalize_probe_mode(&server.route_probe_mode) == "parallel_all";
     let mut last_error = String::from("没有可用连接通道");
     let mut winner: Option<(u64, String, String, String)> = None;
     let mut collected: Vec<ProbeOutcome> = Vec::new();
@@ -4708,8 +4709,15 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                         error: String::new(), remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
                         kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
                     });
-                    winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
-                    break;
+                    if winner.is_none() {
+                        winner = Some((ms, machine_id, machine_name, cand.origin.clone()));
+                    }
+                    // 连接策略：并发全部 → 全部探完、逐行报状态；串行/并发首个 → 首个通即停（其余标未探测）
+                    if route_mode_all {
+                        continue;
+                    } else {
+                        break;
+                    }
                 }
                 Err(error) => {
                     collected.push(ProbeOutcome {
@@ -4718,6 +4726,23 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                         kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
                     });
                     last_error = error;
+                }
+            }
+        }
+        // 串行/并发首个：赢家已出后没轮到的通道，补一条「未探测」结果（列表显示「未测出」而非「不通」）
+        if !route_mode_all && winner.is_some() {
+            let sep = '\u{0}';
+            let done: std::collections::HashSet<String> = collected
+                .iter().map(|o| format!("{}{}{}", o.kind, sep, o.address)).collect();
+            for cand in &candidates {
+                let k = format!("{}{}{}", cand.kind, sep, cand.origin);
+                if !done.contains(&k) {
+                    collected.push(ProbeOutcome {
+                        address: cand.origin.clone(), ok: false, ms: 0,
+                        error: "未探测（其他通道先命中）".to_string(),
+                        remote: cand.kind == "tunnel" || cand.kind == "funnel" || cand.kind == "tsnet",
+                        kind: cand.kind.clone(), pair_id: cand.pair_id.clone(),
+                    });
                 }
             }
         }

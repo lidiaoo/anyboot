@@ -316,7 +316,9 @@ watch(
       hasToken.value = false;
       rows.value = [{ addr: "", macList: [], jump: "" }];
       pairs.value = [];
-      routeProbeHidden.value = [];
+      // 新建 = 六个通道「展示」默认全关（照抄 v0.2.5）：新电脑先不涌上电脑列表，要展示哪个再单独开；
+      // 编辑 = 档案里已存的原样回显，不动。routeProbeHidden 存「关掉的」kind。
+      routeProbeHidden.value = [...ROUTE_IDS];
       routeOrder.value = [...ROUTE_IDS];
       routeDisabled.value = {};
       routeTimeout.value = {};

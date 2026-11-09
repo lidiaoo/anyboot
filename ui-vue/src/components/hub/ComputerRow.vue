@@ -133,6 +133,7 @@ const connectLines = computed(() => {
   const rows = props.info?.probe_results ?? [];
   const r = props.row as Record<string, unknown>;
   const hidden = new Set<string>((r.route_probe_hidden as string[] | undefined) ?? []);
+  const disabled = new Set<string>((r.route_disabled as string[] | undefined) ?? []);
   const pairs = (r.pairs as { id?: string; show_probe?: boolean; addr?: string }[] | undefined) ?? [];
   // 配对级隐藏：按地址匹配更可靠(has_jump 分支的 pair_id 可能为空)，同 kind 下地址唯一。
   const hiddenPairs = pairs.filter((pp) => pp.show_probe === false);
@@ -143,7 +144,8 @@ const connectLines = computed(() => {
     (hiddenAddrs.has(x.address)) ||
     hiddenPairs.some((pp) => pp.addr && x.address && (x.address.includes(String(pp.addr)) || String(pp.addr).includes(x.address)));
   return rows
-    .filter((x) => !(x.kind && hidden.has(x.kind)))       // 通道粒度隐藏
+    .filter((x) => !(x.kind && disabled.has(x.kind)))     // 通道停用 → 整行不上（v0.2.5）
+    .filter((x) => !(x.kind && hidden.has(x.kind)))       // 通道粒度「展示」关 → 整行不上
     .filter((x) => !isPairHidden(x)) // 配对级隐藏(按 id 或地址)
     .map((x) => {
       const kind = x.kind ?? "lan";
