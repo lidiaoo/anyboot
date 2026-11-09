@@ -437,20 +437,81 @@ function renmoteRow(id: string) {
 }
 
 /** 用系统浏览器打开某台电脑的页面（旧版 remote_open_page） */
-async function openInBrowser(id: string) {
+// 浏览器打开用的连接候选（用户要求：多连接时让用户选择走哪个地址；移动端/web 同理）
+const browserPickOpen = ref(false);
+const browserPickId = ref("");
+const browserPickList = ref<{ label: string; address: string; ok: boolean | null }[]>([]);
+
+const ROUTE_NAME: Record<string, string> = {
+  lan: "直连", jump: "跳板机", tunnel: "Cloudflare", ts: "Tailscale", funnel: "Funnel", tsnet: "内置",
+};
+
+/** 收集这台电脑所有可用于浏览器打开的地址（探测出的各通道地址 + 配置的远程配对地址），去重。 */
+function browserCandidates(id: string): { label: string; address: string; ok: boolean | null }[] {
+  const row = remote.servers.find((s) => s.id === id) as Record<string, unknown> | undefined;
   const info = infoOf(id);
-  // 【修复】必须带 token：否则浏览器打开后主界面拿不到 token（旧版也会弹 token 输入框兜底）。
+  const out: { label: string; address: string; ok: boolean | null }[] = [];
+  const seen = new Set<string>();
+  const push = (label: string, address: string, ok: boolean | null) => {
+    const a = String(address || "").trim();
+    if (!a || seen.has(a)) return;
+    seen.add(a);
+    out.push({ label, address: a, ok });
+  };
+  // 1) 探测出结果的各通道地址（带通/不通）
+  for (const r of (info?.probe_results ?? [])) {
+    if (!r?.address) continue;
+    const nm = ROUTE_NAME[r.kind ?? "lan"] ?? (r.remote ? "远程" : (r.kind || "直连"));
+    push(nm, r.address, !!r.ok);
+  }
+  // 2) 配置的局域网地址（探测里没有时兜底带出）
+  for (const a of ((row?.addresses as string[] | undefined) ?? [])) push("直连", String(a), null);
+  // 3) 远程配对地址
+  for (const p of ((row?.pairs as { kind?: string; lane?: string; addr?: string }[] | undefined) ?? [])) {
+    if (!p?.addr) continue;
+    const rk = p.kind === "cloudflare" ? "tunnel" : p.kind === "tsnet" ? "tsnet" : p.kind === "ts" ? (p.lane === "funnel" ? "funnel" : "ts") : (p.kind || "tunnel");
+    push(ROUTE_NAME[rk] ?? (p.kind || "远程"), String(p.addr), null);
+  }
+  return out;
+}
+
+async function openInBrowser(id: string) {
   const row = remote.servers.find((s) => s.id === id);
-  const token = encodeURIComponent(row?.token ?? "");
-  const url = info?.addr ? `http://${info.addr}/?token=${token}` : "";
-  if (!url) {
-    toast.show("这台电脑还没有可直连打开的地址", "bad");
+  const token = encodeURIComponent(String(row?.token ?? ""));
+  const cands = browserCandidates(id);
+  if (!cands.length) {
+    toast.show("这台电脑还没有可打开的地址", "bad");
+    return;
+  }
+  if (cands.length === 1) {
+    await doOpenBrowser(cands[0]!.address, token);
+    return;
+  }
+  // 多连接 → 弹层让用户选
+  browserPickId.value = id;
+  browserPickList.value = cands;
+  browserPickOpen.value = true;
+}
+
+async function doOpenBrowser(address: string, token: string) {
+  const url = `http://${address}/?token=${token}`;
+  const { isTauri } = await import("@/api/tauri");
+  if (!isTauri()) {
+    window.open(url, "_blank"); // 网页端/移动端：直接开新标签
+    toast.show("已打开 " + address);
     return;
   }
   const { call } = await import("@/api/tauri");
   await call("remote_open_page", { url })
-    .then(() => toast.show("已在系统浏览器打开直连地址"))
+    .then(() => toast.show("已在系统浏览器打开 " + address))
     .catch((e) => toast.show("打开浏览器失败：" + e, "bad"));
+}
+
+async function pickBrowserAddr(c: { address: string }) {
+  const row = remote.servers.find((s) => s.id === browserPickId.value);
+  const token = encodeURIComponent(String(row?.token ?? ""));
+  browserPickOpen.value = false;
+  await doOpenBrowser(c.address, token);
 }
 
 /** 页面探活（旧版 hub_page_ping，给电脑页标签用） */
@@ -696,6 +757,34 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           <div class="menu-divider" />
           <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">删除这台电脑</button>
         </template>
+      </div>
+    </div>
+
+    <!-- 浏览器打开：多连接让用户选择走哪个地址 -->
+    <div v-if="browserPickOpen" class="overlay" @click.self="browserPickOpen = false">
+      <div class="dialog" role="dialog" aria-modal="true" style="max-width: 460px">
+        <div class="dialog-head">
+          <h3>选择打开使用的连接</h3>
+          <button type="button" class="icon-btn" aria-label="关闭" @click="browserPickOpen = false">✕</button>
+        </div>
+        <div class="dialog-body" style="display:flex;flex-direction:column;gap:8px">
+          <button
+            v-for="(c, i) in browserPickList"
+            :key="i"
+            type="button"
+            class="btn"
+            style="justify-content:flex-start;text-align:left;gap:8px"
+            @click="pickBrowserAddr(c)"
+          >
+            <span class="cq-remote-kind" :class="{ 'ok': c.ok === true, 'bad': c.ok === false }">{{ c.label }}</span>
+            <span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.address }}</span>
+            <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">通</span>
+            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">不通</span>
+          </button>
+        </div>
+        <div class="dialog-foot">
+          <button type="button" class="btn" @click="browserPickOpen = false">取消</button>
+        </div>
       </div>
     </div>
 
