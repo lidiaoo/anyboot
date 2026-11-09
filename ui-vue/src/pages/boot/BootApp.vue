@@ -86,6 +86,15 @@ function setTheme(theme: string) {
 }
 
 /** 页头主题按钮：暗 ↔ 亮 */
+/** 远程管理：桌面开 hub 窗口；网页端当前页跳转到 hub.html（带 token） */
+async function openHub() {
+  if (isTauri()) { void call("hub_open_window", {}).catch(() => {}); return; }
+  try {
+    const { getAuthToken } = await import("@/api/http");
+    location.href = "/hub.html?token=" + encodeURIComponent(getAuthToken());
+  } catch { location.href = "/hub.html"; }
+}
+
 function toggleTheme() {
   const current = document.documentElement.classList.contains("dark") ? "dark" : "light";
   const next = current === "dark" ? "light" : "dark";
@@ -621,7 +630,7 @@ const statusHidden = computed(() => {
                 <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
               </svg>
             </button>
-            <button type="button" id="open-hub" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="call('hub_open_window', {})">
+            <button type="button" id="open-hub" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="openHub">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />
                 <path d="M5.4 6.2 7 7.6 5.4 9" />
