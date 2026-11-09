@@ -75,11 +75,12 @@ function msClass(ms: number): string {
   return "bad";
 }
 
-/** 状态文案（旧版 stateLabel()） */
+/** 状态文案（照 v0.2.5 stateLabel：只显示「在线/离线/未测」，不塞整串消息——
+ *  整串消息放不下列表窄列会挤压；详情的结果行(testLine)才显示完整消息）。 */
 function stateLabel(id: string): string {
   const result = store.testResults.get(id);
   if (!result) return "未测";
-  return String(result);
+  return /^通/.test(String(result)) ? "在线" : "离线";
 }
 
 
