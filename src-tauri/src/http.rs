@@ -23,7 +23,7 @@ use super::{
 };
 
 /// 工作线程数：请求都很短（真正耗时的动作在 lib 侧另起线程），4 个足够。
-const WORKER_THREADS: usize = 4;
+const WORKER_THREADS: usize = 16;
 /// 等待请求的超时：只为周期性检查停止标志，不增加延迟。
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
 /// 自连接唤醒的超时：连的是本机正在监听的端口，正常是微秒级，这个值只是防呆。
