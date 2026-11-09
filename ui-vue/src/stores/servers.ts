@@ -79,19 +79,26 @@ export const useServersStore = defineStore("servers", () => {
     servers.value = servers.value.filter((item) => item.id !== id);
   }
 
+  /** 本地测得的延迟（ms），与 v0.2.5 probe() 同口径（用本地耗时采样）。 */
+  const testMs = ref(new Map<string, number>());
+
   async function test(server: HubServer): Promise<void> {
     if (testing.value.has(server.id)) return;
     testing.value.add(server.id);
+    const t0 = performance.now();
     try {
-      const result = await call<{ ok?: boolean; message?: string; ms?: number }>(
-        "hub_test_server",
-        { server },
-      );
-      const text = result?.ok
-        ? `通 · ${result.ms ?? "?"} ms`
-        : (result?.message || "不通");
-      testResults.value.set(server.id, text);
+      // hub_test_server 返回 Result<String,String>：成功=消息字符串(如"已连通 host:port")，
+      // 失败=抛错(消息)。之前误当成 {ok,ms,message} 对象解析 → result.ok 恒 undefined → 永远显示「不通」。
+      const message = await call<string>("hub_test_server", { server });
+      const ms = Math.max(1, Math.round(performance.now() - t0));
+      testMs.value.set(server.id, ms);
+      testMs.value = new Map(testMs.value);
+      // 通 · N ms · 后端消息（后端可能已含 host:port）
+      const detail = String(message ?? "").trim();
+      testResults.value.set(server.id, `通 · ${ms} ms${detail ? " · " + detail : ""}`);
     } catch (error) {
+      testMs.value.delete(server.id);
+      testMs.value = new Map(testMs.value);
       testResults.value.set(server.id, String(error));
     } finally {
       testing.value.delete(server.id);
@@ -113,6 +120,7 @@ export const useServersStore = defineStore("servers", () => {
     loaded,
     testing,
     testResults,
+    testMs,
     byProtocol,
     load,
     save,

@@ -57,7 +57,7 @@ async function onSave(payload: Record<string, unknown>) {
 function testState(id: string): string {
   const result = store.testResults.get(id);
   if (!result) return "";
-  return String(result).includes("失败") || String(result).includes("错误") ? "bad" : "ok";
+  return /^通/.test(String(result)) ? "ok" : "bad";
 }
 
 /** 探测耗时（旧版 probes[id].ms） */
@@ -90,12 +90,12 @@ function stateLabel(id: string): string {
 const statePillText = computed(() => {
   const result = store.testResults.get(selectedId.value);
   if (!result) return "未测";
-  return String(result).includes("失败") || String(result).includes("错误") ? "离线" : "在线";
+  return /^通/.test(String(result)) ? "在线" : "离线";
 });
 const statePillClass = computed(() => {
   const result = store.testResults.get(selectedId.value);
   if (!result) return "dim";
-  return String(result).includes("失败") || String(result).includes("错误") ? "bad" : "ok";
+  return /^通/.test(String(result)) ? "ok" : "bad";
 });
 
 /** 端口（旧版 `server.port || (protocol === 'telnet' ? 23 : 22)`） */
