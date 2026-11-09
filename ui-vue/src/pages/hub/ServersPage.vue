@@ -1,6 +1,6 @@
 <script setup lang="ts">
 const toast = useToastStore();
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useServersStore, type HubServer } from "@/stores/servers";
 import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import TunnelDialog from "@/components/hub/TunnelDialog.vue";
@@ -271,11 +271,23 @@ function tickClock() {
 }
 onMounted(() => { tickClock(); window.setInterval(tickClock, 1000); });
 
-onMounted(() => {
+// 每 10 秒自动刷新一次(全平台)：默认进页面就刷一次，之后定时对每台重测连通性/延迟。
+const AUTO_REFRESH_SEC = 10;
+let autoTimer: number | null = null;
+onMounted(async () => {
   // 旧版 selectedId 初始为 null（hub.html:5140），**不自动选中第一台** ——
   // 进入页面应显示「选择左侧服务器」空态。只有用户点击、或新增/编辑保存后
   // 才会选中（旧版 5951 / 6657 两处）。
-  void store.load();
+  await store.load();
+  // 进页面先刷一次(默认即刷新)
+  void store.testAll().catch(() => {});
+  autoTimer = window.setInterval(() => {
+    if (document.hidden) return; // 后台标签不刷
+    void store.testAll().catch(() => {});
+  }, AUTO_REFRESH_SEC * 1000);
+});
+onUnmounted(() => {
+  if (autoTimer !== null) { window.clearInterval(autoTimer); autoTimer = null; }
 });
 
 const latencyRef = ref<InstanceType<typeof LatencyTrend> | null>(null);
