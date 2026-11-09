@@ -649,15 +649,22 @@ function submit() {
                 />
                 <button type="button" class="rp-btn" title="上移" @click="moveRoute(index, -1)">↑</button>
                 <button type="button" class="rp-btn" title="下移" @click="moveRoute(index, 1)">↓</button>
-                <label class="switch" :title="ROUTE_LABELS[kind] + ' 通道是否启用'">
-                  <input type="checkbox" :checked="!routeDisabled[kind]" @change="toggleRouteEnabled(kind)" />
-                  <span class="trk" aria-hidden="true" />
-                </label>
-                <label class="switch" :title="ROUTE_LABELS[kind] + ' 通道在电脑列表是否展示连通性（关掉只隐藏展示，探测/连接照常）'" style="margin-left:8px">
-                  <input type="checkbox" :checked="!routeProbeHidden.includes(kind)" @change="toggleRouteShow(kind)" />
-                  <span class="trk" aria-hidden="true" />
-                </label>
-                <span class="rp-showlbl" title="展示">展示</span>
+                <!-- 启用开关（v0.2.5：pb-swtag 包裹 + "启用"文字） -->
+                <span class="pb-swtag" :title="'启用 / 停用这条通道：停用后整条通道不参与探测与连接'">
+                  <label class="switch">
+                    <input type="checkbox" :checked="!routeDisabled[kind]" @change="toggleRouteEnabled(kind)" />
+                    <span class="trk" aria-hidden="true" />
+                  </label>
+                  <span class="pb-swtag-l">启用</span>
+                </span>
+                <!-- 「是否展示」开关（v0.2.5：pb-showprobe 包裹 + "展示"文字） -->
+                <span class="pb-showprobe" :title="'是否展示：默认开；关掉后电脑列表整行不展示「' + (ROUTE_LABELS[kind] || kind) + '」通道（连通性、网址等都不显示），探测与连接不受影响'">
+                  <label class="switch">
+                    <input type="checkbox" :checked="!routeProbeHidden.includes(kind)" @change="toggleRouteShow(kind)" />
+                    <span class="trk" aria-hidden="true" />
+                  </label>
+                  <span class="pb-showprobe-l">展示</span>
+                </span>
               </div>
               <p class="field-hint">按住 ☰ 上下拖动调整顺序（或点 ↑↓）；探活与接口请求按此顺序逐通道试，第一个通的就走谁。每个通道可以单独设探测超时：局域网一般 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒，互不牵连。留空的那一格就用下面的默认值。</p>
             </div>

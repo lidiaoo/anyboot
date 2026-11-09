@@ -124,8 +124,10 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
 }
 /** 连接通道连通性行（旧版 cq-dev-line 逐通道探测明细）：受通道粒度 route_probe_hidden 与
  *  配对级 show_probe 控制——被隐藏的不展示，探测/连接照常。 */
+// 通道徽章文案（照抄 v0.2.5 ROUTE_LABELS）
 const ROUTE_LABELS: Record<string, string> = {
-  lan: "直连", jump: "跳板", tunnel: "Cloudflare", ts: "Tailscale", funnel: "Funnel", tsnet: "内置",
+  lan: "直连", jump: "跳板机", tunnel: "Cloudflare 隧道",
+  ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
 };
 const connectLines = computed(() => {
   const rows = props.info?.probe_results ?? [];
@@ -146,20 +148,39 @@ const connectLines = computed(() => {
     .map((x) => {
       const kind = x.kind ?? "lan";
       const skipped = !x.ok && /未测出|未探测/.test(x.error || "");
+      const macs = (((props.row as Record<string, unknown>).macs as Record<string, string[]>)?.[x.address]) || [];
       return {
-        dataK: kind === "tunnel" ? "tunnel" : kind === "tsnet" ? "tsnet" : kind,
+        dataK: kind,
         kindLabel: ROUTE_LABELS[kind] ?? (x.remote ? "远程" : kind || "直连"),
         address: x.address,
         ok: x.ok,
         ms: x.ms,
         skipped,
-        // 探测 badge 文案（旧版 cqProbeBadge）：通=N ms / 未测出 / 不通
+        macs,
+        isLan: kind === "lan",
+        // 探测 badge 文案（照抄 v0.2.5 cqProbeBadge）：通=N ms / 未测出 / 不通
         badge: x.ok ? `${x.ms} ms` : skipped ? "未测出" : "不通",
-        // 失败原因（旧版 cqProbeReason）：未测出/通过不垫
+        // 失败原因（v0.2.5 cqProbeReason）：未测出/通过不垫
         reason: x.ok || skipped ? "" : (x.error || "不通"),
       };
     });
 });
+// 直连地址的复制 / 浏览器打开（照 v0.2.5 cqLanActs；URL 带档案 token）
+function addrUrl(addr: string): string {
+  const tok = String((props.row as Record<string, unknown>).token ?? "");
+  return `http://${addr}/?token=${encodeURIComponent(tok)}`;
+}
+function copyAddr(addr: string) {
+  const url = addrUrl(addr);
+  try {
+    if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(url);
+    else window.prompt("复制直连地址", url);
+  } catch { /* ignore */ }
+}
+function openAddr(addr: string) {
+  window.open(addrUrl(addr), "_blank");
+}
+
 function bootUsable(kind: "refind" | "grub") {
   const group = props.info?.[kind];
   return Boolean(group?.available) && online.value;
@@ -364,8 +385,13 @@ function onRowClick() {
         <div class="cq-dev-top">
           <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
           <span class="cq-probe-ms" :class="ln.ok ? 'ok' : (ln.skipped ? '' : 'bad')" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
+          <button v-if="ln.isLan" type="button" class="cq-remote-act" title="复制这个局域网地址（含访问令牌）" @click.stop="copyAddr(ln.address)">复制</button>
+          <button v-if="ln.isLan" type="button" class="cq-remote-act" title="用系统默认浏览器打开这个局域网地址" @click.stop="openAddr(ln.address)">浏览器打开</button>
         </div>
         <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
+        <div v-if="ln.macs && ln.macs.length" class="cq-dev-macrow">
+          <span v-for="(m, j) in ln.macs" :key="j" class="cq-dev-mac">{{ m }}</span>
+        </div>
         <span v-if="ln.reason" class="cq-dev-reason">{{ ln.reason }}</span>
       </div>
     </div>
