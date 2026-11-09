@@ -552,7 +552,12 @@ function toggleCf() {
   const next = !cfRunning.value;
   void run(
     next ? "开启通道" : "关闭通道",
-    () => call(next ? "gateway_tunnel_start" : "gateway_tunnel_stop"),
+    () => call(
+      next ? "gateway_tunnel_start" : "gateway_tunnel_stop",
+      next
+        ? { mode: config.value?.mode === "named" ? "named" : "quick", namedToken: namedToken.value, namedUrl: namedUrl.value }
+        : undefined,
+    ),
     next ? "通道已开启" : "通道已关闭",
   );
 }

@@ -1070,7 +1070,7 @@ pub(crate) async fn gateway_tunnel_kill_orphan(app: tauri::AppHandle, pid: u32) 
 fn tunnel_start_blocking(
     app: &tauri::AppHandle,
     mode: String,
-    named_token: String,
+    mut named_token: String,
     named_url: String,
 ) -> Result<TunnelSnapshot, String> {
     let state = app.state::<GatewayTunnelState>();
@@ -1090,7 +1090,12 @@ fn tunnel_start_blocking(
         return Err("cloudflared 未就位：先下载或手动指定路径".to_string());
     }
     if mode == TunnelMode::Named && named_token.trim().is_empty() {
-        return Err("命名隧道需要 Tunnel Token".to_string());
+        // 已保存过 token：开通道时表单可留空，回退到设置里已存的 Tunnel Token
+        let saved = crate::stored_settings(app).gateway_named_token;
+        if saved.trim().is_empty() {
+            return Err("命名隧道需要 Tunnel Token".to_string());
+        }
+        named_token = saved;
     }
     state
         .desired
