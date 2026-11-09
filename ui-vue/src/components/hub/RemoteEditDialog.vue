@@ -331,15 +331,24 @@ watch(
     name.value = r.name;
     savedToken.value = String((r as Record<string, unknown>).token ?? "");
     tokenVisible.value = false;
-    const ro = (r as Record<string, unknown>).routeOrder;
-    if (Array.isArray(ro) && ro.length) {
-      // 保留后端顺序，缺失的补到末尾
-      const ordered = ro.filter((k) => (ROUTE_IDS as string[]).includes(String(k))).map(String);
+    // 后端字段是 snake_case：route_order / route_disabled(Vec) / route_timeouts_ms(map,ms) /
+    // block_probe_mode / block_timeouts_ms(map,ms)。之前读 camelCase → 读不到 → 策略/展示全丢。
+    const rawRo = (r as Record<string, unknown>).route_order ?? (r as Record<string, unknown>).routeOrder;
+    if (Array.isArray(rawRo) && rawRo.length) {
+      const ordered = rawRo.filter((k) => (ROUTE_IDS as string[]).includes(String(k))).map(String);
       for (const k of ROUTE_IDS) if (!ordered.includes(k)) ordered.push(k);
       routeOrder.value = ordered;
     }
-    const rd = (r as Record<string, unknown>).routeDisabled as Record<string, boolean> | undefined;
-    if (rd && typeof rd === "object") routeDisabled.value = { ...rd };
+    // route_disabled 是 Vec<String>(停用的 kind 数组) → 转 {kind:true}
+    const rdArr = (r as Record<string, unknown>).route_disabled;
+    routeDisabled.value = {};
+    if (Array.isArray(rdArr)) for (const k of rdArr) routeDisabled.value = { ...routeDisabled.value, [String(k)]: true };
+    // route_timeouts_ms(map,ms) → 秒
+    const rtm = (r as Record<string, unknown>).route_timeouts_ms as Record<string, number> | undefined;
+    routeTimeout.value = {};
+    if (rtm && typeof rtm === "object") {
+      for (const [k, ms] of Object.entries(rtm)) if (ms > 0) routeTimeout.value = { ...routeTimeout.value, [k]: ms / 1000 };
+    }
     const pr = (r as Record<string, unknown>).power_routes;
     if (Array.isArray(pr)) {
       powerRoutes.value = pr.map((x) => {
@@ -358,10 +367,14 @@ watch(
     } else {
       powerRoutes.value = [];
     }
-    const bp = (r as Record<string, unknown>).blockProbe as Record<string, string> | undefined;
-    if (bp && typeof bp === "object") blockProbe.value = { ...bp };
-    const bt = (r as Record<string, unknown>).blockTimeouts as Record<string, string> | undefined;
-    if (bt && typeof bt === "object") blockTimeouts.value = { ...bt };
+    const bpm = (r as Record<string, unknown>).block_probe_mode as Record<string, string> | undefined;
+    blockProbe.value = bpm && typeof bpm === "object" ? { ...bpm } : {};
+    // block_timeouts_ms(map,ms) → 秒(字符串)
+    const btm = (r as Record<string, unknown>).block_timeouts_ms as Record<string, number> | undefined;
+    blockTimeouts.value = {};
+    if (btm && typeof btm === "object") {
+      for (const [k, ms] of Object.entries(btm)) if (ms > 0) blockTimeouts.value = { ...blockTimeouts.value, [k]: String(ms / 1000) };
+    }
     // 读入连接配对（含 show_probe）与通道粒度展示隐藏——否则保存时会被后端 default 清空（数据丢失）
     const pr2 = (r as Record<string, unknown>).pairs;
     if (Array.isArray(pr2)) {
@@ -432,7 +445,8 @@ function submit() {
     addresses,
     macs,
     route_order: routeOrder.value,
-    route_disabled: routeDisabled.value,
+    // 后端 route_disabled 是 Vec<String>（只存停用的 kind）；之前发对象 {kind:bool} → map≠sequence 保存失败
+    route_disabled: ROUTE_IDS.filter((k) => (routeDisabled.value as Record<string, boolean>)[k]),
     route_probe_hidden: routeProbeHidden.value,
     pairs: pairs.value.map((p) => ({
       id: p.id ?? "", kind: p.kind, addr: p.addr, lane: p.lane ?? "",
@@ -440,13 +454,25 @@ function submit() {
       enabled: p.enabled, show_probe: p.show_probe, mid: p.mid ?? "",
       os: p.os ?? "", host: p.host ?? "", tunnel_id: p.tunnel_id ?? "",
     })),
-    route_timeout: routeTimeout.value,
+    // 字段名/单位对齐后端：route_timeouts_ms(秒→ms) / block_probe_mode / block_timeouts_ms(秒→ms)
+    route_timeouts_ms: Object.fromEntries(
+      Object.entries(routeTimeout.value)
+        .map(([k, v]) => [k, typeof v === "number" && v > 0 ? Math.round(v * 1000) : 0] as [string, number])
+        .filter(([, v]) => v > 0),
+    ),
     power_routes: powerRoutes.value.map((r) => ({
       action: r.action, mode: r.mode, target: r.target, port: r.port,
       macs: r.macs, enabled: r.enabled, burst: r.burst, retry: r.retry,
     })),
-    block_probe: blockProbe.value,
-    block_timeouts: blockTimeouts.value,
+    block_probe_mode: blockProbe.value,
+    block_timeouts_ms: Object.fromEntries(
+      Object.entries(blockTimeouts.value)
+        .map(([k, v]) => {
+          const n = Number(v);
+          return [k, Number.isFinite(n) && n > 0 ? Math.round(n * 1000) : 0] as [string, number];
+        })
+        .filter(([, v]) => v > 0),
+    ),
   });
 }
 </script>
