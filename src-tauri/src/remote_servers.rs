@@ -6465,12 +6465,14 @@ mod tests {
                 origin: format!("http://127.0.0.1:{short_port}"),
                 timeout_ms: 200,
                 pair_id: "pair-short".into(),
+                ..Default::default()
             },
             RouteTestCandidate {
                 kind: "tunnel".into(),
                 origin: format!("http://127.0.0.1:{long_port}"),
                 timeout_ms: 3_000,
                 pair_id: "pair-long".into(),
+                ..Default::default()
             },
         ];
         let result = probe_candidates_blocking(
@@ -6505,12 +6507,14 @@ mod tests {
                 origin: format!("http://127.0.0.1:{port}"),
                 timeout_ms: 2_000,
                 pair_id: "p1".into(),
+                ..Default::default()
             },
             RouteTestCandidate {
                 kind: "tunnel".into(),
                 origin: dead.into(),
                 timeout_ms: 500,
                 pair_id: "p2".into(),
+                ..Default::default()
             },
         ];
         let mut blocks = std::collections::BTreeMap::new();
@@ -6538,10 +6542,10 @@ mod tests {
         let mut blocks = std::collections::BTreeMap::new();
         blocks.insert("ts".to_string(), "serial".to_string());
         let list = vec![
-            RouteTestCandidate { kind: "tunnel".into(), origin: "https://a.example.com".into(), timeout_ms: 1_000, pair_id: "p1".into() },
-            RouteTestCandidate { kind: "ts".into(), origin: "http://100.64.0.2:12300".into(), timeout_ms: 1_000, pair_id: "p2".into() },
-            RouteTestCandidate { kind: "funnel".into(), origin: "https://b.ts.net".into(), timeout_ms: 1_000, pair_id: "p3".into() },
-            RouteTestCandidate { kind: "lan".into(), origin: "192.168.1.9:12300".into(), timeout_ms: 1_000, pair_id: String::new() },
+            RouteTestCandidate { kind: "tunnel".into(), origin: "https://a.example.com".into(), timeout_ms: 1_000, pair_id: "p1".into(), ..Default::default() },
+            RouteTestCandidate { kind: "ts".into(), origin: "http://100.64.0.2:12300".into(), timeout_ms: 1_000, pair_id: "p2".into(), ..Default::default() },
+            RouteTestCandidate { kind: "funnel".into(), origin: "https://b.ts.net".into(), timeout_ms: 1_000, pair_id: "p3".into(), ..Default::default() },
+            RouteTestCandidate { kind: "lan".into(), origin: "192.168.1.9:12300".into(), timeout_ms: 1_000, pair_id: String::new(), ..Default::default() },
         ];
         let groups = group_candidates(&list, &blocks, "parallel_all");
         assert_eq!(groups.len(), 4, "四个通道各一组");

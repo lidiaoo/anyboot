@@ -162,8 +162,13 @@ pub(crate) struct SimPreview {
 ///
 /// 「手动获取」的切换只改 `PreviousBoot` 文件，模拟列表里的 `lastBoot` 标记
 /// 必须跟着重算 —— 否则用户刚切完，卡片上「上次启动」还停在旧的那一项。
-/// 临时挂载「没有盘符」的 ESP 分区，返回守卫：drop 时只卸载本次临时挂上的。
-/// 用户本来就有盘符的**不动**。非 Windows 上为空操作（macOS/Linux 走 FUSE/挂载点自带）。
+/// 临时挂载「既没有盘符、也拿不到卷设备路径」的 ESP 分区，返回守卫：
+/// drop 时只卸载本次临时挂上的。用户本来就有盘符的**不动**。
+///
+/// 现在这是**兜底**：正常情况下 `access_root()` 能给出 `\\?\Volume{guid}\`，
+/// 直接读就行，不必挂载、不必弹授权、也不会被下一次 refresh 丢掉。只有
+/// `AccessPaths` 缺失（老系统 / MBR / PowerShell 被裁剪）才走到这里。
+/// 非 Windows 上为空操作（macOS/Linux 走 FUSE/挂载点自带）。
 struct TempMounts(Vec<(u32, u32)>);
 impl Drop for TempMounts {
     fn drop(&mut self) {
@@ -177,8 +182,13 @@ fn temp_mount_unlettered_esps() -> TempMounts {
     {
         let mut done: Vec<(u32, u32)> = Vec::new();
         for esp in crate::channels::win_esp::list() {
+            // 已挂载（用户自己挂的）：直接用，绝不卸载
             if esp.letter.is_some() {
-                continue; // 已挂载：直接用，绝不卸载
+                continue;
+            }
+            // 卷设备路径能直读：扫描不依赖盘符，也就不需要挂载这一趟
+            if esp.access_root().is_some() {
+                continue;
             }
             if crate::channels::win_esp::mount(esp.disk, esp.partition).is_ok() {
                 done.push((esp.disk, esp.partition));
@@ -851,32 +861,45 @@ fn sort_by_mtime_desc(files: &mut [(String, std::time::SystemTime)]) {
 
 // ─────────────────────────── 主流程 ───────────────────────────
 
-/// 只读 `AppState.linux_probe_cache`，**绝不现探**（启动扫描与切换前校验
-/// 那两条路用的都是它：多等 4~5 秒不值得，也绝不许在这些路径上冒出授权框）。
+/// 只读 `AppState.linux_probe_cache`（内存 → 磁盘缓存），**绝不现探**。
+///
+/// 启动扫描与切换前校验走这条：多等 4~5 秒不值得，也绝不许在这些路径上冒出授权框。
+///
+/// **磁盘缓存这一级不能省**：refresh 每重算一次预演就会走这里，而内存缓存
+/// （重启后 / 另开进程时）常常是空的 —— 只读内存的话，刚「重新读取」扫出来的
+/// vmlinuz 条目会在紧接着的 refresh 里被抹掉，看起来就像「重新读取没生效」。
 pub(crate) fn linux_grub_parts_from_cache(
     app: &tauri::AppHandle,
 ) -> (Vec<crate::channels::linux_grub::PartReport>, Option<String>) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        let cached = app
+        if let Some(cached) = app
             .state::<Mutex<AppState>>()
             .lock()
             .ok()
-            .and_then(|state| state.linux_probe_cache.clone());
-        match cached {
-            Some(payload) => (payload.parts, payload.notes.first().cloned()),
-            None => (
-                Vec::new(),
-                Some(
-                    "还没探测过 Linux 分区（在 GRUB 区点一次「重新读取」，\
-                     或装好免密助手后点「重新模拟」）"
-                        .to_string(),
-                ),
-            ),
+            .and_then(|state| state.linux_probe_cache.clone())
+        {
+            return (cached.parts, cached.notes.first().cloned());
         }
+        if let Some(disk) = crate::channels::linux_grub::load_probe_cache(app) {
+            if !disk.payload.parts.is_empty() {
+                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                    state.linux_probe_cache = Some(disk.payload.clone());
+                }
+                return (disk.payload.parts, disk.payload.notes.first().cloned());
+            }
+        }
+        (
+            Vec::new(),
+            Some(
+                "还没探测过 Linux 分区（在 GRUB 区点一次「重新读取」，\
+                 或装好免密助手后点「重新模拟」）"
+                    .to_string(),
+            ),
+        )
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = app;
         (Vec::new(), None)

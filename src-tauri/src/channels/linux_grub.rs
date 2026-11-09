@@ -837,6 +837,18 @@ pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>
             let note = cached.notes.first().cloned();
             return (cached.parts, note);
         }
+        // 内存里没有（刚启动 / 另开进程 / refresh 重算）→ 用磁盘缓存兜底。
+        // 少了这一步：点「重新读取」当场扫得出 vmlinuz，紧跟其后的 refresh 又把
+        // 它们抹掉（refresh 走的一定是「不弹 UAC 的只读路径」），用户看到的就是
+        // 「重新读取没反应 / 三端对不上」。
+        if let Some(disk) = load_probe_cache(app) {
+            if !disk.payload.parts.is_empty() {
+                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                    state.linux_probe_cache = Some(disk.payload.clone());
+                }
+                return (disk.payload.parts, disk.payload.notes.first().cloned());
+            }
+        }
         // Windows 没有免密助手这条路，而模拟扫描是自动跑的 —— 不能在这里弹 UAC，
         // 否则每重建一次预演就冒一个授权框。等用户手动「重新读取」扫过一次即可。
         (
@@ -2631,11 +2643,12 @@ fn probe_cache_path(app: &AppHandle) -> Option<PathBuf> {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct ProbeDiskCache {
+pub(crate) struct ProbeDiskCache {
     /// 分区表签名（枚举关键字段拼串的哈希）
     signature: String,
     saved_at: u64,
-    payload: ProbePayload,
+    /// 模拟扫描要复用的那份清单（`pub(crate)`：refind_menu 的 refresh 路径直接取）
+    pub(crate) payload: ProbePayload,
 }
 
 /// 当前分区表签名：枚举各端分区（dev|size|part_uuid 排序拼接），用 DefaultHasher 哈希。
@@ -2669,7 +2682,7 @@ fn probe_signature() -> String {
     format!("{:016x}", hasher.finish())
 }
 
-fn load_probe_cache(app: &AppHandle) -> Option<ProbeDiskCache> {
+pub(crate) fn load_probe_cache(app: &AppHandle) -> Option<ProbeDiskCache> {
     let path = probe_cache_path(app)?;
     let text = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str::<ProbeDiskCache>(&text).ok()

@@ -448,9 +448,13 @@ fn candidate_roots() -> Vec<PathBuf> {
 fn candidate_roots() -> Vec<PathBuf> {
     // 先按 GPT 类型直接把 ESP 列出来：Windows 默认**不给 ESP 分配盘符**，只扫
     // `A:`–`Z:` 会一块都扫不到，三张卡片全变「未检测到」且不说原因。
+    //
+    // `access_root()` 而不是 `root()`：没盘符的 ESP 用 `\\?\Volume{guid}\` 直读。
+    // 走盘符的话，扫描结果就取决于「这一刻有没有挂上」—— 挂载是临时动作，扫完就
+    // 卸，任何一次 refresh 重算都会把这些卷又丢掉（用户看到的「重新读取没反应」）。
     let esp: Vec<PathBuf> = win_esp::list()
         .into_iter()
-        .filter_map(|partition| partition.root())
+        .filter_map(|partition| partition.access_root())
         .collect();
     if !esp.is_empty() {
         return esp;
@@ -487,9 +491,11 @@ fn offline_extras() -> (Option<String>, Vec<ChannelEntry>) {
         let _span = perf::span("esp.offline_extras");
         // 只看「没有盘符」的：有盘符却没扫到，说明是「这块 ESP 上没有引导器」，
         // 跟盘符无关 —— 那时候给这条提示就是纯误导（用户会去挂一块早就挂好的分区）。
+        // 只看「真的读不到」的：没盘符但有卷设备路径（`\\?\Volume{…}\`）的能直接读，
+        // 给它们提示「去分配盘符」就是纯误导 —— 那是一步多余的系统改动。
         let unlettered: Vec<win_esp::WinEsp> = win_esp::list()
             .into_iter()
-            .filter(|partition| partition.letter.is_none())
+            .filter(|partition| partition.access_root().is_none())
             .collect();
         if unlettered.is_empty() {
             return (None, Vec::new());

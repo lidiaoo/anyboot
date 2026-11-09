@@ -583,6 +583,15 @@ fn fallback_label(root: &Path) -> String {
                 format!("本地卷（{trimmed}）")
             };
         }
+        // 卷设备路径（`\\?\Volume{guid}\`）：没盘符的 ESP 走这条。原生卷标读不到时
+        // 别把整串 GUID 印到卡片上 —— 那既不是卷标也不是 rEFInd 的标题。
+        if trimmed.starts_with(r"\\?\Volume{") {
+            return if grub_rel(root, "EFI").is_dir() {
+                "EFI".to_string()
+            } else {
+                "卷".to_string()
+            };
+        }
     }
     root.file_name()
         .map(|name| name.to_string_lossy().to_string())
@@ -590,7 +599,7 @@ fn fallback_label(root: &Path) -> String {
         .unwrap_or_else(|| root.display().to_string())
 }
 
-/// 重名卷标的后缀：Windows 用盘符（`H:`），其他平台用挂载目录名。
+/// 重名卷标的后缀：Windows 用盘符（`H:`）/ 卷 GUID 前 4 位，其他平台用挂载目录名。
 fn root_suffix(root: &Path) -> String {
     #[cfg(target_os = "windows")]
     {
@@ -598,6 +607,14 @@ fn root_suffix(root: &Path) -> String {
         let trimmed = text.trim_end_matches(['\\', '/']);
         if !trimmed.is_empty() && trimmed.len() <= 3 {
             return trimmed.to_string();
+        }
+        // 没盘符的卷走 `\\?\Volume{guid}\`：取 GUID 前 4 位当后缀，别把整串 GUID
+        // 塞进「同一个卷标」括号里（那会让两条同名的卷互相看不出区别还特别长）。
+        if let Some(rest) = trimmed.strip_prefix(r"\\?\Volume{") {
+            let short: String = rest.chars().take(4).collect();
+            if !short.is_empty() {
+                return short;
+            }
         }
     }
     root.file_name()

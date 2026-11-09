@@ -43,8 +43,15 @@ pub(crate) const LINUX_RAID_GPT: &str = "a19d880f-05fc-4d3b-a006-743f0f84911e";
 pub(crate) struct Partition {
     pub(crate) disk: u32,
     pub(crate) partition: u32,
-    /// 有盘符才能被普通 Win32 文件 API 访问；`None` = 系统没给它分配
+    /// 有盘符才能用 `X:\` 访问；`None` = 系统没给它分配
     pub(crate) letter: Option<char>,
+    /// 卷设备路径 `\\?\Volume{guid}\`（`Get-Partition` 的 `AccessPaths`）。
+    ///
+    /// **没有盘符的卷也能靠它读**：`\\?\Volume{…}\EFI` 走的是同一个卷对象，
+    /// 不需要分配盘符、不需要提权、不会在资源管理器里多出盘符。EFI 分区
+    /// 正是「系统默认不给盘符」的那一类 —— 有了它，模拟扫描不必先挂载再扫。
+    /// 老系统 / MBR / PowerShell 被裁剪时可能拿不到，留 `None`。
+    pub(crate) volume: Option<String>,
     /// 分区字节数（给 APFS 容器算读取范围用）
     pub(crate) size: u64,
     /// 分区在大盘上的字节偏移（APFS 没有卷路径，只能开整盘按偏移读）
@@ -97,6 +104,33 @@ fn normalize_guid(text: &str) -> String {
         .trim_start_matches('{')
         .trim_end_matches('}')
         .to_ascii_lowercase()
+}
+
+/// `AccessPaths` 里的卷设备路径（`\\?\Volume{guid}\`）。
+///
+/// 同一行的 `AccessPaths` 通常有两项：`N:\` 和 `\\?\Volume{…}\`。只挑后者：
+/// 盘符可能变、也可能没有，卷 GUID 才是不变的那个。取不到就返回 `None`。
+fn volume_path_of(row: &serde_json::Value) -> Option<String> {
+    let pick = |text: &str| {
+        let trimmed = text.trim();
+        if !trimmed.starts_with(r"\\?\Volume{") {
+            return None;
+        }
+        // 必须带尾分隔符：`\\?\Volume{guid}` 后面不跟 `\` 时，Win32 会把它当成
+        // 「卷名」而不是目录根，`join("EFI")` 出来的路径是错的。
+        Some(if trimmed.ends_with('\\') {
+            trimmed.to_string()
+        } else {
+            format!("{trimmed}\\")
+        })
+    };
+    match row.get("AccessPaths") {
+        Some(serde_json::Value::Array(items)) => {
+            items.iter().filter_map(|item| item.as_str()).find_map(pick)
+        }
+        Some(serde_json::Value::String(text)) => pick(text),
+        _ => None,
+    }
 }
 
 fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
@@ -162,6 +196,7 @@ pub(crate) fn parse_json(text: &str) -> Vec<Partition> {
                 disk,
                 partition,
                 letter,
+                volume: volume_path_of(&row),
                 size: as_u64(row.get("Size")).unwrap_or(0),
                 offset: as_u64(row.get("Offset")).unwrap_or(0),
                 gpt_type,
@@ -188,9 +223,10 @@ fn query() -> Vec<Partition> {
     // 「这轮问了几次表 / 其中几次真起了进程」
     let _span = perf::span("cmd.get_partition");
     // 一条脚本把三处要的字段全带上：GptType/Guid 给 ESP 和卷 GUID 用，
-    // Offset/Size 给 APFS 容器用（它没有卷路径，只能开整盘按偏移读）。
+    // Offset/Size 给 APFS 容器用（它没有卷路径，只能开整盘按偏移读），
+    // AccessPaths 给「没盘符的 ESP」用（`\\?\Volume{…}\` 直读，不必先挂载）。
     const SCRIPT: &str = "Get-Partition \
-                          | Select-Object DiskNumber,PartitionNumber,DriveLetter,Size,Offset,GptType,Guid \
+                          | Select-Object DiskNumber,PartitionNumber,DriveLetter,Size,Offset,GptType,Guid,AccessPaths \
                           | ConvertTo-Json -Compress";
     let output = command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
@@ -275,6 +311,34 @@ mod tests {
         assert!(rows[2].is_apfs(), "APFS 容器按类型认");
         assert_eq!(rows[2].offset, 314572800, "APFS 靠 Offset 定位，不能丢");
         assert_eq!(rows[0].guid, "11111111-2222-3333-4444-555555555555", "花括号要去掉");
+    }
+
+    /// `AccessPaths` → 卷设备路径：没盘符的 ESP 靠它直读，扫描不再依赖「先挂载」。
+    ///
+    /// 这一条同时也是「重启后 / refresh 重算后 rEFInd 条目变少」的防线 ——
+    /// 只要卷路径在，任何一次重算都还能读到同一批卷。
+    #[test]
+    fn parses_volume_device_path() {
+        let rows = parse_json(
+            r#"[{"DiskNumber":0,"PartitionNumber":1,"DriveLetter":null,"Size":272629760,
+                 "GptType":"{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}",
+                 "AccessPaths":["\\\\?\\Volume{59a41ec6-7361-4b5c-b49e-4c088cde4d2c}\\"]},
+                {"DiskNumber":0,"PartitionNumber":4,"DriveLetter":"N","Size":272629760,
+                 "AccessPaths":["N:\\","\\\\?\\Volume{59a41ec6-7361-4b5c-b49e-4c088cde4d2c}\\"]},
+                {"DiskNumber":0,"PartitionNumber":5,"Size":1}]"#,
+        );
+        assert_eq!(
+            rows[0].volume.as_deref(),
+            Some(r"\\?\Volume{59a41ec6-7361-4b5c-b49e-4c088cde4d2c}\"),
+            "没盘符也要拿到卷设备路径"
+        );
+        assert_eq!(
+            rows[1].volume.as_deref(),
+            Some(r"\\?\Volume{59a41ec6-7361-4b5c-b49e-4c088cde4d2c}\"),
+            "AccessPaths 里同时有盘符和卷路径，只挑卷路径"
+        );
+        assert_eq!(rows[1].root().unwrap().display().to_string(), "N:\\", "有盘符时 root() 仍是盘符");
+        assert_eq!(rows[2].volume, None, "没有 AccessPaths 就留 None，不能造一个假路径");
     }
 
     /// 单个结果时 ConvertTo-Json 出对象而不是数组 —— 不能因此整条丢掉。

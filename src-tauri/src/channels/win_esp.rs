@@ -22,6 +22,9 @@ pub(crate) struct WinEsp {
     pub(crate) partition: u32,
     /// 有盘符才能被普通 Win32 文件 API 访问；`None` = 系统没给它分配
     pub(crate) letter: Option<char>,
+    /// 卷设备路径 `\\?\Volume{guid}\`（见 `partitions::Partition::volume`）。
+    /// 没有盘符时靠它直接读 EFI 目录 —— 不挂载、不提权、不留盘符。
+    pub(crate) volume: Option<String>,
     /// 分区大小（MB）；取不到时 0
     pub(crate) size_mb: u64,
 }
@@ -46,6 +49,17 @@ impl WinEsp {
     pub(crate) fn root(&self) -> Option<PathBuf> {
         self.letter.map(|letter| PathBuf::from(format!("{letter}:\\")))
     }
+
+    /// **真正用来扫描的根**：盘符优先，没有盘符就用卷设备路径。
+    ///
+    /// 为什么不是 `root()`：`\\?\Volume{guid}\` 同样能读 EFI 目录（FAT 无 ACL），
+    /// 而它不依赖「先挂载」这一步 —— 于是扫描结果不再取决于「这次扫描有没有把
+    /// 盘符挂上」，refresh 重算也不会把刚扫到的卷丢掉。挂载只留给拿不到
+    /// `AccessPaths` 的老环境当兜底。
+    pub(crate) fn access_root(&self) -> Option<PathBuf> {
+        self.root()
+            .or_else(|| self.volume.as_ref().map(PathBuf::from))
+    }
 }
 
 /// 本机所有 EFI 系统分区（按 GPT 类型认，不需要盘符）。
@@ -63,6 +77,7 @@ pub(crate) fn list() -> Vec<WinEsp> {
             disk: row.disk,
             partition: row.partition,
             letter: row.letter,
+            volume: row.volume.clone(),
             size_mb: row.size_mb(),
         })
         .collect()
