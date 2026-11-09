@@ -66,6 +66,16 @@ type PageId = (typeof NAV)[number]["id"];
 const currentPage = ref<PageId>("computers");
 
 const navCollapsed = ref(false);
+/** 回到主界面（系统引导主窗口）：桌面显示并聚焦主窗；网页端跳转 index.html。 */
+async function goMain() {
+  const { isTauri, call } = await import("@/api/tauri");
+  if (isTauri()) { void call("hub_show_main", {}).catch(() => {}); return; }
+  try {
+    const { getAuthToken } = await import("@/api/http");
+    location.href = "/index.html?token=" + encodeURIComponent(getAuthToken());
+  } catch { location.href = "/index.html"; }
+}
+
 /** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
 function toggleNav() {
   navCollapsed.value = !navCollapsed.value;
@@ -284,6 +294,18 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
           <b>AnyBoot</b>
           <i class="mono" id="sideVersion">remote</i>
         </span>
+        <button
+          id="sideHome"
+          class="icon-btn side-toggle"
+          title="回到主界面（系统引导）"
+          aria-label="回到主界面"
+          @click="goMain"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 10.5 12 3l9 7.5" />
+            <path d="M5 9.5V20h14V9.5" />
+          </svg>
+        </button>
         <button
           id="sideToggle"
           class="icon-btn side-toggle"

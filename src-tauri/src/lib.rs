@@ -1096,6 +1096,16 @@ async fn hub_open_window(app: AppHandle) -> Result<(), String> {
     open_hub_window(&app)
 }
 
+/// 前端按钮入口：从 hub 回到主界面（系统引导主窗口）。显示并聚焦主窗。
+#[tauri::command]
+fn hub_show_main(app: AppHandle) -> Result<(), String> {
+    show_main_window(&app, ShowOrigin::Recall);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_focus();
+    }
+    Ok(())
+}
+
 /// 前端按钮入口：hub 工具栏「密钥」
 ///
 /// **必须是 async**：同步命令跑在 WebView2 的 IPC 回调里（UI 线程），在那里
@@ -3744,6 +3754,7 @@ pub fn run() {
             hub_open_term_window,
             hub_open_files_window,
             hub_open_window,
+            hub_show_main,
             hub_open_backup_window,
             backup::backup_export,
             backup::backup_preview,
