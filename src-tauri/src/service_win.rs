@@ -27,7 +27,7 @@
 //!
 //! # 授权边界（这段是设计，不是「暂时」）
 //!
-//! - **op 白名单只有 9 个**（读 / 写固件变量、设 OC 默认项、GRUB 探测与写 grubenv、
+//! - **op 白名单只有 10 个**（读 / 写固件变量、设 OC 默认项、GRUB 探测与写 grubenv、
 //!   systemd-boot one-shot、注册固件启动项、给 ESP 分配盘符），写死在 [`dispatch`]
 //!   里；不接受任意命令行、不执行 shell。**这也是 `--privileged-op` 子命令的实现**，
 //!   所以「走服务」和「弹 UAC 兜底」跑的是同一份代码。
@@ -570,7 +570,12 @@ pub(crate) fn dispatch(request: &Value) -> Result<String, String> {
             let partition = num_arg("partition")?;
             crate::channels::win_esp::assign_letter_json(disk, partition)
         }
-        other => Err(format!("{UNKNOWN_OP_PREFIX} {other}（白名单只有 9 个）")),
+        "esp_remove_letter" => {
+            let disk = num_arg("disk")?;
+            let partition = num_arg("partition")?;
+            crate::channels::win_esp::remove_letter_json(disk, partition)
+        }
+        other => Err(format!("{UNKNOWN_OP_PREFIX} {other}（白名单只有 10 个）")),
     }
 }
 

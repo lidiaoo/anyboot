@@ -862,6 +862,16 @@ pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>
             let note = cached.notes.first().cloned();
             return (cached.parts, note);
         }
+        // 内存里还没有（启动扫描还没跑到 / 另开进程）→ 用磁盘缓存兜底，别再等一次现探：
+        // 磁盘缓存里通常已有分区内核清单（parts），足以让模拟扫描列出 vmlinuz 条目。
+        if let Some(disk) = load_probe_cache(app) {
+            if !disk.payload.parts.is_empty() {
+                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                    state.linux_probe_cache = Some(disk.payload.clone());
+                }
+                return (disk.payload.parts, disk.payload.notes.first().cloned());
+            }
+        }
         if !helper_ready() {
             return (
                 Vec::new(),

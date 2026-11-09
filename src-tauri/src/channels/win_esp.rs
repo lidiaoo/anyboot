@@ -106,6 +106,21 @@ pub(crate) fn mount(disk: u32, partition: u32) -> Result<String, String> {
     Err("挂载后没再找到这块 EFI 分区：点「重新识别」再看一次".to_string())
 }
 
+/// 撤销一块「我们临时挂上去」的 ESP 盘符（app 侧入口，走统一提权通道 `esp_remove_letter`）。
+/// **不卸载用户本来就挂着的分区**：调用方只对"我们临时挂的"调它。
+#[cfg(target_os = "windows")]
+pub(crate) fn release_letter(disk: u32, partition: u32) -> Result<(), String> {
+    let body = super::elevate::run_op(
+        "esp_remove_letter",
+        serde_json::json!({ "disk": disk, "partition": partition }),
+    )?;
+    #[derive(serde::Deserialize)]
+    struct Reply { ok: bool, #[serde(default)] error: Option<String> }
+    let reply: Reply = serde_json::from_str(&body).map_err(|e| format!("特权侧返回的不是合法 JSON：{e}"))?;
+    super::partitions::invalidate();
+    if reply.ok { Ok(()) } else { Err(reply.error.unwrap_or_else(|| "撤销盘符失败（没给原因）".to_string())) }
+}
+
 /// 特权侧的回传体。
 #[derive(serde::Deserialize)]
 struct LetterReply {
@@ -172,6 +187,46 @@ fn assign_letter_direct(disk: u32, partition: u32) -> Result<String, String> {
 #[cfg(not(target_os = "windows"))]
 pub(crate) fn mount(_disk: u32, _partition: u32) -> Result<String, String> {
     Err("只有 Windows 需要给 EFI 分区分配盘符".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn release_letter(_disk: u32, _partition: u32) -> Result<(), String> {
+    Ok(())
+}
+
+/// 给一块「我们临时分配过盘符」的 ESP 撤销盘符（`Remove-PartitionAccessPath -AssignDriveLetter`）。
+/// **只用于撤销我们临时挂上去的**：用户本来就挂着的分区不能走这里（调用方负责区分）。
+#[cfg(target_os = "windows")]
+pub(crate) fn unmount(disk: u32, partition: u32) -> Result<(), String> {
+    let script = format!(
+        "Remove-PartitionAccessPath -DiskNumber {disk} -PartitionNumber {partition} -AssignDriveLetter"
+    );
+    let output = command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|error| format!("无法调用 PowerShell 撤销盘符：{error}"))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Err(if detail.is_empty() { "撤销盘符失败".to_string() } else { format!("撤销盘符失败：{detail}") });
+    }
+    super::partitions::invalidate();
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn unmount(_disk: u32, _partition: u32) -> Result<(), String> {
+    Ok(())
+}
+
+/// 撤销盘符并序列化成 JSON（服务与提权子进程共用，对应 `esp_remove_letter` op）。
+#[cfg(target_os = "windows")]
+pub(crate) fn remove_letter_json(disk: u32, partition: u32) -> Result<String, String> {
+    let payload = match unmount(disk, partition) {
+        Ok(()) => serde_json::json!({ "ok": true }),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }),
+    };
+    serde_json::to_string(&payload).map_err(|error| format!("序列化结果失败：{error}"))
 }
 
 #[cfg(test)]

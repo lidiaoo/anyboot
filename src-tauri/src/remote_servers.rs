@@ -4683,9 +4683,6 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                 // 导致 web/多机并发探测时 worker 自锁超时（用户：本机地址直连能访问却探测超时）。
                 let local_ip = crate::http_server::local_ipv4();
                 let local_port = crate::stored_settings(app).http_port;
-                let mid = crate::stored_settings(app).machine_id.clone();
-                let mname = crate::http_server::machine_name();
-                let m_os = if cfg!(target_os = "macos") { "macos" } else if cfg!(windows) { "windows" } else { "linux" };
                 for raw in &server.addresses {
                     // 拆 host / port（split_address 不拆端口，它第二项是 token）；支持 192.168.0.121:12300
                     let raw_trim = raw.trim();

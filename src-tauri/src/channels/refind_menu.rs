@@ -162,7 +162,43 @@ pub(crate) struct SimPreview {
 ///
 /// 「手动获取」的切换只改 `PreviousBoot` 文件，模拟列表里的 `lastBoot` 标记
 /// 必须跟着重算 —— 否则用户刚切完，卡片上「上次启动」还停在旧的那一项。
+/// 临时挂载「没有盘符」的 ESP 分区，返回守卫：drop 时只卸载本次临时挂上的。
+/// 用户本来就有盘符的**不动**。非 Windows 上为空操作（macOS/Linux 走 FUSE/挂载点自带）。
+struct TempMounts(Vec<(u32, u32)>);
+impl Drop for TempMounts {
+    fn drop(&mut self) {
+        for (disk, partition) in self.0.drain(..) {
+            let _ = crate::channels::win_esp::release_letter(disk, partition);
+        }
+    }
+}
+fn temp_mount_unlettered_esps() -> TempMounts {
+    #[cfg(target_os = "windows")]
+    {
+        let mut done: Vec<(u32, u32)> = Vec::new();
+        for esp in crate::channels::win_esp::list() {
+            if esp.letter.is_some() {
+                continue; // 已挂载：直接用，绝不卸载
+            }
+            if crate::channels::win_esp::mount(esp.disk, esp.partition).is_ok() {
+                done.push((esp.disk, esp.partition));
+            }
+        }
+        return TempMounts(done);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        TempMounts(Vec::new())
+    }
+}
+
 pub(crate) fn refresh_sim(app: &tauri::AppHandle) -> Option<SimPreview> {
+    refresh_sim_with(app, false)
+}
+
+/// allow_mount=true 才尝试临时挂载无盘符 ESP（会弹一次系统授权）——只有用户主动「重新模拟」时为 true；
+/// 启动静默扫描 / HTTP 只读走 false，只用已挂载的卷，绝不打扰。
+pub(crate) fn refresh_sim_with(app: &tauri::AppHandle, allow_mount: bool) -> Option<SimPreview> {
     let vars_dir = {
         let state = app.state::<Mutex<AppState>>();
         state
@@ -173,7 +209,11 @@ pub(crate) fn refresh_sim(app: &tauri::AppHandle) -> Option<SimPreview> {
     // Linux 分区清单：缓存优先，没有且助手在位就免密现探（绝不弹授权）。
     // 这一步只影响模拟扫描的 Linux 内核条目，ESP 路径扫描不依赖它。
     let (parts, note) = crate::channels::linux_grub::parts_for_sim(app);
+    // Windows：把「没盘符的 ESP/EFI 分区」临时挂上再扫（macOS 靠 /Volumes 全挂载，天然一致）。
+    // 扫完只卸载「我们临时挂的」——用户本来就挂着的绝不动。
+    let mounted = if allow_mount { temp_mount_unlettered_esps() } else { TempMounts(Vec::new()) };
     let sim = vars_dir.map(|dir| preview(&dir, &parts, note));
+    drop(mounted); // 离开作用域即卸载临时挂载
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut state) = state.lock() {
         state.refind_sim = sim.clone();
@@ -211,7 +251,7 @@ fn refind_sim_scan_blocking(app: tauri::AppHandle) -> Option<SimPreview> {
             crate::channels::Elevation::Allow,
         );
     }
-    let sim = refresh_sim(&app);
+    let sim = refresh_sim_with(&app, true);
     publish_ui(&app);
     sim
 }
