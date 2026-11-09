@@ -181,6 +181,32 @@ function toggleVisible(id: LoaderId) {
 
 
 /** 预演面板用的真实引导器（ESP/权限/默认项），供各布局预览卡片显示设置 */
+/** 引导器状态点(绿/黄/灰)——与「系统引导」页 BootApp.loaderState 同一套真实健康判定。
+ *  之前预演用 `perm==='nvram'?warn:ok` 假逻辑 → 小绿点全不对。 */
+function previewLoaderState(id: string): "ok" | "warn" | "off" {
+  const hasWarn = (issues?: { severity?: string }[] | null) =>
+    !!issues && issues.some((i) => (i.severity || "").toLowerCase() === "warn");
+  if (id === "refind") {
+    const sim = ui.refindSim;
+    if (!sim) return "off";
+    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
+    return hasWarn(sim.issues) ? "warn" : "ok";
+  }
+  if (id === "grub") {
+    const g = ui.linuxGrub;
+    if (!g) return "off";
+    if (g.error) return "warn";
+    if (!(g.entries?.length) && hasWarn(g.issues)) return "warn";
+    return hasWarn(g.issues) ? "warn" : "ok";
+  }
+  const ch = ui.channels.find((c) => c.id === id);
+  if (!ch || !ch.detected) return "off";
+  const chip = String((ch as { chip?: string }).chip || "");
+  if (chip === "warn") return "warn";
+  if (chip === "off") return "off";
+  return "ok";
+}
+
 const previewLoaders = computed(() =>
   adv.state.order
     .filter((id) => adv.state.visible[id])
@@ -194,7 +220,7 @@ const previewLoaders = computed(() =>
       return {
         id,
         name: loaderMeta(id).name,
-        state: (perm === "nvram" ? "warn" : "ok") as "ok" | "warn" | "off",
+        state: previewLoaderState(id),
         entries,
         esp: loaderEsp(id),
         perm,
