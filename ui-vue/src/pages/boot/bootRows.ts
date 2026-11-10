@@ -28,10 +28,6 @@ interface SimEntryLike {
   kind?: string;
   hidden?: boolean;
   lastBoot?: boolean;
-  /** 卷标（rEFInd VolName）——按它把同一引导分区下的条目合并成组 */
-  volume?: string;
-  /** internal / external / fallback / ext4 / windows / macos / protocol / user … */
-  source?: string;
   children?: SimChildLike[];
 }
 
@@ -40,81 +36,30 @@ interface SimEntryLike {
  *  ≤1 → 普通行。 */
 export function simRows(sim: { entries?: SimEntryLike[] } | null | undefined): EntryData[] {
   const out: EntryData[] = [];
-  const list = (sim?.entries ?? []).filter((e) => !e.hidden);
-
-  // 先按「引导分区（volume）」聚合（保持首次出现顺序）。
-  // 目的：同一条引导分区下的多个条目（如 efi 卷上 9 个 Arch 内核 .efi + fallback）
-  // 合并成一个组头（下拉），子项是各条目 —— 与 GRUB 的分组菜单同构（用户要求
-  // 「refind 合并同一引导分区下的所有高级引导，像 grub 的引导菜单一样有层级」）。
-  const order: string[] = [];
-  const groups = new Map<string, SimEntryLike[]>();
-  for (const e of list) {
-    const vol = String(e.volume ?? "");
-    if (!groups.has(vol)) {
-      groups.set(vol, []);
-      order.push(vol);
-    }
-    groups.get(vol)!.push(e);
-  }
-
-  for (const vol of order) {
-    const members = groups.get(vol) ?? [];
-    // 单条（或卷标为空）→ 平铺，不合成组（避免「一项也下拉」的多余层级）。
-    if (members.length <= 1 || vol === "") {
-      for (const e of members) pushEntry(out, e);
-      continue;
-    }
-    // 同卷多条 → 组头（卷标）+ 每一条作为子项（submenu = 组标题）。
-    const groupTitle = vol;
-    for (const e of members) {
-      const children = e.children || [];
-      if (children.length > 1) {
-        // 条目自身还带子屏（rEFInd Boot Options 变体）：保留为更深一层，
-        // 但仍归到本卷组下——这里的每个 child 也作为本组子项。
-        for (const c of children) {
-          out.push({
-            selector: c.title || "",
-            name: c.title || "",
-            class: e.kind,
-            submenu: groupTitle,
-            readonly: true,
-            tag: CHILD_SOURCE[c.source || ""] || "",
-          });
-        }
-      } else {
+  for (const e of (sim?.entries ?? []) as SimEntryLike[]) {
+    if (e.hidden) continue;
+    // 旧版 app.js:925：selector/name 用 **title 原文**（rEFInd 标题末尾常带一个空格，
+    // trim 过后端 refind_sim_switch 就匹配不上 → 点击「没反应」）。显示时空格不可见。
+    const rawTitle = e.title || "";
+    const children = e.children || [];
+    if (children.length > 1) {
+      for (const c of children) {
         out.push({
-          selector: e.title || "",
-          name: e.title || "",
+          selector: c.title || "",
+          name: c.title || "",
           class: e.kind,
-          submenu: groupTitle,
-          readonly: false,
+          submenu: rawTitle,
+          // 组子项旧版**没有点击处理器**（不可切，仅展示）——点了后端会拒绝
+          readonly: true,
+          tag: CHILD_SOURCE[c.source || ""] || "",
         });
       }
+    } else {
+      out.push({ selector: rawTitle, name: rawTitle, class: e.kind });
     }
   }
   return out;
 }
-
-/** 单条 rEFInd 条目 → 一行（自带子屏时展开为不可点子项，但顶层无卷分组时用）。 */
-function pushEntry(out: EntryData[], e: SimEntryLike): void {
-  const rawTitle = e.title || "";
-  const children = e.children || [];
-  if (children.length > 1) {
-    for (const c of children) {
-      out.push({
-        selector: c.title || "",
-        name: c.title || "",
-        class: e.kind,
-        submenu: rawTitle,
-        readonly: true,
-        tag: CHILD_SOURCE[c.source || ""] || "",
-      });
-    }
-  } else {
-    out.push({ selector: rawTitle, name: rawTitle, class: e.kind });
-  }
-}
-
 
 /** rEFInd 手动行（vars 变量，exists 过滤） */
 export function refindVariableRows(
