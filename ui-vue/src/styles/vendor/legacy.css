@@ -4461,10 +4461,12 @@ body[data-ba-fill] .nb-row { padding: 3px 8px; }
   body[data-ba-fill] .app-columns > .pane { flex: 1 1 auto; min-height: 0; }
   body[data-ba-fill] main { overflow: hidden; }
 }
-/* 预演区也当一扇「窗口」：高度**固定**（不是封顶），超出的由主题自己的列表滚。
-   封顶时每个主题的预演高度跟着内容走（I 555 / 其余 612），同一组设置换主题就
-   抖一下；固定后不论主题、不论窗口多宽，预演都是同一块 68vh 的画布。 */
-#boot-adv-mount .k-stage { flex: none; height: min(68vh, 720px); min-height: 340px; max-height: none; }
+/* 预演区：**按内容高、封顶**（去掉固定 68vh 画布下方的空白）。
+   之前 height 固定 68vh/720 → 内容少（如「单列」只有 3 个引导器）时下方一大片空白。
+   改为 height:auto + max-height 封顶：内容少就贴内容、不留白；内容多到超过封顶，
+   由主题自己的列表滚（.k-prev .la-list 等已有 max-height/overflow 兜底）。
+   不改主题内部 flex 排版，只改这层画布高度来源。 */
+#boot-adv-mount .k-stage { flex: none; height: auto; min-height: 0; max-height: min(68vh, 720px); }
 /* 真实页左右分栏（2026-10-30 用户定案，形态抄自已移除的 GRUB 独立区域）：
  * 窗口加宽到 932（后端 set_boot_layout），main 不滚，两栏各一个滚动容器、
  * 等宽（基准 0）、中缝 12px 放拖动条；下次启动 / 免密卡 / 折叠条仍留在整页层。 */
