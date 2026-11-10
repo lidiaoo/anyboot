@@ -67,15 +67,6 @@ async function setGrubTab(name: "auto" | "manual"): Promise<void> {
 /** 09_anyboot 脚本正文（旧版 #grub-script） */
 const scriptText = ref("");
 /** GRUB 错误提示（旧版 #grub-error） */
-/** 候选分区（旧版 #grub-auto-candidates；从 grubAuto 取） */
-const autoCandidates = computed<string[]>(() => {
-  const list = (grubAuto.value as any)?.candidates;
-  return Array.isArray(list) ? list.map((c: any) => (typeof c === "string" ? c : c?.path ?? String(c))) : [];
-});
-function pickAutoCandidate(path: string) {
-  void import("@/api/tauri").then(({ call }) => call("set_grub_dir", { dir: path }).catch(() => {}));
-}
-
 /** 列表格式（旧版 #grub-list-format） */
 
 function setFormat(format: string) {
@@ -110,6 +101,24 @@ watch(
   { immediate: true },
 );
 const grubManual = computed(() => ui.grub);
+
+/** 自动读取命中的 Linux 分区：可读文本（对象 → 「label（dev）」，别直接渲染 [object Object]） */
+const autoTargetText = computed(() => {
+  const t = (grubAuto.value as any)?.target;
+  if (!t) return "";
+  if (typeof t === "string") return t;
+  const label = t.label || t.dev || "";
+  const dev = t.dev || "";
+  return label && dev && label !== dev ? `${label}（${dev}）` : label || dev;
+});
+/** 探测通路：内部值 helper/elevated 映射成人话，别给用户看内部名 */
+const autoViaText = computed(() => {
+  const v = (grubAuto.value as any)?.via;
+  if (!v) return "";
+  if (v === "helper") return "免密助手读取";
+  if (v === "elevated") return "提权读取";
+  return "";
+});
 
 /** 自动读取的条目 */
 const autoEntries = computed<EntryData[]>(() =>
@@ -284,8 +293,8 @@ async function switchEntry(selector: string) {
         </div>
 
         <div class="grub-auto-card" id="grub-auto-card">
-          <div v-if="grubAuto?.target" class="grub-auto-target" id="grub-auto-target">
-            {{ grubAuto.target }}
+          <div v-if="autoTargetText" class="grub-auto-target" id="grub-auto-target">
+            {{ autoTargetText }}
           </div>
           <div class="grub-list" id="grub-auto-list">
             <GrubList
@@ -299,23 +308,7 @@ async function switchEntry(selector: string) {
           </div>
         </div>
 
-        <details v-if="(grubAuto?.candidates?.length ?? 0) > 1" class="grub-auto-picker" id="grub-auto-picker">
-          <summary>换一块分区读</summary>
-          <div class="grub-auto-candidates">
-            <p v-for="(c, i) in grubAuto?.candidates ?? []" :key="i" class="mono">
-              {{ typeof c === "string" ? c : JSON.stringify(c) }}
-            </p>
-          </div>
-        </details>
-
-        <!-- 候选分区（旧版 #grub-auto-picker） -->
-        <details v-if="autoCandidates.length" id="grub-auto-picker" class="grub-auto-picker">
-          <summary id="grub-auto-picker-summary">换一块分区读</summary>
-          <div id="grub-auto-candidates" class="grub-auto-candidates">
-            <button v-for="c in autoCandidates" :key="c" type="button" class="secondary" @click="pickAutoCandidate(c)">{{ c }}</button>
-          </div>
-        </details>
-        <small class="grub-auto-foot" id="grub-auto-foot">{{ grubAuto?.via || "" }}</small>
+        <small v-if="autoViaText" class="grub-auto-foot" id="grub-auto-foot">{{ autoViaText }}</small>
       </section>
     </div>
 
