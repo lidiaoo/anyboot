@@ -88,21 +88,26 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
             status
         }
         Err(error) => {
-            let message = "未找到可用的 rEFInd 变量目录".to_string();
+            // 「没找到 rEFInd vars 目录」**不是错误**，是「这台机器没装 rEFInd」的正常
+            // 状态。以前把它塞进 status.error（一长串「已扫描全部已挂载与临时挂载的
+            // FAT/ESP 分区，但未找到 EFI/refind/vars 目录…」），导致**每次启动都弹这条**
+            // （用户反复要求：打开程序时不要有这个提示）。这里改成：不设 error、
+            // message 留空 —— 前端状态栏什么都不显示。诊断细节只进 trace.log 排障。
+            trace(app, "scan", &format!("rEFInd vars 未找到（按正常无 rEFInd 处理）：{error}"));
             let status = AppStatus {
                 vars_dir: None,
                 temporary_mount: false,
                 variables: Vec::new(),
-                message: message.clone(),
-                error: Some(error),
+                message: String::new(),
+                error: None,
             };
             let state = app.state::<Mutex<AppState>>();
             let mut state = state.lock().expect("state mutex poisoned");
             state.vars_dir = None;
             state.variables = Vec::new();
             state.refind_sim = None;
-            state.message = message;
-            state.error = status.error.clone();
+            state.message = String::new();
+            state.error = None;
             status
         }
     };
