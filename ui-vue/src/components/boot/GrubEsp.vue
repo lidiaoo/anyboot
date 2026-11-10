@@ -7,9 +7,13 @@ import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
 import { useToastStore } from "@/stores/toast";
+import { useSettingsStore } from "@/stores/settings";
 
 const ui = useUiStateStore();
 const toast = useToastStore();
+const settings = useSettingsStore();
+/** 手动模式才显示「识别」按钮（识别=解析 ESP 上的 grub.cfg，仅手动解析用得到） */
+const isManual = computed(() => settings.grubMode === "manual");
 const grubManual = computed(() => ui.grub);
 const espDir = computed(() => grubManual.value?.efiDir ?? "");
 const partuuid = computed(() => grubManual.value?.partuuid ?? "");
@@ -78,7 +82,7 @@ function toggleMount() {
             type="text"
           />
           <button type="button" id="grub-dir-pick" class="secondary" @click="pickEspDir">选择文件夹…</button>
-          <button type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">识别</button>
+          <button v-if="isManual" type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">识别</button>
           <button type="button" id="grub-dir-save" class="secondary" @click="saveEspDir">保存</button>
           <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
         </div>

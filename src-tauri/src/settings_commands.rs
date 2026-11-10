@@ -113,6 +113,12 @@ pub(crate) fn set_loader_mode(
         &format!("set_loader_mode loader={loader} mode={mode:?}"),
     );
     save_settings(&app, &settings)?;
+    // GRUB 读取方式切换后，重算一次 ESP grub.cfg 视图：
+    //   切手动 → refresh_grub 会解析 ESP 上的 grub.cfg，手动面板立刻有数据；
+    //   切自动 → refresh_grub 里自动模式会清空 ESP 视图（自动面板读 Linux 分区那份）。
+    if loader == "grub" {
+        crate::grub_esp::refresh_grub(&app);
+    }
     // 托盘/主窗共用同一份快照：广播一次，两边同时按新模式取数据源
     publish_ui(&app);
     Ok(publish_settings(&app))

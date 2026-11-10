@@ -1295,6 +1295,17 @@ pub(crate) fn grub_scan(
 /// * 「同步」按钮（`sync_grub`）：`(true, true)` —— 自己先验挂载条件。
 pub(crate) fn rescan_grub(app: &AppHandle, allow_mount: bool, sync: bool) -> Result<(), String> {
     let settings = stored_settings(app);
+    // 自动模式（grub_mode != Manual）：GRUB 列表读的是 **Linux 分区里的** grub.cfg
+    // （linuxGrub），与 ESP 上那份副本无关。此时**不读 ESP 上的 grub.cfg** ——
+    // 用户要求「自动模式下保存也不要走读取 ESP grub.cfg 的逻辑」。把 ESP 视图
+    // 清空即可（自动面板不看它）。手动模式才解析 ESP 副本。
+    if settings.grub_mode != crate::state::LoaderMode::Manual {
+        let state = app.state::<Mutex<AppState>>();
+        if let Ok(mut state) = state.lock() {
+            state.grub = Default::default();
+        }
+        return Ok(());
+    }
     // 上一次自己挂的那份：勾了「保持挂载」就留着复用（否则每次扫描都要重新
     // mount/umount 一遍，挂载点还会越堆越多）。
     let previous = {
