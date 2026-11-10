@@ -2709,7 +2709,14 @@ class ComputerListActivity : ComponentActivity() {
                 extra = listOf(nvramNote, ocNote).filter { it.isNotEmpty() }.joinToString("\n"),
             )
             // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
-            val previewRows = if (channel.id == "opencore") channel.menuPreview else emptyList()
+            // 排序与 PC 网页端一致：**可选中的（spec 非空）一组在前，不可选中的一组在后**，
+            // 只按 spec 分组、与是否选中无关 → 顺序恒定，选中只在原位高亮，不跳变。
+            // 之前直接 forEach 原序，导致「电脑列表里选择下拉」的 OC 条目位置不固定。
+            // （稳定分区：两组内部各自保持后端 menuPreview 原序。）
+            val previewRows = if (channel.id == "opencore") {
+                val src = channel.menuPreview
+                src.filter { it.spec.trim().isNotEmpty() } + src.filter { it.spec.trim().isEmpty() }
+            } else emptyList()
             if (previewRows.isNotEmpty()) {
                 previewRows.forEach { row ->
                     ChannelMenuRowView(profile, channel, row, palette)

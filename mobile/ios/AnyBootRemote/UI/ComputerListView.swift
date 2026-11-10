@@ -1816,9 +1816,15 @@ struct ComputerListView: View {
             issues: channel.health,
             extra: [nvramNote, ocNote].filter { !$0.isEmpty }.joined(separator: "\n"))
         // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
-        let previewRows: [ChannelMenuRow] = channel.id == "opencore"
+        // 排序与 PC / 安卓一致：**可选中的（spec 非空）一组在前，不可选中的一组在后**，
+        // 只按 spec 分组、与是否选中无关 → 顺序恒定，选中只在原位高亮，不跳变。
+        // （稳定分区：两组内部各自保持后端 menuPreview 原序。）
+        let rawPreviewRows: [ChannelMenuRow] = channel.id == "opencore"
             ? (channel.menuPreview?.rows ?? [])
             : []
+        let previewRows: [ChannelMenuRow] =
+            rawPreviewRows.filter { !$0.spec.trimmingCharacters(in: .whitespaces).isEmpty }
+            + rawPreviewRows.filter { $0.spec.trimmingCharacters(in: .whitespaces).isEmpty }
         if !previewRows.isEmpty {
             ForEach(previewRows) { row in
                 ocMenuRowView(profile, channel: channel, row: row)
