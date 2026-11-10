@@ -1146,6 +1146,11 @@ pub(crate) fn remote_ui_command_inner(
         }
         // 移动端/网页远程控制引导器开关（visible/order/side）—— 存本机后端，跨端一致。
         "set_boot_adv" => settings_value(set_boot_adv(app.clone(), ui_str(args, "json")?)),
+        // Linux ext4 分区扫描策略三档（raw/prefer_mount/mount_only）—— 网页/手机
+        // 端也要能切，否则「只在本机窗口能用、网页上点报未知命令」。
+        "set_linux_ext4_scan_mode" => {
+            settings_value(set_linux_ext4_scan_mode(app.clone(), ui_str(args, "mode")?))
+        }
         // ---- 外观 ----
         "set_theme" => res_unit(set_theme(app.clone(), ui_str(args, "theme")?)),
         "set_opacity" => res_unit(set_opacity(app.clone(), ui_u32(args, "percent")?)),
