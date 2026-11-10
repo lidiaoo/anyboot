@@ -120,7 +120,12 @@ async function refreshSim() {
     ui.setBootNotice("重新读取失败：" + e, true);
   } finally {
     simBusy.value = false;
-    void call("refresh").catch(() => {});
+    // **不要在这里再 call("refresh")**：refind_sim_scan 已经把 sim 算好并写回
+    // AppState + publish_ui，前端也已 applySnapshot。多调一次 refresh 会重新走
+    // scan_vars_directory → 重新枚举挂载卷 / 提权临时挂载找 vars 目录，而刚才
+    // refind_sim_scan 用的临时挂载可能已释放，于是这次 refresh 报「已扫描全部
+    // 已挂载与临时挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录」——表现为
+    // 「点一次正常、再点一次报未找到」交替。删掉它即可。
   }
 }
 
