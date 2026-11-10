@@ -4337,7 +4337,7 @@ class ComputerListActivity : ComponentActivity() {
                 return
             }
         }
-        channelSwitchRequest(profile, channel, channelName, target, verb)
+        channelSwitchRequest(profile, channel, channelName, target, verb, entry.title)
     }
 
     /**
@@ -4353,7 +4353,7 @@ class ComputerListActivity : ComponentActivity() {
             toast("这一项不支持设为默认")
             return
         }
-        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), "设为默认")
+        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), "设为默认", row.title)
     }
 
     /** 通道切换的公共请求体（busy 键 boot:ch-<通道 id>，通道按钮据此转圈） */
@@ -4363,6 +4363,7 @@ class ComputerListActivity : ComponentActivity() {
         channelName: String,
         target: String,
         verb: String,
+        title: String = "",
     ) {
         val id = profile.id
         if (busy[id] != null) return
@@ -4375,6 +4376,10 @@ class ComputerListActivity : ComponentActivity() {
                 var path = "/api/boot-channel-switch?channel=" + URLEncoder.encode(channelName, "UTF-8")
                 if (target.isNotEmpty()) {
                     path += "&target=" + URLEncoder.encode(target, "UTF-8")
+                }
+                // title = 选中条目的完整标题，后端据此统一「下次启动：<title>」回执
+                if (title.isNotEmpty()) {
+                    path += "&title=" + URLEncoder.encode(title, "UTF-8")
                 }
                 val json = httpJson(choice.url, choice.token, path)
                 json.optString("message", "").ifEmpty {

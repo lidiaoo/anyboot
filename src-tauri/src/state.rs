@@ -317,7 +317,7 @@ pub(crate) enum RemoteCommand {
     /// 三引导器通道（第三条链路）：channel 是 sdboot/sdboot-oneshot/opencore/
     /// clover-default/clover-oneshot，target 是条目 id 或卷名（opencore 等无参
     /// 通道留空）。只写通道自己的状态（loader.conf / config.plist / NVRAM），不重启。
-    SwitchChannel { channel: String, target: String },
+    SwitchChannel { channel: String, target: String, title: Option<String> },
     /// /api/power?action=wake 的应答：这条 HTTP 能送达就说明机器本来就醒着，
     /// 什么都不用做 —— 给「唤醒路由勾了 HTTP 兜底」一条说得通的回执。
     WakeAck,
@@ -336,7 +336,7 @@ impl RemoteCommand {
                 )
             }
             Self::SwitchGrub(selector) => format!("切换 GRUB 启动项为 {selector}"),
-            Self::SwitchChannel { channel, target } => {
+            Self::SwitchChannel { channel, target, .. } => {
                 let label = match channel.as_str() {
                     "sdboot" => format!("切换 systemd-boot 启动项为 {target}"),
                     "sdboot-oneshot" => format!("systemd-boot 一次性启动 {target}"),

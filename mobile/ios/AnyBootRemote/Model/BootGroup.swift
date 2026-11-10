@@ -795,6 +795,10 @@ enum BootService {
         }
         var path = "/api/boot-channel-switch?channel=\(encode(channelName))"
         if !target.isEmpty { path += "&target=\(encode(target))" }
+        // title = 选中条目的完整标题，后端据此统一「下次启动：<title>」回执
+        if !entry.title.trimmingCharacters(in: .whitespaces).isEmpty {
+            path += "&title=\(encode(entry.title))"
+        }
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }
@@ -828,7 +832,7 @@ enum BootService {
         func encode(_ value: String) -> String {
             value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
         }
-        let path = "/api/boot-channel-switch?channel=\(encode(channelName))&target=\(encode(target))"
+        let path = "/api/boot-channel-switch?channel=\(encode(channelName))&target=\(encode(target))&title=\(encode(row.title))"
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }

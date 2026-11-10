@@ -228,7 +228,11 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
                 .or_else(|| request.param("volume"))
                 .map(|value| value.trim().to_string())
                 .unwrap_or_default();
-            Ok(RemoteCommand::SwitchChannel { channel, target })
+            let title = request
+                .param("title")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            Ok(RemoteCommand::SwitchChannel { channel, target, title })
         }
         _ => Err(RemoteReply::error(404, "not_found", "未知路径")),
     }
@@ -992,8 +996,13 @@ pub(crate) fn remote_ui_command_inner(
         // 只是占住一个 worker，不构成自我死锁（那条死锁是 stop().join 专属）。
         "switch_boot_channel" => {
             let target = ui_str(args, "target")?;
+            // title 可选：前端选中条目的完整标题，用于统一「下次启动：<title>」回执。
+            let title = args
+                .get("title")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             let status =
-                tauri::async_runtime::block_on(switch_boot_channel(app.clone(), target));
+                tauri::async_runtime::block_on(switch_boot_channel(app.clone(), target, title));
             status_value(status)
         }
         // rEFInd 模拟引导项扫描：网页 / 手机端要能「重新模拟」、以及选中某一项写
@@ -1524,7 +1533,7 @@ pub(crate) fn execute_remote_command(
                 }
             }
         }
-        RemoteCommand::SwitchChannel { channel, target } => {
+        RemoteCommand::SwitchChannel { channel, target, title } => {
             // 组成与 switch_system 同一套值域：sdboot:<id> / sdboot-oneshot:<id> /
             // opencore / clover-default:<volume> / clover-oneshot
             let spec = if target.is_empty() {
@@ -1532,10 +1541,18 @@ pub(crate) fn execute_remote_command(
             } else {
                 format!("{channel}:{target}")
             };
-            let status = channels::switch_channel_and_update(app, &spec);
+            // title = 前端选中条目的完整标题原文（mobile 传），成功后统一「下次启动：<title>」。
+            let status =
+                channels::switch_channel_and_update_with_title(app, &spec, title.as_deref());
             match status.error {
                 Some(error) => (false, error),
-                None => (true, format!("下次启动（通道）：{}", spec)),
+                None => (
+                    true,
+                    match title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                        Some(t) => format!("下次启动：{t}"),
+                        None => format!("下次启动（通道）：{}", spec),
+                    },
+                ),
             }
         }
     }

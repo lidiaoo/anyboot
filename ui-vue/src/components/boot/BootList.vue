@@ -68,9 +68,13 @@ async function switchEntry(selector: string) {
           spec = selector; // opencore 动作 id（opencore / opencore-register）
         }
       }
-      await call("switch_boot_channel", { target: spec });
+      // title = 选中条目的完整标题原文（不省略任何字），后端据此统一「下次启动：<title>」回执
+      const rowTitle =
+        entries.value.find((e) => (e.selector ?? "") === selector)?.name ??
+        (ch?.menuPreview?.entries ?? []).find((r) => (r.spec || r.title) === selector)?.title ??
+        selector;
+      await call("switch_boot_channel", { target: spec, title: rowTitle });
     }
-    toast.show("已切换下次启动项");
   } catch (e) {
     toast.show("切换失败：" + e, "bad");
   }

@@ -543,7 +543,6 @@ function switchBoot(payload: Record<string, unknown>) {
   cqBusy.add(key);
   void remote
     .switchBoot(payload)
-    .then(() => toast.show("已切换下次启动项"))
     .catch((e) => toast.show("切换失败：" + e, "bad"))
     .finally(() => cqBusy.delete(key));
 }

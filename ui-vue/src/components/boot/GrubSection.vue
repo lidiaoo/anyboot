@@ -206,7 +206,6 @@ async function switchEntry(selector: string) {
     } else {
       await call("switch_grub", { selector });
     }
-    toast.show("已切换下次启动项");
   } catch (e) {
     toast.show("切换失败：" + e, "bad");
   }

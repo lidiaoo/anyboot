@@ -1266,6 +1266,16 @@ fn apply_spec(parsed: &SwitchSpec, esp_root: &Path) -> Result<String, String> {
 
 /// 切换引导通道的统一入口（镜像 switch_grub_and_update：busy + record + publish）。
 pub(crate) fn switch_channel_and_update(app: &AppHandle, spec: &str) -> AppStatus {
+    switch_channel_and_update_with_title(app, spec, None)
+}
+
+/// 同 [`switch_channel_and_update`]，但成功后若给了 `title`，把回执统一成
+/// 「下次启动：<title>」——与 rEFInd/GRUB 的文案一致（用户要求每个引导器统一）。
+pub(crate) fn switch_channel_and_update_with_title(
+    app: &AppHandle,
+    spec: &str,
+    title: Option<&str>,
+) -> AppStatus {
     trace(app, "channel", &format!("执行通道动作 spec={spec}"));
     let label = parse_switch_spec(spec)
         .map(|parsed| parsed.action_label())
@@ -1274,9 +1284,20 @@ pub(crate) fn switch_channel_and_update(app: &AppHandle, spec: &str) -> AppStatu
     let outcome = switch(app, spec);
     set_busy(app, |busy| busy.switching = false);
     match outcome {
-        Ok(message) => {
+        Ok(_message) => {
             refresh_channels(app);
+            // 统一文案：给了 title 就用「下次启动：<完整标题>」，否则保留原 message。
+            let message = match title.map(str::trim).filter(|t| !t.is_empty()) {
+                Some(t) => format!("下次启动：{t}"),
+                None => _message,
+            };
             record_action(app, label, true, &message);
+            // 写回 AppState.message 再 publish，确保前端显示的是这条（refresh_channels
+            // 内部已 publish 过旧 message）。
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                state.message = message.clone();
+                state.error = None;
+            }
             publish_ui(app);
             state_snapshot(app)
         }
@@ -1300,13 +1321,20 @@ pub(crate) fn boot_channels(app: AppHandle) -> Vec<ChannelView> {
 }
 
 #[tauri::command]
-pub(crate) async fn switch_boot_channel(app: AppHandle, target: String) -> AppStatus {
+pub(crate) async fn switch_boot_channel(
+    app: AppHandle,
+    target: String,
+    title: Option<String>,
+) -> AppStatus {
     trace(&app, "command", &format!("switch_boot_channel target={target}"));
     // 提权（Windows 上「设为默认」弹 UAC）可能等几分钟，绝不能占 UI 线程 ——
     // 这就是 blocking_guard 的存在理由。整条链路挪到工作线程，本函数只 await。
+    // `title` = 前端选中条目的完整标题原文（不省略任何字），成功后该通道的
+    // 回执统一成「下次启动：<title>」，与 rEFInd/GRUB 一致。
     let app_for_task = app.clone();
-    let join =
-        tauri::async_runtime::spawn_blocking(move || switch_channel_and_update(&app_for_task, &target));
+    let join = tauri::async_runtime::spawn_blocking(move || {
+        switch_channel_and_update_with_title(&app_for_task, &target, title.as_deref())
+    });
     match join.await {
         Ok(status) => status,
         Err(error) => update_failure_status(&app, "切换失败", format!("任务异常退出：{error}")),

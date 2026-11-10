@@ -4941,6 +4941,7 @@ fn remote_boot_switch_blocking(
             "channel" => crate::state::RemoteCommand::SwitchChannel {
                 channel: value.split(':').next().unwrap_or("").to_string(),
                 target: value.split_once(':').map(|(_, rest)| rest.to_string()).unwrap_or_default(),
+                title: None,
             },
             other => return Err(format!("未知的引导管理器：{other}")),
         };

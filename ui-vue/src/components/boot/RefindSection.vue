@@ -153,7 +153,6 @@ async function selectEntry(selector: string) {
     } else {
       await call("refind_sim_switch", { title: selector });
     }
-    toast.show("已切换下次启动项");
   } catch (e) {
     toast.show("切换失败：" + e, "bad");
   }
