@@ -1920,6 +1920,13 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
             ));
         }
     }
+    // Linux ext4 扫描策略（引导高级设置里可切，仅 Linux 生效）：
+    // * raw（默认）：一律裸读 —— 超级块全字段都在，RECOVER 能看见，与另两端一致。
+    // * prefer_mount：已挂载优先挂载点直读（快、免 root）；只有该分区**真遇到
+    //   RECOVER** 时才回落裸读补全那个提示。
+    // * mount_only：已挂载只走挂载点直读，放弃 RECOVER 提示（最快）。
+    // 未挂载的分区哪种策略都只能裸读（没有挂载点）。
+    let scan_mode = crate::state::Settings::linux_ext4_scan_mode_from_disk();
     // 【T2/T4】分区并行扫描：已挂载 ext4 走挂载点直读（内核页缓存），否则裸读。
     let n = sys.len();
     let conc = scan_concurrency(n);
@@ -1945,20 +1952,56 @@ pub(crate) fn probe_raw(esp_partuuid: &str) -> Result<ProbePayload, String> {
                         part_number: part.part_number,
                         disk_index: part.disk_index,
                     };
+                    let raw_scan = || match FileSource::open_raw(&part.dev) {
+                        Ok(source) => match Ext4::open(Box::new(source)) {
+                            Ok(mut fs) => Ok(Some(scan_ext4(&mut fs, &cand))),
+                            Err(_) => Ok(None),
+                        },
+                        Err(why) => Err(format!("{} 打不开：{why}", part.dev)),
+                    };
                     let result = if let Some(mp) = part.mountpoint.as_deref() {
                         if is_ext4_mount(mp) {
-                            Ok(Some(scan_mounted(mp, &cand, part.fs_uuid.clone())))
+                            match scan_mode.as_str() {
+                                // 仅裸读：已挂载也强行裸读（三端一致、RECOVER 可见）
+                                "raw" => raw_scan(),
+                                // 仅挂载：已挂载只直读，不判断 RECOVER（最快，会丢 RECOVER 提示）
+                                "mount_only" => {
+                                    let mut report = scan_mounted(mp, &cand, part.fs_uuid.clone());
+                                    report.note = Some(
+                                        "已挂载分区走挂载点直读（快速模式）：无法判断上次是否干净关机（RECOVER）"
+                                            .to_string(),
+                                    );
+                                    Ok(Some(report))
+                                }
+                                // 优先挂载：先直读，仅当该分区真遇到 RECOVER 才回落裸读补全
+                                _ => {
+                                    // 先探一次 RECOVER 标志需要超级块 —— 但已挂载分区裸打开
+                                    // 只读是安全的（Linux 不 EBUSY）。为了拿到 sb.needs_recovery，
+                                    // 直接裸读一次；命中 RECOVER 就用裸读结果（含提示），
+                                    // 否则用挂载点直读（快、fs_uuid 有 lsblk 兜底）。
+                                    match FileSource::open_raw(&part.dev) {
+                                        Ok(source) => match Ext4::open(Box::new(source)) {
+                                            Ok(mut fs) => {
+                                                if fs.sb.needs_recovery() {
+                                                    // RECOVER：裸读（带提示），这是 prefer 分支存在的意义
+                                                    Ok(Some(scan_ext4(&mut fs, &cand)))
+                                                } else {
+                                                    Ok(Some(scan_mounted(mp, &cand, part.fs_uuid.clone())))
+                                                }
+                                            }
+                                            // 裸打开失败（非 ext4 超级块？）：退回挂载点直读
+                                            Err(_) => Ok(Some(scan_mounted(mp, &cand, part.fs_uuid.clone()))),
+                                        },
+                                        // 裸设备打不开：退回挂载点直读
+                                        Err(_) => Ok(Some(scan_mounted(mp, &cand, part.fs_uuid.clone()))),
+                                    }
+                                }
+                            }
                         } else {
                             Ok(None)
                         }
                     } else {
-                        match FileSource::open_raw(&part.dev) {
-                            Ok(source) => match Ext4::open(Box::new(source)) {
-                                Ok(mut fs) => Ok(Some(scan_ext4(&mut fs, &cand))),
-                                Err(_) => Ok(None),
-                            },
-                            Err(why) => Err(format!("{} 打不开：{why}", part.dev)),
-                        }
+                        raw_scan()
                     };
                     slots_mutex.lock().unwrap()[idx] = Some(result);
                 });

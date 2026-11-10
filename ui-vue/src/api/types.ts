@@ -291,6 +291,10 @@ export interface ChannelDelaySettings {
 
 /** 主窗设置（`SettingsView`；字段极多，只列前端实际用的，其余走索引签名兜底） */
 export interface SettingsView {
+  /** 当前运行平台：linux / macos / windows */
+  os: string;
+  /** Linux ext4 分区扫描策略：raw / prefer_mount / mount_only */
+  linuxExt4ScanMode: string;
   refindMode: LoaderMode;
   grubMode: LoaderMode;
   grubListFormat: string;

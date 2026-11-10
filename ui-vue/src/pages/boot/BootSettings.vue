@@ -10,7 +10,7 @@ import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
-import { setStartupScanWithAdmin, setHelperReminderSnooze, isTauri } from "@/api/tauri";
+import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
@@ -77,6 +77,22 @@ const helperBusyLabel = ref("");
 async function toggleStartupAdminScan(): Promise<void> {
   const cur = ui.settings?.startupScanWithAdmin !== false;
   await setStartupScanWithAdmin(!cur).catch(() => {});
+}
+/** 当前平台（后端 SettingsView.os 给出，可靠；不回退 navigator） */
+const currentOs = computed(() => String(ui.settings?.os ?? ""));
+const isLinux = computed(() => currentOs.value === "linux");
+/** Linux 分区扫描策略（仅 Linux 显示） */
+const LINUX_EXT4_MODES = [
+  { key: "raw", label: "仅裸读（默认）", hint: "三端一致：一律裸读自研 ext4 驱动，RECOVER（上次未干净关机）能看见" },
+  { key: "prefer_mount", label: "优先挂载", hint: "已挂载分区先走挂载点直读（快）；仅当该分区真遇到 RECOVER 时再回落裸读补全提示" },
+  { key: "mount_only", label: "仅挂载", hint: "已挂载分区只直读（最快）；RECOVER 提示不会出现（上次没干净关机看不出）" },
+] as const;
+const linuxExt4Mode = computed(() => String(ui.settings?.linuxExt4ScanMode ?? "raw"));
+const linuxExt4Hint = computed(
+  () => LINUX_EXT4_MODES.find((m) => m.key === linuxExt4Mode.value)?.hint ?? "",
+);
+async function pickLinuxExt4Mode(mode: "raw" | "prefer_mount" | "mount_only"): Promise<void> {
+  await setLinuxExt4ScanMode(mode).catch(() => {});
 }
 /** 「免密助手提醒」的取消提醒到期时间文案 */
 const snoozeLabel = computed(() => {
@@ -330,6 +346,30 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         开启后启动时自动扫描所有引导器（GRUB 自动 + rEFInd 内核）。未开启免密助手时会提示开启，
         也可在此取消提醒。
       </small>
+      <!-- Linux 分区扫描策略（仅 Linux 显示）：仅挂载 / 优先挂载 / 仅裸读 -->
+      <template v-if="isLinux">
+        <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
+          <span class="helper-label">Linux 分区扫描策略</span>
+        </div>
+        <div class="seg" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap">
+          <button
+            v-for="m in LINUX_EXT4_MODES"
+            :key="m.key"
+            type="button"
+            :class="['btn', 'sm', linuxExt4Mode === m.key ? '' : 'ghost']"
+            :title="m.hint"
+            @click="pickLinuxExt4Mode(m.key)"
+          >
+            {{ m.label }}
+          </button>
+        </div>
+        <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+          {{ linuxExt4Hint }}
+        </small>
+        <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
+          注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
+        </small>
+      </template>
       <!-- 免密助手提醒的取消提醒设置 -->
       <div class="helper-card-row" style="margin-top: 8px">
         <span class="helper-label">启动免密提醒</span>

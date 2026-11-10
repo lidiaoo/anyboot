@@ -163,6 +163,9 @@ export const setStartInTray = (on: boolean) => call<void>("set_start_in_tray", {
 /** 启动时使用管理员扫描（开启后启动主动扫所有引导器） */
 export const setStartupScanWithAdmin = (enabled: boolean) =>
   call<void>("set_startup_scan_with_admin", { enabled });
+/** Linux ext4 分区扫描策略：raw(仅裸读,默认) / prefer_mount(优先挂载) / mount_only(仅挂载) */
+export const setLinuxExt4ScanMode = (mode: "raw" | "prefer_mount" | "mount_only") =>
+  call<void>("set_linux_ext4_scan_mode", { mode });
 /** 免密助手提醒的取消提醒到期时间（epoch 秒，0=清除） */
 export const setHelperReminderSnooze = (until: number) =>
   call<void>("set_helper_reminder_snooze", { until });

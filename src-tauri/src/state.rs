@@ -698,6 +698,17 @@ pub(crate) struct Settings {
     /// 启动时使用管理员扫描：开启后启动时主动扫描所有引导器（GRUB 自动 +
     /// rEFInd 内核）；免密助手没装时可弹窗引导安装或降级密码扫描。默认开启。
     pub(crate) startup_scan_with_admin: bool,
+    /// Linux ext4 分区扫描策略（仅 Linux 生效；macOS/Windows 恒走裸读，本字段被忽略）。
+    /// 三档：
+    /// * `raw`（默认，三端一致）：一律裸读自研 ext4 驱动，超级块全字段都在，
+    ///   RECOVER（上次未干净关机）能看见。
+    /// * `prefer_mount`：已挂载的分区优先走挂载点直读（内核页缓存，快、无需 root）；
+    ///   **只有当这块分区下真的遇到 RECOVER 时**才回落裸读补全那个提示。
+    /// * `mount_only`：已挂载的分区只走挂载点直读（最快），**放弃 RECOVER 提示**
+    ///   —— 上次没干净关机这类信息在已挂载分区上不会出现。
+    /// 未挂载的 ext4 无论哪档都只能裸读（挂载点不存在）。
+    #[serde(default)]
+    pub(crate) linux_ext4_scan_mode: String,
     /// 「首次/启动扫描需要免密助手」弹窗的「取消提醒」到期时间（epoch 秒，0=不取消）。
     pub(crate) helper_reminder_snooze_until: u64,
     /// 主窗口贴边自动隐藏：鼠标离开后窗口贴到最近的屏幕边缘、只露一条边，
@@ -805,6 +816,31 @@ pub(crate) struct Settings {
     pub(crate) update_mirror: String,
 }
 
+impl Settings {
+    /// 只从磁盘读 `settings.json` 里的 Linux ext4 扫描策略，**不依赖 AppHandle**
+    /// （root 助手子进程里拿不到 AppHandle）。归一：只认 prefer_mount / mount_only，
+    /// 其余一律 raw（默认 = 三端一致的裸读）。读不到就当 raw。
+    pub(crate) fn linux_ext4_scan_mode_from_disk() -> String {
+        let Some(dir) = std::env::var_os("ANYBOOT_CONFIG_DIR")
+            .map(std::path::PathBuf::from)
+            .or_else(|| Some(crate::default_config_dir_hint()?))
+        else {
+            return "raw".to_string();
+        };
+        let Ok(raw) = std::fs::read_to_string(dir.join("settings.json")) else {
+            return "raw".to_string();
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            return "raw".to_string();
+        };
+        match value.get("linux_ext4_scan_mode").and_then(|v| v.as_str()) {
+            Some("prefer_mount") => "prefer_mount".to_string(),
+            Some("mount_only") => "mount_only".to_string(),
+            _ => "raw".to_string(),
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -836,6 +872,7 @@ impl Default for Settings {
             refind_mode: LoaderMode::Auto,
             grub_mode: LoaderMode::Auto,
             startup_scan_with_admin: true,
+            linux_ext4_scan_mode: "raw".to_string(),
             helper_reminder_snooze_until: 0,
             main_auto_hide: false,
             main_always_on_top: false,
@@ -874,6 +911,16 @@ impl Default for Settings {
     }
 }
 
+fn current_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsView {
@@ -881,6 +928,9 @@ pub(crate) struct SettingsView {
     pub(crate) settings: Settings,
     pub(crate) autostart_state: &'static str,
     pub(crate) autostart_hint: Option<String>,
+    /// 当前运行平台：`linux` / `macos` / `windows`。前端据此只在该平台相关的
+    /// 设置项（如「Linux 分区扫描策略」）显示，而不是靠猜 navigator。
+    pub(crate) os: &'static str,
     /// 当前可用的显示器名列表：设置页「固定显示器」下拉与托盘同名子菜单
     /// 都用它当选项（与 Settings.mainFixedMonitor 的取值同一来源）。
     pub(crate) main_monitor_options: Vec<String>,
@@ -892,6 +942,7 @@ impl SettingsView {
             settings,
             autostart_state: state.as_str(),
             autostart_hint: autostart_hint(state),
+            os: current_os(),
             // 选项列表依赖 AppHandle，由 view_settings 填（见那边）
             main_monitor_options: Vec::new(),
         }
@@ -934,4 +985,47 @@ pub(crate) fn record_action(app: &AppHandle, action: &str, ok: bool, message: &s
     *app.state::<Mutex<Option<ActionResult>>>()
         .lock()
         .expect("action mutex poisoned") = Some(result);
+}
+
+#[cfg(test)]
+mod scan_mode_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// ANYBOOT_CONFIG_DIR 是进程全局环境变量，测试必须串行，否则互踩。
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// 临时目录 + settings.json，跑 linux_ext4_scan_mode_from_disk 看归一。
+    fn read_with(json: &str) -> String {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!(
+            "ab-scanmode-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("settings.json"), json).unwrap();
+        std::env::set_var("ANYBOOT_CONFIG_DIR", &dir);
+        let mode = Settings::linux_ext4_scan_mode_from_disk();
+        std::env::remove_var("ANYBOOT_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+        mode
+    }
+
+    #[test]
+    fn scan_mode_reads_known_values() {
+        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"mount_only"}"#), "mount_only");
+        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"prefer_mount"}"#), "prefer_mount");
+        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"raw"}"#), "raw");
+    }
+
+    #[test]
+    fn scan_mode_defaults_to_raw_on_garbage() {
+        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"bogus"}"#), "raw");
+        assert_eq!(read_with(r#"{}"#), "raw");
+        assert_eq!(read_with("not json"), "raw");
+    }
 }

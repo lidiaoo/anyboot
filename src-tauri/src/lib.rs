@@ -1741,6 +1741,13 @@ fn announce_already_running(app: &AppHandle) {
 
 /// 配置目录：默认是系统的 `app_config_dir`；
 /// `ANYBOOT_CONFIG_DIR` 能把它指到别处（做验证/多实例时就不会碰你的真实配置）。
+/// 无 AppHandle 时猜测配置目录：只覆盖 `ANYBOOT_CONFIG_DIR` 显式指定这一条
+/// （root 助手子进程 / CLI 会走到）。拿不到 Tauri app_config_dir 就返回 None ——
+/// 宁愿退回默认策略，也不猜一个错的路径去读别的文件。
+pub(crate) fn default_config_dir_hint() -> Option<PathBuf> {
+    std::env::var_os("ANYBOOT_CONFIG_DIR").map(PathBuf::from)
+}
+
 pub(crate) fn config_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(directory) = std::env::var("ANYBOOT_CONFIG_DIR") {
         let directory = directory.trim();
@@ -2464,6 +2471,33 @@ fn set_startup_scan_with_admin(app: AppHandle, enabled: bool) -> Result<Settings
     let mut settings = stored_settings(&app);
     settings.startup_scan_with_admin = enabled;
     save_settings(&app, &settings)?;
+    Ok(publish_settings(&app))
+}
+
+#[tauri::command]
+fn set_linux_ext4_scan_mode(app: AppHandle, mode: String) -> Result<SettingsView, String> {
+    // 归一：只认 raw / prefer_mount / mount_only，其余一律回落 raw（默认）
+    let mode = match mode.as_str() {
+        "prefer_mount" => "prefer_mount",
+        "mount_only" => "mount_only",
+        _ => "raw",
+    };
+    trace(&app, "command", &format!("set_linux_ext4_scan_mode mode={mode}"));
+    let mut settings = stored_settings(&app);
+    settings.linux_ext4_scan_mode = mode.to_string();
+    save_settings(&app, &settings)?;
+    // 改策略立即静默重扫一次（等价「重新读取」的免授权版）：让界面上看到的分区
+    // 内容马上按新策略刷新。Silent 不弹框 —— 用户只是切个下拉，不该冒授权框。
+    let handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _ = crate::channels::linux_grub::refresh_force(
+            &handle,
+            None,
+            crate::channels::Elevation::Silent,
+        );
+        let _ = crate::channels::refind_menu::refresh_sim(&handle);
+        crate::ui_state::publish_ui(&handle);
+    });
     Ok(publish_settings(&app))
 }
 
@@ -3781,6 +3815,7 @@ pub fn run() {
             // 免密写 NVRAM 的 root 助手（装 / 卸各弹一次管理员授权）
             boot_helper,
             set_startup_scan_with_admin,
+            set_linux_ext4_scan_mode,
             set_boot_adv,
             set_helper_reminder_snooze,
             run_startup_admin_scan,
