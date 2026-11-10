@@ -9,13 +9,7 @@ function footText(loader: { id: string; state: string; entries: unknown[]; healt
 import { computed, ref } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
-import { useUiStateStore } from "@/stores/uiState";
 import type { LoaderInfo } from "./types";
-
-const ui = useUiStateStore();
-/** rEFInd 模拟扫描的问题清单（APFS 未读出 / 各分区内核没带 refind_linux.conf 等）——
- *  照着「系统引导」页 RefindSection 的 .sim-scan-issues / .sim-issue 结构逐条显示。 */
-const refindIssues = computed(() => ui.refindSim?.issues ?? []);
 
 /**
  * 主题 A：卡片流（`.la`）。
@@ -90,15 +84,6 @@ const activeOnly = computed(() => {
       >
         <BootList :loader="loader.id" />
         <LoaderSettings :loader="loader.id" />
-        <!-- rEFInd 扫描问题（照系统引导页 .sim-scan-issues/.sim-issue 样式逐条显示） -->
-        <div
-          v-if="loader.id === 'refind' && refindIssues.length"
-          class="sim-scan-issues sim-scan-issues-themeA"
-        >
-          <p v-for="(issue, i) in refindIssues" :key="i" class="sim-issue">
-            {{ issue.text }}
-          </p>
-        </div>
         <!-- 底部健康状态条（旧版 .la-foot：icon(info) + 状态文案） -->
         <div class="la-foot">
           <svg
