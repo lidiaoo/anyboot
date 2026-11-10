@@ -190,7 +190,14 @@ const channelEntries = computed<EntryData[]>(() => {
   const preview = ch.menuPreview?.entries ?? [];
   const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
-    const rows = preview.map((row) => ({
+    // OpenCore：**能选择的条目置顶**（row.spec 非空 = 可切换默认项），不可选的沉底。
+    // 稳定排序：两组内部各自保持 OC 原本的启动顺序（BootOrder 顺序），只把
+    // 「可切换 vs 不可切换」分区。用户要求「opencore 把能选择的选项置顶」。
+    const ordered = [
+      ...preview.filter((row) => row.spec),
+      ...preview.filter((row) => !row.spec),
+    ];
+    const rows = ordered.map((row) => ({
       // 标识用 spec，空则退 title（旧版 ocEntrySelector 兜底）——default 行 spec
       // 常为空，selector 空串会让高亮匹配失效
       selector: row.spec || row.title,
@@ -207,7 +214,7 @@ const channelEntries = computed<EntryData[]>(() => {
     // ① entry.default（OC 的 OCBtOrder 落在预演行 default 上）等三来源判定
     applyChannelDefault(
       rows,
-      preview.map((row) => (row as { default?: boolean }).default),
+      ordered.map((row) => (row as { default?: boolean }).default),
       ch,
     );
     return rows;
