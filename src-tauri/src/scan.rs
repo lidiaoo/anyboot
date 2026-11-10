@@ -107,12 +107,98 @@ pub(crate) fn push_unique(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
     }
 }
 
+/// 一个 FAT 分区（Linux「未挂载 ESP 扫描」用的候选）。
+#[cfg(target_os = "linux")]
+#[derive(Clone, Debug)]
+pub(crate) struct FatPartition {
+    pub(crate) device: String,
+    pub(crate) fstype: String,
+    /// 已经挂着的挂载点（None = 没挂载，扫描时临时挂）。
+    pub(crate) mountpoint: Option<PathBuf>,
+    pub(crate) label: String,
+    pub(crate) partlabel: String,
+    pub(crate) parttype: String,
+}
+
+/// 从 `lsblk --json` 的结果里挑出「该纳入考虑」的 FAT 分区。
+///
+/// 判定（纯函数，好单测；真机 lsblk 输出灌进来也能跑）：
+/// * 只留 FAT 家族（vfat/fat/fat32/…/exfat）—— rEFInd 只能待在 FAT 上；
+/// * **已挂载、以及系统自挂的 ESP 一律纳入**（用户定案：已挂载的「只扫描不卸载」）；
+/// * 未挂载的：只有「看着就是 ESP」的才纳入 —— GPT 类型是 ESP，或分区名/卷标里带
+///   efi/esp，或卷标带 refind。不按 vfat 一刀切，免得每插个 U 盘就多挂一次。
+///
+/// 排序：refind 命中 → ESP 类型 → 其余；同级按设备名，结果稳定可复现。
+#[cfg(target_os = "linux")]
+pub(crate) fn select_fat_candidates(devices: Vec<LsblkDevice>) -> Vec<FatPartition> {
+    let mut out: Vec<(u8, FatPartition)> = Vec::new();
+    for device in devices {
+        let Some(path) = device.path else { continue };
+        let Some(fstype) = device.fstype else { continue };
+        if !FAT_FILESYSTEMS.contains(&fstype.to_lowercase().as_str()) {
+            continue;
+        }
+        let mountpoint = device
+            .mountpoints
+            .unwrap_or_default()
+            .iter()
+            .flatten()
+            .find(|mountpoint| !mountpoint.is_empty())
+            .map(PathBuf::from);
+        let label_raw = device.label.unwrap_or_default();
+        let partlabel = device.partlabel.unwrap_or_default();
+        let parttype = device.parttype.unwrap_or_default();
+        let hints = format!("{label_raw} {partlabel}").to_lowercase();
+        let is_esp_type = parttype.eq_ignore_ascii_case(ESP_PARTTYPE);
+        let priority = if hints.contains("refind") {
+            0
+        } else if is_esp_type || hints.contains("efi") || hints.contains("esp") {
+            1
+        } else {
+            2
+        };
+        // 没挂载的、又不是 ESP 长相的 FAT 分区（U 盘、数据盘）不纳入，免噪声
+        if mountpoint.is_none() && priority == 2 {
+            continue;
+        }
+        out.push((
+            priority,
+            FatPartition {
+                device: path,
+                fstype,
+                mountpoint,
+                label: label_raw,
+                partlabel,
+                parttype,
+            },
+        ));
+    }
+    out.sort_by(|left, right| (left.0, &left.1.device).cmp(&(right.0, &right.1.device)));
+    out.into_iter().map(|(_, part)| part).collect()
+}
+
+/// 在目录里找 `EFI/refind/vars`，命中就读出变量快照。
+#[cfg(target_os = "linux")]
+fn inspect_vars_under(root: &Path) -> Result<Option<(PathBuf, Vec<VariableInfo>)>, String> {
+    let vars_dir = root.join("EFI/refind/vars");
+    if !vars_dir.is_dir() {
+        return Ok(None);
+    }
+    let resolved = vars_dir
+        .canonicalize()
+        .map_err(|error| format!("无法解析变量目录: {error}"))?;
+    let variables =
+        inspect_variables(&resolved).map_err(|error| format!("无法读取变量目录: {error}"))?;
+    Ok(Some((resolved, variables)))
+}
+
 pub(crate) fn scan_unmounted_partition() -> Result<ScanResult, String> {
     if !cfg!(target_os = "linux") {
         return Err("未找到已挂载的 EFI/refind/vars 目录".to_string());
     }
 
     let _span = crate::perf::span("cmd.lsblk_scan");
+    // 要 MOUNTPOINTS：已挂载的 ESP 直接在其挂载点上找 vars（不卸载、不重挂）
     let output = command("lsblk")
         .args([
             "--json",
@@ -125,90 +211,105 @@ pub(crate) fn scan_unmounted_partition() -> Result<ScanResult, String> {
     let devices: LsblkOutput = serde_json::from_slice(&output.stdout)
         .map_err(|error| format!("无法解析 lsblk 输出: {error}"))?;
 
-    let mut candidates = Vec::new();
-    for device in devices.blockdevices {
-        let Some(device_path) = device.path else {
+    // 纯函数挑选：已挂载的 FAT + 未挂载的 ESP 长相分区，全都纳入
+    let candidates = select_fat_candidates(devices.blockdevices);
+
+    // ---- 第一轮：已挂载的直接扫（只读，绝不卸载）----
+    // 用户的定案：已被挂载的「只扫描不卸载」—— 挂载点是人家的，动它就是越界。
+    for part in &candidates {
+        let Some(mountpoint) = part.mountpoint.as_ref() else {
             continue;
         };
-        let Some(filesystem) = device.fstype else {
-            continue;
-        };
-        if !FAT_FILESYSTEMS.contains(&filesystem.as_str()) {
-            continue;
+        match inspect_vars_under(mountpoint) {
+            Ok(Some((vars_dir, variables))) => {
+                // owned=false：这不是我们挂的，退出/切通道时也绝不能卸
+                return Ok(ScanResult {
+                    vars_dir,
+                    active_mount: Some(ActiveMount {
+                        device: PathBuf::from(&part.device),
+                        mountpoint: mountpoint.clone(),
+                        owned: false,
+                    }),
+                    variables,
+                });
+            }
+            Ok(None) => {}
+            Err(_) => {
+                // 挂载点没权限读（少见）：当作没找到，继续试别的
+            }
         }
-        let mounted = device
-            .mountpoints
-            .unwrap_or_default()
-            .iter()
-            .flatten()
-            .any(|mountpoint| !mountpoint.is_empty());
-        if mounted {
-            continue;
-        }
-        let label = device.label.unwrap_or_default().to_lowercase();
-        let partlabel = device.partlabel.unwrap_or_default().to_lowercase();
-        let parttype = device.parttype.unwrap_or_default().to_lowercase();
-        let hints = format!("{label} {partlabel}");
-        let priority = if hints.contains("refind") {
-            0
-        } else if parttype == ESP_PARTTYPE || hints.contains("efi system partition") {
-            1
-        } else {
-            2
-        };
-        candidates.push((priority, device_path, filesystem));
     }
-    candidates.sort_by(|left, right| (left.0, &left.1).cmp(&(right.0, &right.1)));
 
-    let mountpoint = std::env::temp_dir().join(format!("anyboot-{}", std::process::id()));
-    let _ = fs::remove_dir(&mountpoint);
-    fs::create_dir(&mountpoint).map_err(|error| format!("无法创建临时挂载点: {error}"))?;
-
-    for (_, device, filesystem) in candidates {
-        let result = mount_command("mount")
-            .args(["-o", &mount_options("ro"), "-t", &filesystem])
-            .arg(&device)
-            .arg(&mountpoint)
-            .output();
+    // ---- 第二轮：未挂载的逐个临时挂载扫描（用完立刻卸）----
+    // 只挂「未挂载」的；每次挂到独立临时点，扫完不管成功失败都卸掉，绝不残留。
+    let mut last_mount_error: Option<String> = None;
+    for part in &candidates {
+        if part.mountpoint.is_some() {
+            continue; // 已挂载的在第一轮处理过
+        }
+        let mountpoint = std::env::temp_dir().join(format!(
+            "anyboot-{}-{}",
+            std::process::id(),
+            part.device
+                .trim_start_matches("/dev/")
+                .replace(['/', ' '], "_")
+        ));
+        let _ = fs::remove_dir(&mountpoint);
+        if let Err(error) = fs::create_dir(&mountpoint) {
+            last_mount_error = Some(format!("无法创建临时挂载点: {error}"));
+            continue;
+        }
+        let result = {
+            let mut cmd = mount_command("mount");
+            cmd.args(["-o", &mount_options("ro"), "-t", &part.fstype]);
+            cmd.arg(&part.device).arg(&mountpoint);
+            cmd.output()
+        };
         match result {
             Ok(output) if output.status.success() => {
-                let vars_dir = mountpoint.join("EFI/refind/vars");
-                if vars_dir.is_dir() {
-                    let resolved = vars_dir
-                        .canonicalize()
-                        .map_err(|error| format!("无法解析变量目录: {error}"))?;
-                    let variables = inspect_variables(&resolved)
-                        .map_err(|error| format!("无法读取变量目录: {error}"))?;
+                let inspected = inspect_vars_under(&mountpoint);
+                if let Ok(Some((vars_dir, variables))) = inspected {
+                    // 命中：保留这份临时挂载（owned=true，交给 ActiveMount 生命周期卸载）
                     return Ok(ScanResult {
-                        vars_dir: resolved,
+                        vars_dir,
                         active_mount: Some(ActiveMount {
-                            device: PathBuf::from(device),
+                            device: PathBuf::from(&part.device),
                             mountpoint,
                             owned: true,
                         }),
                         variables,
                     });
                 }
+                // 没命中或读失败：立刻卸掉这个临时挂载，继续下一块
                 let _ = mount_command("umount").arg(&mountpoint).status();
+                let _ = fs::remove_dir(&mountpoint);
+                if let Err(error) = inspected {
+                    last_mount_error = Some(error);
+                }
             }
             Ok(output) => {
-                let _ = format!(
-                    "mount {device}: {}",
+                last_mount_error = Some(format!(
+                    "mount {}: {}",
+                    part.device,
                     String::from_utf8_lossy(&output.stderr).trim()
-                );
+                ));
+                let _ = fs::remove_dir(&mountpoint);
             }
-            Err(_) => {}
+            Err(error) => {
+                last_mount_error = Some(format!("无法执行 mount: {error}"));
+                let _ = fs::remove_dir(&mountpoint);
+            }
         }
     }
-    let _ = fs::remove_dir(&mountpoint);
 
+    let _ = last_mount_error; // 只做诊断用，能挂的都试过了，统一给下面这句
     let root_hint = if cfg!(target_os = "linux") {
-        "；应用已尝试通过 pkexec 临时提权挂载，若取消授权或 pkexec 不可用，请手动挂载后再扫描"
+        "；应用已尝试通过 pkexec 临时提权挂载所有未挂载的 FAT/ESP 分区（已挂载的只读扫描不卸载），若取消授权或 pkexec 不可用，请手动挂载后再扫描"
     } else {
         ""
     };
     Err(format!(
-        "已扫描未挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录{root_hint}"
+        "已扫描全部已挂载与临时挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录{root_hint}"
     ))
 }
 
@@ -446,5 +547,125 @@ fn human_mib(bytes: u64) -> String {
         format!("{:.1} GiB", mib / 1024.0)
     } else {
         format!("{mib:.0} MiB")
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    fn dev(
+        path: &str,
+        fstype: Option<&str>,
+        label: Option<&str>,
+        partlabel: Option<&str>,
+        parttype: Option<&str>,
+        mountpoints: Vec<Option<String>>,
+    ) -> LsblkDevice {
+        LsblkDevice {
+            path: Some(path.to_string()),
+            fstype: fstype.map(str::to_string),
+            label: label.map(str::to_string),
+            partlabel: partlabel.map(str::to_string),
+            parttype: parttype.map(str::to_string),
+            mountpoints: Some(mountpoints),
+            size: None,
+            uuid: None,
+            partuuid: None,
+        }
+    }
+
+    #[test]
+    fn select_skips_non_fat() {
+        let out = select_fat_candidates(vec![
+            dev("/dev/sda1", Some("ext4"), None, None, None, vec![None]),
+            dev("/dev/sda2", Some("ntfs"), None, None, None, vec![None]),
+        ]);
+        assert!(out.is_empty(), "非 FAT 分区一律不纳入");
+    }
+
+    #[test]
+    fn select_skips_plain_unmounted_fat_usb() {
+        // 未挂载、又不是 ESP 长相的 FAT（U 盘/数据盘）不该纳入
+        let out = select_fat_candidates(vec![dev(
+            "/dev/sdb1",
+            Some("vfat"),
+            Some("MYUSB"),
+            None,
+            Some("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"),
+            vec![None],
+        )]);
+        assert!(out.is_empty(), "普通未挂载 FAT 不纳入（避免噪声）");
+    }
+
+    #[test]
+    fn select_keeps_unmounted_esp_by_type() {
+        let out = select_fat_candidates(vec![dev(
+            "/dev/nvme0n1p5",
+            Some("vfat"),
+            Some("MacOS-efi"),
+            Some("MacOS-efi"),
+            Some(ESP_PARTTYPE),
+            vec![None],
+        )]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].device, "/dev/nvme0n1p5");
+        assert!(out[0].mountpoint.is_none());
+    }
+
+    #[test]
+    fn select_keeps_unmounted_by_efi_name() {
+        // 类型列不靠谱（无 udev）时，靠分区名带 efi 也认
+        let out = select_fat_candidates(vec![dev(
+            "/dev/nvme0n1p3",
+            Some("vfat"),
+            Some("WINDOWS-EFI"),
+            Some("windows-efi"),
+            None,
+            vec![None],
+        )]);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn select_keeps_mounted_fat_even_if_not_esp() {
+        // 已挂载的 FAT 一律纳入（只扫描不卸载）——即便名字里没有 efi
+        let out = select_fat_candidates(vec![dev(
+            "/dev/sdc1",
+            Some("vfat"),
+            Some("DATA"),
+            None,
+            None,
+            vec![Some("/mnt/data".to_string())],
+        )]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].mountpoint.as_deref(), Some(Path::new("/mnt/data")));
+    }
+
+    #[test]
+    fn select_orders_refind_and_esp_first_then_mounted() {
+        let out = select_fat_candidates(vec![
+            dev("/dev/z1", Some("vfat"), Some("DATA"), None, None, vec![Some("/m/z".to_string())]),
+            dev("/dev/a2", Some("vfat"), Some("REFIND"), None, None, vec![None]),
+            dev("/dev/a1", Some("vfat"), Some("EFI"), None, Some(ESP_PARTTYPE), vec![None]),
+        ]);
+        let devices: Vec<&str> = out.iter().map(|p| p.device.as_str()).collect();
+        assert_eq!(devices, vec!["/dev/a2", "/dev/a1", "/dev/z1"],
+            "refind 命中优先，其次 ESP，最后普通已挂载");
+    }
+
+    #[test]
+    fn select_dedups_mountpoint_takes_first_non_empty() {
+        // MOUNTPOINTS 可能是 [null, "/boot/efi"]，取第一个非空
+        let out = select_fat_candidates(vec![dev(
+            "/dev/nvme0n1p14",
+            Some("vfat"),
+            Some("ARCH-EFI"),
+            Some("arch-efi"),
+            Some(ESP_PARTTYPE),
+            vec![None, Some("/boot/efi".to_string())],
+        )]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].mountpoint.as_deref(), Some(Path::new("/boot/efi")));
     }
 }
