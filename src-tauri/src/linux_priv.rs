@@ -666,7 +666,7 @@ mod imp {
     /// `$XDG_CACHE_HOME/anyboot/priv-stage/`（用户主目录所在盘，exec 必允许），
     /// 提权命令跑这份副本。root 子进程的 `current_exe()` 也会指到这份真文件，
     /// `install_as_root` 里复制助手副本的源同样跟着安全。
-    fn stage_executable_copy() -> Result<PathBuf, String> {
+    pub(crate) fn stage_executable_copy() -> Result<PathBuf, String> {
         let exe = std::env::current_exe().map_err(|error| format!("拿不到自身路径：{error}"))?;
         if !needs_exec_staging(&exe) {
             return Ok(exe);

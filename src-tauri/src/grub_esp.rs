@@ -37,6 +37,38 @@ pub(crate) fn grub_rel(dir: &Path, rel: &str) -> PathBuf {
     dir.join(rel.trim_start_matches('/'))
 }
 
+/// 在 ESP 上定位要解析的 grub.cfg，**带兜底候选**。
+///
+/// 首选 AnyBoot 自己同步的位置 `/EFI/grub.cfg`；读不到时按各发行版常见布局
+/// 依次尝试。返回**第一个实际存在**的文件路径；都不存在则回退首选路径
+/// （让上层 `read_to_string` 如实失败并提示去点「同步」，同时界面上的路径
+/// 仍是规范的 `/EFI/grub.cfg`，不会误导）。
+///
+/// 为什么要兜底：以前只认 `/EFI/grub.cfg`，grub.cfg 放在 `EFI/grub/`、
+/// `EFI/BOOT/`、`EFI/<distro>/` 等位置的机器，手动解析列表空白一片。
+pub(crate) fn resolve_cfg_path(dir: &Path) -> PathBuf {
+    let primary = grub_rel(dir, grub::CFG_REL_PATH);
+    if primary.is_file() {
+        return primary;
+    }
+    // 常见候选（相对 ESP 根）。都是各发行版 / grub-install 的默认落点。
+    const CANDIDATES: &[&str] = &[
+        "/EFI/grub/grub.cfg",       // grub-install 到 ESP/EFI/grub
+        "/EFI/BOOT/grub.cfg",       // BOOT 目录
+        "/EFI/BOOT/grub/grub.cfg",  // BOOT 下再套 grub
+        "/grub/grub.cfg",           // ESP 根 grub
+        "/grub.cfg",                // ESP 根直接放
+        "/boot/grub/grub.cfg",      // 少数把 /boot 塞进 ESP 的布局
+    ];
+    for rel in CANDIDATES {
+        let p = grub_rel(dir, rel);
+        if p.is_file() {
+            return p;
+        }
+    }
+    primary
+}
+
 /// 原子写字节：先写同目录临时文件再改名（与 `atomic_copy` 同一套思路）。
 pub(crate) fn atomic_write_bytes(target: &Path, bytes: &[u8]) -> io::Result<()> {
     let temporary = temporary_target(target);
@@ -555,21 +587,52 @@ pub(crate) fn privileged_install(source: &Path, target: &Path) -> Result<(), Str
     if let Some(error) = gui_auth_forbidden() {
         return Err(error);
     }
-    let output = mount_command("install")
-        .args(["-p", "-m", "0644"])
-        .arg(source)
-        .arg(target)
+    // 【关键】pkexec 兜底**不能跑系统的 `install`**：`install` 写目标前会先 unlink，
+    // 而 efivarfs 变量文件删除 = EPERM —— OC 选引导项写 OCBtOrder 时报的正是
+    // `install: 无法删除 '/sys/firmware/efi/efivars/OCBtOrder-…': 不允许的操作`。
+    // 而且系统 install 也不清 efivarfs 的 S_IMMUTABLE 位（root 也会 EPERM）。
+    // 正解：pkexec 跑**我们自己的** `--linux-esp-install` 子命令 —— 它内部
+    // esp_install_as_root 会识别 efivars 路径、清 immutable、就地一次 write，
+    // 对普通 ESP 文件则正常复制。这样「免密助手」和「pkexec」两条路走的是
+    // **同一套** esp_install_as_root 实现，行为不会有差异。
+    let exe = match crate::linux_priv::stage_executable_copy() {
+        Ok(exe) => exe,
+        Err(error) => return Err(error),
+    };
+    let out = unique_temp_path_under(crate::linux_priv::SCRATCH_DIR, "anyboot-esp-install-pk-out");
+    let output = mount_command(&exe.to_string_lossy())
+        .args([
+            "--linux-esp-install",
+            "--src",
+            &source.to_string_lossy(),
+            "--dst",
+            &target.to_string_lossy(),
+            "--out",
+            &out.to_string_lossy(),
+        ])
         .output()
-        .map_err(|error| format!("无法执行 install（经 pkexec 提权）: {error}"))?;
-    if output.status.success() {
-        return Ok(());
+        .map_err(|error| format!("无法执行提权 ESP 写入（经 pkexec）: {error}"))?;
+    // 子命令把结果写进 out 文件（ok/error）
+    let text = fs::read_to_string(&out).unwrap_or_default();
+    let _ = fs::remove_file(&out);
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+        if value.get("ok").and_then(|ok| ok.as_bool()).unwrap_or(false) {
+            return Ok(());
+        }
+        let reason = value
+            .get("error")
+            .and_then(|error| error.as_str())
+            .unwrap_or("提权 ESP 写入失败");
+        return Err(format!(
+            "root 侧没写完：{reason}（授权被取消？本机没有 polkit 授权代理？）"
+        ));
     }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stderr = stderr.trim();
+    // 连结果文件都没有：pkexec 本身失败（授权取消 / 无代理 / 用户拒绝）
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     Err(format!(
         "root 侧没写完：{}",
         if stderr.is_empty() {
-            "install 退出码非 0".to_string()
+            "提权命令没有产出结果（授权被取消？本机没有 polkit 授权代理？）".to_string()
         } else {
             format!("{stderr}（授权被取消？本机没有 polkit 授权代理？）")
         }
@@ -1166,7 +1229,11 @@ pub(crate) fn grub_scan(
         }
     }
 
-    let cfg_path = grub_rel(&efi_dir, grub::CFG_REL_PATH);
+    // grub.cfg 路径**有兜底**：首选 `/EFI/grub.cfg`（AnyBoot 自己同步的位置），
+    // 读不到时按常见发行版布局依次找——否则 ESP 上 grub.cfg 放在
+    // `EFI/grub/`、`EFI/BOOT/`、`EFI/<distro>/` 等位置的机器，手动解析会一片空白。
+    //（用户报「手动解析路径没有兜底」。）
+    let cfg_path = resolve_cfg_path(&efi_dir);
     let env_path = grub_rel(&efi_dir, grub::ENV_REL_PATH);
     // grub.cfg 还没同步过来不算致命：先把状态摆出来，界面上会提示去点同步
     let _sp = crate::perf::span("grub.read_cfg");

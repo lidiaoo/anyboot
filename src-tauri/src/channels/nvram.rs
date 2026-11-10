@@ -224,16 +224,13 @@ mod imp {
                 )))
             }
         }
-        // 非 root：暂存 + pkexec 单命令（与 grub_esp 的 stage_and_install 同模式）
+        // 非 root：走 stage_and_install → privileged_install（pkexec 兜底现在跑
+        // 我们自己的 --linux-esp-install，内部识别 efivarfs、清 S_IMMUTABLE、
+        // 就地一次 write，不用系统的 install —— 后者会先 unlink，efivarfs 删=EPERM）。
         if let Some(error) = gui_auth_forbidden() {
             return Err(NvramError::NeedElevation(error));
         }
-        let staged = unique_temp_path("anyboot-nvram-stage");
-        if let Err(error) = stage_and_install(&content, &path) {
-            let _ = fs::remove_file(&staged);
-            return Err(NvramError::NeedElevation(error));
-        }
-        let _ = fs::remove_file(&staged);
+        stage_and_install(&content, &path).map_err(NvramError::NeedElevation)?;
         Ok(())
     }
 
