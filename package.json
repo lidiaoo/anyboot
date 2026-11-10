@@ -16,9 +16,9 @@
     "build:mac-arm": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target aarch64-apple-darwin",
     "build:mac-universal": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target universal-apple-darwin",
     "dev:vue": "vite --config ui-vue/vite.config.ts",
-    "build:vue": "vite build --config ui-vue/vite.config.ts && python3 scripts/gen-ui-assets.py",
+    "build:vue": "vite build --config ui-vue/vite.config.ts && npm run gen:ui-assets",
     "typecheck": "vue-tsc --noEmit -p ui-vue/tsconfig.json",
-    "gen:ui-assets": "python3 scripts/gen-ui-assets.py",
+    "gen:ui-assets": "node scripts/run-python.js scripts/gen-ui-assets.py",
     "reload": "bash scripts/dev-reload.sh"
   },
   "devDependencies": {
