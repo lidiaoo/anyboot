@@ -10,7 +10,7 @@ import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
-import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri } from "@/api/tauri";
+import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri, linuxPrivStatus, linuxPrivInstall, linuxPrivUninstall, type LinuxPrivStatus } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
@@ -81,6 +81,49 @@ async function toggleStartupAdminScan(): Promise<void> {
 /** 当前平台（后端 SettingsView.os 给出，可靠；不回退 navigator） */
 const currentOs = computed(() => String(ui.settings?.os ?? ""));
 const isLinux = computed(() => currentOs.value === "linux");
+
+/** Linux 免密组件（polkit/sudo 助手）状态：仅 Linux 有，其它平台恒 null */
+const privStatus = ref<LinuxPrivStatus | null>(null);
+const privBusy = ref(false);
+const privBusyLabel = ref("");
+async function refreshPrivStatus(): Promise<void> {
+  if (!isLinux.value || !isTauri()) return;
+  try {
+    privStatus.value = await linuxPrivStatus();
+  } catch {
+    /* 读不到就不显示细节，不阻塞页面 */
+  }
+}
+/** Linux 免密状态一句话 + 是否需要「安装」按钮 */
+const privStateText = computed(() => {
+  const st = privStatus.value;
+  if (!st) return "";
+  if (st.state === "ready") return "已开启";
+  if (st.state === "outdated") return `已安装（旧版本 ${st.version || "?"}，当前 ${st.currentVersion}）—— 建议重装`;
+  if (st.state === "stale") return "已安装但组件文件缺失，建议重装";
+  if (st.state === "absent") return "未开启";
+  return st.detail || "未知";
+});
+const privInstalled = computed(
+  () => privStatus.value?.state === "ready",
+);
+async function toggleLinuxPriv(): Promise<void> {
+  if (privBusy.value) return;
+  const install = !privInstalled.value;
+  privBusy.value = true;
+  privBusyLabel.value = install ? "安装中…（可能弹出系统授权框）" : "移除中…";
+  try {
+    privStatus.value = install
+      ? await linuxPrivInstall(null)
+      : await linuxPrivUninstall(null);
+    toast.show(install ? "Linux 免密组件已开启" : "Linux 免密组件已移除");
+  } catch (e) {
+    toast.show("操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
+  } finally {
+    privBusy.value = false;
+    privBusyLabel.value = "";
+  }
+}
 /** Linux 分区扫描策略（仅 Linux 显示） */
 const LINUX_EXT4_MODES = [
   { key: "raw", label: "仅裸读（默认）", hint: "三端一致：一律裸读自研 ext4 驱动，RECOVER（上次未干净关机）能看见" },
@@ -145,6 +188,7 @@ const errorText = ref("");
 const varsDirInput = ref("");
 
 onMounted(() => {
+  void refreshPrivStatus();
   varsDirInput.value = ui.status?.varsDir ?? "";
 });
 
@@ -308,6 +352,31 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 
 <template>
   <div class="settings-page" ref="rootEl">
+    <!-- Linux 免密组件（polkit/sudo 助手）：仅 Linux 有。装一次后，
+         GRUB 自动读取 / 挂载 ESP / 免密扫描都能无感（不再每次弹密码）。 -->
+    <section v-if="isLinux && privStatus" class="card helper-card" id="linux-priv-card">
+      <div class="helper-card-row">
+        <span class="helper-label">免密组件（Linux · polkit/sudo 助手）</span>
+        <span
+          class="helper-state"
+          :data-state="privBusy ? 'off' : (privStatus.state === 'ready' ? 'on' : (privStatus.state === 'outdated' || privStatus.state === 'stale') ? 'stale' : 'off')"
+        >{{ privBusy ? "处理中…" : privStateText }}</span>
+        <span class="grow" />
+        <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
+          <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
+          {{ privBusy ? privBusyLabel : (privInstalled ? "移除" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
+        </button>
+      </div>
+      <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
+        免密组件仅电脑端(本机)可管理，移动端不支持开启/移除。
+      </small>
+      <small class="helper-hint">{{ privStatus.detail }}</small>
+      <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+        开启后「启动扫描 / GRUB 自动读取 / 只读挂载 ESP」都用免密助手，不再每次弹密码。
+        需要一次系统授权（{{ privStatus.hasPkexec ? "polkit 图形框" : (privStatus.hasSudo ? "sudo 密码" : "管理员权限") }}）；
+        授权条目写到 <code>{{ privStatus.sudoersPath }}</code>，可随时移除。
+      </small>
+    </section>
     <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported）。
          注意：下面「启动时使用管理员扫描 / Linux 分区扫描策略 / 启动免密提醒」三项
          和助手无关，必须放**这个 v-if 外面**，否则 Linux/Windows 上 helper.supported=false

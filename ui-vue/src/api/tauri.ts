@@ -117,7 +117,30 @@ export const linuxGrubSwitch = (payload: Record<string, unknown>) =>
 
 export const linuxGrubHelperReady = () => call<boolean>("linux_grub_helper_ready");
 
-export const linuxPrivStatus = () => call<unknown>("linux_priv_status");
+export const linuxPrivStatus = () => call<LinuxPrivStatus>("linux_priv_status");
+/** 安装 Linux 免密组件（polkit/sudo 提权助手）。password 可空（有 pkexec 走图形授权框） */
+export const linuxPrivInstall = (password: string | null = null) =>
+  call<LinuxPrivStatus>("linux_priv_install", { password });
+/** 移除 Linux 免密组件 */
+export const linuxPrivUninstall = (password: string | null = null) =>
+  call<LinuxPrivStatus>("linux_priv_uninstall", { password });
+
+export interface LinuxPrivStatus {
+  platform: boolean;
+  /** ready | outdated | stale | absent | unsupported */
+  state: string;
+  detail: string;
+  helperPath: string;
+  sudoersPath: string;
+  helperExists: boolean;
+  sudoersExists: boolean;
+  version: string;
+  currentVersion: string;
+  user: string;
+  hasPkexec: boolean;
+  hasSudo: boolean;
+  isSudoer: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // 三引导器通道
