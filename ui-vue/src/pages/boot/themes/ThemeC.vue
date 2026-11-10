@@ -97,9 +97,6 @@ function select(id: string) {
 
 
     <div class="lc-toolbar">
-      <div class="lc-meta">
-        {{ activeLoader ? `${activeLoader.esp || "ESP 未知"} · ${activeLoader.entries.length} 个条目` : "" }}
-      </div>
       <span class="grow" />
       <span class="mut">密度</span>
       <div class="seg">
