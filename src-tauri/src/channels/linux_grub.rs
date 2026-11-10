@@ -265,10 +265,6 @@ pub(crate) struct LinuxGrubView {
     pub(crate) platform: String,
     /// 本端读盘要不要提权（macOS/Windows 是 true）
     pub(crate) needs_elevation: bool,
-    /// 这次是免密还是弹了密码：`host` / `helper` / `elevated`（空 = 还没读成功过）。
-    /// 前端拿它显示「免密助手」的徽标，不再靠猜。
-    #[serde(default)]
-    pub(crate) via: String,
     pub(crate) target: Option<LinuxTarget>,
     /// `exact` / `inferred` / `self` / `manual` / `none`
     pub(crate) confidence: String,
@@ -505,7 +501,6 @@ pub(crate) fn build_view(
         scanned_at: Some(anyboot_now_iso()),
         platform: platform.to_string(),
         needs_elevation,
-        via: payload.via.clone(),
         confidence: "none".to_string(),
         issues: payload.notes.clone(),
         manual_takes_over,

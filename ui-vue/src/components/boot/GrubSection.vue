@@ -111,15 +111,6 @@ const autoTargetText = computed(() => {
   const dev = t.dev || "";
   return label && dev && label !== dev ? `${label}（${dev}）` : label || dev;
 });
-/** 探测通路：内部值 helper/elevated 映射成人话，别给用户看内部名 */
-const autoViaText = computed(() => {
-  const v = (grubAuto.value as any)?.via;
-  if (!v) return "";
-  if (v === "helper") return "免密助手读取";
-  if (v === "elevated") return "提权读取";
-  return "";
-});
-
 /** 自动读取的条目 */
 const autoEntries = computed<EntryData[]>(() =>
   (grubAuto.value?.entries ?? []).map((e) => ({
@@ -308,7 +299,6 @@ async function switchEntry(selector: string) {
           </div>
         </div>
 
-        <small v-if="autoViaText" class="grub-auto-foot" id="grub-auto-foot">{{ autoViaText }}</small>
       </section>
     </div>
 

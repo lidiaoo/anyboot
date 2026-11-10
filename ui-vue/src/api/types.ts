@@ -162,7 +162,6 @@ export interface LinuxGrubView {
   envRel: string;
   envSize: number;
   target: string;
-  via: string;
   platform: string;
   scannedAt: string;
   confidence: string;
