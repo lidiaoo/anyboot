@@ -550,7 +550,15 @@ function channelRows(id: string): EntryData[] {
   if (!ch) return [];
   const preview = ch.menuPreview?.entries ?? [];
   if (preview.length) {
-    return preview.map((row) => ({ selector: row.spec, name: row.title, class: row.kind }));
+    // 与 BootList 同一套固定排序：可选中（spec 非空）一组在前，不可选中一组在后。
+    // 这里是给各版式主题 / 移动端「电脑列表·选择下拉」用的条目源（ThemeHost :rows），
+    // 之前漏了排序 → OpenCore 在这里仍是原序（选中项/APFS 项位置不固定）。
+    // 只按 spec 分组、与是否选中无关，顺序恒定。
+    const ordered = [
+      ...preview.filter((row) => row.spec),
+      ...preview.filter((row) => !row.spec),
+    ];
+    return ordered.map((row) => ({ selector: row.spec, name: row.title, class: row.kind }));
   }
   return (ch.entries ?? []).map((row) => ({
     selector: String(row.id ?? row.title ?? ""),
