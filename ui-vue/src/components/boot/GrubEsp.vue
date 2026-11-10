@@ -107,7 +107,7 @@ function toggleMount() {
           <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
           <button v-if="isManual" type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
         </div>
-        <div class="grub-row">
+        <div v-if="isManual" class="grub-row">
           <button type="button" class="secondary" id="grub-sync" @click="syncManual">同步</button>
           <label class="grub-part" id="grub-sync-note">把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</label>
         </div>
