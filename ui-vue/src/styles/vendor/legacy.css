@@ -5412,3 +5412,15 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   .settings .setting input[type="checkbox"] { align-self: flex-start; }
 }
 
+
+/* 「扫描相关设置」卡片(scan-settings-card)：三块(管理员扫描/免密提醒/Linux策略)同卡，
+   字体与 #helper-card 统一（原来该卡无这些规则→字号不一致）。 */
+#scan-settings-card { font-size: 13px; }
+#scan-settings-card .helper-label { font-size: 13px; font-weight: 600; color: var(--text); }
+#scan-settings-card .helper-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+#scan-settings-card .seg button { font-size: 13px; }
+/* Linux 分区扫描策略选中态加强：accent 底 + 白字，一眼看出选中谁（原 is-on 只微调 panel 色太弱）。 */
+#scan-settings-card .seg button.is-on {
+  background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600;
+}
+#scan-settings-card .seg button.is-on:hover { background: var(--accent); color: #fff; }
