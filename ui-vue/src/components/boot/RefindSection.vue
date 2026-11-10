@@ -111,9 +111,11 @@ async function refreshSim() {
       if (n > 0) { okN = n; break; }
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
     }
-    if (okN > 0) ui.setBootNotice(`重新读取成功：识别到 ${okN} 个启动项`);
-    else if (lastErr) ui.setBootNotice("重新读取失败：" + lastErr, true);
-    else { void last; ui.setBootNotice("重新读取完成，但没有识别到启动项", true); }
+    // 统一文案：扫描不到任何条目时只提示「rEFInd」扫描完成，但没有识别到条目
+    // （不再带一长串诊断/error，也不标红 —— 没装/没条目是正常状态）。
+    if (okN > 0) ui.setBootNotice(`「rEFInd」扫描完成：识别到 ${okN} 个启动项`);
+    else if (lastErr) ui.setBootNotice("「rEFInd」扫描失败：" + lastErr, true);
+    else { void last; ui.setBootNotice("「rEFInd」扫描完成，但没有识别到条目"); }
   } catch (e) {
     ui.setBootNotice("重新读取失败：" + e, true);
   } finally {

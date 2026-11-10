@@ -4,6 +4,7 @@
  * 真实设置 = 免密模式 helper（OpenCore）+ 健康检查 / 菜单问题。
  * 供各主题列表下方折叠面板使用（列表本身由 BootList 渲染）。
  */
+import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
@@ -25,8 +26,10 @@ async function refreshChannel() {
       if (n > 0) break;
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1200));
     }
-    if (n > 0) ui.setBootNotice(`重新读取成功：识别到 ${n} 个条目`);
-    else ui.setBootNotice("重新读取完成，但没有识别到条目", true);
+    // 统一文案：带引导器名，「X」扫描完成，但没有识别到条目（不标红）。
+    const lname = loaderMeta(props.loader).name;
+    if (n > 0) ui.setBootNotice(`「${lname}」扫描完成：识别到 ${n} 个条目`);
+    else ui.setBootNotice(`「${lname}」扫描完成，但没有识别到条目`);
   } catch (e) {
     ui.setBootNotice("重新读取失败：" + e, true);
   } finally {

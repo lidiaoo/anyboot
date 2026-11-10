@@ -172,12 +172,13 @@ async function refreshAuto() {
       if (n > 0) { okN = n; break; }
       if (i < MAX_TRIES - 1) await new Promise((r) => setTimeout(r, 1500));
     }
+    // 统一文案：扫描不到条目只提示「GRUB」扫描完成，但没有识别到条目（不标红、不带长诊断）。
     if (okN > 0) {
-      ui.setBootNotice(`重新读取成功：识别到 ${okN} 个启动项`);
+      ui.setBootNotice(`「GRUB」扫描完成：识别到 ${okN} 个启动项`);
     } else if (lastErr) {
-      ui.setBootNotice("重新读取失败：" + lastErr, true);
+      ui.setBootNotice("「GRUB」扫描失败：" + lastErr, true);
     } else {
-      ui.setBootNotice("重新读取完成，但没有识别到启动项（检查分区/免密授权）", true);
+      ui.setBootNotice("「GRUB」扫描完成，但没有识别到条目");
     }
     void call("refresh").catch(() => {});
   } catch (e) {
