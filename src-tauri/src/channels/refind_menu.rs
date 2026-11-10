@@ -420,9 +420,19 @@ pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStat
             );
             let mut status = refresh_and_update(&app);
             // refresh 会按「三份快照」重算 message（这次写入对不上任何快照），
-            // 这里换成用户真正做的事，别让他以为切换失败
+            // 换成用户真正做的事，别让他以为切换失败。
+            // 【关键】refresh_and_update 内部已经 publish 过一份「它自己算的 message」，
+            // 前端收到的就是那份（且每次重算可能不同 → 表现为「提示和实际不一致、
+            // 点两次不同」）。所以改完 message 必须**写回 AppState 并再 publish 一次**，
+            // 前端才会显示真正的「下次启动：<标题>」。
             status.message = format!("下次启动：{}", title.trim());
+            status.error = None;
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                state.message = status.message.clone();
+                state.error = None;
+            }
             record_action(&app, "切换系统（模拟扫描）", true, &status.message);
+            crate::switch_flow::publish_status(&app, &status);
             status
         }
         Err(error) => {
