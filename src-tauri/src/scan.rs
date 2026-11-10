@@ -192,11 +192,8 @@ fn inspect_vars_under(root: &Path) -> Result<Option<(PathBuf, Vec<VariableInfo>)
     Ok(Some((resolved, variables)))
 }
 
+#[cfg(target_os = "linux")]
 pub(crate) fn scan_unmounted_partition() -> Result<ScanResult, String> {
-    if !cfg!(target_os = "linux") {
-        return Err("未找到已挂载的 EFI/refind/vars 目录".to_string());
-    }
-
     let _span = crate::perf::span("cmd.lsblk_scan");
     // 要 MOUNTPOINTS：已挂载的 ESP 直接在其挂载点上找 vars（不卸载、不重挂）
     let output = command("lsblk")
@@ -361,7 +358,14 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
             variables,
         });
     }
-    scan_unmounted_partition()
+    #[cfg(target_os = "linux")]
+    {
+        return scan_unmounted_partition();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Err("未找到已挂载的 EFI/refind/vars 目录".to_string())
+    }
 }
 
 pub(crate) const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
