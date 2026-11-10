@@ -833,9 +833,18 @@ impl Settings {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
             return "raw".to_string();
         };
-        match value.get("linux_ext4_scan_mode").and_then(|v| v.as_str()) {
-            Some("prefer_mount") => "prefer_mount".to_string(),
-            Some("mount_only") => "mount_only".to_string(),
+        // 关键：Settings 带 #[serde(rename_all = "camelCase")]，所以**磁盘上的键是
+        // `linuxExt4ScanMode`（camelCase）**，不是 snake_case！先取 camelCase，
+        // 再兼容一次 snake_case（老手工文件/测试），都取不到就当 raw。
+        // 空串（曾把未初始化的 "" 写过盘）也归一成 raw。
+        let raw_mode = value
+            .get("linuxExt4ScanMode")
+            .and_then(|v| v.as_str())
+            .or_else(|| value.get("linux_ext4_scan_mode").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        match raw_mode {
+            "prefer_mount" => "prefer_mount".to_string(),
+            "mount_only" => "mount_only".to_string(),
             _ => "raw".to_string(),
         }
     }
@@ -1017,14 +1026,19 @@ mod scan_mode_tests {
 
     #[test]
     fn scan_mode_reads_known_values() {
+        // 真实落盘键是 camelCase（Settings 带 rename_all="camelCase"）
+        assert_eq!(read_with(r#"{"linuxExt4ScanMode":"mount_only"}"#), "mount_only");
+        assert_eq!(read_with(r#"{"linuxExt4ScanMode":"prefer_mount"}"#), "prefer_mount");
+        assert_eq!(read_with(r#"{"linuxExt4ScanMode":"raw"}"#), "raw");
+        // 兼容老 snake_case 文件
         assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"mount_only"}"#), "mount_only");
-        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"prefer_mount"}"#), "prefer_mount");
-        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"raw"}"#), "raw");
     }
 
     #[test]
     fn scan_mode_defaults_to_raw_on_garbage() {
-        assert_eq!(read_with(r#"{"linux_ext4_scan_mode":"bogus"}"#), "raw");
+        assert_eq!(read_with(r#"{"linuxExt4ScanMode":"bogus"}"#), "raw");
+        // 空串（曾把未初始化的 "" 写过盘）要归一成 raw
+        assert_eq!(read_with(r#"{"linuxExt4ScanMode":""}"#), "raw");
         assert_eq!(read_with(r#"{}"#), "raw");
         assert_eq!(read_with("not json"), "raw");
     }
