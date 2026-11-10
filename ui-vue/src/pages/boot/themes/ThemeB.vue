@@ -3,7 +3,6 @@ import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
-import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
 
 /**
@@ -59,12 +58,6 @@ const activeLoader = computed(
   () => props.loaders.find((item) => item.id === current.value) ?? null,
 );
 
-const metaText = computed(() => {
-  const loader = activeLoader.value;
-  if (!loader) return "";
-  return `${loader.esp || "ESP 未知"} · ${loader.entries.length} 个条目`;
-});
-
 
 function select(id: string) {
   current.value = id;
@@ -116,9 +109,7 @@ function select(id: string) {
             <h2>
               <LoaderIcon :id="activeLoader.id" size="md" />
               {{ activeLoader.name }}
-              <StateChip :state="activeLoader.state" />
             </h2>
-            <p>{{ metaText }}</p>
           </div>
         </div>
 
