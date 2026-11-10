@@ -2555,7 +2555,14 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
             let _ = grub.join();
             let _ = others.join();
         });
-        // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
+        // macOS（APFS Preboot）条目：OpenCore 卡片在 refresh 时会走 apfs_reader（含提权
+        // 缓存/重扫），rEFInd 模拟之前没有这一环 → 启动后 rEFInd 的 macOS 条目起不来、
+        // 与 OpenCore 不一致（用户报「refind 只扫了普通的，opencore 用了提权扫描」）。
+        // 这里在启动扫描里也做一次，**用同一个 elevation**：免密就绪→Silent 走免密助手
+        // 静默补齐；没免密→Allow 会弹一次授权（与启动扫描本身的口径一致，不额外多弹）。
+        // 失败不致命：preview 会给出「点重新读取补齐」的说明。
+        #[cfg(not(target_os = "macos"))]
+        let _ = crate::channels::apfs_reader::scan_preboot_elevated(false, elevation);
         // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
         // 【关键】并行跑完后强制推一次完整 UI：GRUB 分区扫描结果虽已写入 AppState，
