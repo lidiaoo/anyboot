@@ -346,30 +346,31 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         开启后启动时自动扫描所有引导器（GRUB 自动 + rEFInd 内核）。未开启免密助手时会提示开启，
         也可在此取消提醒。
       </small>
-      <!-- Linux 分区扫描策略（仅 Linux 显示）：仅挂载 / 优先挂载 / 仅裸读 -->
-      <template v-if="isLinux">
-        <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
-          <span class="helper-label">Linux 分区扫描策略</span>
-        </div>
-        <div class="seg" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap">
-          <button
-            v-for="m in LINUX_EXT4_MODES"
-            :key="m.key"
-            type="button"
-            :class="['btn', 'sm', linuxExt4Mode === m.key ? '' : 'ghost']"
-            :title="m.hint"
-            @click="pickLinuxExt4Mode(m.key)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-          {{ linuxExt4Hint }}
-        </small>
-        <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
-          注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
-        </small>
-      </template>
+      <!-- Linux 分区扫描策略（所有平台都显示）：仅挂载 / 优先挂载 / 仅裸读。
+           注：该策略只在 Linux 上真正影响扫描（macOS/Windows 一律裸读，选哪档行为一致），
+           但按用户要求三端都显示这个选项，避免「找不到」的困惑。 -->
+      <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
+        <span class="helper-label">Linux 分区扫描策略</span>
+        <span v-if="!isLinux" class="hint" style="margin-left:8px; font-size:12px; color: var(--text-faint)">（仅 Linux 生效；当前平台一律裸读）</span>
+      </div>
+      <div class="seg" style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap">
+        <button
+          v-for="m in LINUX_EXT4_MODES"
+          :key="m.key"
+          type="button"
+          :class="['btn', 'sm', linuxExt4Mode === m.key ? '' : 'ghost']"
+          :title="m.hint"
+          @click="pickLinuxExt4Mode(m.key)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+        {{ linuxExt4Hint }}
+      </small>
+      <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
+        注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
+      </small>
       <!-- 免密助手提醒的取消提醒设置 -->
       <div class="helper-card-row" style="margin-top: 8px">
         <span class="helper-label">启动免密提醒</span>
