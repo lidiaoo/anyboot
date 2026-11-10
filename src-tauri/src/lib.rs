@@ -2451,6 +2451,16 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
 /// （之前只 refresh 设置不推快照 → 点完 installed 状态不变，用户以为没生效）。
 #[tauri::command]
 async fn boot_helper(app: AppHandle, action: String) -> Result<String, String> {
+    // 按平台分流：macOS 走 launchd 免密助手（helper_install）；Linux 走
+    // polkit/sudo 免密组件（linux_priv）。以前不分平台一律调 helper_install，
+    // 于是 Linux 上点「开启免密助手」永远报「这个平台没有免密助手」（用户报的 bug）。
+    #[cfg(target_os = "linux")]
+    let result = match action.as_str() {
+        "install" => crate::linux_priv::linux_priv_install(None).await.map(|st| st.detail),
+        "uninstall" => crate::linux_priv::linux_priv_uninstall(None).await.map(|st| st.detail),
+        other => Err(format!("未知的助手动作: {other}")),
+    };
+    #[cfg(not(target_os = "linux"))]
     let result = crate::helper_install::boot_helper(action).await;
     crate::ui_state::publish_ui(&app);
     result

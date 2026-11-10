@@ -11,9 +11,20 @@
  *  - 用户【暂不】→ 本次不扫。
  *  任何选择都要**先等这里操作完毕**，调用方再决定是否降级到密码授权框。
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import { setHelperReminderSnooze } from "@/api/tauri";
+import { useUiStateStore } from "@/stores/uiState";
+
+// 平台自适应：Linux 的免密是「polkit/sudo 免密组件」（写 sudoers），
+// macOS 是「root 助手（launchd）」。文案要说对，否则 Linux 用户看到
+// 「root 助手」一头雾水，且之前调错命令还会报「这个平台没有免密助手」。
+const ui = useUiStateStore();
+const isLinux = computed(() => String(ui.settings?.os ?? "") === "linux");
+const helperName = computed(() => (isLinux.value ? "免密组件（polkit/sudo）" : "免密提权（root 助手）"));
+const installLabel = computed(() =>
+  isLinux.value ? "开启免密组件（输一次管理员密码）" : "开启免密助手（输一次密码）",
+);
 
 const emit = defineEmits<{
   (e: "resolved", action: "installed" | "snoozed" | "cancelled"): void;
@@ -58,14 +69,14 @@ function cancel() {
       <h2>开启免密扫描</h2>
       <p>
         启动时扫描 Linux 分区的引导项/内核，需要读取分区裸数据（需要管理员权限）。
-        建议开启「免密提权（root 助手）」：只需授权这一次，之后每次启动都能自动扫描，
+        建议开启「{{ helperName }}」：只需授权这一次，之后每次启动都能自动扫描，
         不再反复弹密码框。
       </p>
       <p v-if="error" class="error" style="color: #d9534f; font-size: 12px">{{ error }}</p>
 
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
         <button type="button" class="btn" :disabled="busy" @click="install">
-          {{ busy ? "授权中…" : "开启免密助手（输一次密码）" }}
+          {{ busy ? "授权中…" : installLabel }}
         </button>
 
         <!-- 取消提醒：直接展示 1/7/30 天/永久（不再折叠成「取消提醒…」按钮） -->
