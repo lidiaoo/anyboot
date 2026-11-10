@@ -64,16 +64,6 @@ const activeOnly = computed(() => {
         <span class="nm">{{ loader.name }}</span>
         <em>{{ loader.entries.length }}</em>
       </button>
-      <span style="flex: 1" />
-      <button
-        type="button"
-        class="btn icon ghost sm"
-        title="拖拽排序 / 编排显示"
-        aria-label="编排"
-        @click="onArrange?.()"
-      >
-        ⇅
-      </button>
     </div>
 
     <div class="la-list">

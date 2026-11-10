@@ -197,15 +197,6 @@ watch(
   },
 );
 
-
-/** 旧版：侧栏动作 = 代理真实行自己的动作（点击真实行，不另写一套） */
-function proxyGo() {
-  if (!selected.value) return;
-  const sel = selected.value.selector;
-  const row = document.querySelector('[data-row-selector="' + CSS.escape(sel) + '"]');
-  if (row) (row as HTMLElement).click();
-}
-
 /** 旧版 paintResults：搜索/筛选直接对真实行与分组做显隐（不重渲条目） */
 watch([query, filter, () => props.rows], async () => {
   await new Promise((r) => requestAnimationFrame(r));
@@ -328,15 +319,6 @@ const selectedLoaderState = computed(
               <span class="mono">{{ selectedEntry.kernels[0] }}</span>
             </div>
           </div>
-        </div>
-        <div class="toolbar">
-          <button type="button" class="btn sm primary" @click="proxyGo">下次启动</button>
-          <button
-            type="button"
-            class="btn sm"
-            disabled
-            title="这一行没有「设为默认」的动作：点条目本身就是把它设为下次启动"
-          >设为默认</button>
         </div>
       </template>
       <p v-else class="lg-hint">选中一条查看详情</p>

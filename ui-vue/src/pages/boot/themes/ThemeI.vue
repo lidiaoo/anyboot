@@ -175,11 +175,7 @@ function closeSheet() {
           <i :class="['dot', loader.state]" />
         </div>
         <div class="big">{{ loader.entries.length }}<small>项</small></div>
-        <div class="s">默认 · —</div>
         <div class="foot">
-          <span :class="['chip', loader.perm === 'nvram' ? 'elev' : 'off']">
-            {{ loader.perm === "nvram" ? "需提权" : "免提权" }}
-          </span>
           <span class="grow" />
           <button
             type="button"
@@ -242,9 +238,6 @@ function closeSheet() {
                 <LoaderIcon :id="loader.id" size="sm" />
                 <span class="nm">{{ loader.name }}</span>
                 <span class="grow" />
-                <span :class="['chip', loader.perm === 'nvram' ? 'elev' : 'off']">
-                  {{ loader.perm === "nvram" ? "需提权" : "免提权" }}
-                </span>
               </div>
             </template>
             <template v-else-if="sheetLoader">

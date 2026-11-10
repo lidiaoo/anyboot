@@ -113,7 +113,7 @@ function select(id: string) {
           <LoaderIcon :id="loader.id" size="sm" />
           <span class="nm">
             <b>{{ loader.name }}</b>
-            <small>{{ loader.entries.length }} 个条目 · {{ loader.perm === "nvram" ? "需提权" : "免提权" }}</small>
+            <small>{{ loader.entries.length }} 个条目</small>
           </span>
           <i :class="['dot', loader.state]" />
         </button>
@@ -137,8 +137,6 @@ function select(id: string) {
             </h2>
             <p>{{ metaText }}</p>
           </div>
-          <button type="button" class="btn sm" @click="onSelect?.(activeLoader.id)">下次启动</button>
-          <button type="button" class="btn sm ghost" title="更多" aria-label="更多">⋯</button>
         </div>
 
         <div class="lb-scroll">

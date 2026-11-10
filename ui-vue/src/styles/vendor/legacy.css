@@ -3285,7 +3285,10 @@ button.needs-elev {
 }
 .acc:hover { background: var(--panel-2); color: var(--text); }
 .acc .grow { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; overflow: hidden; }
-.acc .grow > span { white-space: nowrap; flex: none; }
+/* 修正：flex:none + nowrap 在窄屏（小屏折叠面板 / 手机）里会被 .grow 的
+ * overflow:hidden 整个裁掉 → 「引导器设置」几个字消失。改成可收缩 + 超长省略，
+ * 至少保证文字可见（挤不下时省略号，而不是凭空不见）。 */
+.acc .grow > span { white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .acc small { color: var(--fainter); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .acc .car { transition: transform 0.15s; }
 .acc[aria-expanded="true"] .car { transform: rotate(180deg); }
