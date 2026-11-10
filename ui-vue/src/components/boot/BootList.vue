@@ -190,7 +190,16 @@ const channelEntries = computed<EntryData[]>(() => {
   const preview = ch.menuPreview?.entries ?? [];
   const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
-    const rows = preview.map((row) => ({
+    // **固定排序：可选中项一组在前，不可选中项一组在后。**
+    // 只按「能不能选」（row.spec 非空 = 可写回 OCBt* 设默认）分组，
+    // **与是否被选中无关** —— 选中只加 class 高亮，绝不改变任何条目的顺序，
+    // 所以顺序是恒定的，不会「一选就变」。两组内部各自保持 OC 原本 BootOrder 顺序。
+    // （列表顶端那个 sticky 置顶副本由 GrubList 单独渲染，不参与这里的排序。）
+    const ordered = [
+      ...preview.filter((row) => row.spec),
+      ...preview.filter((row) => !row.spec),
+    ];
+    const rows = ordered.map((row) => ({
       // 标识用 spec，空则退 title（旧版 ocEntrySelector 兜底）——default 行 spec
       // 常为空，selector 空串会让高亮匹配失效
       selector: row.spec || row.title,
@@ -207,7 +216,7 @@ const channelEntries = computed<EntryData[]>(() => {
     // ① entry.default（OC 的 OCBtOrder 落在预演行 default 上）等三来源判定
     applyChannelDefault(
       rows,
-      preview.map((row) => (row as { default?: boolean }).default),
+      ordered.map((row) => (row as { default?: boolean }).default),
       ch,
     );
     return rows;

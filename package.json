@@ -18,7 +18,8 @@
     "dev:vue": "vite --config ui-vue/vite.config.ts",
     "build:vue": "vite build --config ui-vue/vite.config.ts && python3 scripts/gen-ui-assets.py",
     "typecheck": "vue-tsc --noEmit -p ui-vue/tsconfig.json",
-    "gen:ui-assets": "python3 scripts/gen-ui-assets.py"
+    "gen:ui-assets": "python3 scripts/gen-ui-assets.py",
+    "reload": "bash scripts/dev-reload.sh"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

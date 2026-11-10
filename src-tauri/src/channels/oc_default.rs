@@ -176,8 +176,11 @@ pub(crate) fn entry_spec(
     // 而那条路对已有槽的条目走不到。别的 kind 卷为「—」意味着文件真没了
     // （卷没挂载或已删除），把死槽排到第一只会让机器起不来，照旧不给。
     let reorder_only = entry.source == "bootorder" && entry.kind == "macos" && entry.volume == "—";
+    // 注意：**不要**因为 entry.default 就返回 None。默认项本身仍是「可选中」的
+    // —— 它只是当前被选中、要能高亮；把它踢出可选组会让列表顺序在「选中/未选中」
+    // 之间跳变（用户明确要求顺序固定、选中只在原位高亮）。已默认再设是幂等操作
+    // （set_default 里 new_order==order && writing.is_none() 直接返回"没有改动"）。
     if !writable
-        || entry.default
         || entry.kind == "tool"
         || (entry.volume == "—" && !reorder_only)
     {
@@ -539,8 +542,10 @@ mod tests {
             entry_spec(&entry("WINDOWS-EFI", "\\EFI\\Microsoft\\Boot\\bootmgfw.efi", "windows", "bless", false), true, esp)
                 .is_some()
         );
-        // 已经是默认项 / 平台不可写 / 工具项 / 无卷 → 不给按钮
-        assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", true), true, esp).is_none());
+        // 平台不可写 / 工具项 / 无卷 → 不给按钮
+        //（**默认项仍可设**：要留在可选组、能高亮，否则顺序会随选中跳变）
+        assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", true), true, esp).is_some());
+        assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", true), false, esp).is_none());
         assert!(entry_spec(&entry("MAC", "\\System\\boot.efi", "macos", "bootorder", false), false, esp).is_none());
         assert!(entry_spec(&entry("—", "resetnvramentry.efi", "tool", "protocol", false), true, esp).is_none());
         // 例外：BootOrder 里的 macOS 条目，本机没有 APFS 驱动所以卷显示「—」，
