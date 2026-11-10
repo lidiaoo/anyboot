@@ -1399,6 +1399,24 @@ body[data-grub-mode="inline"] .grub-list {
   color: var(--text-dim);
 }
 
+/*
+ * 不可选中的条目（组子项 readonly = rEFInd 里无点击处理器的项 / 有动作在跑时整体
+ * disabled）统一置灰：降低不透明度 + 变暗 + 禁用光标，明确「点了不会切换」。
+ * 与组头不同 —— 组头是分层标题（is-group:disabled 特意不发灰），这里是真条目只是不可选。
+ * 覆盖所有版式主题与预演菜单（它们都走同一个 GrubEntry）。
+ */
+.grub-entry.is-readonly {
+  opacity: 0.5;
+  cursor: default;
+}
+.grub-entry.is-readonly .grub-entry-name {
+  color: var(--faint);
+}
+/* 置顶副本若是只读也照样置灰（避免它看起来可选） */
+.grub-entry.is-pinned.is-readonly {
+  opacity: 0.5;
+}
+
 /* 更深一层（submenu 套 submenu）再缩进一格 */
 .grub-entry.depth-2 {
   padding-left: 42px;

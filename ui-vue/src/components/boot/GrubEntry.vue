@@ -124,6 +124,8 @@ const classes = computed(() => [
   props.depth >= 2 ? `depth-${props.depth}` : "",
   props.active ? "active" : "",
   props.pinned ? "is-pinned" : "",
+  // 不可选中的行（组子项 readonly / 有动作在跑 disabled）统一置灰
+  !props.group && (props.entry.readonly || props.disabled) ? "is-readonly" : "",
 ]);
 
 function onClick() {
@@ -138,7 +140,7 @@ function onClick() {
     type="button"
     :data-row-selector="entry.selector ?? ''"
     :class="classes"
-    :disabled="group || disabled"
+    :disabled="group || disabled || entry.readonly"
     :title="entry.selector || ''"
     @click="onClick"
   >
