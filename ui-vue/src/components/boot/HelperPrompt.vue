@@ -32,13 +32,20 @@ const emit = defineEmits<{
 
 const busy = ref(false);
 const error = ref("");
+/** 成功后短暂停留在「已开启」态，再关闭弹窗（让用户看到确实成功了） */
+const done = ref(false);
 
 async function install() {
-  if (busy.value) return;
+  if (busy.value || done.value) return;
   busy.value = true;
   error.value = "";
   try {
     await call("boot_helper", { action: "install" });
+    // 不等推送那一拍：主动拉一次快照，确认状态真的变了再算成功。
+    await ui.pollOnce().catch(() => {});
+    done.value = true;
+    // 让「已开启」显示一小会儿，再把结果交给调用方（它会静默扫描并关掉弹窗）。
+    await new Promise((r) => setTimeout(r, 600));
     emit("resolved", "installed");
   } catch (e) {
     error.value = "开启免密助手失败（可能取消了系统授权）：" + e;
@@ -75,8 +82,9 @@ function cancel() {
       <p v-if="error" class="error" style="color: #d9534f; font-size: 12px">{{ error }}</p>
 
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
-        <button type="button" class="btn" :disabled="busy" @click="install">
-          {{ busy ? "授权中…" : installLabel }}
+        <button type="button" class="btn" :disabled="busy || done" @click="install">
+          <span v-if="busy" class="btn-spinner" aria-hidden="true"></span>
+          {{ done ? "已开启 ✓" : busy ? "开启中…（请在系统授权框中确认）" : installLabel }}
         </button>
 
         <!-- 取消提醒：直接展示 1/7/30 天/永久（不再折叠成「取消提醒…」按钮） -->

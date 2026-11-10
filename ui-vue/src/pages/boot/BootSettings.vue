@@ -90,7 +90,8 @@ const privStatus = computed<LinuxPrivStatus | null>(() => {
   return lp ?? null;
 });
 const privBusy = ref(false);
-const privBusyLabel = ref("");
+/** 进行中的动作：install / uninstall，用来决定按钮显示「开启中…」「关闭中…」 */
+const privBusyAction = ref<"install" | "uninstall" | "">("");
 /** Linux 免密状态一句话 + 是否需要「安装」按钮 */
 const privStateText = computed(() => {
   const st = privStatus.value;
@@ -104,25 +105,33 @@ const privStateText = computed(() => {
 const privInstalled = computed(
   () => privStatus.value?.state === "ready",
 );
+/**
+ * 开启 / 关闭 Linux 免密组件。严格的三态：
+ *   点下 → 立即「开启中…」/「关闭中…」（按钮转圈、禁用）
+ *   → 等后端真正返回成功
+ *   → 主动拉到新快照确认 state 变了，才显示「已开启 / 未开启」
+ * 失败（取消授权等）→ 回到原状态 + 错误提示，绝不停在中间态。
+ */
 async function toggleLinuxPriv(): Promise<void> {
   if (privBusy.value) return;
   const install = !privInstalled.value;
   privBusy.value = true;
-  privBusyLabel.value = install ? "安装中…（可能弹出系统授权框）" : "移除中…";
+  privBusyAction.value = install ? "install" : "uninstall";
   try {
-    // 后端 install/uninstall 内部会 publish_ui（带最新 linuxPriv 快照），
-    // 前端 ui.linuxPriv 自动更新；这里不再手动赋值（privStatus 是 computed）。
     if (install) {
       await linuxPrivInstall(null);
     } else {
       await linuxPrivUninstall(null);
     }
+    // 后端已在内部 publish_ui，但推送可能有延迟；主动拉一次快照，
+    // 确保按钮「立刻」从「开启中」切到「已开启」（不等推送那一拍）。
+    await ui.pollOnce().catch(() => {});
     toast.show(install ? "Linux 免密组件已开启" : "Linux 免密组件已移除");
   } catch (e) {
     toast.show("操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
   } finally {
     privBusy.value = false;
-    privBusyLabel.value = "";
+    privBusyAction.value = "";
   }
 }
 /** Linux 分区扫描策略（仅 Linux 显示） */
@@ -364,7 +373,9 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         <span class="grow" />
         <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
           <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
-          {{ privBusy ? privBusyLabel : (privInstalled ? "移除" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
+          {{ privBusy
+              ? (privBusyAction === "uninstall" ? "关闭中…" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装中…" : "开启中…"))
+              : (privInstalled ? "关闭" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
         </button>
       </div>
       <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
