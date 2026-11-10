@@ -158,7 +158,6 @@ function closeSheet() {
         <div class="top">
           <LoaderIcon :id="loader.id" size="sm" />
           <span class="nm">{{ loader.name }}</span>
-          <i :class="['dot', loader.state]" />
         </div>
         <div class="big">{{ loader.entries.length }}<small>项</small></div>
         <div class="foot">

@@ -86,7 +86,6 @@ const healthText = computed(() => {
         >
           <LoaderIcon :id="loader.id" size="sm" />
           <span class="nm">{{ loader.name }}</span>
-          <i :class="['dot', loader.state]" />
         </button>
       </nav>
     </aside>

@@ -1032,8 +1032,8 @@ struct ComputerListView: View {
         case Reach.sleeping: color = ABColor.toneSleep; label = "已睡眠"
         default: color = ABColor.fgFaint; label = "检测中…"
         }
+        // 状态绿点已删除（用户：电脑端/移动端都删状态绿点）——只保留文字。
         return HStack(spacing: ABMetric.px(4)) {
-            Circle().fill(color).frame(width: ABMetric.px(5), height: ABMetric.px(5))
             Text(label)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(color)

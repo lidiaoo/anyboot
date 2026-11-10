@@ -53,13 +53,6 @@ async function onSave(payload: Record<string, unknown>) {
   }
 }
 
-/** 探测状态（旧版 probes[id].state） */
-function testState(id: string): string {
-  const result = store.testResults.get(id);
-  if (!result) return "";
-  return /^通/.test(String(result)) ? "ok" : "bad";
-}
-
 /** 探测耗时（旧版 probes[id].ms） */
 function testMs(id: string): number | null {
   const result = store.testResults.get(id);
@@ -378,7 +371,6 @@ async function testOne(server: HubServer) {
                 <span class="s-proto">{{ server.protocol === "telnet" ? "TEL" : "SSH" }}</span>
               </span>
               <span class="s-host">
-                <span class="dot" :class="testState(server.id)" />
                 <span class="txt">{{ store.displayAddr(server) }}</span>
               </span>
             </span>

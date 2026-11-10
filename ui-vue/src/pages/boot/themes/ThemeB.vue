@@ -96,7 +96,6 @@ function select(id: string) {
             <b>{{ loader.name }}</b>
             <small>{{ loader.entries.length }} 个条目</small>
           </span>
-          <i :class="['dot', loader.state]" />
         </button>
       </div>
     </aside>

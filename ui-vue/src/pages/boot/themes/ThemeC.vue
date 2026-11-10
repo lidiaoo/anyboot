@@ -84,7 +84,6 @@ function select(id: string) {
         :class="['lc-tab', { 'is-on': loader.id === current }]"
         @click="select(loader.id)"
       >
-        <i :class="['dot', loader.state]" />
         <span>{{ loader.name }}</span>
         <em>{{ loader.entries.length }}</em>
       </button>

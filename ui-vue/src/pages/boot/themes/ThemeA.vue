@@ -60,7 +60,6 @@ const activeOnly = computed(() => {
         :class="['la-chip', { 'is-on': loader.id === activeId }]"
         @click="focusLoader(loader.id)"
       >
-        <i :class="['dot', loader.state]" />
         <span class="nm">{{ loader.name }}</span>
         <em>{{ loader.entries.length }}</em>
       </button>
