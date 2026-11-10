@@ -5,7 +5,7 @@ const toast = useToastStore();
 import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { call } from "@/api/tauri";
+import { call, setLoaderMode } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
@@ -38,8 +38,31 @@ import { useToastStore } from "@/stores/toast";
  */
 
 const ui = useUiStateStore();
+const settings = useSettingsStore();
 
-const activePane = ref<"auto" | "manual">("auto");
+/** 自动 / 手动面板。**由后端 Settings.grubMode 驱动**（v0.2.5 同口径）：
+ *  切 tab 必须 set_loader_mode 落盘，否则后端还是 auto、列表/托盘判定不跟着变。 */
+const activePane = ref<"auto" | "manual">(
+  settings.grubMode === "manual" ? "manual" : "auto",
+);
+watch(
+  () => settings.grubMode,
+  (mode) => {
+    const want = mode === "manual" ? "manual" : "auto";
+    if (activePane.value !== want) activePane.value = want;
+  },
+);
+async function setGrubTab(name: "auto" | "manual"): Promise<void> {
+  const changed = activePane.value !== name;
+  activePane.value = name;
+  if (changed) {
+    try {
+      await setLoaderMode("grub", name);
+    } catch (e) {
+      ui.setBootNotice("切换读取方式失败：" + e, true);
+    }
+  }
+}
 
 /** 09_anyboot 脚本正文（旧版 #grub-script） */
 const scriptText = ref("");
@@ -54,7 +77,6 @@ function pickAutoCandidate(path: string) {
 }
 
 /** 列表格式（旧版 #grub-list-format） */
-const settings = useSettingsStore();
 
 function setFormat(format: string) {
   void call("set_grub_list_format", { format }).catch(() => {});
@@ -211,7 +233,7 @@ async function switchEntry(selector: string) {
         role="tab"
         :aria-selected="activePane === 'auto'"
         data-grub-tab="auto"
-        @click="activePane = 'auto'"
+        @click="setGrubTab('auto')"
       >
         自动读取
       </button>
@@ -223,7 +245,7 @@ async function switchEntry(selector: string) {
         role="tab"
         :aria-selected="activePane === 'manual'"
         data-grub-tab="manual"
-        @click="activePane = 'manual'"
+        @click="setGrubTab('manual')"
       >
         手动解析
       </button>

@@ -3,10 +3,10 @@
 const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
 const settings = useSettingsStore();
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { call } from "@/api/tauri";
+import { call, setLoaderMode } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import { simRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
@@ -37,8 +37,35 @@ import { useToastStore } from "@/stores/toast";
 
 const ui = useUiStateStore();
 
-/** 自动 / 手动面板（旧版 #refind-tabs） */
-const activePane = ref<"auto" | "manual">("auto");
+/** 自动 / 手动面板（旧版 #refind-tabs）。
+ *  **由后端 Settings.refindMode 驱动**（与 v0.2.5 同口径）：切 tab 必须
+ *  set_loader_mode 落盘，否则只改前端显示、后端 refindMode 还是 auto →
+ *  列表（BootList）/托盘的「自动 vs 手动」判定不跟着变，表现为「我改成手动了
+ *  却还显示自动扫描的条目」。
+ *  默认自动（用户 2026-10-29 定案「默认进自动」）。 */
+const activePane = ref<"auto" | "manual">(
+  settings.refindMode === "manual" ? "manual" : "auto",
+);
+// 后端设置变了（托盘/另一处改过 / 切换落盘后快照回来）→ 对账页签位置
+watch(
+  () => settings.refindMode,
+  (mode) => {
+    const want = mode === "manual" ? "manual" : "auto";
+    if (activePane.value !== want) activePane.value = want;
+  },
+);
+/** 用户点 tab：先切显示，再把读取方式落盘（后端 refindMode 是权威值）。 */
+async function setRefindTab(name: "auto" | "manual"): Promise<void> {
+  const changed = activePane.value !== name;
+  activePane.value = name;
+  if (changed) {
+    try {
+      await setLoaderMode("refind", name);
+    } catch (e) {
+      ui.setBootNotice("切换读取方式失败：" + e, true);
+    }
+  }
+}
 const varsDir = ref("");
 
 const sim = computed(() => ui.refindSim);
@@ -179,10 +206,13 @@ async function selectEntry(selector: string) {
           />
         </div>
 
+        <!-- 「被隐藏的 N 项」是**诊断信息**，不属于主列表 —— hide-list（引导器设置
+             折叠面板）里也必须能展开看到，否则用户只看到「N 项」却点开是空的
+             （用户报「被隐藏的项折叠没显示条目」）。所以这里去掉 v-if="!props.hideList"。 -->
         <details v-if="hiddenEntries.length" class="sim-scan-hidden" id="sim-scan-hidden">
           <summary>被隐藏的 <b id="sim-scan-hidden-count">{{ hiddenEntries.length }}</b> 项（rEFInd 菜单里看不到）</summary>
           <div class="sim-scan-list" id="sim-scan-hidden-list">
-            <GrubList v-if="!props.hideList" :entries="hiddenEntries" :active-selector="''" />
+            <GrubList :entries="hiddenEntries" :active-selector="''" />
           </div>
         </details>
       </section>
@@ -219,7 +249,7 @@ async function selectEntry(selector: string) {
         role="tab"
         :aria-selected="activePane === 'auto'"
         data-refind-tab="auto"
-        @click="activePane = 'auto'"
+        @click="setRefindTab('auto')"
       >
         自动扫描
       </button>
@@ -231,7 +261,7 @@ async function selectEntry(selector: string) {
         role="tab"
         :aria-selected="activePane === 'manual'"
         data-refind-tab="manual"
-        @click="activePane = 'manual'"
+        @click="setRefindTab('manual')"
       >
         手动处理
       </button>
