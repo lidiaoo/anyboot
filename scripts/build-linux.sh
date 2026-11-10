@@ -26,6 +26,38 @@ cd "$(dirname "$0")/.." || exit 1
 : "${ARCH:=$(uname -m)}"
 export ARCH
 
+# ── 先构建前端并生成 ui_assets.rs ─────────────────────────────────────────
+# 关键：`tauri build` 会 `include_str!` 编译期的 ui-vue/dist/**，而 src-tauri/
+# src/ui_assets.rs 是**生成文件**（记录每个 hash 文件名）。只要前端改过、dist 变了，
+# ui_assets.rs 必须跟着重生成；否则 cargo 报「couldn't read ui-vue/dist/assets/
+# chunks/xxx-<旧hash>.js: No such file or directory」（实测 23 个 error）。
+# 这里统一先跑一遍，省得每次手动 gen、也避免发布者踩同一个坑。
+echo "== [0/3] 前端构建 + 生成 ui_assets.rs"
+# 注意：本机 Node 16 跑不了 vite 6（crypto.getRandomValues 缺失），优先用 bun；
+# bun 也没有就回退到 npm run build:vue（需 Node≥19）。
+if command -v bun >/dev/null 2>&1; then
+  if [ ! -x node_modules/vite/bin/vite.js ]; then
+    echo "!! 缺 node_modules/vite，先 npm install（或 bun install）" >&2
+    exit 1
+  fi
+  bun run node_modules/vite/bin/vite.js build --config ui-vue/vite.config.ts || {
+    echo "!! 前端构建失败" >&2
+    exit 1
+  }
+elif command -v npm >/dev/null 2>&1; then
+  npm run build:vue || {
+    echo "!! 前端构建失败（Node<19 请装 bun）" >&2
+    exit 1
+  }
+else
+  echo "!! 需要 bun 或 npm 来构建前端" >&2
+  exit 1
+fi
+python3 scripts/gen-ui-assets.py || {
+  echo "!! 生成 ui_assets.rs 失败" >&2
+  exit 1
+}
+
 TAURI=(npx tauri build)
 BUNDLE_DIR="src-tauri/target/release/bundle"
 APPIMAGE_DIR="$BUNDLE_DIR/appimage"
