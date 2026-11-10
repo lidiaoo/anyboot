@@ -871,39 +871,38 @@ fn sort_by_mtime_desc(files: &mut [(String, std::time::SystemTime)]) {
 pub(crate) fn linux_grub_parts_from_cache(
     app: &tauri::AppHandle,
 ) -> (Vec<crate::channels::linux_grub::PartReport>, Option<String>) {
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    // **三端一致**：都从探测缓存读 ext4 分区清单（含 dir_listings 内核清单）。
+    //
+    // 以前 Linux 分支硬编码返回空 `(Vec::new(), None)` —— 设计时以为「Linux 本机
+    // 不需要 ext4 驱动模拟」。但 rEFInd 模拟菜单在 Linux 上同样要列出「各个 ext4
+    // 分区 boot/ 目录里的 vmlinuz 内核」，空数据导致 Linux 端 rEFInd 菜单比
+    // macOS/Windows 少整整一批 `Boot boot\vmlinuz* from <卷标>` 条目
+    // （用户报「扫描和 macOS 的引导条目数量不一致」，实测 Linux 14 / mac 22）。
+    // 现在统一读缓存：内存 → 磁盘 linux_probe_cache.json，都没有才给原因说明。
+    if let Some(cached) = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .ok()
+        .and_then(|state| state.linux_probe_cache.clone())
     {
-        if let Some(cached) = app
-            .state::<Mutex<AppState>>()
-            .lock()
-            .ok()
-            .and_then(|state| state.linux_probe_cache.clone())
-        {
-            return (cached.parts, cached.notes.first().cloned());
-        }
-        if let Some(disk) = crate::channels::linux_grub::load_probe_cache(app) {
-            if !disk.payload.parts.is_empty() {
-                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
-                    state.linux_probe_cache = Some(disk.payload.clone());
-                }
-                return (disk.payload.parts, disk.payload.notes.first().cloned());
+        return (cached.parts, cached.notes.first().cloned());
+    }
+    if let Some(disk) = crate::channels::linux_grub::load_probe_cache(app) {
+        if !disk.payload.parts.is_empty() {
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                state.linux_probe_cache = Some(disk.payload.clone());
             }
+            return (disk.payload.parts, disk.payload.notes.first().cloned());
         }
-        (
-            Vec::new(),
-            Some(
-                "还没探测过 Linux 分区（在 GRUB 区点一次「重新读取」，\
-                 或装好免密助手后点「重新模拟」）"
-                    .to_string(),
-            ),
-        )
     }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let _ = app;
-        (Vec::new(), None)
-    }
+    (
+        Vec::new(),
+        Some(
+            "还没探测过 Linux 分区（在 GRUB 区点一次「重新读取」，\
+             或装好免密助手后点「重新模拟」）"
+                .to_string(),
+        ),
+    )
 }
 
 /// 把 `EFI/refind/vars` 反推到 ESP 根（`vars` → `refind` → `EFI` → 根）。
