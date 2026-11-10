@@ -167,9 +167,30 @@ enum BootParser {
         for item in entries {
             let title = (item["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
             if title.isEmpty { continue }
-            let kind = (item["kind"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            options.append(BootOption(value: title, label: title,
-                                      kind: kind.isEmpty ? "linux" : kind))
+            let kindRaw = (item["kind"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+            let kind = kindRaw.isEmpty ? "linux" : kindRaw
+            // 折叠子屏（rEFInd fold_linux_kernels）：同分区多个内核在 children 里。
+            // 展开成平铺 option —— value 用**父条目 title 原文**（切到
+            // /api/switch?system=<父title> → 后端 resolve_sim_title 命中顶层条目
+            // → refind_sim_switch），label 显示「父条目 › 内核名」。
+            // 只展开「折叠的内核」子项（source=kernel）；macOS 诊断项等不展开。
+            let children = item["children"] as? [[String: Any]] ?? []
+            let kernelNames: [String] = children.compactMap { child in
+                let src = (child["source"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+                guard src == "kernel" else { return nil }
+                let ctitle = (child["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+                guard !ctitle.isEmpty else { return nil }
+                let cname = ctitle.components(separatedBy: ":").first?
+                    .trimmingCharacters(in: .whitespaces) ?? ctitle
+                return cname.isEmpty ? ctitle : cname
+            }
+            if !kernelNames.isEmpty {
+                for cname in kernelNames {
+                    options.append(BootOption(value: title, label: "\(title) › \(cname)", kind: kind))
+                }
+            } else {
+                options.append(BootOption(value: title, label: title, kind: kind))
+            }
             if (item["lastBoot"] as? Bool) == true && current.isEmpty { current = title }
         }
         if current.isEmpty {

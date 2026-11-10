@@ -3988,15 +3988,32 @@ class ComputerListActivity : ComponentActivity() {
             val item = entries.optJSONObject(i) ?: continue
             val title = optStr(item, "title").trim()
             if (title.isEmpty()) continue
-            val kind = optStr(item, "kind").trim()
+            val kind = optStr(item, "kind").trim().ifEmpty { "linux" }
             val isLastBoot = item.optBoolean("lastBoot", false)
-            options.add(
-                BootOption(
-                    value = title,
-                    label = title,
-                    kind = kind.ifEmpty { "linux" },
-                ),
-            )
+            // 折叠子屏（rEFInd fold_linux_kernels）：同一分区下的多个内核列在
+            // children 里。展开成平铺 option —— value 用**父条目 title 原文**
+            // （切到 /api/switch?system=<父title> → 后端 resolve_sim_title 命中
+            //  顶层条目 → refind_sim_switch），label 显示「父条目 › 内核名」可辨认。
+            // 只展开「折叠的内核」子项（source=kernel：ext4 分区里被 fold 的内核）。
+            // macOS 诊断项 / refind_linux.conf 变体等不算「可选内核」，不展开。
+            val children = item.optJSONArray("children")
+            val kernels = mutableListOf<String>()
+            if (children != null) {
+                for (ci in 0 until children.length()) {
+                    val child = children.optJSONObject(ci) ?: continue
+                    if (optStr(child, "source").trim() != "kernel") continue
+                    val ctitle = optStr(child, "title").trim()
+                    if (ctitle.isEmpty()) continue
+                    kernels.add(ctitle.substringBefore(":").trim().ifEmpty { ctitle })
+                }
+            }
+            if (kernels.isNotEmpty()) {
+                for (cname in kernels) {
+                    options.add(BootOption(value = title, label = "$title › $cname", kind = kind))
+                }
+            } else {
+                options.add(BootOption(value = title, label = title, kind = kind))
+            }
             if (isLastBoot && current.isEmpty()) current = title
         }
         if (current.isEmpty()) {
