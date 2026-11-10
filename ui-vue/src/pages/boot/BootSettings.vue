@@ -308,7 +308,10 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 
 <template>
   <div class="settings-page" ref="rootEl">
-    <!-- 免密提权（总入口）：从各 opencore 引导器设置挪到这里统一管理 -->
+    <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported）。
+         注意：下面「启动时使用管理员扫描 / Linux 分区扫描策略 / 启动免密提醒」三项
+         和助手无关，必须放**这个 v-if 外面**，否则 Linux/Windows 上 helper.supported=false
+         会把整块连同这些设置一起隐藏（用户报「settings-page 整个没显示」的根因）。 -->
     <section v-if="ui.state?.helper?.supported" class="card helper-card" id="helper-card">
       <div class="helper-card-row">
         <span class="helper-label">免密提权（root 助手）</span>
@@ -328,8 +331,11 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
         点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
       </small>
+    </section>
+    <!-- 扫描相关设置：所有平台都显示（与免密助手解耦，不受 helper.supported 影响） -->
+    <section class="card helper-card" id="scan-settings-card">
       <!-- 启动时使用管理员扫描（默认开）：开启后启动主动扫所有引导器 -->
-      <div class="helper-card-row" style="margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px">
+      <div class="helper-card-row">
         <span class="helper-label">启动时使用管理员扫描</span>
         <span class="grow" style="flex: 1"></span>
         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
@@ -372,7 +378,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
       </small>
       <!-- 免密助手提醒的取消提醒设置 -->
-      <div class="helper-card-row" style="margin-top: 8px">
+      <div class="helper-card-row" style="margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 10px">
         <span class="helper-label">启动免密提醒</span>
         <span class="grow" style="flex: 1"></span>
         <template v-if="snoozeLabel">
