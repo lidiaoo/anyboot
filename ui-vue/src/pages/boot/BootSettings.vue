@@ -361,61 +361,59 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
 
 <template>
   <div class="settings-page" ref="rootEl">
-    <!-- Linux 免密组件（polkit/sudo 助手）：仅 Linux 有。装一次后，
-         GRUB 自动读取 / 挂载 ESP / 免密扫描都能无感（不再每次弹密码）。 -->
-    <section v-if="privStatus && privStatus.platform" class="card helper-card" id="linux-priv-card">
-      <div class="helper-card-row">
-        <span class="helper-label">免密组件（Linux · polkit/sudo 助手）</span>
-        <span
-          class="helper-state"
-          :data-state="privBusy ? 'off' : (privStatus.state === 'ready' ? 'on' : (privStatus.state === 'outdated' || privStatus.state === 'stale') ? 'stale' : 'off')"
-        >{{ privBusy ? "处理中…" : privStateText }}</span>
-        <span class="grow" />
-        <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
-          <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
-          {{ privBusy
-              ? (privBusyAction === "uninstall" ? "关闭中…" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装中…" : "开启中…"))
-              : (privInstalled ? "关闭" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
-        </button>
-      </div>
-      <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-        免密组件仅电脑端(本机)可管理，移动端不支持开启/移除。
-      </small>
-      <small class="helper-hint">{{ privStatus.detail }}</small>
-      <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-        开启后「启动扫描 / GRUB 自动读取 / 只读挂载 ESP」都用免密助手，不再每次弹密码。
-        需要一次系统授权（{{ privStatus.hasPkexec ? "polkit 图形框" : (privStatus.hasSudo ? "sudo 密码" : "管理员权限") }}）；
-        授权条目写到 <code>{{ privStatus.sudoersPath }}</code>，可随时移除。
-      </small>
-    </section>
-    <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported）。
-         注意：下面「启动时使用管理员扫描 / Linux 分区扫描策略 / 启动免密提醒」三项
-         和助手无关，必须放**这个 v-if 外面**，否则 Linux/Windows 上 helper.supported=false
-         会把整块连同这些设置一起隐藏（用户报「settings-page 整个没显示」的根因）。 -->
-    <section v-if="ui.state?.helper?.supported" class="card helper-card" id="helper-card">
-      <div class="helper-card-row">
-        <span class="helper-label">免密提权（root 助手）</span>
-        <span class="helper-state" :data-state="helperBusy ? 'off' : (ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off')">
-          {{ helperBusy ? "处理中…" : (ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启") }}
-        </span>
-        <span class="grow" />
-        <button type="button" class="btn sm" :disabled="helperBusy || !isDesktop" @click="toggleBootHelper">
-          <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
-          {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴") }}
-        </button>
-      </div>
-      <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-        免密提权助手仅在电脑端(本机)可管理，移动端不支持开启/关闭。
-      </small>
-      <small class="helper-hint">{{ ui.state.helper.text }}</small>
-      <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-        点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
-      </small>
-    </section>
-    <!-- 扫描相关设置：所有平台都显示（与免密助手解耦，不受 helper.supported 影响） -->
+    <!-- 免密提权 + 扫描设置：合成**同一张卡片**。
+         免密提权本体分平台：Linux=polkit/sudo 组件，macOS=root 助手（二者同平台只显示其一）；
+         其下「启动时使用管理员扫描」「启动免密提醒」与助手无关，始终显示。 -->
     <section class="card helper-card" id="scan-settings-card">
-      <!-- 启动时使用管理员扫描（默认开）：开启后启动主动扫所有引导器 -->
-      <div class="helper-card-row">
+      <!-- 免密提权（Linux · polkit/sudo 助手） -->
+      <template v-if="privStatus && privStatus.platform">
+        <div class="helper-card-row">
+          <span class="helper-label">免密组件（Linux · polkit/sudo 助手）</span>
+          <span
+            class="helper-state"
+            :data-state="privBusy ? 'off' : (privStatus.state === 'ready' ? 'on' : (privStatus.state === 'outdated' || privStatus.state === 'stale') ? 'stale' : 'off')"
+          >{{ privBusy ? "处理中…" : privStateText }}</span>
+          <span class="grow" />
+          <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
+            <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
+            {{ privBusy
+                ? (privBusyAction === "uninstall" ? "关闭中…" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装中…" : "开启中…"))
+                : (privInstalled ? "关闭" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
+          </button>
+        </div>
+        <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
+          免密组件仅电脑端(本机)可管理，移动端不支持开启/移除。
+        </small>
+        <small class="helper-hint">{{ privStatus.detail }}</small>
+        <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+          开启后「启动扫描 / GRUB 自动读取 / 只读挂载 ESP」都用免密助手，不再每次弹密码。
+          需要一次系统授权（{{ privStatus.hasPkexec ? "polkit 图形框" : (privStatus.hasSudo ? "sudo 密码" : "管理员权限") }}）；
+          授权条目写到 <code>{{ privStatus.sudoersPath }}</code>，可随时移除。
+        </small>
+      </template>
+      <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported） -->
+      <template v-else-if="ui.state?.helper?.supported">
+        <div class="helper-card-row">
+          <span class="helper-label">免密提权（root 助手）</span>
+          <span class="helper-state" :data-state="helperBusy ? 'off' : (ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off')">
+            {{ helperBusy ? "处理中…" : (ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启") }}
+          </span>
+          <span class="grow" />
+          <button type="button" class="btn sm" :disabled="helperBusy || !isDesktop" @click="toggleBootHelper">
+            <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
+            {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴") }}
+          </button>
+        </div>
+        <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
+          免密提权助手仅在电脑端(本机)可管理，移动端不支持开启/关闭。
+        </small>
+        <small class="helper-hint">{{ ui.state.helper.text }}</small>
+        <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
+          点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
+        </small>
+      </template>
+      <!-- 启动时使用管理员扫描（默认开） -->
+      <div class="helper-card-row" style="margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 14px">
         <span class="helper-label">启动时使用管理员扫描</span>
         <span class="grow" style="flex: 1"></span>
         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
@@ -425,55 +423,54 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             :checked="ui.settings?.startupScanWithAdmin !== false"
             @change="toggleStartupAdminScan"
           />
-          <span style="font-size: 12px">{{ ui.settings?.startupScanWithAdmin !== false ? "已开启" : "已关闭" }}</span>
+          <span>{{ ui.settings?.startupScanWithAdmin !== false ? "已开启" : "已关闭" }}</span>
         </label>
       </div>
       <small class="helper-hint">
         开启后启动时自动扫描所有引导器（GRUB 自动 + rEFInd 内核）。未开启免密助手时会提示开启，
         也可在此取消提醒。
       </small>
-      <!-- Linux 分区扫描策略：**仅 Linux 显示**（macOS/Windows 一律裸读，不展示该选项）。
-           选中态用 .seg button.is-on 明显高亮。 -->
-      <template v-if="isLinux">
-        <div class="helper-card-row" style="margin-top: 10px">
-          <span class="helper-label">Linux 分区扫描策略</span>
-        </div>
-        <div class="seg" role="group" aria-label="Linux 分区扫描策略" style="margin-top: 6px">
-          <button
-            v-for="m in LINUX_EXT4_MODES"
-            :key="m.key"
-            type="button"
-            :class="{ 'is-on': linuxExt4Mode === m.key }"
-            :aria-pressed="linuxExt4Mode === m.key"
-            :title="m.hint"
-            @click="pickLinuxExt4Mode(m.key)"
-          >
-            {{ m.label }}
-          </button>
-        </div>
-        <small class="helper-hint" style="display:block; margin-top:4px;">
-          {{ linuxExt4Hint }}
-        </small>
-        <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
-          注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
-        </small>
-      </template>
-      <!-- 免密助手提醒的取消提醒设置 -->
-      <div class="helper-card-row" style="margin-top: 12px">
+      <!-- 启动免密提醒（取消提醒设置） -->
+      <div class="helper-card-row" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 14px">
         <span class="helper-label">启动免密提醒</span>
         <span class="grow" style="flex: 1"></span>
         <template v-if="snoozeLabel">
-          <span style="font-size: 12px; color: var(--text-faint); margin-right: 8px">{{ snoozeLabel }}</span>
+          <span style="color: var(--text-faint); margin-right: 8px">{{ snoozeLabel }}</span>
           <button type="button" class="btn sm ghost" @click="clearSnooze">恢复提醒</button>
         </template>
         <template v-else>
-          <span style="font-size: 12px; color: var(--text-faint); margin-right: 8px">取消提醒：</span>
+          <span style="color: var(--text-faint); margin-right: 8px">取消提醒：</span>
           <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">1天</button>
           <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">7天</button>
           <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">30天</button>
           <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">永久</button>
         </template>
       </div>
+    </section>
+    <!-- Linux 分区扫描策略：**单独一张卡片**（仅 Linux 显示） -->
+    <section v-if="isLinux" class="card helper-card" id="linux-scan-card">
+      <div class="helper-card-row">
+        <span class="helper-label">Linux 分区扫描策略</span>
+      </div>
+      <div class="seg" role="group" aria-label="Linux 分区扫描策略" style="margin-top: 6px">
+        <button
+          v-for="m in LINUX_EXT4_MODES"
+          :key="m.key"
+          type="button"
+          :class="{ 'is-on': linuxExt4Mode === m.key }"
+          :aria-pressed="linuxExt4Mode === m.key"
+          :title="m.hint"
+          @click="pickLinuxExt4Mode(m.key)"
+        >
+          {{ m.label }}
+        </button>
+      </div>
+      <small class="helper-hint" style="display:block; margin-top:4px;">
+        {{ linuxExt4Hint }}
+      </small>
+      <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
+        注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
+      </small>
     </section>
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
     <div class="k">

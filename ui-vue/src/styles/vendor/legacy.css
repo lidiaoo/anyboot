@@ -5424,3 +5424,10 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600;
 }
 #scan-settings-card .seg button.is-on:hover { background: var(--accent); color: #fff; }
+
+/* Linux 分区扫描策略独立卡片：字体与其它设置卡统一 */
+#linux-scan-card { font-size: 13px; }
+#linux-scan-card .helper-label { font-size: 13px; font-weight: 600; color: var(--text); }
+#linux-scan-card .helper-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--faint); line-height: 1.5; }
+#linux-scan-card .seg button { font-size: 13px; }
+#linux-scan-card .seg button.is-on { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
