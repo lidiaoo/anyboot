@@ -3,7 +3,6 @@ import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import LoaderIcon from "./LoaderIcon.vue";
-import StateChip from "./StateChip.vue";
 import type { LoaderInfo } from "./types";
 const collapsed = ref(false);
 /** 小屏：底部设置块默认收起，点标题展开（宽屏忽略此状态，常展开） */
@@ -97,7 +96,6 @@ const healthText = computed(() => {
         <template v-if="activeLoader">
           <LoaderIcon :id="activeLoader.id" size="sm" />
           <b>{{ activeLoader.name }}</b>
-          <StateChip :state="activeLoader.state" />
         </template>
         <template v-else>没有分配到引导器</template>
       </div>

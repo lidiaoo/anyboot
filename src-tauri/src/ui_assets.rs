@@ -4,19 +4,18 @@
 // 手机端「电脑页」与浏览器远程访问走的就是这张表。
 //
 // 源目录：ui-vue/dist/
-// 条目数：45
+// 条目数：44
 
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/AboutPage-Bex2L6sA.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-Bex2L6sA.js")),
-    ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-BsVH2bWf.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-BsVH2bWf.js")),
-    ("assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-CLhKSw1y.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/StateChip.vue_vue_type_script_setup_true_lang-CLhKSw1y.js")),
-    ("assets/chunks/ThemeA-B_P3Fzof.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-B_P3Fzof.js")),
-    ("assets/chunks/ThemeB-Ca019Bbj.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-Ca019Bbj.js")),
-    ("assets/chunks/ThemeC-BJgk7NRq.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-BJgk7NRq.js")),
-    ("assets/chunks/ThemeG-Teps9Qxi.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-Teps9Qxi.js")),
-    ("assets/chunks/ThemeI-BrfgY8yz.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-BrfgY8yz.js")),
-    ("assets/chunks/ThemeJ-BFLgz2KY.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-BFLgz2KY.js")),
+    ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-BEYSR9Uc.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-BEYSR9Uc.js")),
+    ("assets/chunks/ThemeA-DiFXKb-u.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-DiFXKb-u.js")),
+    ("assets/chunks/ThemeB-DSudMYQx.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-DSudMYQx.js")),
+    ("assets/chunks/ThemeC-DaTB4pRJ.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeC-DaTB4pRJ.js")),
+    ("assets/chunks/ThemeG-D2pQd4kI.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeG-D2pQd4kI.js")),
+    ("assets/chunks/ThemeI-CBMB8UJG.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeI-CBMB8UJG.js")),
+    ("assets/chunks/ThemeJ-BPTHvG_d.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeJ-BPTHvG_d.js")),
     ("assets/chunks/_plugin-vue_export-helper-BKlMFlCs.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-BKlMFlCs.js")),
     ("assets/chunks/app-DmTcq6hB.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/app-DmTcq6hB.js")),
     ("assets/chunks/event-C9osFMpP.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-C9osFMpP.js")),
@@ -35,7 +34,7 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/hub-term-BNEwd_mL.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term-BNEwd_mL.js")),
     ("assets/hub-term-Cxbz2RYo.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term-Cxbz2RYo.css")),
     ("assets/index-CPxFfevo.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/index-CPxFfevo.css")),
-    ("assets/index-DdZvqsPL.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/index-DdZvqsPL.js")),
+    ("assets/index-Odq5t8qN.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/index-Odq5t8qN.js")),
     ("hub-backup.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub-backup.html")),
     ("hub-files.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub-files.html")),
     ("hub-keys.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub-keys.html")),
