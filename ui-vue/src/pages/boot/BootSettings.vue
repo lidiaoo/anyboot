@@ -26,8 +26,6 @@ import { useToastStore } from "@/stores/toast";
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
-
-const setListOpen = ref(false);
 /** 旧版 moveLoader（boot-adv.js）：order 内上/下移一位 */
 function moveLoader(id: LoaderId, delta: number) {
   const order = [...adv.state.order];
@@ -61,10 +59,6 @@ function loaderDefault(id: string): string {
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
   return loaderMeta(id).mono;
-}
-/** 引导器权限类型（file/nvram）——旧版免提权/需提权判定 */
-function loaderPerm(id: string): string {
-  return loaderMeta(id).perm;
 }
 /** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
 const helperBusy = ref(false);
@@ -565,37 +559,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
           <span class="grow" />
           <span class="hint">预演与「系统引导」页同一份真实数据（只读示意）· 界面效果以「系统引导」页实际为准</span>
         </div>
-        <!-- 引导器设置（k-setlist 折叠条） -->
-        <button
-          type="button"
-          class="k-setbar"
-          :class="{ 'is-on': setListOpen }"
-          title="展开/收起 引导器设置（ESP 路径 / 权限 / 默认项 / 脚本 / 免密模式）"
-          @click="setListOpen = !setListOpen"
-        >
-          <span class="gear" aria-hidden="true">⚙</span>
-          <span class="k-setbar-t">引导器设置</span>
-          <span class="hint">ESP 路径 · 权限 · 默认项 · 脚本 · 免密模式</span>
-          <span class="grow" />
-          <span class="chevron car" :class="{ open: setListOpen }">⌄</span>
-        </button>
-        <div class="k-setlist" :class="{ 'is-on': setListOpen }" :hidden="!setListOpen">
-          <template v-if="adv.state.order.some((x) => adv.state.visible[x])">
-            <div v-for="id in adv.state.order.filter((x) => adv.state.visible[x])" :key="id" class="k-set-row">
-              <span class="ldr" aria-hidden="true">{{ loaderMono(id) }}</span>
-              <span class="k-set-nm">{{ loaderMeta(id).name }}</span>
-              <span class="chip">ESP · {{ loaderEsp(id) || '未知' }}</span>
-              <span v-if="loaderPerm(id) === 'nvram'" class="chip elev">需提权</span>
-              <span v-else class="chip ok">免提权</span>
-              <span class="chip">默认项 · {{ loaderDefault(id) }}</span>
-              <span class="chip">脚本 · {{ id === 'grub' ? '09_anyboot' : '不适用' }}</span>
-              <span class="chip">免密 · {{ id === 'opencore' ? '未开启' : '不适用' }}</span>
-              <span class="grow" />
-              <button type="button" class="btn xs ghost" :title="'打开 ' + loaderMeta(id).name + ' 详细设置'">⚙</button>
-            </div>
-          </template>
-          <div v-else class="k-set-row">没有启用的引导器 —— 点上方标签开启后再设置</div>
-        </div>
+
       </div>
     </div>
     <!-- 预演面板（旧版：bootThemeStage → .k-stage + lg-side 选中项；真实区块由 ThemeHost slot 承接） -->
