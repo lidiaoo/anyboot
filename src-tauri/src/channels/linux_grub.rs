@@ -822,8 +822,37 @@ fn probe_via_helper(
 pub(crate) fn parts_for_sim(app: &AppHandle) -> (Vec<PartReport>, Option<String>) {
     #[cfg(target_os = "linux")]
     {
-        let _ = app;
-        (Vec::new(), None)
+        // **读缓存，绝不现探**：启动扫描 / 每次 refresh 重算预演都会走这里，
+        // 为它现探 ext4 裸设备（4~5 秒 + 要提权）既慢又会在开机弹授权框。
+        // 以前这里硬编码返回空 → Linux 启动后 rEFInd 永远列不出 ext4 内核
+        // （「点重新模拟才出来、启动没出来」的真根因：重新模拟走 refind_sim_scan
+        // 会现探填缓存，而启动走的是这条空分支）。
+        // 现在与 macOS/Windows 同口径：内存缓存 → 磁盘 linux_probe_cache.json 兜底；
+        // 都没有才给一句说明（引导用户去点「重新读取」扫一次，之后启动就能命中缓存）。
+        if let Some(cached) = app
+            .state::<Mutex<AppState>>()
+            .lock()
+            .ok()
+            .and_then(|state| state.linux_probe_cache.clone())
+        {
+            return (cached.parts, cached.notes.first().cloned());
+        }
+        if let Some(disk) = load_probe_cache(app) {
+            if !disk.payload.parts.is_empty() {
+                if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
+                    state.linux_probe_cache = Some(disk.payload.clone());
+                }
+                return (disk.payload.parts, disk.payload.notes.first().cloned());
+            }
+        }
+        (
+            Vec::new(),
+            Some(
+                "还没探测过 Linux 分区（启动扫描会按「启动时使用管理员扫描」开关补上；\
+                 或点一次「重新读取」扫出内核，之后启动即命中缓存）"
+                    .to_string(),
+            ),
+        )
     }
 
     #[cfg(target_os = "windows")]
