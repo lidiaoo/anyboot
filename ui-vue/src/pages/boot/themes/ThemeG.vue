@@ -278,9 +278,7 @@ const selectedLoaderState = computed(
             v-if="selectedEntry"
             type="button"
             class="lg-item grub-entry is-pinned active"
-            :class="{ 'is-readonly': selectedEntry.readonly }"
-            :disabled="selectedEntry.readonly"
-            @click="!selectedEntry.readonly && adv.setSelection(selected!.loader as any, selected!.selector)"
+            @click="adv.setSelection(selected!.loader as any, selected!.selector)"
           ><span class="grub-entry-name">{{ selectedEntry.name }}</span></button>
           <template v-for="g in results" :key="g.loader.id">
             <div v-if="g.entries.length" class="lg-group">{{ g.loader.name }} · {{ g.entries.length }} 项</div>
@@ -289,9 +287,9 @@ const selectedLoaderState = computed(
               :key="g.loader.id + ':' + e.selector"
               type="button"
               class="lg-item grub-entry"
-              :class="[{ active: selected && selected.loader === g.loader.id && selected.selector === e.selector }, { 'is-readonly': e.readonly }]"
-              :disabled="!!e.readonly"
-              @click="!e.readonly && adv.setSelection(g.loader.id as any, e.selector || '')"
+              :class="[{ active: selected && selected.loader === g.loader.id && selected.selector === e.selector }, { 'is-readonly': e.readonly && !(selected && selected.loader === g.loader.id && selected.selector === e.selector) }]"
+              :disabled="!!e.readonly && !(selected && selected.loader === g.loader.id && selected.selector === e.selector)"
+              @click="(!e.readonly || (selected && selected.loader === g.loader.id && selected.selector === e.selector)) && adv.setSelection(g.loader.id as any, e.selector || '')"
             >
               <span class="grub-entry-name">{{ e.name }}</span>
             </button>

@@ -124,8 +124,9 @@ const classes = computed(() => [
   props.depth >= 2 ? `depth-${props.depth}` : "",
   props.active ? "active" : "",
   props.pinned ? "is-pinned" : "",
-  // 不可选中的行（组子项 readonly / 有动作在跑 disabled）统一置灰
-  !props.group && (props.entry.readonly || props.disabled) ? "is-readonly" : "",
+  // 不可选中的行统一置灰。**但 active（当前已选中）绝不置灰** —— 它是可用的，
+  // 只是「点自己没有切换意义」，不代表不可选（旧版 active 行也只是不重复切换）。
+  !props.group && !props.active && (props.entry.readonly || props.disabled) ? "is-readonly" : "",
 ]);
 
 function onClick() {
@@ -140,7 +141,7 @@ function onClick() {
     type="button"
     :data-row-selector="entry.selector ?? ''"
     :class="classes"
-    :disabled="group || disabled || entry.readonly"
+    :disabled="group || disabled || (entry.readonly && !active)"
     :title="entry.selector || ''"
     @click="onClick"
   >
