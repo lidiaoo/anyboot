@@ -717,6 +717,9 @@ async fn apfs_scan_elevated(
     // 预演，前端那句「提权扫描完成，本页已刷新」就是空话（真机踩过：扫描
     // 结果文件里明明有 MAC，页面死活不出现）。
     channels::refresh_channels(&app);
+    // rEFInd 预演（refindSim）是另一条链路，refresh_channels 不覆盖它 ——
+    // 不补这一步，用户「重扫 macOS 条目」后 rEFInd 菜单里的 Boot macOS 仍不出现。
+    let _ = channels::refind_menu::refresh_sim(&app);
     outcome
 }
 

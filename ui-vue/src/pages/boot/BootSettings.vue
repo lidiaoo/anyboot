@@ -90,6 +90,7 @@ const privStatus = computed<LinuxPrivStatus | null>(() => {
   return lp ?? null;
 });
 const privBusy = ref(false);
+
 /** 进行中的动作：install / uninstall，用来决定按钮显示「开启中…」「关闭中…」 */
 const privBusyAction = ref<"install" | "uninstall" | "">("");
 /** Linux 免密状态一句话 + 是否需要「安装」按钮 */

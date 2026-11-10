@@ -261,6 +261,19 @@ fn refind_sim_scan_blocking(app: tauri::AppHandle) -> Option<SimPreview> {
             crate::channels::Elevation::Allow,
         );
     }
+    // 顺带把 macOS（APFS Preboot）条目一起补上：**合并进「重新读取」**，不设单独按钮。
+    // Linux/Windows 不挂载 APFS，rEFInd 的 scan_volume 读不到 boot.efi，靠零挂载直读
+    // 容器 Preboot —— 这一步要授权，正好借用户主动点「重新读取」这一拍（Elevation::Allow
+    // → 统一提权阶梯：免密助手 → pkexec → sudo）。读成功会写进程内缓存，随后 preview 命中；
+    // 失败不致命（preview 会给「点重新读取补齐」的 issue，但用户此刻已经点了，就如实报）。
+    // macOS 本机不需要（scan_volume 从 /Volumes 直接读到）。重复触发只是吃缓存，很轻。
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = crate::channels::apfs_reader::scan_preboot_elevated(
+            false,
+            crate::channels::Elevation::Allow,
+        );
+    }
     let sim = refresh_sim_with(&app, true);
     publish_ui(&app);
     sim
@@ -1026,6 +1039,85 @@ pub(crate) fn preview(
                 previous_boot.as_deref(),
                 &mut entries,
             );
+        }
+    }
+
+    // macOS 条目（APFS Preboot）：rEFInd 的 macOS 检测（scan_volume 里查
+    // System/Library/CoreServices/boot.efi）只看**已挂载**卷 —— Linux/Windows 上
+    // APFS 不挂载，所以那条永远扫不到，「Boot macOS from <卷标>」凭空消失
+    // （用户报「Linux/Windows 的 rEFInd 条目比 macOS 少一条 Boot macOS from MAC」）。
+    // 这里用 apfs_reader 零挂载直读容器分区补上，与 oc_menu 的 macOS 条目同源。
+    // macOS 本机不用补（scan_volume 已从挂载的 /Volumes 读到）。
+    #[cfg(not(target_os = "macos"))]
+    if scan_efi {
+        // 先吃提权重扫缓存（用户在「重扫 macOS 条目」里授权过就有），再试非提权直读。
+        // 非提权读 APFS 容器裸设备在 Linux/Windows 上通常权限不够 —— 读不到不是致命，
+        // 下面会如实给一条 issue 指引用户去重扫，绝不静默让 macOS 条目凭空消失。
+        let preboot = match super::apfs_reader::cached_preboot() {
+            Some(items) => items,
+            None => match super::apfs_reader::scan_preboot() {
+                Ok(items) => items,
+                Err(reason) => {
+                    issues.push(HealthIssue {
+                        severity: "info".to_string(),
+                        text: format!(
+                            "macOS 条目（APFS Preboot）这次没读出来：{reason}——\
+                             读 APFS 容器需要管理员权限，点「重扫 macOS 条目」（会请求一次授权）补齐"
+                        ),
+                    });
+                    Vec::new()
+                }
+            },
+        };
+        for item in preboot {
+            if !item.has_boot_efi {
+                continue; // 与 macOS 侧同语义：没有 boot.efi 不列条目
+            }
+            let label = item
+                .label
+                .clone()
+                .filter(|text| !text.trim().is_empty())
+                .unwrap_or_else(|| format!("macOS（{}）", &item.uuid[..8.min(item.uuid.len())]));
+            if config
+                .dont_scan_volumes
+                .iter()
+                .any(|blocked| blocked.eq_ignore_ascii_case(&label))
+            {
+                continue;
+            }
+            // 若这个 macOS 卷已经被 scan_volume 从上读到了（比如 Windows 挂了 APFS），
+            // 不重复补 —— 用标题前缀去重。
+            let title = if label.is_empty() {
+                "Boot macOS ".to_string()
+            } else {
+                format!("Boot macOS from {label} ")
+            };
+            if entries
+                .iter()
+                .any(|e| e.kind == "macos" && e.title.trim() == title.trim())
+            {
+                continue;
+            }
+            let path = "System\\Library\\CoreServices\\boot.efi".to_string();
+            let mac_root = Path::new("/");
+            let mut children = vec![default_child()];
+            children.extend(macos_children(mac_root));
+            entries.push(SimEntry {
+                title: title.clone(),
+                kind: "macos".to_string(),
+                source: "macos".to_string(),
+                volume: label.clone(),
+                path: path.clone(),
+                hidden: false,
+                last_boot: matches_previous(previous_boot.as_deref(), &format!("Boot macOS from {label}")),
+                hidden_by: None,
+                note: Some(
+                    "macOS 系统卷的引导文件在 APFS Preboot 里（AnyBoot 零挂载直读容器分区翻出来的，不写盘）"
+                        .to_string(),
+                ),
+                children,
+                subscreen: Some(format!("Boot Options for {path} on {label}")),
+            });
         }
     }
 

@@ -2470,7 +2470,20 @@ pub(crate) fn scan_blocking(
     elevation: Elevation,
 ) -> Option<LinuxGrubView> {
     // 「重新读取」/远程请求 = 用户主动扫 → 强制刷新，跳过磁盘缓存
-    Some(refresh_force(&app, target.as_deref(), elevation))
+    let view = refresh_force(&app, target.as_deref(), elevation);
+    // 用户主动「重新读取」（Allow，非自动扫）时，顺带补 macOS（APFS Preboot）条目 ——
+    // 合并进同一个按钮，不设单独的「重扫 macOS 条目」。Linux/Windows 不挂载 APFS，
+    // 靠零挂载直读容器，需授权；正好借这一拍（统一提权阶梯）。Silent 自动扫不碰它。
+    #[cfg(not(target_os = "macos"))]
+    if !elevation.is_silent() {
+        let _ = crate::channels::apfs_reader::scan_preboot_elevated(
+            false,
+            crate::channels::Elevation::Allow,
+        );
+        // APFS 缓存刚填上，重算一次 rEFInd 预演，macOS 条目才会跟着出现
+        let _ = crate::channels::refind_menu::refresh_sim(&app);
+    }
+    Some(view)
 }
 
 /// 「换一个」：记住用户选的分区，然后立刻按它重扫。
