@@ -174,7 +174,7 @@ async function refreshAuto() {
     }
     // 统一文案：扫描不到条目只提示「GRUB」扫描完成，但没有识别到条目（不标红、不带长诊断）。
     if (okN > 0) {
-      ui.setBootNotice(`「GRUB」扫描完成：识别到 ${okN} 个启动项`);
+      ui.setBootNotice(`「GRUB」扫描完成，识别到 ${okN} 条`);
     } else if (lastErr) {
       ui.setBootNotice("「GRUB」扫描失败：" + lastErr, true);
     } else {

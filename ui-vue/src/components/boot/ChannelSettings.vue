@@ -28,7 +28,7 @@ async function refreshChannel() {
     }
     // 统一文案：带引导器名，「X」扫描完成，但没有识别到条目（不标红）。
     const lname = loaderMeta(props.loader).name;
-    if (n > 0) ui.setBootNotice(`「${lname}」扫描完成：识别到 ${n} 个条目`);
+    if (n > 0) ui.setBootNotice(`「${lname}」扫描完成，识别到 ${n} 条`);
     else ui.setBootNotice(`「${lname}」扫描完成，但没有识别到条目`);
   } catch (e) {
     ui.setBootNotice("重新读取失败：" + e, true);

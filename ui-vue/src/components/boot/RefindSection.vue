@@ -113,7 +113,7 @@ async function refreshSim() {
     }
     // 统一文案：扫描不到任何条目时只提示「rEFInd」扫描完成，但没有识别到条目
     // （不再带一长串诊断/error，也不标红 —— 没装/没条目是正常状态）。
-    if (okN > 0) ui.setBootNotice(`「rEFInd」扫描完成：识别到 ${okN} 个启动项`);
+    if (okN > 0) ui.setBootNotice(`「rEFInd」扫描完成，识别到 ${okN} 条`);
     else if (lastErr) ui.setBootNotice("「rEFInd」扫描失败：" + lastErr, true);
     else { void last; ui.setBootNotice("「rEFInd」扫描完成，但没有识别到条目"); }
   } catch (e) {
