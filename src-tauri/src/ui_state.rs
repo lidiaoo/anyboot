@@ -68,6 +68,9 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
         channels,
         // 免密助手状态：只做文件检查（每次快照都调，不能在这里试探性写 NVRAM）
         helper: crate::helper_install::view(),
+        // Linux 免密组件状态：同样只做文件/元数据检查（廉价，可每次快照都算）。
+        // 进快照后，装完 / 切标签 / 任何 publish_ui 都会带最新值。
+        linux_priv: crate::linux_priv::linux_priv_status(),
         docked: {
             let state = app.state::<Mutex<AppState>>();
             state

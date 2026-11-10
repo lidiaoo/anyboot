@@ -561,6 +561,11 @@ pub(crate) struct UiState {
     pub(crate) channels: Vec<channels::ChannelView>,
     /// 免密写 NVRAM 的 root 助手状态（装没装、为什么）。前端只在 OC 卡片里显示。
     pub(crate) helper: crate::helper_install::HelperView,
+    /// Linux 免密组件（polkit/sudo 助手）状态：装没装 / ready / outdated。
+    /// 放进快照而不是单独命令 —— 单独命令前端只在进页面时读一次，装完 / 切标签
+    /// 都不会刷新（用户报「点开启后数据不刷新、切标签也没用」）。进快照后任何
+    /// publish_ui 都会带最新值，前端响应式自动更新。
+    pub(crate) linux_priv: crate::linux_priv::PrivStatus,
     /// 当前生效的 09_anyboot 正文（供界面「查看 / 修改」用）
     pub(crate) grub_script: String,
     /// 主窗口当前是否处于「贴边隐藏」态（前端据此在窗口边界画一条白条）

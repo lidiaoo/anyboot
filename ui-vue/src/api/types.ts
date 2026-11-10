@@ -9,6 +9,9 @@
  * 界面读不到新字段（TS 不报错、运行时是 undefined）。改完跑 `npm run typecheck`。
  */
 
+import type { LinuxPrivStatus } from "./tauri";
+
+
 // ---------------------------------------------------------------------------
 // 基础
 // ---------------------------------------------------------------------------
@@ -377,6 +380,7 @@ export interface UiState {
   grub: GrubView;
   channels: ChannelView[];
   helper: HelperView;
+  linuxPriv: LinuxPrivStatus;
   grubScript: string;
   docked: boolean;
   dockEdge: string | null;

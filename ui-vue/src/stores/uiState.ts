@@ -365,6 +365,8 @@ export const useUiStateStore = defineStore("uiState", () => {
   const channels = computed(() => state.value?.channels ?? []);
   const refindSim = computed(() => state.value?.refindSim ?? null);
   const linuxGrub = computed(() => state.value?.linuxGrub ?? null);
+  /** Linux 免密组件状态（来自快照，随 publish_ui 实时更新） */
+  const linuxPriv = computed(() => state.value?.linuxPriv ?? null);
   const busy = computed(() => state.value?.busy ?? null);
   const http = computed(() => state.value?.http ?? null);
 
@@ -379,6 +381,7 @@ export const useUiStateStore = defineStore("uiState", () => {
     channels,
     refindSim,
     linuxGrub,
+    linuxPriv,
     busy,
     http,
     // 传输

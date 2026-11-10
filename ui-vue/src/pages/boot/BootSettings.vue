@@ -10,7 +10,7 @@ import ThemeHost from "@/pages/boot/themes/index.vue";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
-import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri, linuxPrivStatus, linuxPrivInstall, linuxPrivUninstall, type LinuxPrivStatus } from "@/api/tauri";
+import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri, linuxPrivInstall, linuxPrivUninstall, type LinuxPrivStatus } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
@@ -82,23 +82,15 @@ async function toggleStartupAdminScan(): Promise<void> {
 const currentOs = computed(() => String(ui.settings?.os ?? ""));
 const isLinux = computed(() => currentOs.value === "linux");
 
-/** Linux 免密组件（polkit/sudo 助手）状态：仅 Linux 有，其它平台恒 null */
-const privStatus = ref<LinuxPrivStatus | null>(null);
+/** Linux 免密组件（polkit/sudo 助手）状态：**从 UI 快照读**（响应式）。
+ *  放快照而不是进页面时请求一次 —— 后者装完 / 切标签都不会刷新
+ *  （用户报「点开启后数据不刷新、切标签也没用」）。 */
+const privStatus = computed<LinuxPrivStatus | null>(() => {
+  const lp = ui.linuxPriv as LinuxPrivStatus | null | undefined;
+  return lp ?? null;
+});
 const privBusy = ref(false);
 const privBusyLabel = ref("");
-async function refreshPrivStatus(): Promise<void> {
-  // 注意：**不要**判 isTauri() 或 isLinux() ——
-  // · 网页/手机端走 HTTP 桥也能读 linux_priv_status；判 isTauri() 会永远 return、
-  //   privStatus 恒 null、整张卡不渲染（用户报「免密设置没显示」的根因）。
-  // · 后端在非 Linux 上返回 platform=false，由模板用 privStatus.platform 判，
-  //   不依赖前端自己推平台（更可靠）。
-  // 读状态是只读操作，任何端都该能看；只有「安装/移除」按钮按 isDesktop 禁用。
-  try {
-    privStatus.value = await linuxPrivStatus();
-  } catch {
-    /* 读不到就不显示细节，不阻塞页面 */
-  }
-}
 /** Linux 免密状态一句话 + 是否需要「安装」按钮 */
 const privStateText = computed(() => {
   const st = privStatus.value;
@@ -118,9 +110,13 @@ async function toggleLinuxPriv(): Promise<void> {
   privBusy.value = true;
   privBusyLabel.value = install ? "安装中…（可能弹出系统授权框）" : "移除中…";
   try {
-    privStatus.value = install
-      ? await linuxPrivInstall(null)
-      : await linuxPrivUninstall(null);
+    // 后端 install/uninstall 内部会 publish_ui（带最新 linuxPriv 快照），
+    // 前端 ui.linuxPriv 自动更新；这里不再手动赋值（privStatus 是 computed）。
+    if (install) {
+      await linuxPrivInstall(null);
+    } else {
+      await linuxPrivUninstall(null);
+    }
     toast.show(install ? "Linux 免密组件已开启" : "Linux 免密组件已移除");
   } catch (e) {
     toast.show("操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
@@ -193,7 +189,6 @@ const errorText = ref("");
 const varsDirInput = ref("");
 
 onMounted(() => {
-  void refreshPrivStatus();
   varsDirInput.value = ui.status?.varsDir ?? "";
 });
 

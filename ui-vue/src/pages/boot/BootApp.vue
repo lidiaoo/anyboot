@@ -6,7 +6,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
-import { runStartupAdminScan, isTauri } from "@/api/tauri";
+import { runStartupAdminScan, isTauri, linuxPrivStatus } from "@/api/tauri";
 import HelperPrompt from "@/components/boot/HelperPrompt.vue";
 import TokenPrompt from "@/components/boot/TokenPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
@@ -217,8 +217,25 @@ onMounted(async () => {
       const s = ui.settings;
       if (!s || s.startupScanWithAdmin === false) return; // 取消勾选：不用 root 扫
       if (ui.linuxGrub?.entries?.length) return; // 已有数据不再扫
-      const h = ui.state?.helper;
-      const helperReady = Boolean(h?.installed && !h?.stale);
+      // 免密是否就绪：**按平台**判。
+      // macOS 看 launchd 助手（helper.installed && !stale）；
+      // Linux 看 polkit/sudo 免密组件（linux_priv_status.state === "ready"）。
+      // 以前一律看 helper.installed —— Linux 上那是 macOS 的视图、恒 false，
+      // 于是免密组件明明已装好，启动还是每次弹「开启免密」窗（点了因为已装好而秒返回，
+      // 观感就是「点了没反应」）。
+      let helperReady = false;
+      const osName = String((ui.settings as { os?: string } | null)?.os ?? "");
+      if (osName === "linux") {
+        try {
+          const priv = await linuxPrivStatus();
+          helperReady = priv?.platform === true && priv?.state === "ready";
+        } catch {
+          helperReady = false;
+        }
+      } else {
+        const h = ui.state?.helper;
+        helperReady = Boolean(h?.installed && !h?.stale);
+      }
       if (helperReady) {
         await runStartupAdminScan(false).catch(() => {}); // 免密就绪：静默扫
         return;

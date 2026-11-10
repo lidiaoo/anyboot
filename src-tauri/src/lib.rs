@@ -2451,6 +2451,7 @@ fn set_close_action(app: AppHandle, action: String) -> Result<SettingsView, Stri
 /// （之前只 refresh 设置不推快照 → 点完 installed 状态不变，用户以为没生效）。
 #[tauri::command]
 async fn boot_helper(app: AppHandle, action: String) -> Result<String, String> {
+    trace(&app, "command", &format!("boot_helper action={action}"));
     // 按平台分流：macOS 走 launchd 免密助手（helper_install）；Linux 走
     // polkit/sudo 免密组件（linux_priv）。以前不分平台一律调 helper_install，
     // 于是 Linux 上点「开启免密助手」永远报「这个平台没有免密助手」（用户报的 bug）。
