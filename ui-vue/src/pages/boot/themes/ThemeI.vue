@@ -125,12 +125,6 @@ const heroValue = computed(() => {
   return id;
 });
 
-const heroSource = computed(() => {
-  const loader = heroLoader.value;
-  if (!loader) return "没有启用的引导器";
-  return `${loader.name} → ${loader.esp || "ESP"}`;
-});
-
 const sheetLoader = computed(
   () => props.loaders.find((item) => item.id === sheetLid.value) ?? null,
 );
@@ -151,14 +145,6 @@ function closeSheet() {
       <div class="li-hero">
         <div>
           <div class="v">{{ heroValue }}</div>
-          <div class="s">{{ heroSource }}</div>
-          <div class="acts">
-            <button type="button" class="btn sm">取消一次性启动</button>
-            <button type="button" class="btn sm ghost">换成默认</button>
-          </div>
-        </div>
-        <div class="li-tile" style="background: transparent; border: 0; padding: 8px 0 0">
-          <div class="s">BootNext 用后自动失效；不改固件顺序</div>
         </div>
       </div>
 
