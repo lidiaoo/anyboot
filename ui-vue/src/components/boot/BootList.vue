@@ -6,7 +6,8 @@ import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
 import { call } from "@/api/tauri";
-import type { ChannelView, GrubEntry, SimEntry } from "@/api/types";
+import type { ChannelView, GrubEntry } from "@/api/types";
+import { simRows } from "@/pages/boot/bootRows";
 
 /**
  * 一个引导器区块（rEFInd / GRUB / systemd-boot / OpenCore / Clover）的列表。
@@ -97,16 +98,11 @@ const refindEntries = computed<EntryData[]>(() => {
   const manual = settings.refindMode === "manual";
 
   if (!manual) {
-    const sim = ui.refindSim;
-    if (!sim?.entries) return [];
-    // 旧版 app.js:923：title 必须**原文**（末尾可能带空格，trim 过后端就匹配不上）
-    return sim.entries
-      .filter((entry) => !entry.hidden)
-      .map((entry: SimEntry) => ({
-        selector: entry.title,
-        name: entry.title,
-        class: entry.kind,
-      }));
+    // 自动模式：交给 simRows —— 它会把「同一引导分区折叠的内核」（children，
+    // source=kernel）展开成可点子项（selector=父条目 title，能切到该分区条目），
+    // 并处理组头。之前这里内联平铺 entries、忽略 children，导致「内核全挤在一级菜单」
+    // （用户：怎么我看还是全都在一级菜单）。
+    return simRows(ui.refindSim);
   }
 
   // 手动模式：vars 快照里的三个系统项
