@@ -2565,6 +2565,31 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         let _ = crate::channels::apfs_reader::scan_preboot_elevated(false, elevation);
         // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
         let _ = crate::channels::refind_menu::refresh_sim(&handle);
+        // 启动扫描是**自动**的：没装 rEFInd / 没有 vars 目录是常态，不该把
+        // 「已扫描全部已挂载与临时挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录…」
+        // 这种诊断性 error 弹给用户（用户要求「程序启动扫描时不要提示」）。
+        // 只清这一类「rEFInd vars 没找到」的提示；其它真错误（GRUB 探测失败等）照常保留。
+        // 手动点「重新读取」走的是另一条命令，仍会如实显示该提示。
+        {
+            let app_state = handle.state::<std::sync::Mutex<crate::state::AppState>>();
+            let maybe_clear = {
+                let state = app_state.lock().ok();
+                state.map(|s| {
+                    s.error
+                        .as_deref()
+                        .map(|err| {
+                            err.starts_with("已扫描全部已挂载与临时挂载的 FAT/ESP 分区")
+                                || err.contains("未找到 EFI/refind/vars 目录")
+                        })
+                        .unwrap_or(false)
+                })
+            };
+            if maybe_clear == Some(true) {
+                if let Ok(mut state) = app_state.lock() {
+                    state.error = None;
+                }
+            }
+        }
         // 【关键】并行跑完后强制推一次完整 UI：GRUB 分区扫描结果虽已写入 AppState，
         // 但并行线程里 refresh_and_update 先 publish 的是「还没扫 GRUB」的快照；
         // 不在这里补推一次，前端就停在旧快照上 —— 这就是「输完密码却看不到后续结果」。
