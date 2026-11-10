@@ -19,8 +19,11 @@ const grubErrorText = ref("");
 
 async function detectEsp() {
   try {
-    await call("detect_esp", { path: espDir.value });
-    toast.show("已识别 ESP 分区");
+    // 用后端返回的统一文案「「GRUB」识别完成，识别到 N 条」，并且用 toast 显示
+    // （每次都弹，不受状态栏「同一条不重复显示」的去重影响 —— 之前点第二次因
+    // message 与第一次完全相同，状态栏去重后就不提示了）。
+    const res = await call<string>("detect_esp", { path: espDir.value });
+    toast.show(res || "「GRUB」识别完成");
     void call("refresh").catch(() => {});
   } catch (e) {
     toast.show("识别 ESP 失败：" + e, "bad");
