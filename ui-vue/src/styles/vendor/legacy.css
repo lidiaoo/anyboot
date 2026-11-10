@@ -5390,19 +5390,18 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 
 /* 2026-11-07 引导高级设置预演(.k-prev)：各主题列表滚动层限高，
  * 使置顶副本 pinned 的 sticky 以预演列表自身为参照（否则滚的是外层页面，置顶不浮）。
- * 2026-11-08 用户：预演区的引导器设置应与「系统引导」页一致（完整可见，别被裁）。
- * 原来统一 max-height:320px 把 loader-settings 也一起限在 320px 滚动里 → 设置区块
- * 被裁、看不到全部。这里**不对 .la-list 整体限高**（那会连设置一起裁），改由列表
- * 本体（.grub-list-body）自身滚动；预演卡整体随内容展开。 */
+ * 用户：预演区保留滚动容器；但 A 的 .la-list 若死 320px，引导器设置被挤在小框里
+ * 看不到全部 —— 与系统引导页不一致。故 A 的 .la-list 不限 max-height，改用基础
+ * 规则（flex:1 + overflow-y:auto，撑满预演区可用高度），滚动照旧由它自身承担，
+ * 设置随列表在同一滚动容器里完整滚到（与系统引导页 #tab-boot .la-list 同款）。 */
 .k-prev .lb-scroll,
 .k-prev .lg-results,
 .k-prev .li-grid,
 .k-prev .lj-c2 .bd {
   max-height: 320px; overflow-y: auto; min-height: 0;
 }
-/* 预演 A：整卡不限高（设置完整显示）；列表本体仍可滚，给个合理上限 */
-.k-prev .la-list { min-height: 0; }
-.k-prev .la-list .grub-list-body { max-height: 320px; overflow-y: auto; }
+/* A：滚动容器保留（overflow 由基础 .la-list 提供），但高度跟随预演区、不死限 320 */
+.k-prev .la-list { max-height: none; }
 
 /* 预演 C：列表滚动容器限高（同上） */
 .k-prev .lc-body { max-height: 320px; overflow-y: auto; }
