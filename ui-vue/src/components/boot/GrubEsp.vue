@@ -105,7 +105,7 @@ function toggleMount() {
             type="text"
           />
           <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
-          <button type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
+          <button v-if="isManual" type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
         </div>
         <div class="grub-row">
           <button type="button" class="secondary" id="grub-sync" @click="syncManual">同步</button>
