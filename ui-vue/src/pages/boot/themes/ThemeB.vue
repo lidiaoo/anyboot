@@ -32,9 +32,6 @@ const props = defineProps<{
   /** 记忆里选中的通道（可能不在本列，需兜底到第一个） */
   activeId?: string;
   onSelect?: (id: string) => void;
-  onAdd?: () => void;
-  /** 「编排与排序」：打开引导高级设置 */
-  onArrange?: () => void;
 }>();
 
 /**
@@ -80,15 +77,6 @@ function select(id: string) {
     <aside class="lb-nav">
       <div class="lb-nav-head">
         <span class="grow">引导器 {{ loaders.length }}</span>
-        <button
-          type="button"
-          class="btn icon ghost sm"
-          title="添加 / 重新识别通道"
-          aria-label="添加"
-          @click="onAdd?.()"
-        >
-          +
-        </button>
       </div>
       <div class="lb-list">
         <!-- 旧版 boot-adv.js:1251：.lb-item > .lb-grip + 图标 + .nm(b+small) + dot -->
@@ -117,11 +105,6 @@ function select(id: string) {
           </span>
           <i :class="['dot', loader.state]" />
         </button>
-      </div>
-      <!-- 旧版 boot-adv.js:1266：.lb-nav-foot > 编排与排序 / 新增 -->
-      <div class="lb-nav-foot">
-        <button type="button" class="btn sm ghost" @click="onArrange?.()">编排与排序</button>
-        <button type="button" class="btn sm ghost" title="添加 / 重新识别通道" @click="onAdd?.()">＋</button>
       </div>
     </aside>
 
