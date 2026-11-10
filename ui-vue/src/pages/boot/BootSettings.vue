@@ -293,6 +293,17 @@ const previewLoaders = computed(() =>
       };
     }),
 );
+/** 默认选中条目（旧版 gSelMemo）：与「系统引导」页同口径，供预演区主题的
+ *  「rEFInd 引导高级设置」把 lastBoot/活动变量那条标出来 —— 两处内容一致。 */
+const defaultEntrySelector = computed<string>(() => {
+  if (settings.refindMode === "manual") {
+    const hit = (ui.status?.variables ?? []).find((v) => v.active);
+    return hit?.source ?? "";
+  }
+  const hit = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
+  return hit?.title?.trim() ?? "";
+});
+
 /** 预演面板用的真实行（与系统引导页同一份行源） */
 const previewRows = computed<Record<string, EntryData[]>>(() => {
   const out: Record<string, EntryData[]> = {};
@@ -593,6 +604,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       <ThemeHost
         v-else
         :rows="previewRows"
+        :default-entry-selector="defaultEntrySelector"
         :theme="adv.effectiveTheme"
         :layout="adv.effectiveLayout"
         :loaders="previewLoaders"
