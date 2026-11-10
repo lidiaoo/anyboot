@@ -46,7 +46,10 @@ export default defineConfig({
       output: {
         // 入口保持原名（hub.js / hub-term.js …），chunk 与静态资源分开，
         // 方便排查「哪个页面的包出了问题」
-        entryFileNames: "assets/[name].js",
+        // 入口也带 content hash：固定名（assets/index.js）会被浏览器 / WebView 永久
+        // 缓存，更新后用户仍在跑旧 bundle（真实踩坑：改了界面网页却一直显示旧版）。
+        // HTML 由 vite 生成、自动引用新名；Rust 侧 ui_assets 表跟着 gen 脚本走。
+        entryFileNames: "assets/[name]-[hash].js",
         chunkFileNames: "assets/chunks/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
       },

@@ -87,7 +87,12 @@ const privStatus = ref<LinuxPrivStatus | null>(null);
 const privBusy = ref(false);
 const privBusyLabel = ref("");
 async function refreshPrivStatus(): Promise<void> {
-  if (!isLinux.value || !isTauri()) return;
+  // 注意：**不要**判 isTauri() 或 isLinux() ——
+  // · 网页/手机端走 HTTP 桥也能读 linux_priv_status；判 isTauri() 会永远 return、
+  //   privStatus 恒 null、整张卡不渲染（用户报「免密设置没显示」的根因）。
+  // · 后端在非 Linux 上返回 platform=false，由模板用 privStatus.platform 判，
+  //   不依赖前端自己推平台（更可靠）。
+  // 读状态是只读操作，任何端都该能看；只有「安装/移除」按钮按 isDesktop 禁用。
   try {
     privStatus.value = await linuxPrivStatus();
   } catch {
@@ -354,7 +359,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
   <div class="settings-page" ref="rootEl">
     <!-- Linux 免密组件（polkit/sudo 助手）：仅 Linux 有。装一次后，
          GRUB 自动读取 / 挂载 ESP / 免密扫描都能无感（不再每次弹密码）。 -->
-    <section v-if="isLinux && privStatus" class="card helper-card" id="linux-priv-card">
+    <section v-if="privStatus && privStatus.platform" class="card helper-card" id="linux-priv-card">
       <div class="helper-card-row">
         <span class="helper-label">免密组件（Linux · polkit/sudo 助手）</span>
         <span
