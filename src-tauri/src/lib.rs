@@ -2457,8 +2457,8 @@ async fn boot_helper(app: AppHandle, action: String) -> Result<String, String> {
     // 于是 Linux 上点「开启免密助手」永远报「这个平台没有免密助手」（用户报的 bug）。
     #[cfg(target_os = "linux")]
     let result = match action.as_str() {
-        "install" => crate::linux_priv::linux_priv_install(None).await.map(|st| st.detail),
-        "uninstall" => crate::linux_priv::linux_priv_uninstall(None).await.map(|st| st.detail),
+        "install" => crate::linux_priv::linux_priv_install(app.clone(), None).await.map(|st| st.detail),
+        "uninstall" => crate::linux_priv::linux_priv_uninstall(app.clone(), None).await.map(|st| st.detail),
         other => Err(format!("未知的助手动作: {other}")),
     };
     #[cfg(not(target_os = "linux"))]

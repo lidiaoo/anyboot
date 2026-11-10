@@ -278,7 +278,17 @@ export const useUiStateStore = defineStore("uiState", () => {
   }
 
   async function pollOnce() {
+    // 桌面端（Tauri）没有 HTTP token，必须走 IPC 的 get_ui_state；
+    // 旧实现无条件走 HTTP fetchUiState + token 检查，桌面端因「无 token」
+    // 直接 return —— 于是 pollOnce 在桌面端是空转，装/卸完免密后界面不变
+    // （用户报「点完还是不变，虽然提示成功」）。
     try {
+      const { isTauri } = await import("@/api/tauri");
+      if (isTauri()) {
+        const { getUiState } = await import("@/api/tauri");
+        applySnapshot(await getUiState<UiState>(), { force: true });
+        return;
+      }
       const { fetchUiState, getAuthToken } = await import("@/api/http");
       if (!getAuthToken()) {
         // 浏览器/手机端无 token：标记缺 token → 触发输入框（旧版就在此时弹 token 输入）

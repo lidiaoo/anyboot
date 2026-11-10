@@ -24,6 +24,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 
 /// 助手（本程序副本）的固定路径。`root` 拥有，普通用户不可写 —— 这是它敢进 sudoers 的前提。
 pub(crate) const HELPER_PATH: &str = "/usr/lib/anyboot/anyboot-priv";
@@ -1023,8 +1024,11 @@ pub(crate) fn linux_priv_status() -> PrivStatus {
 /// **必须 async + spawn_blocking**：pkexec 会同步等用户在授权框里点确认，
 /// 可能几分钟 —— 直接跑在同步命令上会卡住 UI 线程。
 #[tauri::command]
-pub(crate) async fn linux_priv_install(password: Option<String>) -> Result<PrivStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+pub(crate) async fn linux_priv_install(
+    app: AppHandle,
+    password: Option<String>,
+) -> Result<PrivStatus, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let result = imp::install(password.clone());
         if result.is_ok() {
             // 会话内记住这次密码：装的过程中如果还要再提权一次，不用再问
@@ -1033,21 +1037,31 @@ pub(crate) async fn linux_priv_install(password: Option<String>) -> Result<PrivS
         result
     })
     .await
-    .map_err(|error| format!("安装免密组件执行失败: {error}"))?
+    .map_err(|error| format!("安装免密组件执行失败: {error}"))??;
+    // 装完必须推送新快照：linuxPriv 在 UiState 里，不 publish 前端就永远看到旧状态
+    // （用户报「点完还是不变，虽然提示成功」的根因 —— 这两个命令以前根本没 publish）。
+    crate::ui_state::publish_ui(&app);
+    Ok(result)
 }
 
 /// 移除：删 `/etc/sudoers.d/anyboot` + 助手 + 元数据。删完这台机器上就只剩
 /// `/usr/lib/anyboot/`（空目录也会一并删）。
 #[tauri::command]
-pub(crate) async fn linux_priv_uninstall(password: Option<String>) -> Result<PrivStatus, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+pub(crate) async fn linux_priv_uninstall(
+    app: AppHandle,
+    password: Option<String>,
+) -> Result<PrivStatus, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         let result = imp::uninstall(password);
         // 移除之后没有任何东西还依赖那个密码了，立刻丢掉
         imp::set_password(None);
         result
     })
     .await
-    .map_err(|error| format!("移除免密组件执行失败: {error}"))?
+    .map_err(|error| format!("移除免密组件执行失败: {error}"))??;
+    // 同 install：卸完推送新快照，前端才能从「已开启」切到「未开启」。
+    crate::ui_state::publish_ui(&app);
+    Ok(result)
 }
 
 // 测试全在打 Linux 的 `imp`（staging / mount 白名单 / sudoers），整块跟着
