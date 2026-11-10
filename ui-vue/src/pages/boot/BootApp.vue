@@ -215,7 +215,17 @@ onMounted(async () => {
   void (async () => {
     try {
       const s = ui.settings;
-      if (!s || s.startupScanWithAdmin === false) return; // 取消勾选：不用 root 扫
+      // 【开关决定走不走提权扫描】——「启动时使用管理员扫描」这个设置项是唯一开关：
+      //   · 开（默认）：走 runStartupAdminScan（提权：GRUB 深度 + rEFInd 含 APFS/macOS 条目）
+      //   · 关：**仍做一次非提权普通扫描**（refresh：只读缓存 + 已挂载卷 + ESP，不碰 APFS
+      //     裸设备、绝不弹授权框），而不是什么都不扫 —— 以前直接 return，导致关闭后
+      //     rEFInd/GRUB 一片空白，像是「没扫描」。非提权扫描里拿不到的（如未挂载 ESP 上的
+      //     macOS 条目）会如实留 issue，用户想补就自己开开关或点「重新读取」。
+      if (!s) return;
+      if (s.startupScanWithAdmin === false) {
+        await call("refresh").catch(() => {}); // 非提权普通扫描（不提权、不弹框）
+        return;
+      }
       if (ui.linuxGrub?.entries?.length) return; // 已有数据不再扫
       // 免密是否就绪：**按平台**判。
       // macOS 看 launchd 助手（helper.installed && !stale）；
