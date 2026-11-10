@@ -865,6 +865,31 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
             status.service_loaded = !text.is_empty() && text != "not-found";
         }
+        // 【兜底】unit 文件装了、`is-enabled` 是 enabled，但 systemd 内存里没加载它
+        // （`LoadState=not-found`）—— 典型是「装完服务后没跑 systemctl daemon-reload」。
+        // 此时磁盘上明明注册了（/etc/systemd/system/sol.service 存在），却被上面判成
+        // 「服务未注册」——用户报「装了、在跑，重启程序却显示服务未注册」的根因。
+        // 用 is-enabled 兜底：enabled/static/enabled-runtime 都算磁盘已注册；
+        // 运行态另由 is-active / 进程表判定。并尽量补一次 daemon-reload 让它真正生效。
+        if !status.service_loaded {
+            let enabled = command("systemctl")
+                .args(["is-enabled", SOL_SERVICE])
+                .stderr(Stdio::piped())
+                .output()
+                .ok()
+                .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+                .unwrap_or_default();
+            if matches!(enabled.as_str(), "enabled" | "enabled-runtime" | "static" | "alias") {
+                status.service_loaded = true;
+                // 尝试补 daemon-reload（非 root 会失败，忽略）——让 systemd 认到这份 unit，
+                // 之后 is-active / status 才能正常工作。
+                let _ = command("systemctl").arg("daemon-reload").stderr(Stdio::null()).output();
+                status.service_detail = Some(
+                    "日志任务 sol 已注册（unit 文件在，systemd 未加载——已尝试 daemon-reload；                     若仍异常请执行 sudo systemctl daemon-reload）"
+                        .to_string(),
+                );
+            }
+        }
         if let Ok(output) = command("systemctl")
             .args(["is-active", SOL_SERVICE])
             .stderr(Stdio::piped())
