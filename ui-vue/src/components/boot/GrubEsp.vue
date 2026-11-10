@@ -27,7 +27,9 @@ async function detectEsp() {
     // （每次都弹，不受状态栏「同一条不重复显示」的去重影响 —— 之前点第二次因
     // message 与第一次完全相同，状态栏去重后就不提示了）。
     const res = await call<string>("detect_esp", { path: espDir.value });
-    toast.show(res || "「GRUB」识别完成");
+    // 走统一的**底部状态栏**提示（ui.setBootNotice → BootApp 的 status-bar），
+    // 不是浮层 toast。setBootNotice 每次赋新对象，连续点相同文案也会重复显示。
+    ui.setBootNotice(res || "「GRUB」识别完成");
     void call("refresh").catch(() => {});
   } catch (e) {
     toast.show("识别 ESP 失败：" + e, "bad");
