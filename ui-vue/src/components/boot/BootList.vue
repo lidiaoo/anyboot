@@ -190,15 +190,7 @@ const channelEntries = computed<EntryData[]>(() => {
   const preview = ch.menuPreview?.entries ?? [];
   const orderSource = ch.menuPreview?.orderSource ?? "";
   if (preview.length) {
-    // 排序：**能选择的条目排上面，不能选择的全排后面**。
-    // 可切换 = row.spec 非空（有 spec 才能写回 OCBt* 设默认）；无 spec 的
-    // （Reset NVRAM / 缺 spec 行等）不可选，全部沉底。稳定分区：两组内部
-    // 各自保持 OC 原本 BootOrder 顺序，只把「可选 / 不可选」分开。
-    const ordered = [
-      ...preview.filter((row) => row.spec),
-      ...preview.filter((row) => !row.spec),
-    ];
-    const rows = ordered.map((row) => ({
+    const rows = preview.map((row) => ({
       // 标识用 spec，空则退 title（旧版 ocEntrySelector 兜底）——default 行 spec
       // 常为空，selector 空串会让高亮匹配失效
       selector: row.spec || row.title,
@@ -215,7 +207,7 @@ const channelEntries = computed<EntryData[]>(() => {
     // ① entry.default（OC 的 OCBtOrder 落在预演行 default 上）等三来源判定
     applyChannelDefault(
       rows,
-      ordered.map((row) => (row as { default?: boolean }).default),
+      preview.map((row) => (row as { default?: boolean }).default),
       ch,
     );
     return rows;
