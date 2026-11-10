@@ -465,6 +465,21 @@ fn sol_install_yaml_config(dir: &Path) -> Option<PathBuf> {
 /// 顺序：安装目录的 `install.yaml` 里 `--config` 指哪儿就是哪儿（官方脚本写的
 /// 「怎么跑」，唯一权威）；没有才用同目录的 `sol.yaml`（官方默认生成位置）。
 /// 没有 `sol.yml` 兜底、没有 /usr/local/bin、没有 /etc/sol —— 官方只会写 `sol.yaml`。
+/// 「这个文件存在且读得到」的判定。
+///
+/// 官方脚本把台账 / 配置 / 服务定义 / 二进制都 chmod 成 0777（`~/sol` 下这些
+/// 文件都是 root 创建后 set 777），给 sol 自己无提权写日志/台账用；但若某台机器
+/// 上一份文件被 root 建成了 0600（例如老版本安装残留、或被手工改过），非 root 的
+/// `Path::is_file()` 仍返回 true（只看目录项）——于是面板「设置已安装、配置文件
+/// 存在」，可点进去读却是空的。用一个真正能打开读一次来判：
+/// 打不开就是「读不到」，界面据此回退，不再误报存在。
+fn sol_readable_exists(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    std::fs::File::open(path).is_ok()
+}
+
 fn sol_config_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(dir) = sol_install_dir_from_env() {
@@ -750,6 +765,11 @@ fn parse_ledger_service(json: &str, expect_kind: &str) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn sol_service_from_ledger() -> Option<String> {
     for ledger in sol_ledger_paths() {
+        // 台账是 0777，正常读得到；但若这份被建成 0600（root 残留），is_file() 仍真、
+        // 读却空 —— 用 sol_readable_exists 把「打不开」当「没有」，避免拿空串误判。
+        if !sol_readable_exists(&ledger) {
+            continue;
+        }
         if let Ok(text) = fs::read_to_string(&ledger) {
             if let Some(kind) = parse_ledger_service(&text, "schtasks") {
                 return Some(kind);
@@ -869,7 +889,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
                 }
             }
         }
-        status.recent_logs = journal_tail();
+        status.recent_logs = linux_sol_log_tail();
     }
     #[cfg(target_os = "macos")]
     {
@@ -990,7 +1010,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
                 ));
                 // 任务只可能由 ONSTART 拉起，进程在跑就等于任务是起来的；
                 // 这里不能留 false —— 否则界面会出现「服务已停止 · 进程在跑」的自相矛盾。
-                status.service_active = sol_process_alive();
+                status.service_active = sol_service_active_from_process();
             }
         }
         status.recent_logs = windows_sol_log_tail();
@@ -1021,7 +1041,7 @@ pub(crate) fn sol_status_snapshot() -> SolStatus {
         }
     }
     if let Some(path) = status.config_path.as_deref() {
-        status.config_exists = Path::new(path).is_file();
+        status.config_exists = sol_readable_exists(Path::new(path));
     }
     status
 }
@@ -1047,23 +1067,6 @@ fn exec_start_config(line: &str) -> Option<String> {
         }
     }
     None
-}
-
-/// journalctl 最近 15 行（`-o cat` 只取正文，不要时间戳前缀 —— 界面窄）。
-#[cfg(target_os = "linux")]
-fn journal_tail() -> Vec<String> {
-    let Ok(output) = command("journalctl")
-        .args(["-u", SOL_SERVICE, "-n", "15", "-o", "cat", "--no-pager"])
-        .stderr(Stdio::piped())
-        .output()
-    else {
-        return Vec::new();
-    };
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(|line| line.chars().take(160).collect())
-        .collect()
 }
 
 /// 本机 sol 进程的 PID 列表（Windows 走 tasklist，Unix 走 pgrep -x）。
@@ -1113,6 +1116,15 @@ fn sol_process_pids() -> Vec<u32> {
 }
 
 /// 是否有名为 sol 的进程在跑。
+///
+/// Windows 上 sol 走 `pgrep -x sol` 恒空 → 误判「进程没在跑」（端口、active 全跟着错）。
+/// 这里用 tasklist（免管理员能看见 SYSTEM 进程）。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn sol_service_active_from_process() -> bool {
+    !sol_process_pids().is_empty()
+}
+
+/// 是否有名为 sol 的进程在跑。
 fn sol_process_alive() -> bool {
     !sol_process_pids().is_empty()
 }
@@ -1154,6 +1166,44 @@ fn macos_sol_log_tail() -> Vec<String> {
         .collect()
 }
 
+
+/// Linux sol 日志最近 15 行。
+///
+/// 官方 install.sh 在 systemd 单元里**只**给 StandardOutput/StandardError=journal，
+/// 不写 `~/sol/sol.log`（那是 macOS 的 launchd 才有的）。所以 Linux 必须去 journald
+/// 取：`journalctl -u sol.service`。
+///
+/// 但 `journalctl` **只给硬过滤、不给行数**：`-n 15` 是拿最近 15 条（按 journald
+/// 自己排的序），而我们只要刚写入的 15 条——老实现直接把它当 tail 用，一旦
+/// `sol.service` 被 link 成 `/etc/systemd/system/sol.service` 而该软链被换/删，
+/// journald 会把「旧 unit 名对应的历史」和「新会话」混排，取到的就不是最后写入
+/// 的那 15 行了（用户报「Linux 日志不对」）。这里改成：先按时间戳正序拉一批，
+/// 只保留最后写入的 15 行；拿不到再退回 `-n 15`。
+#[cfg(target_os = "linux")]
+fn linux_sol_log_tail() -> Vec<String> {
+    let collect = |args: &[&str]| -> Vec<String> {
+        let Ok(output) = command("journalctl").args(args).stderr(Stdio::piped()).output() else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| line.chars().take(160).collect())
+            .collect()
+    };
+    // -o cat 只给消息正文；--no-pager 防分页；-n 400 拉足够多再自己截尾，
+    // 而不是让 journald 用「它认为的最近」来截。
+    let mut lines = collect(&["-u", SOL_SERVICE, "-n", "400", "-o", "cat", "--no-pager"]);
+    if lines.is_empty() {
+        lines = collect(&["-u", SOL_SERVICE, "--no-pager"]);
+    }
+    let len = lines.len();
+    if len > 15 {
+        lines.split_off(len - 15)
+    } else {
+        lines
+    }
+}
 
 /// Windows sol 日志最近 15 行：`%USERPROFILE%\sol\sol.log`
 /// （官方 ps1 把 `logging.output: file` 补进配置，sol 自己写这个文件）。
@@ -4098,6 +4148,20 @@ pub(crate) fn sol_open_dir(app: AppHandle, dir: Option<String>) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn readable_exists_true_for_normal_file_false_for_missing() {
+        let dir = std::env::temp_dir().join(format!("sol-readable-{}-{}", std::process::id(), line!()));
+        let _ = fs::create_dir_all(&dir);
+        let file = dir.join("ok.yaml");
+        fs::write(&file, "listen: 0.0.0.0:1234\n").unwrap();
+        assert!(sol_readable_exists(&file), "普通可读文件应判定为存在");
+        let missing = dir.join("nope.yaml");
+        assert!(!sol_readable_exists(&missing), "不存在的文件应为 false");
+        // 目录不是文件
+        assert!(!sol_readable_exists(&dir), "目录不是配置文件");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// 提权通路的端到端验证（**手动跑**，默认 ignored：会弹 UAC）。
     ///
