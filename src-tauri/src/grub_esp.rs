@@ -1652,18 +1652,15 @@ pub(crate) fn detect_grub_by_partuuid(app: AppHandle) -> Result<String, String> 
             .as_ref()
             .is_some_and(|path| path.is_file());
         if parsed {
+            // 统一文案：与扫描一致，「GRUB」识别完成，识别到 N 条（不省略、不带冗长说明）。
             format!(
-                "{dir}：已解析 grub.cfg（{} 个启动项），挂载点已回填到「ESP 目录」。\
-                 目录和 UUID 填一个即可，二者已双向同步",
+                "「GRUB」识别完成，识别到 {} 条",
                 state.grub.entries.len()
             )
         } else if dir.is_empty() {
-            "按分区 UUID 识别完成，但还没定位到挂载点".to_string()
+            "「GRUB」识别完成，识别到 0 条".to_string()
         } else {
-            format!(
-                "{dir}：分区上还没有 grub.cfg —— 点「同步」可从当前系统 /boot/grub 搬一份过来。\
-                 目录和 UUID 填一个即可，二者已双向同步"
-            )
+            "「GRUB」识别完成，识别到 0 条".to_string()
         }
     };
     record_action(&app, "识别 ESP 分区", true, &message);

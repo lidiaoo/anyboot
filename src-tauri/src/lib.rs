@@ -2188,23 +2188,14 @@ fn detect_esp_blocking(app: AppHandle, path: String) -> Result<String, String> {
     let root = info.root.clone().unwrap_or_else(|| raw.clone());
     let mut settings = stored_settings(&app);
     settings.grub_efi_dir = root.clone();
-    let message = match &info.partuuid {
+    match &info.partuuid {
         Some(partuuid) => {
             settings.grub_efi_partuuid = partuuid.clone();
-            match &info.uuid {
-                Some(fsuuid) => format!(
-                    "{root} 是 {fstype}，分区 UUID = {partuuid}，fs-uuid = {fsuuid}（已填好）"
-                ),
-                None => format!("{root} 是 {fstype}，分区 UUID = {partuuid}（已填好）"),
-            }
         }
-        None => format!(
-            "{root} 是 {fstype}，但没取出分区 UUID —— {}",
-            info.note
-                .clone()
-                .unwrap_or_else(|| "请手工填写".to_string())
-        ),
-    };
+        None => {
+            let _ = (&root, &fstype, &info.note);
+        }
+    }
     save_settings(&app, &settings)?;
 
     // 识别只解析、不写盘（用户定案）：同步只属于「同步」按钮和启动自动链路。
@@ -2221,15 +2212,9 @@ fn detect_esp_blocking(app: AppHandle, path: String) -> Result<String, String> {
             .as_ref()
             .is_some_and(|path| path.is_file());
         if parsed {
-            format!(
-                "{message}；已解析 grub.cfg（{} 个启动项）。目录和 UUID 填一个即可，二者已双向同步",
-                state.grub.entries.len()
-            )
+            format!("「GRUB」识别完成，识别到 {} 条", state.grub.entries.len())
         } else {
-            format!(
-                "{message}；该分区上还没有 grub.cfg —— 点「同步」可从当前系统 /boot/grub 搬一份过来。\
-                 目录和 UUID 填一个即可，二者已双向同步"
-            )
+            "「GRUB」识别完成，识别到 0 条".to_string()
         }
     };
     record_action(&app, "识别 ESP 分区", true, &message);
