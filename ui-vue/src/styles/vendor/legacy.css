@@ -5328,21 +5328,31 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .boot-loader-head .cnt { font-size: 11px; color: var(--faint); }
 
 /* 2026-11-07 rEFInd 扫描摘要/问题：小区域 + 细滚动条 + 默认字号（不放大） */
-#tab-boot .sim-scan-note {
+/* 系统引导页(#tab-boot) 与 引导高级设置预演(.k-prev) 通用：扫描摘要+问题收进
+ * 小滚动区（max-height + overflow + 细滚动条，默认字号）。用户：预演区此前没有
+ * 这块样式，摘要/问题铺开、无滚动条，与系统引导页不一致。 */
+#tab-boot .sim-scan-note,
+.k-prev .sim-scan-note {
   max-height: 120px; overflow-y: auto; overflow-x: hidden;
   margin: 4px 0; padding: 4px 6px; border-radius: 6px;
   background: var(--panel-2, rgba(0,0,0,0.03));
   font-size: 11px; line-height: 1.45;
   scrollbar-width: thin;
 }
-#tab-boot .sim-scan-note::-webkit-scrollbar { width: 6px; }
-#tab-boot .sim-scan-note::-webkit-scrollbar-thumb { background: var(--line-2, #cbd5e1); border-radius: 3px; }
-#tab-boot .sim-scan-note::-webkit-scrollbar-track { background: transparent; }
+#tab-boot .sim-scan-note::-webkit-scrollbar,
+.k-prev .sim-scan-note::-webkit-scrollbar { width: 6px; }
+#tab-boot .sim-scan-note::-webkit-scrollbar-thumb,
+.k-prev .sim-scan-note::-webkit-scrollbar-thumb { background: var(--line-2, #cbd5e1); border-radius: 3px; }
+#tab-boot .sim-scan-note::-webkit-scrollbar-track,
+.k-prev .sim-scan-note::-webkit-scrollbar-track { background: transparent; }
 #tab-boot .sim-scan-note .sim-scan-summary,
-#tab-boot .sim-scan-note .sim-issue { font-size: 11px; }
+#tab-boot .sim-scan-note .sim-issue,
+.k-prev .sim-scan-note .sim-scan-summary,
+.k-prev .sim-scan-note .sim-issue { font-size: 11px; }
 
 /* 2026-11-07 GRUB 自动读取 扫描摘要/问题/分区JSON 收进小滚动区（默认字号，细滚动条） */
-#tab-boot .grub-auto-note {
+#tab-boot .grub-auto-note,
+.k-prev .grub-auto-note {
   max-height: 110px; overflow-y: auto; overflow-x: hidden;
   margin: 4px 0; padding: 4px 6px; border-radius: 6px;
   background: var(--panel-2, rgba(0,0,0,0.03));
