@@ -1864,24 +1864,34 @@ fn linux_kernel_entries(
                 // 直接返回）—— 照做，但 issues 里必须让人知道少了谁。
                 if is_linux && config.fold_linux_kernels {
                     if let Some(index) = first_kernel {
+                        // 【关键】没有 refind_linux.conf（rows 为空）时，真实 rEFInd 装了
+                        // ext4 驱动照样会把后续内核折叠进第一个内核的子屏（options 用默认空串）
+                        // —— 并不丢弃。之前这里 `rows.is_empty()` 就 dropped，导致「真实 rEFInd
+                        // 能列出某 Linux 分区所有内核、我们却只剩第一条」的差异（用户实测）。
+                        // 只有真的没有任何 options 来源时，给一个「用默认参数启动」子项。
                         if rows.is_empty() {
-                            dropped.push(relative);
-                            continue;
-                        }
-                        for (label_row, options) in &rows {
                             out[index].children.push(SimChild {
-                                title: format!(
-                                    "{name}: {}",
-                                    if label_row.is_empty() {
-                                        "Boot Linux"
-                                    } else {
-                                        label_row
-                                    }
-                                ),
-                                options: replace_kernel_version(options, &name),
+                                title: name.clone(),
+                                options: String::new(),
                                 source: "kernel".to_string(),
-                                note: None,
+                                note: Some("同目录其它内核（无 refind_linux.conf，用默认参数启动）".to_string()),
                             });
+                        } else {
+                            for (label_row, options) in &rows {
+                                out[index].children.push(SimChild {
+                                    title: format!(
+                                        "{name}: {}",
+                                        if label_row.is_empty() {
+                                            "Boot Linux"
+                                        } else {
+                                            label_row
+                                        }
+                                    ),
+                                    options: replace_kernel_version(options, &name),
+                                    source: "kernel".to_string(),
+                                    note: None,
+                                });
+                            }
                         }
                         continue;
                     }

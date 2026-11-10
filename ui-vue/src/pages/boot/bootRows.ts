@@ -44,13 +44,16 @@ export function simRows(sim: { entries?: SimEntryLike[] } | null | undefined): E
     const children = e.children || [];
     if (children.length > 1) {
       for (const c of children) {
+        // 子屏内核现在**可点选**：选了它 = 把「它所属的顶层分区条目」设为下次启动
+        // （rEFInd 的 PreviousBoot 只存顶层菜单项标题，不存内核名；原生也不能跨重启
+        // 记住具体内核 —— 那取决于该分区 refind_linux.conf 的默认行）。
+        // selector 用父条目 title 原文（切换写它），name 显示内核名，submenu=组标题。
         out.push({
-          selector: c.title || "",
-          name: c.title || "",
+          selector: rawTitle,
+          name: c.title || rawTitle,
           class: e.kind,
           submenu: rawTitle,
-          // 组子项旧版**没有点击处理器**（不可切，仅展示）——点了后端会拒绝
-          readonly: true,
+          readonly: false,
           tag: CHILD_SOURCE[c.source || ""] || "",
         });
       }
