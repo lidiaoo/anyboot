@@ -2341,8 +2341,9 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
-                } else if (dot.isNotEmpty()) {
-                    // 平台图标（emoji，用户：圆点改图标）
+                } else if (dot.isNotEmpty() && kind != KIND_GRUB) {
+                    // 平台图标（emoji）。GRUB 的当前项 label 已按条目名带图标，再画
+                    // 一个就是一行两个（用户定案：GRUB 只留 label 里的）
                     Text(platformEmoji(dot), fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
                 }
@@ -3090,8 +3091,13 @@ class ComputerListActivity : ComponentActivity() {
                                     }
                                     .padding(horizontal = 11.dp, vertical = 12.dp),
                             ) {
-                                BootDot(option.kind)
-                                Spacer(Modifier.width(8.dp))
+                                // GRUB 行的 label 已按条目名自带平台图标，另画 BootDot
+                                // 会一行两个（用户定案：保留 label 里的、删这个）；
+                                // rEFInd/RefindPlus 行的 label 裸，图标只能靠这里补
+                                if (request.kind != KIND_GRUB) {
+                                    BootDot(option.kind)
+                                    Spacer(Modifier.width(8.dp))
+                                }
                                 Text(
                                     row.label,
                                     fontSize = 14.sp,
@@ -4300,10 +4306,11 @@ class ComputerListActivity : ComponentActivity() {
                 if (tag.isNotBlank()) parts.add(tag)
             }
             val suffix = if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
-            // 平台图标由渲染层的 BootDot(platformEmoji) 负责，**不再拼进 label**——
-            // 否则一行两个平台图标（与 PC 端 9e61d40/2297eec 的同类修复对齐）
+            // label 里的平台图标按**条目名/组名**判定（比 option.kind 的粗分类准），
+            // 渲染层 GRUB 行不再另画 BootDot（用户定案：保留这个、删另一个）
+            val icon = grubOsIcon(prefix + option.grubName)
             val arrow = if (top) "" else "↳ "
-            rows.add(GrubRow(option, "$arrow$prefix$label$suffix", false))
+            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false))
         }
 
         // 置顶当前选中项（组内子项补「组名 › 」前缀）
