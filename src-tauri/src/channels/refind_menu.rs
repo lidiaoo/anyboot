@@ -309,6 +309,44 @@ fn previous_boot_bytes(title: &str) -> Vec<u8> {
 ///
 /// 与「手动获取」的关系：两者写的是同一个 `PreviousBoot`，所以模拟这边选中后，
 /// 上面那三张快照卡会因为匹配不上而显示「未匹配模板」—— 这是如实的，不是坏了。
+/// rEFInd 官方 `SizeInIEEEUnits`（lib.c:761）的等价实现：
+/// 反复整除 1024 取前缀（" KMGTPEZ"），0 号前缀是 "-byte"，其余 "{n}{前缀} iB"。
+/// 例：21 GiB → "21G iB"；与官方逐字符一致，PreviousBoot 才能子串匹配上。
+/// 精确字节数：`lsblk -bno SIZE` 读 sysfs，免 root。PartReport.fs_size_bytes
+/// 缺失（旧助手探测缓存）时的兜底 —— 官方 IEEE 大小必须字节精确，差 1GiB 就匹配不上。
+fn lsblk_size_bytes(dev: &str) -> Option<u64> {
+    // PartReport.dev 实况是全路径（`/dev/nvme0n1p2`），但别赌 —— 两种形态都认。
+    let path = if dev.starts_with('/') {
+        dev.to_string()
+    } else {
+        format!("/dev/{dev}")
+    };
+    let output = std::process::Command::new("lsblk")
+        .args(["-bno", "SIZE"])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse::<u64>().ok()
+}
+
+fn ieee_size(bytes: u64) -> String {
+    const PREFIXES: [char; 8] = [' ', 'K', 'M', 'G', 'T', 'P', 'E', 'Z'];
+    let mut n = bytes;
+    let mut index = 0usize;
+    while n > 1024 && index < PREFIXES.len() - 1 {
+        index += 1;
+        n /= 1024;
+    }
+    if PREFIXES[index] == ' ' {
+        format!("{n}-byte")
+    } else {
+        format!("{n}{} iB", PREFIXES[index])
+    }
+}
+
 #[tauri::command]
 pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStatus {
     let started = Instant::now();
@@ -1797,10 +1835,30 @@ fn linux_kernel_entries(
         if part.dir_listings.is_empty() {
             continue;
         }
-        let label = if part.label.is_empty() {
-            part.dev.clone()
-        } else {
+        // 卷名对齐 rEFInd 官方 GetVolumeName（lib.c:792）的 fallback 链：
+        // ① 文件系统卷标 → ② GPT 分区名（PartName）→ ③ "{IEEE大小} ext4 volume"。
+        // **不能用 /dev/ 设备路径** —— 真机 rEFInd 的菜单标题是官方链生成的，
+        // 我们写 PreviousBoot 的标题必须与它子串匹配，否则开机会回落第一项
+        //（用户实测：点了 p2 的内核，PreviousBoot 写成 "from /dev/nvme0n1p2"，
+        //  真 rEFInd 那条叫 "from 20G ext4 volume"，匹配不上 → 默认没变）。
+        let label = if !part.label.is_empty() {
             part.label.clone()
+        } else if let Some(part_name) = part
+            .part_label
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            part_name.to_string()
+        } else if let Some(size_bytes) = part
+            .fs_size_bytes
+            // 走助手缓存的 PartReport 可能没有精确字节数（旧助手回包不带）——
+            // 直接问 lsblk -b（读 sysfs，免 root，字节精确），别再退设备路径。
+            .or_else(|| lsblk_size_bytes(&part.dev))
+        {
+            format!("{} ext4 volume", ieee_size(size_bytes))
+        } else {
+            part.dev.clone()
         };
         if config
             .dont_scan_volumes

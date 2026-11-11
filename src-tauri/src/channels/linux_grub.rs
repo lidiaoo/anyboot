@@ -117,6 +117,10 @@ pub(crate) struct PartReport {
     pub(crate) dev: String,
     pub(crate) label: String,
     pub(crate) size: Option<String>,
+    /// ext4 超级块算出的**文件系统精确字节数**（block_size × blocks_count）。
+    /// rEFInd 官方 GetVolumeName 第 3 档卷名用它做 "{IEEE大小} ext4 volume"；
+    /// 借用人类可读 size（lsblk 四舍五入）会差 1 个 GiB、PreviousBoot 就匹配不上。
+    pub(crate) fs_size_bytes: Option<u64>,
     pub(crate) fs_uuid: Option<String>,
     pub(crate) part_uuid: Option<String>,
     pub(crate) part_label: Option<String>,
@@ -1522,6 +1526,25 @@ fn scan_mounted(root: &str, cand: &Ext4Candidate, fs_uuid: Option<String>) -> Pa
     report
 }
 
+/// GPT 分区名（官方 GetVolumeName 第 ② 档用）：udev db 的 ID_PART_ENTRY_PARTNAME，
+/// 免 root、全发行版可用；老内核（Mint 6.8）的 sysfs uevent 同样能给出。
+fn udev_part_name(dev: &str) -> Option<String> {
+    let output = std::process::Command::new("udevadm")
+        .args(["info", "--query=property", "--name"])
+        .arg(dev)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("ID_PART_ENTRY_PARTNAME="))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
     let mut report = PartReport {
         dev: cand.dev.clone(),
@@ -1531,9 +1554,11 @@ fn scan_ext4(fs: &mut Ext4, cand: &Ext4Candidate) -> PartReport {
             fs.sb.label.clone()
         },
         size: cand.size.clone(),
+        fs_size_bytes: Some(fs.sb.block_size as u64 * fs.sb.blocks_count),
         fs_uuid: Some(part_spec::normalize_uuid(&fs.sb.uuid)),
         part_uuid: cand.part_uuid.clone(),
-        part_label: None,
+        // 官方 GetVolumeName 第 ② 档是 GPT 分区名 —— udev db 里就有（免 root）
+        part_label: udev_part_name(&cand.dev),
         part_number: cand.part_number,
         disk_index: cand.disk_index,
         ..PartReport::default()
