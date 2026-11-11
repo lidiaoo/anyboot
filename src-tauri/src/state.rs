@@ -37,6 +37,14 @@ pub(crate) struct AppState {
     /// rEFInd「模拟引导项扫描」结果（纯读预演，与上面 `variables` 那条「手动获取」
     /// 链路并列）。`None` = 没跑过 / 变量目录没找到。
     pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
+    /// RefindPlus 通道的一套槽位（与上面 rEFInd 那套完全并列）：
+    /// RefindPlus 是独立引导器（config.conf / `use_nvram` 默认 false /
+    /// RefindPlus 私有 NVRAM GUID），且可与 rEFInd **并存**在不同 ESP 上 ——
+    /// 各回各的通道、各写各的 `vars/PreviousBoot`。
+    pub(crate) refindplus_vars_dir: Option<PathBuf>,
+    pub(crate) refindplus_active_mount: Option<ActiveMount>,
+    pub(crate) refindplus_variables: Vec<VariableInfo>,
+    pub(crate) refindplus_sim: Option<channels::refind_menu::SimPreview>,
     /// GRUB「自动读取」视图：没装 09_anyboot 时直接读 Linux 分区里的
     /// grub.cfg / grubenv 得到的结果，与下面 `grub`（手动解析）并列。
     pub(crate) linux_grub: Option<channels::linux_grub::LinuxGrubView>,
@@ -122,6 +130,7 @@ impl DockEdge {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Debug)]
 pub(crate) struct VariableInfo {
     pub(crate) system: String,
     pub(crate) display_name: String,
@@ -306,6 +315,10 @@ impl Channels {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RemoteCommand {
     Switch(String),
+    /// RefindPlus 通道的启动项切换（`/api/switch?system=X&channel=refindplus`）：
+    /// 自动模式按标题原文写它安装目录的 vars/PreviousBoot，手动模式写它自己的
+    /// vars 快照 —— 与 rEFInd 的 Switch 完全并列的另一台安装。
+    SwitchRefindPlus(String),
     Power(PowerAction),
     SwitchAndPower {
         system: String,
@@ -327,6 +340,9 @@ impl RemoteCommand {
     pub(crate) fn summary(&self) -> String {
         match self {
             Self::Switch(system) => format!("切换下次启动为 {}", system_display_name(system)),
+            Self::SwitchRefindPlus(system) => {
+                format!("切换下次启动为 {}（RefindPlus）", system.trim())
+            }
             Self::Power(action) => action.label().to_string(),
             Self::SwitchAndPower { system, power } => {
                 format!(
@@ -575,6 +591,10 @@ pub(crate) struct UiState {
     /// rEFInd「模拟引导项扫描」：按 rEFInd 自己的菜单规则复算出的条目。
     /// 与 `status.variables`（手动获取的 vars 快照）并列，互不影响。
     pub(crate) refind_sim: Option<channels::refind_menu::SimPreview>,
+    /// RefindPlus 通道的模拟扫描（与 `refind_sim` 并列的独立通道视图）。
+    pub(crate) refindplus_sim: Option<channels::refind_menu::SimPreview>,
+    /// RefindPlus 通道「手动获取」的 vars 快照（与 `status.variables` 并列）。
+    pub(crate) refindplus_variables: Vec<crate::state::VariableInfo>,
     /// GRUB「自动读取」（直接读 Linux 分区里的 grub.cfg / grubenv）：
     /// 与 `grub`（ESP 上的手动解析）并列的第二块。
     pub(crate) linux_grub: Option<channels::linux_grub::LinuxGrubView>,
@@ -696,6 +716,9 @@ pub(crate) struct Settings {
     #[serde(default)]
     pub(crate) boot_adv_json: String,
     pub(crate) refind_mode: LoaderMode,
+    /// RefindPlus 通道的读取方式（与 `refind_mode` 并列，互不影响）。
+    #[serde(default)]
+    pub(crate) refindplus_mode: LoaderMode,
     /// GRUB 的读取方式（自动读取 / 手动解析）：决定「下次启动」与托盘那块
     /// 用 `linuxGrub`（Linux 分区里的 grub.cfg + grubenv）还是 ESP 上那份
     /// `GrubView`。默认自动。
@@ -884,6 +907,7 @@ impl Default for Settings {
             linux_grub_dev: String::new(),
             boot_adv_json: String::new(),
             refind_mode: LoaderMode::Auto,
+            refindplus_mode: LoaderMode::Auto,
             grub_mode: LoaderMode::Auto,
             startup_scan_with_admin: true,
             linux_ext4_scan_mode: "raw".to_string(),

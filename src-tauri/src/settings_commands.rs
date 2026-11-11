@@ -104,8 +104,9 @@ pub(crate) fn set_loader_mode(
     let mut settings = stored_settings(&app);
     match loader.as_str() {
         "refind" => settings.refind_mode = mode,
+        "refindplus" => settings.refindplus_mode = mode,
         "grub" => settings.grub_mode = mode,
-        other => return Err(format!("未知的引导器：{other}（只有 refind / grub）")),
+        other => return Err(format!("未知的引导器：{other}（只有 refind / refindplus / grub）")),
     }
     trace(
         &app,
@@ -118,6 +119,11 @@ pub(crate) fn set_loader_mode(
     //   切自动 → refresh_grub 里自动模式会清空 ESP 视图（自动面板读 Linux 分区那份）。
     if loader == "grub" {
         crate::grub_esp::refresh_grub(&app);
+    }
+    // RefindPlus 读取方式切换后：手动 → 需要定位一次安装目录拿 vars 快照；
+    // 自动 → 重算模拟扫描（失败按未安装处理，静默清槽位）。
+    if loader == "refindplus" {
+        let _ = crate::channels::refind_menu::refresh_sim_for(&app, false, "refindplus");
     }
     // 托盘/主窗共用同一份快照：广播一次，两边同时按新模式取数据源
     publish_ui(&app);

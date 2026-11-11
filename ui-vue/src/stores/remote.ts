@@ -68,9 +68,27 @@ export const useRemoteStore = defineStore("remote", () => {
       addr,
       error,
       refind: emptyGroup("refind", "rEFInd"),
+      refindplus: emptyGroup("refindplus", "RefindPlus"),
       grub: emptyGroup("grub", "GRUB"),
       channels: [],
     };
+  }
+
+  /** 老对端 payload 没有 refindplus 键时补一个空组（文案与后端 remote_boot_info 同一口径） */
+  function withRefindPlus(info: RemoteBootInfo): RemoteBootInfo {
+    if (!info.refindplus) {
+      info.refindplus = {
+        kind: "refindplus",
+        title: "RefindPlus",
+        available: false,
+        current: "",
+        next: "",
+        saved: "",
+        note: "对端 anyboot 版本较旧，不支持 RefindPlus 通道",
+        options: [],
+      };
+    }
+    return info;
   }
 
   function offlineRetryCount(): number {
@@ -126,7 +144,8 @@ export const useRemoteStore = defineStore("remote", () => {
     if (!force && loading.value.has(id)) return;
     loading.value.add(id);
     try {
-      const info = await call<RemoteBootInfo>("remote_boot_info", { serverId: id });
+      // 老对端 payload 可能没有 refindplus 键 → 统一补空组再入库
+      const info = withRefindPlus(await call<RemoteBootInfo>("remote_boot_info", { serverId: id }));
       if (info.online) {
         failCounts.value.delete(id);
         bootInfo.value.set(id, info);
@@ -171,10 +190,17 @@ export const useRemoteStore = defineStore("remote", () => {
     await load();
   }
 
-  /** 切换引导项（通道 / GRUB / rEFInd 由 kind 区分） */
+  /** 切换引导项（通道 / GRUB / rEFInd / RefindPlus 由 kind 区分） */
   async function switchBoot(payload: Record<string, unknown>): Promise<void> {
-    await call("remote_boot_switch", payload);
     const id = String(payload.serverId ?? payload.server_id ?? "");
+    // RefindPlus 通道的本机行：走主界面引导页同一入口 switch_system（channel-aware，
+    // 对端按它自己的 refindplusMode 分流）；远端行仍走 remote_boot_switch（后端按 kind
+    // 分流出 /api/switch?system=…&channel=refindplus，与 rEFInd 的切换路径对称）。
+    if (payload.kind === "refindplus" && id === "local") {
+      await call("switch_system", { system: String(payload.value ?? ""), channel: "refindplus" });
+    } else {
+      await call("remote_boot_switch", payload);
+    }
     if (id) await refreshBoot(id);
   }
 

@@ -12,8 +12,8 @@ import { call } from "@/api/tauri";
 import type { LayoutMode, ThemeKey } from "@/pages/boot/themes/registry";
 import { THEME_LAYOUT_MODES } from "@/pages/boot/themes/registry";
 
-/** 全部引导器 id（顺序即默认排序） */
-export const LOADER_IDS = ["refind", "grub", "sdboot", "opencore", "clover"] as const;
+/** 全部引导器 id（顺序即默认排序；refindplus 与 refind 并列的独立通道） */
+export const LOADER_IDS = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"] as const;
 export type LoaderId = (typeof LOADER_IDS)[number];
 
 /** 「下次启动」区域的显示方式（2026-11-01 三档定案） */
@@ -37,7 +37,7 @@ export interface BootAdvState {
 }
 
 const DEFAULT_STATE: BootAdvState = {
-  visible: { refind: true, grub: true, sdboot: true, opencore: true, clover: true },
+  visible: { refind: true, refindplus: true, grub: true, sdboot: true, opencore: true, clover: true },
   order: [...LOADER_IDS],
   side: {},
   layout: "default",
@@ -59,11 +59,21 @@ function loadState(): BootAdvState {
       ...parsed,
       visible: { ...DEFAULT_STATE.visible, ...(parsed.visible ?? {}) },
       side: { ...(parsed.side ?? {}) },
-      order: Array.isArray(parsed.order) && parsed.order.length ? parsed.order : [...LOADER_IDS],
+      order: ensureOrder(parsed.order),
     };
   } catch {
     return { ...DEFAULT_STATE, order: [...LOADER_IDS] };
   }
+}
+
+/** 存量编排里没有的引导器 id（如本次新增的 refindplus）补到末尾 —— 否则老用户
+ *  的 localStorage / 后端 bootAdvJson 里 order 是旧五件套，新 loader 永远排不进来。 */
+function ensureOrder(order: unknown): LoaderId[] {
+  const base = Array.isArray(order) && order.length ? (order as LoaderId[]) : [...LOADER_IDS];
+  for (const id of LOADER_IDS) {
+    if (!base.includes(id)) base.push(id);
+  }
+  return base;
 }
 
 export const useBootAdvStore = defineStore("bootAdv", () => {
@@ -140,7 +150,7 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
         ...parsed,
         visible: { ...DEFAULT_STATE.visible, ...(parsed.visible ?? {}) },
         side: { ...(parsed.side ?? {}) },
-        order: Array.isArray(parsed.order) && parsed.order.length ? parsed.order : [...LOADER_IDS],
+        order: ensureOrder(parsed.order),
       };
     } catch {
       /* 坏数据忽略 */

@@ -474,7 +474,12 @@ pub(crate) fn channel_default_title(channel: &channels::ChannelView) -> Option<S
 ///   GRUB 看 grubenv 的 next/saved entry，通道看 `current_default`。
 pub(crate) fn next_boot_rows(state: &UiState) -> Vec<(String, String)> {
     let grub = effective_grub(state);
-    next_boot_rows_from(refind_source(state), &grub, &state.channels)
+    next_boot_rows_from(
+        refind_source(state),
+        &refindplus_source(state),
+        &grub,
+        &state.channels,
+    )
 }
 
 /// rEFInd 的数据源（按设置里的读取方式选）。
@@ -483,6 +488,15 @@ pub(crate) fn refind_source(state: &UiState) -> RefindSource<'_> {
         mode: state.settings.settings.refind_mode,
         sim: state.refind_sim.as_ref(),
         variables: &state.status.variables,
+    }
+}
+
+/// RefindPlus 的数据源（与 [`refind_source`] 完全并列的另一台安装）。
+pub(crate) fn refindplus_source(state: &UiState) -> RefindSource<'_> {
+    RefindSource {
+        mode: state.settings.settings.refindplus_mode,
+        sim: state.refindplus_sim.as_ref(),
+        variables: &state.refindplus_variables,
     }
 }
 
@@ -559,6 +573,7 @@ pub(crate) fn overlay_linux_grub(
 /// 就会像之前那样「主窗列表选了 A、下次启动说未选中」。
 pub(crate) fn next_boot_rows_from(
     refind: RefindSource<'_>,
+    refindplus: &RefindSource<'_>,
     grub: &GrubView,
     channels: &[channels::ChannelView],
 ) -> Vec<(String, String)> {
@@ -571,6 +586,15 @@ pub(crate) fn next_boot_rows_from(
             .find(|entry| entry.is_default)
             .map(|entry| entry.label.clone());
         rows.push(("rEFInd".to_string(), picked.unwrap_or_default()));
+    }
+    // RefindPlus：与 rEFInd 同判据的另一台安装（可在另一块 ESP 上并存）
+    let refindplus_rows = refindplus.rows();
+    if !refindplus_rows.is_empty() {
+        let picked = refindplus_rows
+            .iter()
+            .find(|entry| entry.is_default)
+            .map(|entry| entry.label.clone());
+        rows.push(("RefindPlus".to_string(), picked.unwrap_or_default()));
     }
     // GRUB：选中项 = next_entry 优先、退 saved_entry，在**当前这份**的条目里找
     if !grub.entries.is_empty() {
@@ -723,16 +747,26 @@ impl RefindSource<'_> {
     }
 }
 
-pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool) -> Vec<MenuNode> {
+/// `channel`：`"refind"`（id 前缀 `refind-switch:` / `refind-sys:`）或
+/// `"refindplus"`（`refindplus-switch:` / `refindplus-sys:`）—— 两个并存安装
+/// 在托盘里各回各的动作，绝不串台。
+pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool, channel: &str) -> Vec<MenuNode> {
     if rows.is_empty() {
         return Vec::new();
     }
+    let prefix = |action: &str| {
+        if channel == "refindplus" {
+            format!("refindplus-{action}")
+        } else {
+            format!("refind-{action}")
+        }
+    };
     let row = |entry: &RefindRow| {
         let id = match &entry.system {
-            Some(system) => format!("refind-sys:{system}"),
+            Some(system) => format!("{}:{}", prefix("sys"), system),
             // id 里放**标题原文**（末尾那个空格也留着）：后端要原样写进
             // `vars/PreviousBoot`，trim 过就匹配不上 rEFInd 的菜单项。
-            None => format!("refind-switch:{}", entry.value),
+            None => format!("{}:{}", prefix("switch"), entry.value),
         };
         menu_marked_choice_item(
             id,
@@ -745,7 +779,7 @@ pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool) -> Vec<MenuNod
     // 标题，与主窗/电脑列表同一语义）。
     let kernel_row = |entry: &RefindRow, kernel: &str| {
         menu_marked_choice_item(
-            format!("refind-switch:{}", entry.value),
+            format!("{}:{}", prefix("switch"), entry.value),
             format!("↳ {}{}", grub_os_icon(kernel), kernel),
             !busy,
             entry.is_default,
@@ -767,7 +801,7 @@ pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool) -> Vec<MenuNod
             continue;
         }
         items.push(menu_marked_choice_item(
-            format!("refind-switch:{}", entry.value),
+            format!("{}:{}", prefix("switch"), entry.value),
             format!(
                 "▸ {}{}（{} 个内核）",
                 grub_os_icon(&entry.label),
@@ -850,6 +884,7 @@ pub(crate) fn loader_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     let grub = effective_grub(state);
     loader_menu_nodes_from(
         refind_source(state),
+        &refindplus_source(state),
         &grub,
         &state.channels,
         state.busy.affects_menu(),
@@ -862,6 +897,7 @@ pub(crate) fn loader_menu_nodes(state: &UiState) -> Vec<MenuNode> {
 /// `effective_grub`）—— 托盘下拉里勾在哪一行，必须跟主窗「下次启动」同一口径。
 pub(crate) fn loader_menu_nodes_from(
     refind: RefindSource<'_>,
+    refindplus: &RefindSource<'_>,
     grub: &GrubView,
     channels: &[channels::ChannelView],
     busy: bool,
@@ -877,7 +913,7 @@ pub(crate) fn loader_menu_nodes_from(
         } else if rows.is_empty() && !auto {
             // 手动处理但一条快照都没有：同样不出块（多数是压根没装 rEFInd）
         } else {
-            let children = refind_loader_nodes(&rows, busy);
+            let children = refind_loader_nodes(&rows, busy, "refind");
             let children = if children.is_empty() {
                 vec![menu_item(
                     "refind-empty",
@@ -888,6 +924,32 @@ pub(crate) fn loader_menu_nodes_from(
                 children
             };
             nodes.push(menu_submenu("refind-entries", "rEFInd 启动项", children));
+        }
+    }
+    // RefindPlus：与 rEFInd 同规则的另一块（并存安装各自出块，互不抢）
+    {
+        let rows = refindplus.rows();
+        let auto = refindplus.links_sim();
+        if auto && refindplus.sim.is_none() {
+            // 自动扫描还没跑：不出块
+        } else if rows.is_empty() && !auto {
+            // 手动处理但一条快照都没有：不出块（多数是没装 RefindPlus）
+        } else {
+            let children = refind_loader_nodes(&rows, busy, "refindplus");
+            let children = if children.is_empty() {
+                vec![menu_item(
+                    "refindplus-empty",
+                    "没有可见的菜单项（都被隐藏规则挡掉了）",
+                    false,
+                )]
+            } else {
+                children
+            };
+            nodes.push(menu_submenu(
+                "refindplus-entries",
+                "RefindPlus 启动项",
+                children,
+            ));
         }
     }
     // GRUB：有可点的条目才出块；一条都没解析到但**已经配置过 ESP** 的，也给块
@@ -1457,6 +1519,11 @@ pub(crate) enum MenuAction {
     /// 切换 rEFInd「手动处理」那条链路的系统（写 vars 快照，值域 = windows/macos/linux）。
     /// 与 `SwitchRefind` 不是一回事：那个按标题原文写 PreviousBoot，这个按 system 写快照。
     SwitchSystem(String),
+    /// 切换 **RefindPlus** 启动项（写它自己安装目录的 `vars/PreviousBoot`，
+    /// 与主窗 RefindPlus 卡同源；可与其他引导器并存，走 `channel=refindplus`）
+    SwitchRefindPlus(String),
+    /// RefindPlus「手动处理」那条链路的系统（写它自己的 vars 快照）。
+    SwitchSystemPlus(String),
     /// 切换三引导器通道的条目（`sdboot:<id>` / `opencore` / `clover-oneshot`…），
     /// 与主窗通道卡同一个值域（见 `channel_entry_spec`）
     SwitchChannel(String),
@@ -1507,6 +1574,14 @@ impl MenuAction {
         }
         if let Some(rest) = id.strip_prefix("refind-sys:") {
             return (!rest.trim().is_empty()).then(|| Self::SwitchSystem(rest.trim().to_string()));
+        }
+        // RefindPlus 条目的 id 同样是标题原文（末尾空格保留）
+        if let Some(rest) = id.strip_prefix("refindplus-switch:") {
+            return (!rest.trim().is_empty()).then(|| Self::SwitchRefindPlus(rest.to_string()));
+        }
+        if let Some(rest) = id.strip_prefix("refindplus-sys:") {
+            return (!rest.trim().is_empty())
+                .then(|| Self::SwitchSystemPlus(rest.trim().to_string()));
         }
         if let Some(rest) = id.strip_prefix("channel-switch:") {
             return (!rest.trim().is_empty()).then(|| Self::SwitchChannel(rest.to_string()));
@@ -1681,7 +1756,7 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             // 与主窗 rEFInd 列表同一条链路（`refind_sim_switch`）：校验标题仍在当前
             // 菜单里 → 写 vars/PreviousBoot → 重算模拟快照 → 广播。
             // 校验失败是「正常返回 + error」，这里补一条动作记录，否则托盘点完没反应。
-            let status = channels::refind_menu::refind_sim_switch(app.clone(), title);
+            let status = channels::refind_menu::refind_sim_switch(app.clone(), title, None);
             if let Some(error) = status.error {
                 record_action(&app, "切换 rEFInd 启动项", false, &error);
             }
@@ -1692,6 +1767,26 @@ pub(crate) fn spawn_menu_action(app: &AppHandle, action: MenuAction) {
             let status = switch_system_locally(&app, &system);
             if let Some(error) = status.error {
                 record_action(&app, "切换系统", false, &error);
+            }
+        }
+        MenuAction::SwitchRefindPlus(title) => {
+            // RefindPlus 通道：与 rEFInd 同一条链路（`refind_sim_switch` 的
+            // channel=refindplus 形态）——校验标题仍在 RefindPlus 自己的模拟菜单
+            // 里 → 写它安装目录下的 vars/PreviousBoot → 重算它的模拟快照 → 广播。
+            let status = channels::refind_menu::refind_sim_switch(
+                app.clone(),
+                title,
+                Some("refindplus".to_string()),
+            );
+            if let Some(error) = status.error {
+                record_action(&app, "切换 RefindPlus 启动项", false, &error);
+            }
+        }
+        MenuAction::SwitchSystemPlus(system) => {
+            // RefindPlus「手动处理」链路：写它自己 vars 目录的快照（值域 = system 名）。
+            let status = switch_system_locally_for(&app, &system, "refindplus");
+            if let Some(error) = status.error {
+                record_action(&app, "切换系统（RefindPlus）", false, &error);
             }
         }
         MenuAction::SwitchChannel(spec) => {

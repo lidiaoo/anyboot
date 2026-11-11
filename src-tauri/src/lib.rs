@@ -6231,6 +6231,8 @@ mod core_tests {
             issues: Vec::new(),
             summary: String::new(),
             vars_dir: String::new(),
+            install_dir: String::new(),
+            flavor: "refind".to_string(),
             config_path: None,
             scanfor: String::new(),
             var_mode: String::new(),
@@ -6238,7 +6240,7 @@ mod core_tests {
             default_selection: String::new(),
         };
         let refind_src = auto_refind(Some(&sim));
-        let nodes = refind_loader_nodes(&refind_src.rows(), false);
+        let nodes = refind_loader_nodes(&refind_src.rows(), false, "refind");
         let labels: Vec<&str> = nodes.iter().map(|node| node.label.as_str()).collect();
         assert_eq!(labels, vec!["🍎 OpenCore (macOS)", "🪟 Windows"]);
         assert_eq!(nodes[0].checked, Some(true), "选中项置顶且打勾");
@@ -6358,6 +6360,7 @@ mod core_tests {
         let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
         let rows = next_boot_rows_from(
             auto_refind(None),
+            &auto_refind(None),
             &grub,
             std::slice::from_ref(&channel),
         );
@@ -6437,6 +6440,7 @@ mod core_tests {
         let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
         let rows = next_boot_rows_from(
             auto_refind(None),
+            &auto_refind(None),
             &grub,
             std::slice::from_ref(&channel),
         );
@@ -6574,6 +6578,8 @@ mod core_tests {
             issues: Vec::new(),
             summary: String::new(),
             vars_dir: String::new(),
+            install_dir: String::new(),
+            flavor: "refind".to_string(),
             config_path: None,
             scanfor: String::new(),
             var_mode: String::new(),
@@ -6602,7 +6608,7 @@ mod core_tests {
             menu_preview: None,
         };
         let empty_grub = next_boot_grub_view(vec![], vec![], None, "minimal");
-        let rows = next_boot_rows_from(auto_refind(Some(&sim)), &empty_grub, std::slice::from_ref(&channel));
+        let rows = next_boot_rows_from(auto_refind(Some(&sim)), &auto_refind(None), &empty_grub, std::slice::from_ref(&channel));
         assert_eq!(
             rows,
             vec![
@@ -6612,7 +6618,7 @@ mod core_tests {
             "GRUB 没条目就不占行；展示用 trim 过的标题"
         );
         // 一个引导器都没有 → 空表（顶部退回「未知」）
-        assert!(next_boot_rows_from(auto_refind(None), &empty_grub, &[]).is_empty());
+        assert!(next_boot_rows_from(auto_refind(None), &auto_refind(None), &empty_grub, &[]).is_empty());
     }
 
     /// 没检测到的整块不出现（不摆空壳子菜单），但末尾要留一行说明 ——
@@ -6645,6 +6651,7 @@ mod core_tests {
         // 空 GRUB（只有一条「还没配置 ESP」）整块跳过；未检测到的 Clover 同理
         let nodes = loader_menu_nodes_from(
             auto_refind(None),
+            &auto_refind(None),
             &empty_grub,
             &[
                 channel("sdboot", "systemd-boot", true),
@@ -6672,12 +6679,12 @@ mod core_tests {
             entries: Vec::new(),
             ..bare
         };
-        let nodes = loader_menu_nodes_from(auto_refind(None), &empty_grub, std::slice::from_ref(&bare), false);
+        let nodes = loader_menu_nodes_from(auto_refind(None), &auto_refind(None), &empty_grub, std::slice::from_ref(&bare), false);
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].children.len(), 1);
         assert!(!nodes[0].children[0].enabled, "说明行不可点");
         // 一块都没有时返回空表（build_menu_nodes 会补一条「没有可用的引导项」）
-        assert!(loader_menu_nodes_from(auto_refind(None), &empty_grub, &[], false).is_empty());
+        assert!(loader_menu_nodes_from(auto_refind(None), &auto_refind(None), &empty_grub, &[], false).is_empty());
     }
 
     #[test]
@@ -6738,13 +6745,18 @@ mod core_tests {
         };
         let rows = manual.rows();
         assert_eq!(rows.len(), 2, "不存在的系统不列");
-        let nodes = refind_loader_nodes(&rows, false);
+        let nodes = refind_loader_nodes(&rows, false, "refind");
         assert_eq!(nodes[0].label, "🐧 Linux", "快照里 active 的那条置顶");
         assert_eq!(nodes[0].checked, Some(true));
         assert_eq!(nodes[0].id.as_deref(), Some("refind-sys:linux"));
         assert_eq!(nodes[1].checked, Some(false));
         // 顶部「下次启动」同一份
         let grub = next_boot_grub_view(Vec::new(), Vec::new(), None, "full");
+        let none_plus = menu_model::RefindSource {
+            mode: state::LoaderMode::Manual,
+            sim: None,
+            variables: &[],
+        };
         assert_eq!(
             next_boot_rows_from(
                 menu_model::RefindSource {
@@ -6752,6 +6764,7 @@ mod core_tests {
                     sim: None,
                     variables: &variables,
                 },
+                &none_plus,
                 &grub,
                 &[],
             ),
@@ -6763,7 +6776,7 @@ mod core_tests {
             sim: None,
             variables: &[],
         };
-        assert!(next_boot_rows_from(none, &grub, &[]).is_empty());
+        assert!(next_boot_rows_from(none, &none_plus, &grub, &[]).is_empty());
     }
 
     /// 托盘 GRUB 区与主窗 GRUB 列表**同一套格式逻辑**：置顶当前项（组内子项带

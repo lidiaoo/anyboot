@@ -304,6 +304,7 @@ onMounted(async () => {
     const line =
       `[vue-boot] ready=${ui.ready ? 1 : 0} rev=${ui.revision} tab=${currentTab.value} ` +
       `refindMode=${settings.refindMode} refindSim=${ui.refindSim?.entries?.length ?? 0} ` +
+      `refindplusMode=${settings.refindplusMode} refindplusSim=${ui.refindplusSim?.entries?.length ?? 0} ` +
       `grubMode=${settings.grubMode} channels=${ui.channels.length}`;
     void call<void>("hub_report_error", { source: "vue-boot", message: line, stack: "" }).catch(() => {});
   }, 3000);
@@ -313,6 +314,7 @@ onMounted(async () => {
  *  esp 副标题、entries(t/def)、nextBoot（默认项）、healthText —— 供各主题「引导器设置」面板显示。 */
 function loaderEspText(id: LoaderId | string): string {
   if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
+  if (id === "refindplus") return settings.refindplusMode === "manual" ? "vars/PreviousBoot 快照" : (ui.refindplusSim?.installDir || "ESP · config.conf");
   if (id === "grub") {
     // 旧版定案：各显各的、零回落。手动报 ESP cfgPath，自动报分区 target.cfgRel
     if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
@@ -328,6 +330,13 @@ function loaderDefaultTitle(id: LoaderId | string): string {
       return (ui.status?.variables ?? []).find((v) => v.active)?.displayName ?? "未知";
     }
     return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
+  }
+  if (id === "refindplus") {
+    // 与 refind 同口径，数据源换成 refindplus 通道的独立槽位
+    if (settings.refindplusMode === "manual") {
+      return (ui.refindplusVariables ?? []).find((v) => v.active)?.displayName ?? "未知";
+    }
+    return (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
   }
   if (id === "grub") {
     const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
@@ -352,6 +361,13 @@ function loaderState(id: string): "ok" | "warn" | "off" {
     if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn"; // 有配置但 0 条目
     return hasWarn(sim.issues) ? "warn" : "ok";
   }
+  if (id === "refindplus") {
+    // 与 refind 同口径，看 refindplus 通道自己的模拟扫描
+    const sim = ui.refindplusSim;
+    if (!sim) return "off";
+    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
+    return hasWarn(sim.issues) ? "warn" : "ok";
+  }
   if (id === "grub") {
     const g = ui.linuxGrub;
     if (!g) return "off";
@@ -373,7 +389,7 @@ const loaders = computed<LoaderInfo[]>(() => {
   for (const id of adv.enabledLoaders) {
     const meta = loaderMeta(id);
     const channel = ui.channels.find((c) => c.id === id);
-    const detected = id === "refind" || id === "grub" ? true : Boolean(channel?.detected);
+    const detected = id === "refind" || id === "refindplus" || id === "grub" ? true : Boolean(channel?.detected);
     const defTitle = loaderDefaultTitle(id);
     const count = countEntries(id);
     // 真实条目：设置面板只需要 length + 默认项（t/def）；用默认项造一个带 def 的条目
@@ -403,6 +419,12 @@ function countEntries(id: LoaderId | string): number {
     return settings.refindMode === "manual"
       ? (ui.status?.variables ?? []).filter((v) => v.exists).length
       : (ui.refindSim?.entries ?? []).filter((e) => !e.hidden).length;
+  }
+  if (id === "refindplus") {
+    // 与 refind 同口径，数据源换成 refindplus 通道
+    return settings.refindplusMode === "manual"
+      ? (ui.refindplusVariables ?? []).filter((v) => v.exists).length
+      : (ui.refindplusSim?.entries ?? []).filter((e) => !e.hidden).length;
   }
   if (id === "grub") {
     // 零回落（旧版 grubLoader 定案）：自动=linuxGrub，手动=ESP grub——与列表同源，
@@ -436,6 +458,12 @@ const nextBootRows = computed(() =>
         settings.refindMode === "manual"
           ? (ui.status?.variables?.find((v) => v.active)?.displayName ?? "—")
           : ((ui.refindSim?.entries?.find((e) => e.lastBoot)?.title ?? "").trim() || "—");
+    } else if (loader.id === "refindplus") {
+      // 与 refind 同口径，看 refindplus 通道的独立槽位
+      value =
+        settings.refindplusMode === "manual"
+          ? (ui.refindplusVariables?.find((v) => v.active)?.displayName ?? "—")
+          : ((ui.refindplusSim?.entries?.find((e) => e.lastBoot)?.title ?? "").trim() || "—");
     } else if (loader.id === "grub") {
       const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
       value = source?.nextEntry || source?.savedEntry || "—";
@@ -535,6 +563,10 @@ const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => ({
     settings.refindMode === "manual"
       ? refindVariableRows(ui.status?.variables)
       : simRows(ui.refindSim),
+  refindplus:
+    settings.refindplusMode === "manual"
+      ? refindVariableRows(ui.refindplusVariables)
+      : simRows(ui.refindplusSim),
   grub: grubRows({
     grubMode: settings.grubMode,
     linuxGrubEntries: ui.linuxGrub?.entries,

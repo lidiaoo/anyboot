@@ -96,8 +96,8 @@ export const getUiState = <T>() => call<T>("get_ui_state");
 // 引导器读取方式（自动 / 手动）
 // ---------------------------------------------------------------------------
 
-/** `loader` 是 "refind" / "grub"；`mode` 是 "auto" / "manual" */
-export const setLoaderMode = (loader: "refind" | "grub", mode: string) =>
+/** `loader` 是 "refind" / "refindplus" / "grub"；`mode` 是 "auto" / "manual" */
+export const setLoaderMode = (loader: "refind" | "refindplus" | "grub", mode: string) =>
   call<void>("set_loader_mode", { loader, mode });
 
 /** 重新扫描 / 同步 GRUB */
@@ -175,8 +175,10 @@ export const killPortOccupant = () => call<unknown>("kill_port_occupant");
 
 /** 设定 rEFInd vars 目录 */
 export const setVarsDir = (dir: string) => call<void>("set_vars_dir", { dir });
-/** 切换下次启动的系统（rEFInd 的 PreviousBoot） */
-export const switchSystem = (system: string) => call<void>("switch_system", { system });
+/** 切换下次启动的系统（rEFInd 家族的 PreviousBoot）。
+ *  `channel`：缺省 "refind"；RefindPlus 通道传 "refindplus"（手动模式三系统切换）。 */
+export const switchSystem = (system: string, channel?: "refind" | "refindplus") =>
+  channel ? call<void>("switch_system", { system, channel }) : call<void>("switch_system", { system });
 /** 卸载临时挂载 */
 export const unmountTemporary = () => call<void>("unmount_temporary");
 /** 开机自启 */

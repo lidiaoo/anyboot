@@ -106,9 +106,23 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
             state.vars_dir = None;
             state.variables = Vec::new();
             state.refind_sim = None;
-            state.message = String::new();
-            state.error = None;
-            status
+            // 「找到多个变量目录」与「没装 rEFInd」是两回事：
+            // * 没装 = 正常状态，静默（用户定案：启动不弹「未找到 vars」噪音）；
+            // * 多个 = **扫到了但拒绝猜**，这是可行动的信息 —— 必须让用户看见，
+            //   否则表现成「明明挂着的分区却没被扫描到」（2026-11-11 用户实况：
+            //   p4/p20 两台并存，rEFInd 卡片一片空白，谁都没选）。
+            //   提示语带候选路径，用户在卡片「变量目录」输入框里贴一个即可。
+            if error.contains("找到多个") {
+                state.message = error.clone();
+                let mut shown = status.clone();
+                shown.error = None;
+                shown.message = error;
+                shown
+            } else {
+                state.message = String::new();
+                state.error = None;
+                status
+            }
         }
     };
     drop(vars_span);
@@ -146,10 +160,22 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
                 drop(_span);
                 perf::drain_thread_spans()
             });
+            // RefindPlus 通道：与 rEFInd 完全并列的另一台安装（可在不同 ESP 上
+            // 共存）。只扫已挂载卷、绝不弹授权（与启动静默扫描同规矩）；没装
+            // 就清空槽位按「未安装」处理，与上面 rEFInd 的语义一致。
+            let rp_handle = scope.spawn(|| {
+                let _span = perf::span("refindplus.scan");
+                let _ = channels::refind_menu::refresh_sim_for(app, false, "refindplus");
+                drop(_span);
+                perf::drain_thread_spans()
+            });
             if let Ok(spans) = grub_handle.join() {
                 perf::merge_spans(spans);
             }
             if let Ok(spans) = ch_handle.join() {
+                perf::merge_spans(spans);
+            }
+            if let Ok(spans) = rp_handle.join() {
                 perf::merge_spans(spans);
             }
         });
@@ -164,10 +190,15 @@ pub(crate) fn refresh_and_update(app: &AppHandle) -> AppStatus {
 /// 切换下次启动系统。busy.switching 由外层统一置位/清除，
 /// 这样「未知系统」「目录未就绪」这些提前返回也不会把状态卡在 busy 上。
 pub(crate) fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
+    switch_and_update_for(app, system, "refind")
+}
+
+/// 通道感知版：refindplus 通道的手动切换写它自己的 vars 目录。
+pub(crate) fn switch_and_update_for(app: &AppHandle, system: &str, channel: &str) -> AppStatus {
     let started = Instant::now();
-    trace(app, "switch", &format!("请求 system={system}"));
+    trace(app, "switch", &format!("请求 system={system} channel={channel}"));
     set_busy(app, |busy| busy.switching = true);
-    let status = switch_and_update_inner(app, system, started);
+    let status = switch_and_update_inner(app, system, started, channel);
     set_busy(app, |busy| busy.switching = false);
     status
 }
@@ -180,6 +211,15 @@ pub(crate) fn switch_and_update(app: &AppHandle, system: &str) -> AppStatus {
 /// 选了 A，几秒后自己变回 B」）。**只在本机入口做这件事**：远程请求到点执行时也
 /// 会走 switch_and_update，从那里清理就等于自己把自己取消掉。
 pub(crate) fn switch_system_locally(app: &AppHandle, system: &str) -> AppStatus {
+    switch_system_locally_for(app, system, "refind")
+}
+
+/// 通道感知版：refindplus 通道同样先作废挂着的远程请求（本机意图更权威）。
+pub(crate) fn switch_system_locally_for(
+    app: &AppHandle,
+    system: &str,
+    channel: &str,
+) -> AppStatus {
     if let Some(pending) = pending_snapshot() {
         trace(
             app,
@@ -194,10 +234,15 @@ pub(crate) fn switch_system_locally(app: &AppHandle, system: &str) -> AppStatus 
             trace(app, "remote", &format!("作废挂起请求失败（不影响切换）: {error}"));
         }
     }
-    switch_and_update(app, system)
+    switch_and_update_for(app, system, channel)
 }
 
-pub(crate) fn switch_and_update_inner(app: &AppHandle, system: &str, started: Instant) -> AppStatus {
+pub(crate) fn switch_and_update_inner(
+    app: &AppHandle,
+    system: &str,
+    started: Instant,
+    channel: &str,
+) -> AppStatus {
     // 三引导器通道的值域（sdboot:<id> / opencore / …）分流到 channels 链路；
     // 原有 linux/windows/macos（rEFInd 模板复制）零变化
     if channels::SwitchSpec::is_channel_spec(system) {
@@ -214,7 +259,11 @@ pub(crate) fn switch_and_update_inner(app: &AppHandle, system: &str, started: In
         .find(|(candidate, _, _)| *candidate == system)
         .cloned();
     let Some((_system, display_name, source_name)) = selected else {
-        let mut status = state_snapshot(app);
+        let mut status = if channel == "refindplus" {
+            channels::refind_menu::state_snapshot_of_channel(app, channel)
+        } else {
+            state_snapshot(app)
+        };
         status.error = Some(format!("未知系统: {system}"));
         status.temporary_mount = {
             let state = app.state::<Mutex<AppState>>();
@@ -224,10 +273,19 @@ pub(crate) fn switch_and_update_inner(app: &AppHandle, system: &str, started: In
         return status;
     };
 
+    // refindplus 通道的手动切换写**自己的** vars 目录（与 rEFInd 并存的另一台
+    // 安装）；refind 通道沿用原槽位，行为零变化。
     let (directory, active_mount) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
-        (state.vars_dir.clone(), state.active_mount.clone())
+        if channel == "refindplus" {
+            (
+                state.refindplus_vars_dir.clone(),
+                state.refindplus_active_mount.clone(),
+            )
+        } else {
+            (state.vars_dir.clone(), state.active_mount.clone())
+        }
     };
     let Some(directory) = directory else {
         refresh_and_update(app);
@@ -332,12 +390,17 @@ pub(crate) fn set_vars_dir(app: AppHandle, path: Option<String>) -> AppStatus {
 }
 
 #[tauri::command]
-pub(crate) fn switch_system(app: AppHandle, system: String) -> AppStatus {
+pub(crate) fn switch_system(
+    app: AppHandle,
+    system: String,
+    channel: Option<String>,
+) -> AppStatus {
+    let channel = channel.unwrap_or_else(|| "refind".to_string());
     trace(
         &app,
         "command",
-        &format!("switch_system system={system}（主窗口）"),
+        &format!("switch_system system={system} channel={channel}（主窗口）"),
     );
     // 本机入口：会先作废挂着的远程请求，别让它到点把本机选择盖回去
-    switch_system_locally(&app, &system)
+    switch_system_locally_for(&app, &system, &channel)
 }

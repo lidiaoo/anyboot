@@ -114,6 +114,17 @@ function entriesOf(id: string): EntryData[] {
       .filter((e) => !e.hidden)
       .map((e) => ({ selector: e.title.trim(), name: e.title.trim(), class: e.kind }));
   }
+  if (id === "refindplus") {
+    // 与 refind 同口径，看 refindplus 通道的独立槽位
+    if (settings.refindplusMode === "manual") {
+      return (ui.refindplusVariables ?? [])
+        .filter((v) => v.exists)
+        .map((v) => ({ selector: v.source, name: v.displayName, class: v.system }));
+    }
+    return (ui.refindplusSim?.entries ?? [])
+      .filter((e) => !e.hidden)
+      .map((e) => ({ selector: e.title.trim(), name: e.title.trim(), class: e.kind }));
+  }
   if (id === "grub") {
     const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
     return (source?.entries ?? []).map((e) => ({

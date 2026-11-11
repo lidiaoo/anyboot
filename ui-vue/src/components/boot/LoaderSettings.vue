@@ -35,6 +35,9 @@ const open = ref(Boolean(props.defaultOpen));
       <template v-if="props.loader === 'refind'">
         <RefindSection hide-list />
       </template>
+      <template v-else-if="props.loader === 'refindplus'">
+        <RefindSection channel="refindplus" hide-list />
+      </template>
       <template v-else-if="props.loader === 'grub'">
         <GrubSection hide-list />
         <GrubEsp />

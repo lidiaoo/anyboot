@@ -87,6 +87,40 @@ const DEFAULT_DONT_SCAN_FILES: &[&str] = &[
 /// 注意 `EFI\BOOT` **不在**这里 —— 它只把 fallback 文件名摘出来单列，别的 .efi 照扫。
 const DEFAULT_DONT_SCAN_DIRS: &[&str] = &["EFI/refind", "EFI/tools"];
 
+/// RefindPlus 的配置文件搜索顺序（RefindPlus `main.c:4422-4445`）：
+/// `config.conf` → `refindplus.conf` → 上游的 `refind.conf`。前两个命中即
+/// 判定 flavor = refindplus。
+pub(crate) const REFINPLUS_CONF_CANDIDATES: &[&str] = &["config.conf", "refindplus.conf"];
+
+/// 安装目录（SelfDir，rEFInd/RefindPlus 一切相对路径的基准）＝ vars 目录的上一层。
+///
+/// `EFI/refind/vars`、`EFI/BOOT/vars` 的 parent 分别是 `EFI/refind`、`EFI/BOOT`
+/// —— 两种布局下 conf / 主题 / 图标都在这个目录里（upstream `config.c` 的
+/// `FileExists(SelfDir, …)` / RefindPlus `screenmgt.c:1647` 同语义）。
+pub(crate) fn install_dir_of(vars_dir: &Path) -> Option<&Path> {
+    vars_dir.parent()
+}
+
+/// 解析安装目录的配置文件与 flavor（纯函数，好单测）。
+///
+/// 搜索顺序与 RefindPlus 官方一致（`config.conf` → `refindplus.conf` →
+/// `refind.conf`）：前两个命中判 `refindplus`；`refind.conf` 命中判 `refind`；
+/// 都没有判 `unknown`（此时 rEFInd 通道按 rEFInd 默认、refindplus 通道按
+/// RefindPlus 默认 —— 两家的 `use_nvram` 缺省值相反，见 [`RefindConfig`]）。
+pub(crate) fn resolve_conf(install_dir: &Path) -> (Option<PathBuf>, &'static str) {
+    for name in REFINPLUS_CONF_CANDIDATES {
+        let candidate = install_dir.join(name);
+        if candidate.is_file() {
+            return (Some(candidate), "refindplus");
+        }
+    }
+    let candidate = install_dir.join("refind.conf");
+    if candidate.is_file() {
+        return (Some(candidate), "refind");
+    }
+    (None, "unknown")
+}
+
 /// 子菜单里的一项（rEFInd 的 `SubScreen` 条目，对应界面上「按 Tab/`+`/F2 进去」
 /// 看到的第二层）。
 ///
@@ -144,8 +178,12 @@ pub(crate) struct SimPreview {
     pub(crate) hidden: Vec<SimEntry>,
     pub(crate) issues: Vec<HealthIssue>,
     pub(crate) summary: String,
-    /// 变量目录（`EFI/refind/vars`）
+    /// 变量目录（安装目录下的 vars / refind-vars）
     pub(crate) vars_dir: String,
+    /// 安装目录（SelfDir）：`EFI/refind` / `EFI/refindplus` / `EFI/BOOT`
+    pub(crate) install_dir: String,
+    /// `refind` / `refindplus` / `unknown`（conf 一个都没读到的兜底）
+    pub(crate) flavor: String,
     /// 读到的配置文件（没有就是 `None`，此时全套用默认值）
     pub(crate) config_path: Option<String>,
     /// 生效的 `scanfor`（默认 `ieom`）
@@ -203,18 +241,130 @@ fn temp_mount_unlettered_esps() -> TempMounts {
 }
 
 pub(crate) fn refresh_sim(app: &tauri::AppHandle) -> Option<SimPreview> {
-    refresh_sim_with(app, false)
+    refresh_sim_for(app, false, "refind")
 }
 
 /// allow_mount=true 才尝试临时挂载无盘符 ESP（会弹一次系统授权）——只有用户主动「重新模拟」时为 true；
 /// 启动静默扫描 / HTTP 只读走 false，只用已挂载的卷，绝不打扰。
 pub(crate) fn refresh_sim_with(app: &tauri::AppHandle, allow_mount: bool) -> Option<SimPreview> {
+    refresh_sim_for(app, allow_mount, "refind")
+}
+
+/// 通道 → AppState 槽位适配：`refind` / `refindplus` 各一套
+/// （vars_dir / active_mount / sim）。并存两台安装时互不串台。
+fn get_slots(
+    state: &crate::AppState,
+    channel: &str,
+) -> (Option<PathBuf>, Option<crate::ActiveMount>, Option<SimPreview>) {
+    match channel {
+        "refindplus" => (
+            state.refindplus_vars_dir.clone(),
+            state.refindplus_active_mount.clone(),
+            state.refindplus_sim.clone(),
+        ),
+        _ => (
+            state.vars_dir.clone(),
+            state.active_mount.clone(),
+            state.refind_sim.clone(),
+        ),
+    }
+}
+
+fn put_scan_result(state: &mut crate::AppState, channel: &str, result: crate::ScanResult) {
+    match channel {
+        "refindplus" => {
+            state.refindplus_vars_dir = Some(result.vars_dir);
+            state.refindplus_active_mount = result.active_mount;
+            state.refindplus_variables = result.variables;
+        }
+        _ => {
+            state.vars_dir = Some(result.vars_dir);
+            state.active_mount = result.active_mount;
+            state.variables = result.variables;
+        }
+    }
+}
+
+fn put_sim(state: &mut crate::AppState, channel: &str, sim: Option<SimPreview>) {
+    match channel {
+        "refindplus" => state.refindplus_sim = sim,
+        _ => state.refind_sim = sim,
+    }
+}
+
+/// 通道维度的状态快照：refind 走 [`crate::switch_flow::state_snapshot`]，
+/// refindplus 读自己的槽位（vars_dir / variables / 挂载态）。
+pub(crate) fn state_snapshot_of_channel(app: &tauri::AppHandle, channel: &str) -> AppStatus {
+    if channel != "refindplus" {
+        return crate::switch_flow::state_snapshot(app);
+    }
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().expect("state mutex poisoned");
+    AppStatus {
+        vars_dir: state.refindplus_vars_dir.as_deref().map(display_path),
+        temporary_mount: state
+            .refindplus_active_mount
+            .as_ref()
+            .is_some_and(|mount| mount.owned),
+        variables: state.refindplus_variables.clone(),
+        message: state.message.clone(),
+        error: state.error.clone(),
+    }
+}
+
+/// 按通道重算模拟扫描。`channel`：`"refind"`（默认）/ `"refindplus"`。
+pub(crate) fn refresh_sim_for(
+    app: &tauri::AppHandle,
+    allow_mount: bool,
+    channel: &str,
+) -> Option<SimPreview> {
+    // refindplus 通道还没定位过安装目录：先静默扫一次（只扫已挂载卷，绝不弹授权）。
+    if channel == "refindplus" {
+        let need_scan = {
+            let state = app.state::<Mutex<crate::AppState>>();
+            state
+                .lock()
+                .ok()
+                .map(|state| state.refindplus_vars_dir.is_none())
+                .unwrap_or(false)
+        };
+        if need_scan {
+            let scan_result = crate::scan_refindplus_install();
+            match scan_result {
+                Ok(result) => {
+                    let state = app.state::<Mutex<crate::AppState>>();
+                    let mut guard = match state.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => return None,
+                    };
+                    put_scan_result(&mut guard, channel, result);
+                }
+                Err(error) => {
+                    trace(
+                        app,
+                        "scan",
+                        &format!("refindplus 安装未找到（按正常未安装处理）：{error}"),
+                    );
+                    let state = app.state::<Mutex<crate::AppState>>();
+                    let mut guard = match state.lock() {
+                        Ok(guard) => guard,
+                        Err(_) => return None,
+                    };
+                    guard.refindplus_vars_dir = None;
+                    guard.refindplus_active_mount = None;
+                    guard.refindplus_variables = Vec::new();
+                    guard.refindplus_sim = None;
+                    return None;
+                }
+            }
+        }
+    }
     let vars_dir = {
-        let state = app.state::<Mutex<AppState>>();
-        state
-            .lock()
-            .ok()
-            .and_then(|state| state.vars_dir.clone())
+        let state = app.state::<Mutex<crate::AppState>>();
+        state.lock().ok().and_then(|state| {
+            let (vars_dir, _, _) = get_slots(&state, channel);
+            vars_dir
+        })
     };
     // Linux 分区清单：缓存优先，没有且助手在位就免密现探（绝不弹授权）。
     // 这一步只影响模拟扫描的 Linux 内核条目，ESP 路径扫描不依赖它。
@@ -222,29 +372,39 @@ pub(crate) fn refresh_sim_with(app: &tauri::AppHandle, allow_mount: bool) -> Opt
     // Windows：把「没盘符的 ESP/EFI 分区」临时挂上再扫（macOS 靠 /Volumes 全挂载，天然一致）。
     // 扫完只卸载「我们临时挂的」——用户本来就挂着的绝不动。
     let mounted = if allow_mount { temp_mount_unlettered_esps() } else { TempMounts(Vec::new()) };
-    let sim = vars_dir.map(|dir| preview(&dir, &parts, note));
+    // conf 缺失时的 use_nvram 缺省按通道分派：refindplus 通道按 RefindPlus 的
+    // 官方缺省（false，文件式变量）；refind 通道保持上游 rEFInd 缺省（true）。
+    let sim = vars_dir.map(|dir| {
+        preview_with_default_use_nvram(&dir, &parts, note, channel != "refindplus")
+    });
     drop(mounted); // 离开作用域即卸载临时挂载
-    let state = app.state::<Mutex<AppState>>();
+    let state = app.state::<Mutex<crate::AppState>>();
     if let Ok(mut state) = state.lock() {
-        state.refind_sim = sim.clone();
+        put_sim(&mut state, channel, sim.clone());
     }
     sim
 }
 
 /// 手动「重新模拟」：只读重算一遍，不写盘。
+///
+/// `channel`：`"refind"`（缺省）/ `"refindplus"` —— 同一套引擎、各自的槽位。
 #[tauri::command]
-pub(crate) async fn refind_sim_scan(app: tauri::AppHandle) -> Option<SimPreview> {
+pub(crate) async fn refind_sim_scan(
+    app: tauri::AppHandle,
+    channel: Option<String>,
+) -> Option<SimPreview> {
+    let channel = channel.unwrap_or_else(|| "refind".to_string());
     // 用户主动点「重新模拟」：若还没有 Linux 分区缓存（首次 / 没开免密），
     // 就**允许弹一次系统密码授权框**现扫一轮（Elevation::Allow）——这就是
     // 「没开免密助手时降级为输入密码扫描」的那条路径。扫完填缓存再算 sim。
     // async + spawn_blocking：refresh 会弹授权框并扫盘（数百 ms～），不能阻塞 UI 线程。
-    tauri::async_runtime::spawn_blocking(move || refind_sim_scan_blocking(app))
+    tauri::async_runtime::spawn_blocking(move || refind_sim_scan_blocking(app, &channel))
         .await
         .ok()
         .flatten()
 }
 
-fn refind_sim_scan_blocking(app: tauri::AppHandle) -> Option<SimPreview> {
+fn refind_sim_scan_blocking(app: tauri::AppHandle, channel: &str) -> Option<SimPreview> {
     let has_cache = {
         let state = app.state::<Mutex<AppState>>();
         state
@@ -274,7 +434,7 @@ fn refind_sim_scan_blocking(app: tauri::AppHandle) -> Option<SimPreview> {
             crate::channels::Elevation::Allow,
         );
     }
-    let sim = refresh_sim_with(&app, true);
+    let sim = refresh_sim_for(&app, true, channel);
     publish_ui(&app);
     sim
 }
@@ -297,7 +457,7 @@ fn previous_boot_bytes(title: &str) -> Vec<u8> {
 ///
 /// 这正是 rEFInd 自己 `StoreLoaderName()` 做的事（`main.c:230`）：
 /// `EfivarSetRaw(&RefindGuid, L"PreviousBoot", Name, StrLen(Name)*2+2, TRUE)`；
-/// `use_nvram false` 时 `EfivarSetRaw` 把它落到 `EFI/refind/vars/PreviousBoot`，
+/// `use_nvram false` 时 `EfivarSetRaw` 把它落到 `<SelfDir>/vars/PreviousBoot`（rEFInd 与 RefindPlus 同为 SelfDir 语义），
 /// 下次开机 `AdjustDefaultSelection` 把 `default_selection` 里的 `+` 换成它。
 ///
 /// 所以内容必须逐字节等于「标题原文的 UTF-16LE + 2 字节 NUL」：少一个末尾空格、
@@ -348,16 +508,18 @@ fn ieee_size(bytes: u64) -> String {
 }
 
 #[tauri::command]
-pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStatus {
+pub(crate) fn refind_sim_switch(
+    app: tauri::AppHandle,
+    title: String,
+    channel: Option<String>,
+) -> AppStatus {
+    let channel = channel.unwrap_or_else(|| "refind".to_string());
     let started = Instant::now();
     let (vars_dir, active_mount, cached) = {
         let state = app.state::<Mutex<AppState>>();
         let state = state.lock().expect("state mutex poisoned");
-        (
-            state.vars_dir.clone(),
-            state.active_mount.clone(),
-            state.refind_sim.clone(),
-        )
+        let (vars_dir, active_mount, sim) = get_slots(&state, &channel);
+        (vars_dir, active_mount, sim)
     };
     let Some(vars_dir) = vars_dir else {
         return update_failure_status(
@@ -372,18 +534,25 @@ pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStat
     // 展示的那份 sim，一致的概率远大于失效。
     let sim = cached.unwrap_or_else(|| {
         let (parts, note) = linux_grub_parts_from_cache(&app);
-        preview(&vars_dir, &parts, note)
+        preview_with_default_use_nvram(&vars_dir, &parts, note, channel != "refindplus")
     });
 
-    // `use_nvram true` 时 rEFInd 从固件 NVRAM 读 PreviousBoot，`vars/` 里的文件它根本不看。
+    // `use_nvram true` 时引导器从固件 NVRAM 读 PreviousBoot，`vars/` 里的文件它根本不看。
     // 与其写一个「看着成功、开机没反应」的文件，不如拦住并说清改哪里。
+    // 文案按 flavor 分派（conf 文件名、引导器名都不一样）。
     if sim.var_mode == "nvram" {
+        let (conf_name, who) = if sim.flavor == "refindplus" {
+            ("config.conf", "RefindPlus")
+        } else {
+            ("refind.conf", "rEFInd")
+        };
         return update_failure_status(
             &app,
             "写入 PreviousBoot 失败",
-            "refind.conf 里是 use_nvram true：rEFInd 从固件 NVRAM 读 PreviousBoot，\
-             不读 vars 目录里的文件。先把 refind.conf 改成 use_nvram false（或删掉那一行）"
-                .to_string(),
+            format!(
+                "{conf_name} 里是 use_nvram true：{who} 从固件 NVRAM 读 PreviousBoot，\
+                 不读 vars 目录里的文件。先把 {conf_name} 改成 use_nvram false（或删掉那一行）"
+            ),
         );
     }
 
@@ -456,7 +625,14 @@ pub(crate) fn refind_sim_switch(app: tauri::AppHandle, title: String) -> AppStat
                     started.elapsed().as_millis()
                 ),
             );
-            let mut status = refresh_and_update(&app);
+            // refindplus 通道：只重算自己的 sim（refresh_and_update 是 refind 通道的
+            // 全量刷新链路，会覆盖 refind 槽位的 message —— 不能给 refindplus 用）。
+            let mut status = if channel == "refindplus" {
+                refresh_sim_for(&app, false, "refindplus");
+                state_snapshot_of_channel(&app, &channel)
+            } else {
+                refresh_and_update(&app)
+            };
             // refresh 会按「三份快照」重算 message（这次写入对不上任何快照），
             // 换成用户真正做的事，别让他以为切换失败。
             // 【关键】refresh_and_update 内部已经 publish 过一份「它自己算的 message」，
@@ -535,6 +711,22 @@ struct RefindConfig {
     default_selection: String,
     /// `menuentry "标题" { ... }` 块（`ScanUserConfigured`）
     menu_entries: Vec<MenuStanza>,
+    /// conf 里出现过 `dont_scan_dirs` 吗？上游语义：**默认值**里带 SelfDirPath
+    /// （`config.c:519-531`，自身安装目录不扫）；用户显式写了 `dont_scan_dirs`
+    /// 就整体替换默认。这里用 seen 标志区分：没写 = 默认名单 + 自身安装目录。
+    dont_scan_dirs_seen: bool,
+}
+
+impl RefindConfig {
+    /// 按 flavor 取 `use_nvram` 缺省值：rEFInd 默认 `true`（固件 NVRAM）；
+    /// RefindPlus 默认 `FALSE`（`main.c:113` `.UseNvram = FALSE`，文件式变量）。
+    fn for_flavor(flavor: &str) -> Self {
+        let mut config = Self::default();
+        if flavor == "refindplus" {
+            config.use_nvram = false;
+        }
+        config
+    }
 }
 
 impl Default for RefindConfig {
@@ -554,6 +746,7 @@ impl Default for RefindConfig {
             use_nvram: true,
             default_selection: String::new(),
             menu_entries: Vec::new(),
+            dont_scan_dirs_seen: false,
         }
     }
 }
@@ -711,7 +904,10 @@ fn read_config(path: &Path, config: &mut RefindConfig, depth: usize) {
                     config.also_scan.extend(csv(item));
                 }
             }
-            "dont_scan_dirs" => config.dont_scan_dirs.extend(args.iter().flat_map(|a| csv(a))),
+            "dont_scan_dirs" => {
+                config.dont_scan_dirs.extend(args.iter().flat_map(|a| csv(a)));
+                config.dont_scan_dirs_seen = true;
+            }
             "dont_scan_files" => config.dont_scan_files.extend(args.iter().flat_map(|a| csv(a))),
             "dont_scan_volumes" => {
                 config
@@ -966,7 +1162,9 @@ pub(crate) fn linux_grub_parts_from_cache(
     )
 }
 
-/// 把 `EFI/refind/vars` 反推到 ESP 根（`vars` → `refind` → `EFI` → 根）。
+/// 把变量目录反推到 ESP 根（`vars` → 安装目录 → `EFI` → 根）。
+/// 安装目录必须在 `EFI/` 下一层（`EFI/refind` / `EFI/refindplus` / `EFI/BOOT`
+/// 三种布局都恰好剥 3 层 —— 与 [`VARS_CANDIDATE_RELS`](crate::scan) 的候选一致）。
 fn esp_root_of(vars_dir: &Path) -> Option<PathBuf> {
     let refind_dir = vars_dir.parent()?;
     let efi_dir = refind_dir.parent()?;
@@ -985,10 +1183,35 @@ pub(crate) fn preview(
     linux_parts: &[crate::channels::linux_grub::PartReport],
     linux_note: Option<String>,
 ) -> SimPreview {
+    preview_with_default_use_nvram(vars_dir, linux_parts, linux_note, true)
+}
+
+/// [`preview`] 的 flavor 感知版本：`default_use_nvram_unknown` 决定「conf 一个都
+/// 没读到」时的 `use_nvram` 缺省 —— rEFInd 通道传 `true`（上游 `global.c` 默认），
+/// refindplus 通道传 `false`（RefindPlus `main.c:113` 默认）。conf 读到了就按
+/// flavor 分派（[`RefindConfig::for_flavor`]），此参数不参与。
+pub(crate) fn preview_with_default_use_nvram(
+    vars_dir: &Path,
+    linux_parts: &[crate::channels::linux_grub::PartReport],
+    linux_note: Option<String>,
+    default_use_nvram_unknown: bool,
+) -> SimPreview {
     let _span = perf::span("refind.sim");
     let vars_dir_text = vars_dir.display().to_string();
     let mut issues: Vec<HealthIssue> = Vec::new();
-    let mut config = RefindConfig::default();
+
+    let install_dir_text = install_dir_of(vars_dir)
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
+    let (conf, flavor) = install_dir_of(vars_dir)
+        .map(resolve_conf)
+        .unwrap_or((None, "unknown"));
+
+    let mut config = RefindConfig::for_flavor(flavor);
+    if flavor == "unknown" && !default_use_nvram_unknown {
+        // conf 缺失 + 调用方是 refindplus 通道：按 RefindPlus 缺省（文件式变量）
+        config.use_nvram = false;
+    }
     let mut config_path = None;
 
     let Some(esp_root) = esp_root_of(vars_dir) else {
@@ -998,11 +1221,13 @@ pub(crate) fn preview(
             issues: vec![HealthIssue {
                 severity: "warn".to_string(),
                 text: format!(
-                    "变量目录 {vars_dir_text} 不在 <ESP>/EFI/refind/vars 的位置上，无法反推 ESP 根，模拟扫描跳过"
+                    "变量目录 {vars_dir_text} 不在 <ESP>/EFI/<安装目录>/vars 的位置上，无法反推 ESP 根，模拟扫描跳过"
                 ),
             }],
             summary: "未扫描".to_string(),
             vars_dir: vars_dir_text,
+            install_dir: install_dir_text,
+            flavor: flavor.to_string(),
             config_path: None,
             scanfor: DEFAULT_SCANFOR.to_string(),
             var_mode: "file".to_string(),
@@ -1011,18 +1236,33 @@ pub(crate) fn preview(
         };
     };
 
-    let conf = esp_root.join("EFI").join("refind").join("refind.conf");
-    if conf.is_file() {
-        read_config(&conf, &mut config, 0);
-        config_path = Some(conf.display().to_string());
+    if let Some(conf_path) = &conf {
+        read_config(conf_path, &mut config, 0);
+        config_path = Some(conf_path.display().to_string());
     } else {
         issues.push(HealthIssue {
             severity: "info".to_string(),
             text: format!(
-                "没读到 {}，下面全部按 rEFInd 默认配置（scanfor=ieom、fold_linux_kernels、默认黑名单）复算",
-                conf.display()
+                "没读到安装目录 {} 里的 config.conf / refindplus.conf / refind.conf，\
+                 下面全部按 {} 默认配置（scanfor=ieom、fold_linux_kernels、默认黑名单）复算",
+                install_dir_text,
+                if flavor == "refindplus" { "RefindPlus" } else { "rEFInd" }
             ),
         });
+    }
+
+    // 自身安装目录不扫（上游 `config.c:529`：默认 DontScanDirs 含 SelfDirPath；
+    // 用户显式写了 dont_scan_dirs 则整体替换默认，与上游 HandleStrings 语义一致）。
+    if let Some(rel) = install_dir_of(vars_dir).and_then(|dir| {
+        dir.strip_prefix(&esp_root)
+            .ok()
+            .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+    }) {
+        config.dont_scan_dirs = merge_self_dir_block(
+            &config.dont_scan_dirs,
+            config.dont_scan_dirs_seen,
+            &rel,
+        );
     }
 
     // 「记住启动项」的当前值：use_nvram=false 时就在 vars 目录里
@@ -1037,12 +1277,19 @@ pub(crate) fn preview(
         "file".to_string()
     };
     if config.use_nvram {
+        let conf_name = match flavor {
+            "refindplus" => "config.conf",
+            _ => "refind.conf",
+        };
         issues.push(HealthIssue {
             severity: "info".to_string(),
-            text: "use_nvram=true：隐藏项（HiddenTags）和 PreviousBoot 都存在固件 NVRAM 里。\
-                   非提权读不到，因此下面的隐藏过滤只用了 refind.conf 的 dont_scan_files；\
-                   PreviousBoot 一栏显示的是 vars 目录里的旧副本（可能不是最新）"
-                .to_string(),
+            text: format!(
+                "{} 里是 use_nvram true：{} 从固件 NVRAM 读 PreviousBoot 与 HiddenTags，\
+                 不读 vars 目录里的文件。非提权读不到，因此下面的隐藏过滤只用了 dont_scan_files；\
+                 PreviousBoot 一栏显示的是 vars 目录里的旧副本（可能不是最新）",
+                conf_name,
+                if flavor == "refindplus" { "RefindPlus" } else { "rEFInd" }
+            ),
         });
     }
 
@@ -1319,6 +1566,8 @@ pub(crate) fn preview(
         issues,
         summary,
         vars_dir: vars_dir_text,
+        install_dir: install_dir_text,
+        flavor: flavor.to_string(),
         config_path,
         scanfor: config.scanfor,
         var_mode,
@@ -2073,6 +2322,23 @@ fn sort_candidates_desc(files: &mut [(String, i64)]) {
     files.clone_from_slice(&sorted);
 }
 
+/// 把自身安装目录并入默认黑名单（纯函数，好单测）。
+///
+/// 上游语义（`config.c:519-531`）：`dont_scan_dirs` 的**默认值**里含 SelfDirPath
+/// （自身安装目录不扫）；用户显式写了 `dont_scan_dirs` 就整体替换默认 ——
+/// 这时不再合并（写了 `dont_scan_dirs manual` 的人就要自己负责列全）。
+fn merge_self_dir_block(list: &[String], seen: bool, self_rel: &str) -> Vec<String> {
+    if seen || self_rel.is_empty() {
+        return list.to_vec();
+    }
+    if list.iter().any(|item| item.eq_ignore_ascii_case(self_rel)) {
+        return list.to_vec();
+    }
+    let mut out = list.to_vec();
+    out.push(self_rel.to_string());
+    out
+}
+
 /// 目录是否在 `dont_scan_dirs` 里（rEFInd 的元素可能是 `卷:GUID` 前缀，这边只比路径）。
 fn is_blocked_dir(relative: &str, list: &[String]) -> bool {
     let target = norm_path(relative);
@@ -2091,6 +2357,150 @@ fn is_blocked_dir(relative: &str, list: &[String]) -> bool {
 mod tests {
     use super::*;
     use crate::channels::linux_grub::{DirFile, DirListing};
+
+    /// 【真机样本·默认忽略】本机 nvme0n1p20（REFIND_PLUS）上有一台 RefindPlus
+    /// 安装：EFI/BOOT + config.conf + vars/PreviousBoot。分区挂着才能跑：
+    /// `cargo test --lib real_machine_refindplus -- --ignored --nocapture`
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "真机样本：需要 REFIND_PLUS 分区已挂载"]
+    fn real_machine_refindplus_discovery_and_preview() {
+        let install = crate::scan_refindplus_install()
+            .expect("REFIND_PLUS 已挂载时应找到 RefindPlus 安装");
+        let vars_text = install.vars_dir.display().to_string().to_ascii_lowercase();
+        assert!(
+            vars_text.contains("efi/boot"),
+            "vars 应在 EFI/BOOT 布局下，实际 {}",
+            install.vars_dir.display()
+        );
+        let sim = preview_with_default_use_nvram(&install.vars_dir, &[], None, false);
+        assert_eq!(sim.flavor, "refindplus", "flavor 应由 config.conf 判定");
+        assert!(
+            sim.install_dir.to_ascii_lowercase().contains("boot"),
+            "install_dir 应为 EFI/BOOT，实际 {}",
+            sim.install_dir
+        );
+        assert!(sim.config_path.as_deref().unwrap_or("").ends_with("config.conf"));
+        // RefindPlus 默认 use_nvram=false → 文件式变量；且 vars/PreviousBoot 有值
+        assert_eq!(sim.var_mode, "file");
+        assert!(
+            sim.previous_boot.is_some(),
+            "vars/PreviousBoot 应有历史值（上次启动写入）"
+        );
+    }
+
+    /// 【真机样本·默认忽略】同一台机器 rEFInd 与 RefindPlus **并存**（p4 / p20
+    /// 各一台，都是 EFI/BOOT 布局）：两台各回各的通道 —— rEFInd 通道按 flavor
+    /// 分层自动绑定 p4（有 refind.conf），refindplus 通道凭 config.conf 绑定
+    /// p20；**谁也不占谁的位**，不存在「二选一」。
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "真机样本：需要两块 ESP 都已挂载"]
+    fn real_machine_coexisting_installs_bind_separately() {
+        // rEFInd 通道：候选里 flavor=refindplus 的（p20）被让给 refindplus 通道，
+        // 剩下的 p4（refind.conf）唯一命中 → 直接绑定，不再报「找到多个」
+        let refind_scan = crate::scan_vars_directory(None)
+            .expect("p4 与 p20 并存时 rEFInd 通道应自动绑定 p4");
+        let refind_vars = refind_scan.vars_dir.display().to_string();
+        assert!(
+            !refind_vars.contains("p20") && !refind_vars.contains("REFIND_PLUS"),
+            "rEFInd 通道不应绑定 RefindPlus 的安装：{refind_vars}"
+        );
+        let (conf_path, flavor) = crate::channels::refind_menu::resolve_conf(
+            refind_scan.vars_dir.parent().expect("vars 必有父目录"),
+        );
+        assert_eq!(flavor, "refind", "绑定的应是 rEFInd 安装，实际 {flavor}");
+        assert!(conf_path
+            .and_then(|path| path.file_name().map(|n| n == "refind.conf"))
+            .unwrap_or(false));
+        // RefindPlus 通道：凭 config.conf 绑定 p20（另一个测试已覆盖详情）
+        let rp_scan = crate::scan_refindplus_install()
+            .expect("RefindPlus 通道应绑定 p20");
+        assert_ne!(
+            refind_scan.vars_dir, rp_scan.vars_dir,
+            "两台并存的安装必须各绑各的，不能落到同一个 vars 目录"
+        );
+    }
+
+    /// flavor 判定（RefindPlus `main.c:4422-4445` 的搜索顺序）：
+    /// `config.conf` 命中 → refindplus；只有 `refind.conf` → refind；
+    /// 都没有 → unknown；两份并存 → config.conf 优先（RefindPlus 自己接管）。
+    #[test]
+    fn resolve_conf_flavor_order() {
+        let dir = std::env::temp_dir().join(format!("anyboot-test-conf-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 1) 什么都没有 → unknown
+        let (conf, flavor) = resolve_conf(&dir);
+        assert_eq!(flavor, "unknown");
+        assert!(conf.is_none());
+        // 2) 只有 refind.conf → refind
+        std::fs::write(dir.join("refind.conf"), "timeout 3\n").unwrap();
+        let (_, flavor) = resolve_conf(&dir);
+        assert_eq!(flavor, "refind");
+        // 3) config.conf 出现 → refindplus 接管（即便 refind.conf 还在）
+        std::fs::write(dir.join("config.conf"), "timeout 5\n").unwrap();
+        let (conf, flavor) = resolve_conf(&dir);
+        assert_eq!(flavor, "refindplus");
+        assert_eq!(conf.unwrap().file_name().unwrap(), "config.conf");
+        // 4) refindplus.conf 也在 → 仍是 config.conf 第一优先
+        std::fs::write(dir.join("refindplus.conf"), "").unwrap();
+        let (conf, flavor) = resolve_conf(&dir);
+        assert_eq!(flavor, "refindplus");
+        assert_eq!(conf.unwrap().file_name().unwrap(), "config.conf");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `use_nvram` 缺省值按 flavor 分派：rEFInd 默认 true（上游 global.c），
+    /// RefindPlus 默认 false（RefindPlus `main.c:113` `.UseNvram = FALSE`）。
+    #[test]
+    fn use_nvram_default_follows_flavor() {
+        assert!(RefindConfig::for_flavor("refind").use_nvram);
+        assert!(!RefindConfig::for_flavor("refindplus").use_nvram);
+        // unknown（conf 缺失）按 rEFInd 缺省；通道侧再用参数覆写
+        assert!(RefindConfig::for_flavor("unknown").use_nvram);
+    }
+
+    /// 安装目录（SelfDir）= vars 的上一层：`EFI/refind/vars` 与 `EFI/BOOT/vars`
+    /// 两种布局都要推得出。
+    #[test]
+    fn install_dir_follows_vars_parent() {
+        assert_eq!(
+            install_dir_of(Path::new("/esp/EFI/refind/vars")),
+            Some(Path::new("/esp/EFI/refind"))
+        );
+        assert_eq!(
+            install_dir_of(Path::new("/esp/EFI/BOOT/vars")),
+            Some(Path::new("/esp/EFI/BOOT"))
+        );
+        assert_eq!(
+            install_dir_of(Path::new("/esp/EFI/BOOT/refind-vars")),
+            Some(Path::new("/esp/EFI/BOOT"))
+        );
+    }
+
+    /// SelfDir 黑名单合并：默认名单要并入自身安装目录（EFI/BOOT 布局下
+    /// 上游靠 SelfDirPath 默认值兜住，这里等价实现）；用户显式写了
+    /// dont_scan_dirs 就整体替换、不再合并；已在名单里（大小写不敏感）不重复。
+    #[test]
+    fn self_dir_block_merges_into_default() {
+        let defaults: Vec<String> = DEFAULT_DONT_SCAN_DIRS
+            .iter()
+            .map(|item| item.to_string())
+            .collect();
+        let merged = merge_self_dir_block(&defaults, false, "EFI/BOOT");
+        assert!(merged.iter().any(|item| item.eq_ignore_ascii_case("EFI/BOOT")));
+        assert!(merged.iter().any(|item| item.eq_ignore_ascii_case("EFI/refind")));
+        // 显式配置：原样返回
+        let explicit = vec!["EFI/manual".to_string()];
+        assert_eq!(
+            merge_self_dir_block(&explicit, true, "EFI/BOOT"),
+            explicit
+        );
+        // 已经在名单里（大小写不敏感）不重复加
+        let with_boot = vec!["efi/boot".to_string()];
+        assert_eq!(merge_self_dir_block(&with_boot, false, "EFI/BOOT"), with_boot);
+    }
 
     /// 纯函数：UTF-16LE 必须按第一个 NUL 截断（rEFInd 写文件不截断，尾巴有旧残留）。
     #[test]

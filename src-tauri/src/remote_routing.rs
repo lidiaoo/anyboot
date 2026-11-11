@@ -135,6 +135,11 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
             // 值域不在路由层校验：自动扫描模式下 system 是 rEFInd 菜单条目的标题
             // 原文（`/api/status` 合成出来的），三系统兜底校验挪到执行端按模式分流
             // （见 execute_remote_command 的 Switch 臂）。
+            // `channel`：refind（缺省）/ refindplus —— RefindPlus 通道的启动项切换
+            // 走同一个端点，写它自己安装目录的 vars/PreviousBoot。
+            if request.param("channel").as_deref() == Some("refindplus") {
+                return Ok(RemoteCommand::SwitchRefindPlus(system));
+            }
             Ok(RemoteCommand::Switch(system))
         }
         "/api/power" => {
@@ -975,7 +980,7 @@ pub(crate) fn remote_ui_command_inner(
         // 内部调用者，语义是「立即切换」。
         "switch_system" => {
             let system = ui_str(args, "system")?;
-            status_value(switch_system(app.clone(), system))
+            status_value(switch_system(app.clone(), system, None))
         }
         "set_vars_dir" => status_value(set_vars_dir(app.clone(), ui_opt_str(args, "path"))),
         "unmount_temporary" => status_value(unmount_temporary(app.clone())),
@@ -1012,7 +1017,12 @@ pub(crate) fn remote_ui_command_inner(
             // 远程（网页/手机）触发「重新模拟」：只读缓存重算，**绝不弹本机授权框**
             // （远程不得弹 GUI 是本项目的硬性约束）。本机首次无缓存时由本机窗口的
             // 「重新读取/重新模拟」走降级授权扫描填缓存。
-            serde_json::to_value(channels::refind_menu::refresh_sim(&app))
+            // `channel`：refind（缺省）/ refindplus —— RefindPlus 通道同一套命令。
+            let channel = args
+                .get("channel")
+                .and_then(|value| value.as_str())
+                .unwrap_or("refind");
+            serde_json::to_value(channels::refind_menu::refresh_sim_for(&app, false, channel))
                 .map_err(|error| format!("序列化失败: {error}"))
         }
         // 与 switch_boot_channel 同级别：直接改本机 ESP 上的文件，不走本机授权窗
@@ -1020,6 +1030,20 @@ pub(crate) fn remote_ui_command_inner(
         "refind_sim_switch" => status_value(channels::refind_menu::refind_sim_switch(
             app.clone(),
             ui_str(args, "title")?,
+            args.get("channel")
+                .and_then(|value| value.as_str())
+                .map(str::to_string),
+        )),
+        // refindplus 的别名命令：与 `refind_sim_*` + channel=refindplus 等价，
+        // 给客户端一个不用记参数的稳定入口。
+        "refindplus_sim_scan" => {
+            serde_json::to_value(channels::refind_menu::refresh_sim_for(&app, false, "refindplus"))
+                .map_err(|error| format!("序列化失败: {error}"))
+        }
+        "refindplus_sim_switch" => status_value(channels::refind_menu::refind_sim_switch(
+            app.clone(),
+            ui_str(args, "title")?,
+            Some("refindplus".to_string()),
         )),
         // GRUB 自动读取（没装 09_anyboot）：与手动解析并列的第二块。
         // 注意：macOS / Windows 上每次扫描都要拉起一个提权子进程 ——
@@ -1426,26 +1450,44 @@ pub(crate) fn resolve_sim_title<'a>(entries: &'a [channels::refind_menu::SimEntr
 
 /// 自动扫描模式下 `/api/switch` 的执行端：菜单标题 → 写 `vars/PreviousBoot`；
 /// 三系统名（CLI / 电源快捷方式的老值域）兜底走老链路。
-fn switch_refind_value(app: &AppHandle, value: &str) -> AppStatus {
+///
+/// `channel`：refind（缺省）/ refindplus —— 读**各自**的模拟菜单、写**各自**
+/// 安装目录的 vars，并存两台安装互不串台。
+fn switch_refind_value_for(app: &AppHandle, value: &str, channel: &str) -> AppStatus {
     let sim = app
         .state::<Mutex<AppState>>()
         .lock()
         .ok()
-        .and_then(|state| state.refind_sim.clone());
+        .and_then(|state| {
+            if channel == "refindplus" {
+                state.refindplus_sim.clone()
+            } else {
+                state.refind_sim.clone()
+            }
+        });
+    let channel_param = (channel == "refindplus").then(|| "refindplus".to_string());
     if let Some(title) = sim
         .as_ref()
         .and_then(|sim| resolve_sim_title(&sim.entries, value))
     {
-        return channels::refind_menu::refind_sim_switch(app.clone(), title.to_string());
+        return channels::refind_menu::refind_sim_switch(
+            app.clone(),
+            title.to_string(),
+            channel_param.clone(),
+        );
     }
     if SOURCE_FILES
         .iter()
         .any(|(system, _, _)| *system == value.trim())
     {
-        return switch_and_update(app, value.trim());
+        return switch_and_update_for(app, value.trim(), channel);
     }
     // 都不是 —— 交给 refind_sim_switch 出「不在当前模拟菜单里」的正常错误
-    channels::refind_menu::refind_sim_switch(app.clone(), value.trim().to_string())
+    channels::refind_menu::refind_sim_switch(app.clone(), value.trim().to_string(), channel_param)
+}
+
+fn switch_refind_value(app: &AppHandle, value: &str) -> AppStatus {
+    switch_refind_value_for(app, value, "refind")
 }
 
 /// 真正执行一条远程命令。
@@ -1488,6 +1530,24 @@ pub(crate) fn execute_remote_command(
                 match status.error {
                     Some(error) => (false, error),
                     None => (true, format!("下次启动（rEFInd）：{}", system.trim())),
+                }
+            }
+        }
+        RemoteCommand::SwitchRefindPlus(system) => {
+            // RefindPlus 通道（`/api/switch?system=X&channel=refindplus`）：按
+            // refindplusMode 分流（自动 = 模拟菜单标题原文；手动 = 三系统快照），
+            // 与 Switch 臂同一套规则、各回各的安装。
+            if settings.refindplus_mode.is_manual() {
+                let status = switch_and_update_for(app, system, "refindplus");
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动：{}", system_display_name(system))),
+                }
+            } else {
+                let status = switch_refind_value_for(app, system, "refindplus");
+                match status.error {
+                    Some(error) => (false, error),
+                    None => (true, format!("下次启动（RefindPlus）：{}", system.trim())),
                 }
             }
         }

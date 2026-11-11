@@ -1560,6 +1560,9 @@ class ComputerListActivity : ComponentActivity() {
                 modifier = Modifier.padding(top = 11.dp),
             ) {
                 BootButton(row, KIND_REFIND, row.refind)
+                // RefindPlus 与 rEFInd 并列：数据在 row.refindplus（老对端为
+                // available=false 的占位组，按钮内部按状态显示文案）
+                BootButton(row, KIND_REFINDPLUS, row.refindplus)
                 BootButton(row, KIND_GRUB, row.grub)
                 // 2026-11-02 用户定案：「离线应该都一样显示离线不可改 并不知道哪个
                 // 未检出」。
@@ -2245,7 +2248,11 @@ class ComputerListActivity : ComponentActivity() {
     private fun BootButton(row: CqRow, kind: String, group: BootGroup) {
         val palette = LocalPalette.current
         val tone = LocalTone.current
-        val title = if (kind == KIND_REFIND) "rEFInd" else "GRUB"
+        val title = when (kind) {
+            KIND_REFIND -> "rEFInd"
+            KIND_REFINDPLUS -> "RefindPlus"
+            else -> "GRUB"
+        }
         val work = busy[row.profile.id]
         val working = work != null && work.startsWith("boot:")
         val pending = kind == KIND_GRUB && grubPending(group)
@@ -2261,11 +2268,11 @@ class ComputerListActivity : ComponentActivity() {
             }
             dot = ""
         } else {
-            // rEFInd 直接用 label（走 GRUB 拼装会被折叠成「· N 个变体」）；
+            // rEFInd / RefindPlus 直接用 label（走 GRUB 拼装会被折叠成「· N 个变体」）；
             // GRUB 的当前值取托盘同款拼装出来的 **GrubRow.label** —— 不能取
             // option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
             // 直接取会显示空白（正是「GRUB 选中项空白」的根因）
-            if (kind == KIND_REFIND) {
+            if (kind == KIND_REFIND || kind == KIND_REFINDPLUS) {
                 val hit = group.options.firstOrNull { it.value == group.current }
                 valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
                 dot = hit?.kind ?: "linux"
@@ -2524,6 +2531,10 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
+    // 2026-11-11 编译修复：上一条提交把分类点改成 emoji 后，@Composable 注解
+    // 落在了 platformEmoji 头上（KDoc 插在中间），BootDot 反而没标 —— 调 Text
+    // 直接编译失败。这里给 BootDot 补回注解。
+    @Composable
     private fun BootDot(kind: String) {
         Text(platformEmoji(kind), fontSize = 13.sp)
     }
@@ -2944,6 +2955,7 @@ class ComputerListActivity : ComponentActivity() {
         val group = when {
             help -> null
             request.kind == KIND_REFIND -> info?.refind
+            request.kind == KIND_REFINDPLUS -> info?.refindplus
             request.kind == KIND_GRUB -> info?.grub
             else -> null
         }
@@ -2985,6 +2997,7 @@ class ComputerListActivity : ComponentActivity() {
                             help -> "操作说明"
                             request.kind == KIND_CHANNEL -> "${channel?.label ?: "通道"} 启动项"
                             request.kind == KIND_REFIND -> "rEFInd 启动项"
+                            request.kind == KIND_REFINDPLUS -> "RefindPlus 启动项"
                             else -> "GRUB 启动项"
                         },
                         fontSize = 14.5.sp,
@@ -3040,9 +3053,9 @@ class ComputerListActivity : ComponentActivity() {
                             grubFormatChips(group)
                             Spacer(Modifier.height(6.dp))
                         }
-                        // rEFInd 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：rEFInd 只有
-                        // label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
-                        val rows = if (request.kind == KIND_REFIND) {
+                        // rEFInd / RefindPlus 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：
+                        // 只有 label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
+                        val rows = if (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS) {
                             // 组头行 isHeader=true → 渲染成小标题（与 GRUB/PC 同款层级）
                             group.options.map { GrubRow(it, it.label, it.header) }
                         } else {
@@ -3273,6 +3286,7 @@ class ComputerListActivity : ComponentActivity() {
             mac = profile.allMacs().firstOrNull()?.uppercase(Locale.US) ?: "",
             hits = hits,
             refind = info?.refind ?: emptyGroup(KIND_REFIND),
+            refindplus = info?.refindplus ?: emptyGroup(KIND_REFINDPLUS),
             grub = info?.grub ?: emptyGroup(KIND_GRUB),
             channels = info?.channels ?: emptyList(),
             state = state,
@@ -3299,7 +3313,11 @@ class ComputerListActivity : ComponentActivity() {
 
     private fun emptyGroup(kind: String) = BootGroup(
         kind = kind,
-        title = if (kind == KIND_REFIND) "rEFInd" else "GRUB",
+        title = when (kind) {
+            KIND_REFIND -> "rEFInd"
+            KIND_REFINDPLUS -> "RefindPlus"
+            else -> "GRUB"
+        },
         available = false,
         current = "",
         next = "",
@@ -3527,7 +3545,7 @@ class ComputerListActivity : ComponentActivity() {
         }
 
         val refind = try {
-            parseRefind(httpJson(endpoint, token, "/api/status"))
+            parseRefind(httpJson(endpoint, token, "/api/status"), KIND_REFIND, "rEFInd")
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
@@ -3536,6 +3554,12 @@ class ComputerListActivity : ComponentActivity() {
                 current = "", next = "", saved = "", note = message, options = emptyList(),
             )
         }
+        // 老对端回落路径（没有 /api/ui-state）：一定不支持 RefindPlus 通道 → 占位组
+        val refindplus = BootGroup(
+            kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
+            current = "", next = "", saved = "",
+            note = "对端 anyboot 版本较旧，不支持 RefindPlus 通道", options = emptyList(),
+        )
         val grub = try {
             parseGrub(httpJson(endpoint, token, "/api/grub"))
         } catch (error: Exception) {
@@ -3558,6 +3582,7 @@ class ComputerListActivity : ComponentActivity() {
             addr = choice.displayAddr(),
             error = errors.joinToString("；"),
             refind = refind,
+            refindplus = refindplus,
             grub = grub,
             channels = channels,
             machineOs = choice.os,
@@ -3587,6 +3612,10 @@ class ComputerListActivity : ComponentActivity() {
             error = error,
             refind = BootGroup(
                 kind = KIND_REFIND, title = "rEFInd", available = false,
+                current = "", next = "", saved = "", note = note, options = emptyList(),
+            ),
+            refindplus = BootGroup(
+                kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
                 current = "", next = "", saved = "", note = note, options = emptyList(),
             ),
             grub = BootGroup(
@@ -3859,12 +3888,13 @@ class ComputerListActivity : ComponentActivity() {
         val settings = state.optJSONObject("settings") ?: JSONObject()
         val refindMode = optStr(settings, "refindMode").ifEmpty { "auto" }
         val grubMode = optStr(settings, "grubMode").ifEmpty { "auto" }
+        val refindplusMode = optStr(settings, "refindplusMode").ifEmpty { "auto" }
 
         val refind = try {
             if (refindMode == "manual") {
-                parseRefind(state.optJSONObject("status") ?: JSONObject())
+                parseRefind(state.optJSONObject("status") ?: JSONObject(), KIND_REFIND, "rEFInd")
             } else {
-                parseRefindSim(state.optJSONObject("refindSim") ?: JSONObject())
+                parseRefindSim(state.optJSONObject("refindSim") ?: JSONObject(), KIND_REFIND, "rEFInd")
             }
         } catch (error: Exception) {
             errors.add(error.message ?: "读取失败")
@@ -3873,6 +3903,40 @@ class ComputerListActivity : ComponentActivity() {
                 current = "", next = "", saved = "",
                 note = error.message ?: "读取失败", options = emptyList(),
             )
+        }
+        // RefindPlus 通道（与 refindMode 同一套 auto/manual 分流）：
+        //   自动（refindplusMode=auto）  → refindplusSim（与 refindSim 同形）
+        //   手动（refindplusMode=manual）→ refindplusVariables（与 status.variables 同形）
+        // 老对端没有这两个键 = 不支持 RefindPlus 通道 → 占位组（按钮显示「未检测到」），
+        // 不算读取失败（不进 errors，避免把整份快照标坏）。
+        val refindplusSupported =
+            state.has("refindplusSim") || state.has("refindplusVariables")
+        val refindplus = if (!refindplusSupported) {
+            BootGroup(
+                kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
+                current = "", next = "", saved = "",
+                note = "对端 anyboot 版本较旧，不支持 RefindPlus 通道", options = emptyList(),
+            )
+        } else {
+            try {
+                if (refindplusMode == "manual") {
+                    // refindplusVariables 本身就是数组，包一层凑成 parseRefind 的入参形状
+                    val vars = JSONObject()
+                    vars.put("variables", state.optJSONArray("refindplusVariables") ?: JSONArray())
+                    parseRefind(vars, KIND_REFINDPLUS, "RefindPlus")
+                } else {
+                    parseRefindSim(
+                        state.optJSONObject("refindplusSim") ?: JSONObject(),
+                        KIND_REFINDPLUS, "RefindPlus",
+                    )
+                }
+            } catch (error: Exception) {
+                BootGroup(
+                    kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
+                    current = "", next = "", saved = "",
+                    note = error.message ?: "读取失败", options = emptyList(),
+                )
+            }
         }
         val grub = try {
             // 自动模式用 linuxGrub（Linux 分区自己的 grub.cfg）；两者 entries/groups/
@@ -3901,6 +3965,7 @@ class ComputerListActivity : ComponentActivity() {
             addr = choice.displayAddr(),
             error = errors.joinToString("；"),
             refind = refind,
+            refindplus = refindplus,
             grub = grub,
             channels = channels,
             machineOs = choice.os,
@@ -3986,7 +4051,10 @@ class ComputerListActivity : ComponentActivity() {
     /// 自动模式是按 rEFInd 自己的扫描规则**重算**出来的菜单，含二级子屏；
     /// 「当前项」看 `entries[].lastBoot` 命中的那条（与 PC 端
     /// `effectiveGrubForNextBoot` / 托盘同一口径），没有就退回 `previousBoot`。
-    private fun parseRefindSim(json: JSONObject): BootGroup {
+    ///
+    /// [kind] / [title] 参数化：RefindPlus 的 `refindplusSim` 与 `refindSim`
+    /// 同形，直接复用同一套解析（避免复制整段）。
+    private fun parseRefindSim(json: JSONObject, kind: String, title: String): BootGroup {
         val options = mutableListOf<BootOption>()
         val entries = json.optJSONArray("entries") ?: JSONArray()
         var current = ""
@@ -4031,8 +4099,8 @@ class ComputerListActivity : ComponentActivity() {
             if (prev.isNotEmpty() && options.any { it.value == prev }) current = prev
         }
         return BootGroup(
-            kind = KIND_REFIND,
-            title = "rEFInd",
+            kind = kind,
+            title = title,
             available = options.isNotEmpty(),
             current = current,
             next = "",
@@ -4042,8 +4110,10 @@ class ComputerListActivity : ComponentActivity() {
         )
     }
 
-    /** `/api/status` 的 variables → rEFInd 可选组（对齐 PC 端 refind_from_status） */
-    private fun parseRefind(json: JSONObject): BootGroup {
+    /** `/api/status` 的 variables → rEFInd 可选组（对齐 PC 端 refind_from_status）
+     *  [kind] / [title] 参数化：RefindPlus 的 refindplusVariables 与 status.variables
+     *  同形，复用同一套解析。 */
+    private fun parseRefind(json: JSONObject, kind: String, title: String): BootGroup {
         val options = mutableListOf<BootOption>()
         var current = ""
         val variables = json.optJSONArray("variables")
@@ -4061,13 +4131,13 @@ class ComputerListActivity : ComponentActivity() {
             }
         }
         return BootGroup(
-            kind = KIND_REFIND,
-            title = "rEFInd",
+            kind = kind,
+            title = title,
             available = options.isNotEmpty(),
             current = current,
             next = current,
             saved = current,
-            note = if (options.isEmpty()) "这台电脑没部署 rEFInd（或还没设置过下次启动项）" else "",
+            note = if (options.isEmpty()) "这台电脑没部署 $title（或还没设置过下次启动项）" else "",
             options = options,
         )
     }
@@ -4316,8 +4386,13 @@ class ComputerListActivity : ComponentActivity() {
                 val choice = chooseEndpoint(profile)
                     ?: throw Exception("这台电脑还没有可用地址")
                 if (!choice.alive) throw Exception("电脑离线（局域网与远程都没通）")
+                // RefindPlus 走独立通道参数 channel=refindplus；value 是组 options
+                // 里的原文（自动模式是菜单标题原文，末尾可能带空格，不要 trim），
+                // URLEncoder 只做传输层转义、不改内容
                 val path = if (kind == KIND_REFIND) {
                     "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
+                } else if (kind == KIND_REFINDPLUS) {
+                    "/api/switch?system=" + URLEncoder.encode(value, "UTF-8") + "&channel=refindplus"
                 } else {
                     "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")
                 }
@@ -4642,6 +4717,7 @@ class ComputerListActivity : ComponentActivity() {
         /** 这一轮心跳的逐行探测结果（地址行与配对行的状态都从这里读） */
         val hits: List<ProbeEngine.Hit>,
         val refind: BootGroup,
+        val refindplus: BootGroup,
         val grub: BootGroup,
         val channels: List<ChannelRow>,
         val state: String,
@@ -4727,6 +4803,7 @@ class ComputerListActivity : ComponentActivity() {
         val addr: String,
         val error: String,
         val refind: BootGroup,
+        val refindplus: BootGroup,
         val grub: BootGroup,
         /** 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空列表 */
         val channels: List<ChannelRow> = emptyList(),
@@ -4848,6 +4925,8 @@ class ComputerListActivity : ComponentActivity() {
         const val STATE_UNKNOWN = "unknown"
 
         const val KIND_REFIND = "refind"
+        // RefindPlus 通道：走 /api/switch?system=<value>&channel=refindplus（对端 anyboot 新版才有）
+        const val KIND_REFINDPLUS = "refindplus"
         const val KIND_GRUB = "grub"
         const val KIND_HELP = "help"
         /** 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里 */

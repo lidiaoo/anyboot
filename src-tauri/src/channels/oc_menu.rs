@@ -1449,6 +1449,10 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
             grub_rel(root, "EFI/refind/refind_x64.efi").is_file()
                 || grub_rel(root, "EFI/BOOT/refind_x64.efi").is_file()
                 || grub_rel(root, "EFI/refind/refind.conf").is_file()
+                // RefindPlus：独立引导器，配置文件是 config.conf / refindplus.conf
+                // （RefindPlus main.c:4422-4445 的搜索顺序），常装在 EFI/BOOT
+                || grub_rel(root, "EFI/BOOT/config.conf").is_file()
+                || grub_rel(root, "EFI/refindplus/config.conf").is_file()
         })
         .map(|(label, _)| *label)
         .collect();

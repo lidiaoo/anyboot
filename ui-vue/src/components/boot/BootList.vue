@@ -10,7 +10,7 @@ import type { ChannelView, GrubEntry } from "@/api/types";
 import { simRows } from "@/pages/boot/bootRows";
 
 /**
- * 一个引导器区块（rEFInd / GRUB / systemd-boot / OpenCore / Clover）的列表。
+ * 一个引导器区块（rEFInd / RefindPlus / GRUB / systemd-boot / OpenCore / Clover）的列表。
  *
  * ## 最重要的行为：按 auto / manual 模式取不同数据源
  *
@@ -19,6 +19,7 @@ import { simRows } from "@/pages/boot/bootRows";
  * | 引导器 | 自动模式 | 手动模式 |
  * |---|---|---|
  * | rEFInd | `refindSim`（按扫描规则重算的菜单，含子屏） | `status.variables`（vars 快照） |
+ * | RefindPlus | `refindplusSim`（同一引擎的独立通道槽位） | `refindplusVariables`（手动获取的 vars 快照） |
  * | GRUB | `linuxGrub`（Linux 分区自己的 grub.cfg） | `grub`（ESP 上的 grub.cfg） |
  *
  * 选错数据源的表现是「列表显示的条目与引导器里实际看到的不一致」。
@@ -26,7 +27,7 @@ import { simRows } from "@/pages/boot/bootRows";
  */
 
 const props = defineProps<{
-  /** refind / grub / sdboot / opencore / clover */
+  /** refind / refindplus / grub / sdboot / opencore / clover */
   loader: string;
 }>();
 
@@ -35,20 +36,34 @@ const settings = useSettingsStore();
 const toast = useToastStore();
 
 const isRefind = computed(() => props.loader === "refind");
+/** RefindPlus：与 rEFInd 同一套列表逻辑的独立通道（数据源/命令只差 channel） */
+const isRefindPlus = computed(() => props.loader === "refindplus");
+const isRefindFamily = computed(() => isRefind.value || isRefindPlus.value);
 const isGrub = computed(() => props.loader === "grub");
-const isChannel = computed(() => !isRefind.value && !isGrub.value);
+const isChannel = computed(() => !isRefindFamily.value && !isGrub.value);
+
+/** 本通道的读取方式：refind / refindplus 各自的 Settings 字段 */
+const refindMode = computed(() =>
+  isRefindPlus.value ? settings.refindplusMode : settings.refindMode,
+);
+/** 本通道的数据源：自动=各自的模拟扫描；手动=各自的 vars 快照 */
+const refindSimSource = computed(() => (isRefindPlus.value ? ui.refindplusSim : ui.refindSim));
+const refindVarsSource = computed(() =>
+  isRefindPlus.value ? ui.refindplusVariables : ui.status?.variables,
+);
+
 /** 点击引导项 = 切换到该条为下次启动（自包含：各主题卡片直接可用，回显靠 IPC 快照） */
 async function switchEntry(selector: string) {
   if (!selector) return;
   try {
-    if (isRefind.value) {
-      if (settings.refindMode === "manual") {
-        await call("switch_system", { system: selector });
+    if (isRefindFamily.value) {
+      if (refindMode.value === "manual") {
+        await call("switch_system", { system: selector, channel: props.loader });
       } else {
         // 旧版语义：只接受当前可见模拟条目的标题原文（组头子项本来就没有点击处理器）
-        const visible = (ui.refindSim?.entries ?? []).filter((e) => !e.hidden).map((e) => e.title);
+        const visible = (refindSimSource.value?.entries ?? []).filter((e) => !e.hidden).map((e) => e.title);
         if (!visible.includes(selector)) return;
-        await call("refind_sim_switch", { title: selector });
+        await call("refind_sim_switch", { title: selector, channel: props.loader });
       }
     } else if (isGrub.value) {
       if (settings.grubMode === "manual") await call("switch_grub", { selector });
@@ -92,23 +107,23 @@ const channel = computed<ChannelView | null>(
 // 列表与点击命令同源（自动→linux_grub_switch，手动→switch_grub），否则点了没反应。
 const grubSource = computed(() => (settings.grubMode === "manual" ? ui.grub : ui.linuxGrub));
 
-/** rEFInd：自动模式看模拟扫描，手动模式看 vars 快照 */
+/** rEFInd 家族（refind/refindplus）：自动模式看模拟扫描，手动模式看各自的 vars 快照 */
 const refindEntries = computed<EntryData[]>(() => {
-  if (!isRefind.value) return [];
-  const manual = settings.refindMode === "manual";
+  if (!isRefindFamily.value) return [];
+  const manual = refindMode.value === "manual";
 
   if (!manual) {
     // 自动模式：交给 simRows —— 它会把「同一引导分区折叠的内核」（children，
     // source=kernel）展开成可点子项（selector=父条目 title，能切到该分区条目），
     // 并处理组头。之前这里内联平铺 entries、忽略 children，导致「内核全挤在一级菜单」
     // （用户：怎么我看还是全都在一级菜单）。
-    return simRows(ui.refindSim);
+    return simRows(refindSimSource.value);
   }
 
   // 手动模式：vars 快照里的三个系统项
   // 旧版 app.js:1278：行点击 switch_system {system: item.system}（系统类别，
   // 不是 source）；active 行不可点（switchable = exists && !busy && !error && !active）
-  const vars = ui.status?.variables ?? [];
+  const vars = refindVarsSource.value ?? [];
   return vars
     .filter((item) => item.exists)
     .map((item) => ({
@@ -123,15 +138,15 @@ const refindEntries = computed<EntryData[]>(() => {
 const channelDefaultSelector = ref("");
 /** 当前选中项 */
 const activeSelector = computed(() => {
-  if (isRefind.value) {
+  if (isRefindFamily.value) {
     // 自动模式：lastBoot 命中的那条（与托盘 / PC 主窗同一口径）
-    if (settings.refindMode !== "manual") {
-      const sim = ui.refindSim;
+    if (refindMode.value !== "manual") {
+      const sim = refindSimSource.value;
       const hit = sim?.entries?.find((entry) => entry.lastBoot);
       // 原文返回（selector 也是原文，两者必须相等才能高亮回显）
       return hit ? hit.title : "";
     }
-    const active = ui.status?.variables?.find((item) => item.active);
+    const active = refindVarsSource.value?.find((item) => item.active);
     // 与行 selector 同口径（system 类别）才能命中高亮
     return active ? active.system : "";
   }
@@ -256,7 +271,7 @@ function applyChannelDefault(
 
 /** 最终要渲染的条目 */
 const entries = computed<EntryData[]>(() => {
-  if (isRefind.value) return refindEntries.value;
+  if (isRefindFamily.value) return refindEntries.value;
   if (isGrub.value) return grubEntries.value;
   return channelEntries.value;
 });

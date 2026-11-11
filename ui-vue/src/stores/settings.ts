@@ -54,6 +54,8 @@ export const useSettingsStore = defineStore("settings", () => {
   // ---- 后端设置（只读派生；写要靠 IPC / HTTP 命令）--------------------
   /** rEFInd 读取方式：auto / manual */
   const refindMode = computed(() => ui.settings?.refindMode ?? "auto");
+  /** RefindPlus 通道读取方式：auto / manual（与 refindMode 并列的独立开关） */
+  const refindplusMode = computed(() => ui.settings?.refindplusMode ?? "auto");
   /** GRUB 读取方式：auto / manual */
   const grubMode = computed(() => ui.settings?.grubMode ?? "auto");
   const theme = computed(() => ui.settings?.theme ?? "light");
@@ -102,6 +104,7 @@ export const useSettingsStore = defineStore("settings", () => {
   return {
     // 后端
     refindMode,
+    refindplusMode,
     grubMode,
     theme,
     accentColor,

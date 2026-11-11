@@ -4,6 +4,7 @@
 use super::*;
 
 #[derive(Clone)]
+#[derive(Debug)]
 pub(crate) struct ActiveMount {
     pub(crate) device: PathBuf,
     pub(crate) mountpoint: PathBuf,
@@ -170,6 +171,7 @@ pub(crate) fn mounted_scan_candidates() -> Vec<MountedScanCandidate> {
     };
 
     let mut candidates = Vec::new();
+    let mut seen: Vec<PathBuf> = Vec::new();
     for line in mountinfo.lines() {
         let fields = line.split_whitespace().collect::<Vec<_>>();
         let Some(mountpoint) = fields.get(4) else {
@@ -192,17 +194,32 @@ pub(crate) fn mounted_scan_candidates() -> Vec<MountedScanCandidate> {
         }
 
         let mountpoint = decode_mountinfo_path(mountpoint);
-        let vars_dir = mountpoint.join("EFI/refind/vars");
-        let Ok(resolved) = vars_dir.canonicalize() else {
+        // rEFInd 家族的 vars 落在 SelfDir（二进制所在目录）下：EFI/refind /
+        // EFI/refindplus / EFI/BOOT × vars / refind-vars 全试（见
+        // scan.rs `VARS_CANDIDATE_RELS`）。一块卷命中多个的极端情况按优先级取第一个。
+        let mut resolved: Option<std::path::PathBuf> = None;
+        for candidate in crate::scan::VARS_CANDIDATE_RELS {
+            let vars_dir = mountpoint.join(candidate);
+            let Ok(candidate_path) = vars_dir.canonicalize() else {
+                continue;
+            };
+            if !candidate_path.is_dir() {
+                continue;
+            }
+            if candidates
+                .iter()
+                .any(|candidate: &MountedScanCandidate| candidate.vars_dir == candidate_path)
+                || seen.contains(&candidate_path)
+            {
+                continue;
+            }
+            resolved = Some(candidate_path);
+            break;
+        }
+        let Some(resolved) = resolved else {
             continue;
         };
-        if !resolved.is_dir()
-            || candidates
-                .iter()
-                .any(|candidate: &MountedScanCandidate| candidate.vars_dir == resolved)
-        {
-            continue;
-        }
+        seen.push(resolved.clone());
 
         let read_only = options.split(',').any(|option| option == "ro");
         let owned = is_owned_mountpoint(&mountpoint);
@@ -453,33 +470,39 @@ pub(crate) fn unmount_temporary_inner(app: &AppHandle) -> AppStatus {
 
 pub(crate) fn mounted_candidate_directories() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if cfg!(windows) {
-        for letter in b'A'..=b'Z' {
-            let root = format!("{}:\\", letter as char);
-            push_unique(&mut candidates, PathBuf::from(root).join("EFI/refind/vars"));
-        }
-    } else {
-        for path in [
-            "/Volumes/REFIND",
-            "/boot/efi",
-            "/efi",
-            "/boot",
-            "/mnt/REFIND",
-            "/media/REFIND",
-        ] {
-            push_unique(&mut candidates, PathBuf::from(path).join("EFI/refind/vars"));
-        }
-        for base in ["/Volumes", "/mnt", "/media", "/run/media"] {
-            let base = PathBuf::from(base);
-            let Ok(entries) = fs::read_dir(&base) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                // 【性能】只对卷根拼候选路径，**不再对每个卷做第二层 read_dir** ——
-                // 旧代码把 /Volumes 下每个卷再 read_dir 一层，遇到系统 Data 卷/
-                // 网络卷会累积上百毫秒（实测 vars.candidates 174ms）。rEFInd 的
-                // EFI/refind/vars 只会在卷根，不需要扫子目录。
-                push_unique(&mut candidates, entry.path().join("EFI/refind/vars"));
+    // 全平台共用的「安装位 × 变量目录名」候选（见 scan.rs `VARS_CANDIDATE_RELS`）：
+    // rEFInd 官方默认 EFI/refind、RefindPlus 默认 EFI/refindplus、两者共用的
+    // fallback 位 EFI/BOOT；目录名 vars（rEFInd 先建）与 refind-vars（RefindPlus
+    // 先读）都在认。已由 push_unique canonicalize + 去重。
+    for candidate in crate::scan::VARS_CANDIDATE_RELS {
+        if cfg!(windows) {
+            for letter in b'A'..=b'Z' {
+                let root = format!("{}:\\", letter as char);
+                push_unique(&mut candidates, PathBuf::from(root).join(candidate));
+            }
+        } else {
+            for path in [
+                "/Volumes/REFIND",
+                "/boot/efi",
+                "/efi",
+                "/boot",
+                "/mnt/REFIND",
+                "/media/REFIND",
+            ] {
+                push_unique(&mut candidates, PathBuf::from(path).join(candidate));
+            }
+            for base in ["/Volumes", "/mnt", "/media", "/run/media"] {
+                let base = PathBuf::from(base);
+                let Ok(entries) = fs::read_dir(&base) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    // 【性能】只对卷根拼候选路径，**不再对每个卷做第二层 read_dir** ——
+                    // 旧代码把 /Volumes 下每个卷再 read_dir 一层，遇到系统 Data 卷/
+                    // 网络卷会累积上百毫秒（实测 vars.candidates 174ms）。rEFInd 家族
+                    // 的 vars 只会在卷根的一层安装目录里，不需要扫子目录。
+                    push_unique(&mut candidates, entry.path().join(candidate));
+                }
             }
         }
     }

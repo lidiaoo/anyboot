@@ -19,6 +19,7 @@ import { useToastStore } from "@/stores/toast";
  *     .cq-col-more         更多
  *   .cq-row-boots         引导项区（wrap 一行）
  *     .cq-col-boot[data-label="rEFInd 启动项"]
+ *     .cq-col-boot[data-label="RefindPlus 启动项"]   与 rEFInd 并列的独立通道
  *     .cq-col-boot[data-label="GRUB 启动项"]
  *     .cq-col-boot.cq-col-boot--ch[…]   三通道（检测到才有）
  *   .cq-row-pwr           电源区
@@ -62,7 +63,9 @@ const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
 const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string } | null>(null);
 function openPicker(kind: string) {
-  const group = kind === "refind" ? props.info?.refind : kind === "grub" ? props.info?.grub
+  // refind / refindplus / grub 是固定组；其余 kind 到 channels 里找（kind = channel:<id>）
+  const group = kind === "refind" ? props.info?.refind : kind === "refindplus" ? props.info?.refindplus
+    : kind === "grub" ? props.info?.grub
     : (props.info?.channels ?? []).find((c) => c.kind === kind);
   const opts = ((group as { options?: { value?: string; label?: string; header?: boolean; class?: string }[] })?.options ?? []);
   if (!opts.some((o) => !o.header && (o.value ?? "").trim() !== "")) return; // 没有可选项就别弹
@@ -126,7 +129,7 @@ const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
 function bootState(kind: string): { label: string; none: boolean; dot: string } {
-  const group = kind === "refind" || kind === "grub" ? props.info?.[kind] : undefined;
+  const group = kind === "refind" || kind === "refindplus" || kind === "grub" ? props.info?.[kind] : undefined;
   if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
   if (!group.available) return { label: "未检测到", none: true, dot: "" };
   if (!online.value) return { label: "离线不可改", none: true, dot: "" };
@@ -166,7 +169,7 @@ const connectLines = computed<ConnectLine[]>(() => {
   const pairs = (r.pairs as { id?: string; kind?: string; lane?: string; addr?: string; token?: string; show_probe?: boolean }[] | undefined) ?? [];
   const rowTok = String(r.token ?? "");
   const probes = info?.probe_results ?? [];
-  // 探测结果索引：kind (address) 与 kind (pair_id)
+  // 探测结果索引：kind\u0000(address) 与 kind\u0000(pair_id)
   const probeByKey = new Map<string, { ok: boolean; ms: number; error: string }>();
   for (const o of probes) {
     probeByKey.set(`${o.kind ?? "lan"}\u0000${o.address}`, { ok: !!o.ok, ms: Number(o.ms ?? 0), error: String(o.error ?? "") });
@@ -250,7 +253,7 @@ async function openUrl(url: string) {
   }
 }
 
-function bootUsable(kind: "refind" | "grub") {
+function bootUsable(kind: "refind" | "refindplus" | "grub") {
   const group = props.info?.[kind];
   return Boolean(group?.available) && online.value;
 }
@@ -433,6 +436,20 @@ function onRowClick() {
           >
             <span v-if="osIcon(bootState('refind').dot, bootState('refind').label)">{{ osIcon(bootState('refind').dot, bootState('refind').label) }}</span>
             <span class="t">{{ bootState("refind").label }}</span>
+          </button>
+        </div>
+      </div>
+      <!-- RefindPlus 列：与 rEFInd 完全同构的独立组（kind=refindplus），同一套卡片风格 -->
+      <div class="cq-col cq-col-boot" role="cell" data-label="RefindPlus 启动项">
+        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refindplus').none }">
+          <button
+            type="button"
+            class="cq-boot-btn"
+            :disabled="!bootUsable('refindplus')"
+            @click.stop="openPicker('refindplus')"
+          >
+            <span v-if="osIcon(bootState('refindplus').dot, bootState('refindplus').label)">{{ osIcon(bootState('refindplus').dot, bootState('refindplus').label) }}</span>
+            <span class="t">{{ bootState("refindplus").label }}</span>
           </button>
         </div>
       </div>

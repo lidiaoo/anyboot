@@ -96,6 +96,10 @@ export interface SimPreview {
   previousBoot: string | null;
   /** default_selection 原文 */
   defaultSelection: string;
+  /** 安装目录（SelfDir）：EFI/refind / EFI/refindplus / EFI/BOOT */
+  installDir: string;
+  /** refind / refindplus / unknown（conf 一个都没读到的兜底） */
+  flavor: "refind" | "refindplus" | "unknown";
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +302,8 @@ export interface SettingsView {
   /** Linux ext4 分区扫描策略：raw / prefer_mount / mount_only */
   linuxExt4ScanMode: string;
   refindMode: LoaderMode;
+  /** RefindPlus 通道读取方式（与 refindMode 并列的独立开关） */
+  refindplusMode: LoaderMode;
   grubMode: LoaderMode;
   grubListFormat: string;
   grubListView: string;
@@ -384,6 +390,10 @@ export interface UiState {
   docked: boolean;
   dockEdge: string | null;
   refindSim: SimPreview | null;
+  /** RefindPlus 通道的模拟扫描（与 refindSim 并列的独立槽位） */
+  refindplusSim: SimPreview | null;
+  /** RefindPlus 通道「手动获取」的 vars 快照（与 status.variables 并列） */
+  refindplusVariables: VariableInfo[];
   linuxGrub: LinuxGrubView | null;
 }
 
@@ -419,6 +429,8 @@ export interface RemoteBootInfo {
   addr: string;
   error: string;
   refind: RemoteBootGroup;
+  /** RefindPlus 通道（与 refind 完全同构的独立组；老对端 payload 缺该键时由 store 补空组） */
+  refindplus: RemoteBootGroup;
   grub: RemoteBootGroup;
   channels: RemoteBootGroup[];
   probe_results?: { address: string; ok: boolean; ms: number; error: string; kind?: string; pair_id?: string; remote?: boolean }[];

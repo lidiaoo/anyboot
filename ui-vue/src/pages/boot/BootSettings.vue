@@ -43,6 +43,12 @@ function loaderDefault(id: string): string {
     const lb = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
     return (lb?.title || hit?.displayName || "未知").toString();
   }
+  if (id === "refindplus") {
+    // 与 refind 同口径，看 refindplus 通道的独立槽位
+    const hit = (ui.refindplusVariables ?? []).find((v) => v.active);
+    const lb = (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot);
+    return (lb?.title || hit?.displayName || "未知").toString();
+  }
   if (id === "grub") {
     const g = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
     return (g?.nextEntry || g?.savedEntry || "未知").toString();
@@ -221,6 +227,7 @@ const layoutLabels: Record<LayoutMode, string> = {
 /** 引导器 ESP 副标题（与 BootApp/旧版适配器一致：按模式零回落） */
 function loaderEsp(id: string): string {
   if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
+  if (id === "refindplus") return settings.refindplusMode === "manual" ? "vars/PreviousBoot 快照" : (ui.refindplusSim?.installDir || "ESP · config.conf");
   if (id === "grub") {
     if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
     const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
@@ -252,6 +259,13 @@ function previewLoaderState(id: string): "ok" | "warn" | "off" {
     !!issues && issues.some((i) => (i.severity || "").toLowerCase() === "warn");
   if (id === "refind") {
     const sim = ui.refindSim;
+    if (!sim) return "off";
+    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
+    return hasWarn(sim.issues) ? "warn" : "ok";
+  }
+  if (id === "refindplus") {
+    // 与 refind 同口径，看 refindplus 通道自己的模拟扫描
+    const sim = ui.refindplusSim;
     if (!sim) return "off";
     if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
     return hasWarn(sim.issues) ? "warn" : "ok";
@@ -301,6 +315,11 @@ const previewRows = computed<Record<string, EntryData[]>>(() => {
       out[id] = settings.refindMode === "manual"
         ? refindVariableRows(ui.status?.variables)
         : simRows(ui.refindSim);
+    } else if (id === "refindplus") {
+      // 与 refind 同口径，看 refindplus 通道的独立槽位
+      out[id] = settings.refindplusMode === "manual"
+        ? refindVariableRows(ui.refindplusVariables)
+        : simRows(ui.refindplusSim);
     } else if (id === "grub") {
       out[id] = grubRows({
         grubMode: settings.grubMode,

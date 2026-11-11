@@ -639,7 +639,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         <li>关机：电脑立刻关机，网页服务随之中断 —— 关机后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键。</li>
         <li>重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。</li>
         <li>没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。</li>
-        <li>rEFInd / GRUB / systemd-boot / OpenCore / Clover 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
+        <li>rEFInd / RefindPlus / GRUB / systemd-boot / OpenCore / Clover 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
         <li>四个电源键任何时候都能按、不会置灰（与移动端一致）；设备离线时引导项不可改。</li>
         <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
       </ul>
@@ -653,6 +653,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           <div class="cq-col cq-col-dev" role="columnheader">电脑</div>
           <div class="cq-col cq-col-st" role="columnheader">状态</div>
           <div class="cq-col cq-col-boot" role="columnheader">rEFInd 启动项</div>
+          <div class="cq-col cq-col-boot" role="columnheader">RefindPlus 启动项</div>
           <div class="cq-col cq-col-boot" role="columnheader">GRUB 启动项</div>
           <div class="cq-col cq-col-pwr" role="columnheader">电源</div>
           <div class="cq-col cq-col-more" role="columnheader" />

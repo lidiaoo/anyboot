@@ -93,6 +93,22 @@ pub(crate) fn ui_state(app: &AppHandle) -> UiState {
                 .ok()
                 .and_then(|state| state.refind_sim.clone())
         },
+        // RefindPlus 通道的模拟扫描：与上面并列的独立槽位
+        refindplus_sim: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .ok()
+                .and_then(|state| state.refindplus_sim.clone())
+        },
+        // RefindPlus 通道「手动获取」的 vars 快照：与 status.variables 并列
+        refindplus_variables: {
+            let state = app.state::<Mutex<AppState>>();
+            state
+                .lock()
+                .map(|state| state.refindplus_variables.clone())
+                .unwrap_or_default()
+        },
         // GRUB 自动读取：只有用户点过「重新扫描」才有内容（不随轮询自动探测）
         linux_grub: {
             let state = app.state::<Mutex<AppState>>();

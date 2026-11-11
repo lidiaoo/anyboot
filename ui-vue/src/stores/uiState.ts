@@ -374,6 +374,10 @@ export const useUiStateStore = defineStore("uiState", () => {
   const grub = computed(() => state.value?.grub ?? null);
   const channels = computed(() => state.value?.channels ?? []);
   const refindSim = computed(() => state.value?.refindSim ?? null);
+  /** RefindPlus 通道的模拟扫描（与 refindSim 并列的独立槽位） */
+  const refindplusSim = computed(() => state.value?.refindplusSim ?? null);
+  /** RefindPlus 通道「手动获取」的 vars 快照（与 status.variables 并列） */
+  const refindplusVariables = computed(() => state.value?.refindplusVariables ?? []);
   const linuxGrub = computed(() => state.value?.linuxGrub ?? null);
   /** Linux 免密组件状态（来自快照，随 publish_ui 实时更新） */
   const linuxPriv = computed(() => state.value?.linuxPriv ?? null);
@@ -390,6 +394,8 @@ export const useUiStateStore = defineStore("uiState", () => {
     grub,
     channels,
     refindSim,
+    refindplusSim,
+    refindplusVariables,
     linuxGrub,
     linuxPriv,
     busy,

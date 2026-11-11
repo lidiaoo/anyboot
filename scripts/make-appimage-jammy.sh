@@ -212,11 +212,13 @@ echo "==> 自检 A3：前端资产确实是本轮构建的"
 # 资产是 brotli 压缩后嵌进二进制的，扫二进制不现实；改查 codegen 产物目录。
 # 目录跟着**本体二进制**走（BIN 常是指向另一条构建线的符号链接，直接用
 # $PROJ/src-tauri/target 会查到上一次的旧资产，得出「不一致」的假警报）。
-# 注意：一轮会编出几十个页面资产，hub.html 往往不是 mtime 最新的那个 —— 全量解压搜。
+# 注意：一轮会编出几十个页面资产，index.html 往往不是 mtime 最新的那个 —— 全量解压搜。
+# 前端源已从旧版 ui/ 迁到 ui-vue/（vite 产物经 gen-ui-assets.py 嵌入），校验基准
+# 改为 ui-vue/dist/index.html（2026-11-11，随 RefindPlus 轮打包修复）。
 BINREAL=$(readlink -f "$BIN" 2>/dev/null || echo "$BIN")
 ASSET_ROOT=$(ls -d "$(dirname "$BINREAL")/build"/anyboot-*/out/tauri-codegen-assets 2>/dev/null | tail -1)
 if [ -n "$ASSET_ROOT" ]; then
-  node - "$ASSET_ROOT" "$PROJ/ui/hub.html" <<'JSEOF'
+  node - "$ASSET_ROOT" "$PROJ/ui-vue/dist/index.html" <<'JSEOF'
 const fs = require('fs'), path = require('path'), zlib = require('zlib');
 const [root, hub] = process.argv.slice(2);
 const want = fs.readFileSync(hub);
@@ -226,8 +228,8 @@ const hits = fs.readdirSync(root).filter(f => {
     return out.length === want.length && out.equals(want);
   } catch (e) { return false; }
 });
-if (!hits.length) { console.error('  ✗ 没找到与 ui/hub.html 字节一致的 codegen 资产（codegen 没重编？）'); process.exit(1); }
-console.log('  ✓ hub.html 资产字节一致（' + want.length + ' 字节）→ ' + hits[0].slice(0, 12) + '…');
+if (!hits.length) { console.error('  ✗ 没找到与 ui-vue/dist/index.html 字节一致的 codegen 资产（codegen 没重编？）'); process.exit(1); }
+console.log('  ✓ index.html 资产字节一致（' + want.length + ' 字节）→ ' + hits[0].slice(0, 12) + '…');
 JSEOF
 else
   echo "  · 跳过（找不到 $PROJ/src-tauri/target/release/build/anyboot-*/out）"

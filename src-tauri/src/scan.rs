@@ -37,6 +37,7 @@ pub(crate) struct LsblkDevice {
     pub(crate) partuuid: Option<String>,
 }
 
+#[derive(Debug)]
 pub(crate) struct ScanResult {
     pub(crate) vars_dir: PathBuf,
     pub(crate) active_mount: Option<ActiveMount>,
@@ -177,19 +178,41 @@ pub(crate) fn select_fat_candidates(devices: Vec<LsblkDevice>) -> Vec<FatPartiti
     out.into_iter().map(|(_, part)| part).collect()
 }
 
-/// 在目录里找 `EFI/refind/vars`，命中就读出变量快照。
+/// rEFInd 家族「文件式变量目录」的候选位置（相对卷根，按优先级排）。
+///
+/// rEFInd 的 `use_nvram false` 时落在 **SelfDir（二进制所在目录）** 下：先试
+/// `vars`，建不出来才回落 ESP 根的 `refind-vars`（upstream `lib.c:403-412`）；
+/// RefindPlus 顺序相反：先读 `<SelfDir>/refind-vars`，没有才建
+/// `<SelfDir>/vars`（RefindPlus `lib.c:739-790` `FindVarsDir`）。
+/// SelfDir 惯例有三处：`EFI/refind`（官方默认）、`EFI/refindplus`（RefindPlus
+/// 默认）、`EFI/BOOT`（fallback / `refind-install --usedefault` / RefindPlus
+/// 手动布局）。两个目录名 × 三个安装位，全试，命中即用。
+pub(crate) const VARS_CANDIDATE_RELS: &[&str] = &[
+    "EFI/refind/vars",
+    "EFI/refind/refind-vars",
+    "EFI/refindplus/vars",
+    "EFI/refindplus/refind-vars",
+    "EFI/BOOT/vars",
+    "EFI/BOOT/refind-vars",
+];
+
+/// 在目录里找 rEFInd 家族的文件式变量目录（见 [`VARS_CANDIDATE_RELS`]），
+/// 命中就读出变量快照。
 #[cfg(target_os = "linux")]
 fn inspect_vars_under(root: &Path) -> Result<Option<(PathBuf, Vec<VariableInfo>)>, String> {
-    let vars_dir = root.join("EFI/refind/vars");
-    if !vars_dir.is_dir() {
-        return Ok(None);
+    for candidate in VARS_CANDIDATE_RELS {
+        let vars_dir = root.join(candidate);
+        if !vars_dir.is_dir() {
+            continue;
+        }
+        let resolved = vars_dir
+            .canonicalize()
+            .map_err(|error| format!("无法解析变量目录: {error}"))?;
+        let variables =
+            inspect_variables(&resolved).map_err(|error| format!("无法读取变量目录: {error}"))?;
+        return Ok(Some((resolved, variables)));
     }
-    let resolved = vars_dir
-        .canonicalize()
-        .map_err(|error| format!("无法解析变量目录: {error}"))?;
-    let variables =
-        inspect_variables(&resolved).map_err(|error| format!("无法读取变量目录: {error}"))?;
-    Ok(Some((resolved, variables)))
+    Ok(None)
 }
 
 #[cfg(target_os = "linux")]
@@ -306,8 +329,63 @@ pub(crate) fn scan_unmounted_partition() -> Result<ScanResult, String> {
         ""
     };
     Err(format!(
-        "已扫描全部已挂载与临时挂载的 FAT/ESP 分区，但未找到 EFI/refind/vars 目录{root_hint}"
+        "已扫描全部已挂载与临时挂载的 FAT/ESP 分区，但未找到 rEFInd 家族的变量目录（EFI/refind、EFI/refindplus、EFI/BOOT 下的 vars / refind-vars）{root_hint}"
     ))
+}
+
+/// 定位 RefindPlus 安装（refindplus 通道「自动模式」的数据源）。
+///
+/// 与 [`scan_vars_directory`] 的差别在**认谁**：rEFInd 通道认第一个带 vars 的
+/// 候选；这里只认「安装目录下有 `config.conf` / `refindplus.conf`」的候选 ——
+/// 这是 RefindPlus 的配置文件搜索顺序（RefindPlus `main.c:4422-4445`），也是
+/// 它与同机共存 rEFInd（`refind.conf`）的唯一可靠区分。两台安装并存时各回
+/// 各的通道，互不抢。
+///
+/// 只扫已挂载卷（mountinfo / 盘符枚举）；未挂载的 ESP 与 rEFInd 通道一样，
+/// 请先在主窗口点「只读挂载」再扫。
+pub(crate) fn scan_refindplus_install() -> Result<ScanResult, String> {
+    let _sp_c = crate::perf::span("vars.candidates.rp");
+    let mut tier_refindplus: Vec<MountedScanCandidate> = Vec::new();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    for candidate in mounted_scan_candidates() {
+        if seen.contains(&candidate.vars_dir) {
+            continue;
+        }
+        seen.push(candidate.vars_dir.clone());
+        let Some(install_dir) = candidate.vars_dir.parent() else {
+            continue;
+        };
+        let (_, flavor) = crate::channels::refind_menu::resolve_conf(install_dir);
+        if flavor != "refindplus" {
+            continue;
+        }
+        tier_refindplus.push(candidate);
+    }
+    // 与 rEFInd 通道对称：同层（都是 RefindPlus 安装）多个才报错列出，不猜
+    if tier_refindplus.len() > 1 {
+        let names = tier_refindplus
+            .iter()
+            .map(|candidate| format!("  {}", candidate.vars_dir.display()))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(format!(
+            "找到多个 RefindPlus 安装（都有 config.conf），请指定其中一个：\n{names}"
+        ));
+    }
+    if let Some(candidate) = tier_refindplus.first() {
+        let variables = inspect_variables(&candidate.vars_dir)
+            .map_err(|error| format!("无法读取变量目录: {error}"))?;
+        return Ok(ScanResult {
+            vars_dir: candidate.vars_dir.clone(),
+            active_mount: candidate.active_mount.clone(),
+            variables,
+        });
+    }
+    Err(
+        "已扫描全部已挂载的 FAT/ESP 分区，但没找到 RefindPlus 安装：其安装目录下应有 \
+         config.conf（或 refindplus.conf）并带 vars 目录；未挂载的分区请先在主窗口点「只读挂载」"
+            .to_string(),
+    )
 }
 
 pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanResult, String> {
@@ -337,17 +415,44 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
             .map(|mount| !mount.owned)
             .unwrap_or(true)
     });
-    if candidates.len() > 1 {
-        let names = candidates
-            .iter()
-            .map(|candidate| format!("  {}", candidate.vars_dir.display()))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(format!(
-            "找到多个 rEFInd 变量目录，请在主窗口指定其中一个：\n{names}"
-        ));
+
+    // rEFInd 与 RefindPlus 是**并存的两台引导器**，不是二选一：refindplus 通道
+    // 凭 config.conf（[`scan_refindplus_install`]）认领自己的安装；这里 rEFInd
+    // 通道在**剩下的**候选里做 flavor 分层选择 ——
+    //   1. 有 refind.conf 的（flavor=refind）优先；
+    //   2. conf 一个都没有的（unknown，比如只有 BOOTx64+vars 的裸布局）次之；
+    //   3. flavor=refindplus 的整层让给 refindplus 通道，绝不抢。
+    // 同层出现多个才报「找到多个」（且只列同层候选 —— 被让出去的不算数）。
+    let mut tier_refind = Vec::new();
+    let mut tier_unknown = Vec::new();
+    for candidate in candidates {
+        let flavor = candidate
+            .vars_dir
+            .parent()
+            .map(crate::channels::refind_menu::resolve_conf)
+            .map(|(_, flavor)| flavor)
+            .unwrap_or("unknown");
+        match flavor {
+            "refind" => tier_refind.push(candidate),
+            "refindplus" => {} // refindplus 通道的，让出去
+            _ => tier_unknown.push(candidate),
+        }
     }
-    if let Some(directory) = candidates.first() {
+    for tier in [&tier_refind, &tier_unknown] {
+        if tier.is_empty() {
+            continue;
+        }
+        if tier.len() > 1 {
+            let names = tier
+                .iter()
+                .map(|candidate| format!("  {}", candidate.vars_dir.display()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            return Err(format!(
+                "找到多个 rEFInd 变量目录，请在主窗口指定其中一个：\n{names}"
+            ));
+        }
+        let directory = &tier[0];
         let _sp_i = crate::perf::span("vars.inspect");
         let variables = inspect_variables(&directory.vars_dir)
             .map_err(|error| format!("无法读取变量目录: {error}"))?;
@@ -364,7 +469,7 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Err("未找到已挂载的 EFI/refind/vars 目录".to_string())
+        Err("未找到已挂载的 rEFInd 家族变量目录（EFI/refind、EFI/refindplus、EFI/BOOT 下的 vars / refind-vars）".to_string())
     }
 }
 

@@ -3543,6 +3543,11 @@ pub struct RemoteBootInfo {
     pub addr: String,
     pub error: String,
     pub refind: BootGroup,
+    /// RefindPlus 通道（与 refind 并列的另一台安装，可并存于不同 ESP）。
+    /// 对端版本较旧（没有 refindplusSim/refindplusVariables/refindplusMode）时
+    /// available=false、note 说明对端不支持。
+    #[serde(default)]
+    pub refindplus: BootGroup,
     pub grub: BootGroup,
     /// systemd-boot / OpenCore / Clover（与主窗「系统引导」页的通道卡片同一份
     /// `ChannelView`，这里转成和 rEFInd/GRUB 同构的 `BootGroup`，前端一套渲染）。
@@ -3552,6 +3557,29 @@ pub struct RemoteBootInfo {
     /// has_jump 走串行分支时也逐条收集，engine 分支直接复用 outcome.results。
     #[serde(default)]
     pub probe_results: Vec<ProbeOutcome>,
+}
+
+/// RefindPlus 组：复用 rEFInd 组的两条生成链（SimPreview / vars 快照形状完全
+/// 同源，见 [`refind_from_sim`] / [`refind_from_status`]），只换 kind / title /
+/// 文案 —— 两个通道在前端渲染上同构，切换值域也同构（标题原文 / system 名）。
+fn refindplus_from_sim(sim: &serde_json::Value) -> BootGroup {
+    let mut group = refind_from_sim(sim);
+    group.kind = "refindplus".to_string();
+    group.title = "RefindPlus".to_string();
+    if !group.note.is_empty() {
+        group.note = group.note.replace("rEFInd", "RefindPlus");
+    }
+    group
+}
+
+fn refindplus_from_status(value: &serde_json::Value) -> BootGroup {
+    let mut group = refind_from_status(value);
+    group.kind = "refindplus".to_string();
+    group.title = "RefindPlus".to_string();
+    if !group.note.is_empty() {
+        group.note = group.note.replace("rEFInd", "RefindPlus");
+    }
+    group
 }
 
 /// GRUB 条目名 → 图标分类（纯函数，便于单测）。
@@ -4690,8 +4718,34 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                 .unwrap_or(serde_json::Value::Null);
             refind_from_sim(&sim_json)
         };
+        // RefindPlus 组：与上面同一套分流规则、读它自己的槽位（并存安装互不串台）。
+        let refindplus_mode = crate::stored_settings(app).refindplus_mode;
+        let refindplus = if refindplus_mode == crate::state::LoaderMode::Manual {
+            let variables_json = app
+                .state::<std::sync::Mutex<crate::state::AppState>>()
+                .lock()
+                .ok()
+                .map(|state| {
+                    serde_json::to_value(&state.refindplus_variables)
+                        .unwrap_or(serde_json::Value::Null)
+                })
+                .unwrap_or(serde_json::Value::Null);
+            // refind_from_status 吃 AppStatus 形状（{variables:[…]}），这里包一层
+            let wrapped = serde_json::json!({ "variables": variables_json });
+            refindplus_from_status(&wrapped)
+        } else {
+            let sim_json = app
+                .state::<std::sync::Mutex<crate::state::AppState>>()
+                .lock()
+                .ok()
+                .and_then(|state| state.refindplus_sim.clone())
+                .and_then(|sim| serde_json::to_value(&sim).ok())
+                .unwrap_or(serde_json::Value::Null);
+            refindplus_from_sim(&sim_json)
+        };
         let mut info = RemoteBootInfo {
             refind,
+            refindplus,
             grub: grub_from_json(&grub_json, &format),
             channels: channel_views.iter().map(channel_from_view).collect(),
             ..Default::default()
@@ -4869,6 +4923,7 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             info.online = false;
             info.error = error;
             info.refind.note = "电脑离线，无法读取引导项".to_string();
+            info.refindplus.note = "电脑离线，无法读取引导项".to_string();
             info.grub.note = "电脑离线，无法读取引导项".to_string();
             return Ok(info);
         }
@@ -4896,6 +4951,37 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             refind_from_sim(state_json.get("refindSim").unwrap_or(&serde_json::Value::Null))
         };
 
+        // RefindPlus 组：与 rEFInd 同一套分流规则，数据在对端 UiState 的
+        // refindplusSim / refindplusVariables / settings.refindplusMode 上。
+        // 对端版本较旧（快照里没有这几个键）时 available=false + note 说明，
+        // 不让整次读取失败（与老服务端没有 boot-channels 的处理同一哲学）。
+        let refindplus_manual = settings
+            .and_then(|s| s.get("refindplusMode"))
+            .and_then(|v| v.as_str())
+            == Some("manual");
+        let has_refindplus_keys = state_json.get("refindplusSim").is_some()
+            || state_json.get("refindplusVariables").is_some();
+        info.refindplus = if !has_refindplus_keys {
+            BootGroup {
+                kind: "refindplus".to_string(),
+                title: "RefindPlus".to_string(),
+                available: false,
+                current: String::new(),
+                next: String::new(),
+                saved: String::new(),
+                note: "对端 anyboot 版本较旧，不支持 RefindPlus 通道".to_string(),
+                options: Vec::new(),
+            }
+        } else if refindplus_manual {
+            // 手动模式：refindplusVariables 是裸数组，包成 AppStatus 形状复用解析
+            let wrapped = serde_json::json!({
+                "variables": state_json.get("refindplusVariables").cloned().unwrap_or(serde_json::Value::Null)
+            });
+            refindplus_from_status(&wrapped)
+        } else {
+            refindplus_from_sim(state_json.get("refindplusSim").unwrap_or(&serde_json::Value::Null))
+        };
+
         let grub_value = if grub_manual {
             state_json.get("grub")
         } else {
@@ -4914,6 +5000,8 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
     }
 
     // ---- 回落：老服务端没有 /api/ui-state ----
+    // 对端连 ui-state 都没有（更早的版本），必然没有 RefindPlus 通道数据
+    info.refindplus.note = "对端 anyboot 版本较旧，不支持 RefindPlus 通道".to_string();
     match remote_http_json(app, &server, "/api/status") {
         Ok(value) => info.refind = refind_from_status(&value),
         Err(error) => {
@@ -4988,8 +5076,10 @@ fn remote_boot_switch_blocking(
     kind: &str,
     value: &str,
 ) -> Result<String, String> {
-    let value = value.trim();
-    if value.is_empty() {
+    // 只判空、**绝不 trim**：rEFInd/RefindPlus 自动模式的 value 是菜单条目
+    // 标题原文，末尾可能带一个空格 —— 写 `vars/PreviousBoot` 要原样匹配，
+    // trim 掉就会「看着成功、开机没反应」（bootRows.ts 的注释明确警告过）。
+    if value.trim().is_empty() {
         return Err("没有选择引导项".to_string());
     }
     let kind = kind.trim();
@@ -5005,6 +5095,12 @@ fn remote_boot_switch_blocking(
                 // 标题原文（/api/status 合成出来的），手动模式才是三系统名 ——
                 // 都交给 execute_remote_command 按本机读取方式分流。
                 crate::state::RemoteCommand::Switch(value.to_string())
+            }
+            "refindplus" => {
+                // RefindPlus 通道：与 refind 同语义（标题原文 / 三系统名都交给
+                // execute_remote_command 按本机 refindplusMode 分流），但走
+                // SwitchRefindPlus —— 写它自己安装目录的 vars/PreviousBoot。
+                crate::state::RemoteCommand::SwitchRefindPlus(value.to_string())
             }
             "grub" => crate::state::RemoteCommand::SwitchGrub(value.to_string()),
             // 通道值域：value 直接就是 spec（sdboot:<id> / opencore / clover-default:<volume>…）
@@ -5027,6 +5123,12 @@ fn remote_boot_switch_blocking(
         // 自动扫描模式下 system 是菜单条目标题（含空格 / 中文），必须转义；
         // 值域校验在对端执行端做（按它的读取方式分流）
         "refind" => format!("/api/switch?system={}", encode_query(value)),
+        // RefindPlus 通道：同一端点带 channel 参数，值域校验在对端按它的
+        // refindplusMode 分流
+        "refindplus" => format!(
+            "/api/switch?system={}&channel=refindplus",
+            encode_query(value)
+        ),
         // selector 里可能有空格、`>`、引号 —— 必须转义
         "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
         // 通道值域整串走 channel + target 两个参数（value = channel[:target]）

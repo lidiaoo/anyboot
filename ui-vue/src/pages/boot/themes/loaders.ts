@@ -11,6 +11,8 @@ export interface LoaderMeta {
 
 export const LOADER_META: Record<string, LoaderMeta> = {
   refind: { name: "rEFInd", mono: "rE", color: "#14b8a6", perm: "file" },
+  // RefindPlus：与 rEFInd 并列的独立通道（id 参照后端 channel 名）
+  refindplus: { name: "RefindPlus", mono: "RP", color: "#f59e0b", perm: "file" },
   grub: { name: "GRUB", mono: "GR", color: "#f59e0b", perm: "file" },
   sdboot: { name: "systemd-boot", mono: "sd", color: "#38bdf8", perm: "file" },
   opencore: { name: "OpenCore", mono: "OC", color: "#6366f1", perm: "nvram" },
