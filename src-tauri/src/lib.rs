@@ -1102,6 +1102,8 @@ async fn hub_open_window(app: AppHandle) -> Result<(), String> {
 /// 前端按钮入口：从 hub 回到主界面（系统引导主窗口）。显示并聚焦主窗。
 #[tauri::command]
 fn hub_show_main(app: AppHandle) -> Result<(), String> {
+    // blocking-ok: show_main_window 里的 sleep 是窗口定位后的一次性短睡（等
+    // WebView 首帧再居中），毫秒级且 hub 按钮点击频率极低，不构成可感知冻结。
     show_main_window(&app, ShowOrigin::Recall);
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_focus();

@@ -369,10 +369,30 @@ fn disk_guid(root: &Path) -> Option<String> {
         return None;
     }
     let base = dev.rsplit('/').next().unwrap_or(&dev).to_string();
-    let uevent = fs::read_to_string(format!("/sys/class/block/{base}/uevent")).ok()?;
-    uevent
+    // 路径 A：sysfs uevent 的 PARTUUID（零开销）。老内核（Mint 22 的 6.8）的
+    // uevent **不带 PARTUUID** —— 走路径 B：udevadm 读 udev db 的
+    // ID_PART_ENTRY_UUID（blkid 探测结果，免 root，全发行版都有）。
+    if let Ok(uevent) = fs::read_to_string(format!("/sys/class/block/{base}/uevent")) {
+        if let Some(guid) = uevent
+            .lines()
+            .find_map(|line| line.strip_prefix("PARTUUID="))
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(guid.to_string());
+        }
+    }
+    let probe = command("udevadm")
+        .args(["info", "--query=property", "--name"])
+        .arg(format!("/dev/{base}"))
+        .output()
+        .ok()?;
+    if !probe.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&probe.stdout)
         .lines()
-        .find_map(|line| line.strip_prefix("PARTUUID="))
+        .find_map(|line| line.strip_prefix("ID_PART_ENTRY_UUID="))
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
@@ -438,8 +458,9 @@ fn match_index(
     hd: Option<&boot_entry::HdNode>,
     volumes: &[Volume],
     cache: &mut Vec<(String, Option<String>)>,
+    excluded: &[usize],
 ) -> Option<usize> {
-    match_index_with(entries, wanted, hd, |label| {
+    match_index_with(entries, wanted, hd, excluded, |label| {
         cached_guid(cache, volumes, label)
     })
 }
@@ -450,12 +471,15 @@ fn match_index_with(
     entries: &[MenuEntry],
     wanted: &str,
     hd: Option<&boot_entry::HdNode>,
+    excluded: &[usize],
     mut guid_of: impl FnMut(&str) -> Option<String>,
 ) -> Option<usize> {
     let candidates: Vec<usize> = entries
         .iter()
         .enumerate()
-        .filter(|(_, entry)| same_target(&entry.path, wanted))
+        .filter(|(index, entry)| {
+            same_target(&entry.path, wanted) && !excluded.contains(index)
+        })
         .map(|(index, _)| index)
         .collect();
     match candidates.len() {
@@ -1145,18 +1169,27 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
     // 编号 → entries 下标。**按启动顺序**记下来：⑤ 判默认项只能按这个顺序走。
     let mut placed: Vec<(u16, usize)> = Vec::new();
     let mut guid_cache: Vec<(String, Option<String>)> = Vec::new();
+    // 已被前面槽认领的条目。重复命中会把两条启动项的描述叠在同一条上
+    //（后写覆盖前写 —— 用户实测：OCBtOrder 里 ARCH-EFI 与 REFIND 两个槽先后
+    // 落到同一条 BOOTX64 上，标题只剩 REFIND），必须一个萝卜一个坑。
+    let mut claimed: Vec<usize> = Vec::new();
     let match_span = perf::span("oc.order_match");
     for item in &order_items {
         let number = item.number;
         let description = &item.description;
         let wanted = &item.path;
-        if let Some(index) = match_index(
+        // excluded = 已认领：GUID 校正失败时的兜底也只挑未认领的候选 —— 重复槽
+        //（同描述/同路径的 OCBt#### 副本）不该把前面槽刚认领的条目改名牌。
+        let index = match_index(
             &entries,
             wanted,
             item.hd.as_ref(),
             &volumes,
             &mut guid_cache,
-        ) {
+            &claimed,
+        );
+        if let Some(index) = index {
+            claimed.push(index);
             let existing = &mut entries[index];
             existing.source = "bootorder".to_string();
             // 标题统一用 **OC 启动项自己的描述**（Boot####/OCBt#### 里的 Description
@@ -1176,6 +1209,12 @@ pub(crate) fn preview(esp_root: &Path) -> MenuPreview {
         });
         // 同一容器里别的 macOS（Preboot 有、但本系统没挂载它的根卷）也会走到这里，
         // 那种情况下不算「死项」，只是这边看不到文件。
+        // 文件在我们扫到的卷上明明存在 → 这条槽是**已列出条目的重复/别名**
+        //（典型：测试轮留下的重复 OCBt#### 副本），真实条目已经在上面了，
+        // 再出一行「不在扫到的卷里」只会制造噪音 —— 直接跳过。
+        if exists_anywhere {
+            continue;
+        }
         let kind = kind_of_path(wanted);
         entries.push(MenuEntry {
             title: if description.trim().is_empty() {
@@ -1720,13 +1759,13 @@ mod tests {
             _ => None,
         };
         assert_eq!(
-            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", Some(&hd), &guid_of),
+            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", Some(&hd), &[], &guid_of),
             Some(1),
             "同名文件在另一块 ESP 上时不能算命中"
         );
         // 拿不到 GUID 时退回路径比较：仍取先命中的那条（与旧行为一致，不因查不到而漏配）
         assert_eq!(
-            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", None, |_: &str| None),
+            match_index_with(&entries, "\\EFI\\BOOT\\BOOTX64.EFI", None, &[], |_: &str| None),
             Some(0)
         );
 
@@ -1746,6 +1785,7 @@ mod tests {
                 &entries_macos,
                 "\\2D8A2ED9-B942-494D-9220-59187BC83F94\\System\\Library\\CoreServices\\boot.efi",
                 Some(&container),
+                &[],
                 |_: &str| Some(macos_efi.to_string())
             ),
             Some(0),
