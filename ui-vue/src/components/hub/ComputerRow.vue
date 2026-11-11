@@ -284,6 +284,17 @@ const powerHints = computed(() =>
 );
 
 /** 该行 info.channels 里对应 kind 的通道（无则 undefined） */
+/** 平台图标（与 GrubEntry/后端 grub_os_icon 同一映射）：圆点弃用，改 emoji 图标 */
+function osIcon(kind: string, name: string): string {
+  const hay = `${kind} ${name}`.toLowerCase();
+  if (hay.includes("win") || hay.includes("microsoft")) return "🪟 ";
+  if (hay.includes("mac") || hay.includes("apple")) return "🍎 ";
+  if (hay.includes("linux") || hay.includes("cachyos") || hay.includes("ubuntu")
+    || hay.includes("fedora") || hay.includes("mint") || hay.includes("manjaro")
+    || hay.includes("arch")) return "🐧 ";
+  return "";
+}
+
 function channelOf(kind: string) {
   return (props.info?.channels ?? []).find((c) => c.kind === kind);
 }
@@ -420,7 +431,7 @@ function onRowClick() {
             :disabled="!bootUsable('refind')"
             @click.stop="openPicker('refind')"
           >
-            <span v-if="bootState('refind').dot" class="k" :class="'k-' + bootState('refind').dot" />
+            <span v-if="osIcon(bootState('refind').dot, bootState('refind').label)">{{ osIcon(bootState('refind').dot, bootState('refind').label) }}</span>
             <span class="t">{{ bootState("refind").label }}</span>
           </button>
         </div>
@@ -433,7 +444,7 @@ function onRowClick() {
             :disabled="!bootUsable('grub')"
             @click.stop="openPicker('grub')"
           >
-            <span v-if="bootState('grub').dot" class="k" :class="'k-' + bootState('grub').dot" />
+            <span v-if="osIcon(bootState('grub').dot, bootState('grub').label)">{{ osIcon(bootState('grub').dot, bootState('grub').label) }}</span>
             <span class="t">{{ bootState("grub").label }}</span>
           </button>
         </div>
@@ -454,7 +465,7 @@ function onRowClick() {
             :disabled="!channelOf(kind)?.available || !(channelOf(kind)?.options?.length)"
             @click.stop="openPicker(kind)"
           >
-            <span v-if="channelEcho(kind).dot" class="k" :class="'k-' + channelEcho(kind).dot" />
+            <span v-if="osIcon(channelEcho(kind).dot, channelEcho(kind).label)">{{ osIcon(channelEcho(kind).dot, channelEcho(kind).label) }}</span>
             <span class="t">{{ channelEcho(kind).label }}</span>
           </button>
         </div>

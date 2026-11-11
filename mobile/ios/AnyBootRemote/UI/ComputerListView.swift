@@ -1255,6 +1255,11 @@ struct ComputerListView: View {
                             .scaleEffect(0.6)
                             .frame(width: ABMetric.px(13), height: ABMetric.px(13))
                         Spacer().frame(width: ABMetric.px(7))
+                    } else if !dotKind.isEmpty {
+                        // 平台图标（emoji，用户：圆点改图标）
+                        Text(platformEmoji(dotKind))
+                            .font(.system(size: 12.5))
+                        Spacer().frame(width: ABMetric.px(7))
                     }
 
                     Text(valueLabel)
@@ -1365,6 +1370,11 @@ struct ComputerListView: View {
                             .scaleEffect(0.6)
                             .frame(width: ABMetric.px(13), height: ABMetric.px(13))
                         Spacer().frame(width: ABMetric.px(7))
+                    } else if !dotKind.isEmpty {
+                        // 平台图标（emoji，用户：圆点改图标）
+                        Text(platformEmoji(dotKind))
+                            .font(.system(size: 12.5))
+                        Spacer().frame(width: ABMetric.px(7))
                     }
 
                     Text(valueLabel)
@@ -1412,18 +1422,20 @@ struct ComputerListView: View {
         .buttonStyle(.plain)
     }
 
-    /// 启动项分类小圆点：win 蓝 / mac 灰 / linux 橙 / auto 空心环
+    /// 平台 emoji 图标（与 PC 端 osIcon 同映射；圆点弃用）
+    private func platformEmoji(_ kind: String) -> String {
+        let k = kind.lowercased()
+        if k.contains("win") || k.contains("microsoft") { return "🪟 " }
+        if k.contains("mac") || k.contains("apple") { return "🍎 " }
+        if k.contains("linux") || k.contains("cachyos") || k.contains("ubuntu")
+            || k.contains("fedora") || k.contains("mint") || k.contains("manjaro")
+            || k.contains("arch") { return "🐧 " }
+        return ""
+    }
+
     private func bootDot(_ kind: String) -> some View {
-        let color = ABColor.bootDot(kind)
-        return Group {
-            if kind == "auto" {
-                Circle().strokeBorder(color, lineWidth: 1.6)
-                    .frame(width: ABMetric.px(7), height: ABMetric.px(7))
-            } else {
-                Circle().fill(color)
-                    .frame(width: ABMetric.px(7), height: ABMetric.px(7))
-            }
-        }
+        Text(platformEmoji(kind))
+            .font(.system(size: 13))
     }
 
     /// 待生效条
@@ -1748,7 +1760,7 @@ struct ComputerListView: View {
         }
 
         let rows: [GrubRow] = kind == Kind.refind
-            ? group.options.map { GrubRow(option: $0, text: $0.label, isGroup: false) }
+            ? group.options.map { GrubRow(option: $0, text: $0.label, isGroup: $0.header) }
             : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
 
         ForEach(rows) { row in

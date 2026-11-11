@@ -16,6 +16,8 @@ struct BootOption: Hashable, Identifiable {
     var value: String            // rEFInd: system；GRUB: selector
     var label: String = ""       // rEFInd 的 displayName
     var kind: String = "linux"   // win / mac / linux / auto
+    /** 组头行（value 恒空、不可选）：rEFInd 同一分区的「父条目（N 个内核）」 */
+    var header: Bool = false
 
     // ---- GRUB 专用 ----
     var grubName: String = ""
@@ -87,7 +89,9 @@ struct GrubRow: Identifiable {
     var isGroup: Bool
 
     var id: String {
-        if let option { return (isGroup ? "t:" : "o:") + option.value }
+        // 组内子项可能共用同一 value（rEFInd 折叠内核全部 value=父条目 title），
+        // id 必须带上 label 区分，否则 ForEach 重复 id 崩溃
+        if let option { return (isGroup ? "t:" : "o:") + option.value + ":" + text }
         return "g:" + text
     }
 }
@@ -185,8 +189,11 @@ enum BootParser {
                 return cname.isEmpty ? ctitle : cname
             }
             if !kernelNames.isEmpty {
+                // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
+                options.append(BootOption(value: "", label: "\(title)（\(kernelNames.count) 个内核）",
+                                          kind: kind, header: true))
                 for cname in kernelNames {
-                    options.append(BootOption(value: title, label: "\(title) › \(cname)", kind: kind))
+                    options.append(BootOption(value: title, label: cname, kind: kind))
                 }
             } else {
                 options.append(BootOption(value: title, label: title, kind: kind))

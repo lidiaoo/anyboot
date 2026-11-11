@@ -2334,6 +2334,10 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
+                } else if (dot.isNotEmpty()) {
+                    // 平台图标（emoji，用户：圆点改图标）
+                    Text(platformEmoji(dot), fontSize = 12.5.sp)
+                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     valueLabel,
@@ -2469,6 +2473,10 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
+                } else if (dot.isNotEmpty()) {
+                    // 平台图标（emoji，用户：圆点改图标）
+                    Text(platformEmoji(dot), fontSize = 12.5.sp)
+                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     valueLabel,
@@ -2503,19 +2511,21 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 启动项前面的分类小圆点：win 蓝 / mac 灰 / linux 橙 / auto 空心环 */
     @Composable
+    /** 平台 emoji 图标（与 PC 端 osIcon / 后端 grub_os_icon 同一映射；圆点弃用） */
+    private fun platformEmoji(kind: String): String {
+        val k = kind.lowercase()
+        return when {
+            k.contains("win") || k.contains("microsoft") -> "🪟 "
+            k.contains("mac") || k.contains("apple") -> "🍎 "
+            k.contains("linux") || k.contains("cachyos") || k.contains("ubuntu")
+                || k.contains("fedora") || k.contains("mint") || k.contains("manjaro")
+                || k.contains("arch") -> "🐧 "
+            else -> ""
+        }
+    }
+
     private fun BootDot(kind: String) {
-        val color = when (kind) {
-            "win" -> Color(0xFF2563EB)
-            "mac" -> Color(0xFF64748B)
-            "linux" -> Color(0xFFD97706)
-            "auto" -> Color(0xFF6366F1)
-            else -> Color(0xFF94A3B8)
-        }
-        if (kind == "auto") {
-            Box(Modifier.size(7.dp).clip(CircleShape).border(1.6.dp, color, CircleShape))
-        } else {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(color))
-        }
+        Text(platformEmoji(kind), fontSize = 13.sp)
     }
 
     // ---- 电源按钮 ----------------------------------------------------
@@ -3033,7 +3043,8 @@ class ComputerListActivity : ComponentActivity() {
                         // rEFInd 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：rEFInd 只有
                         // label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
                         val rows = if (request.kind == KIND_REFIND) {
-                            group.options.map { GrubRow(it, it.label, false) }
+                            // 组头行 isHeader=true → 渲染成小标题（与 GRUB/PC 同款层级）
+                            group.options.map { GrubRow(it, it.label, it.header) }
                         } else {
                             grubDisplayRows(group)
                         }
@@ -4003,8 +4014,12 @@ class ComputerListActivity : ComponentActivity() {
                 }
             }
             if (kernels.isNotEmpty()) {
+                // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
+                options.add(
+                    BootOption(value = "", label = "$title（${kernels.size} 个内核）", kind = kind, header = true),
+                )
                 for (cname in kernels) {
-                    options.add(BootOption(value = title, label = "$title › $cname", kind = kind))
+                    options.add(BootOption(value = title, label = cname, kind = kind))
                 }
             } else {
                 options.add(BootOption(value = title, label = title, kind = kind))
@@ -4671,6 +4686,8 @@ class ComputerListActivity : ComponentActivity() {
         val value: String,
         val label: String,
         val kind: String,
+        /** 组头行（value 恒空、不可选）：rEFInd 同一分区的「父条目（N 个内核）」 */
+        val header: Boolean = false,
         // —— GRUB 渲染原料（rEFInd 恒为空/默认）——
         val grubName: String = "",
         val grubKernels: List<String> = emptyList(),
