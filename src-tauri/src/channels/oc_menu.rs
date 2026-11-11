@@ -542,22 +542,42 @@ fn native_volume_label(root: &Path) -> Option<String> {
 /// 读不到（没装 util-linux、或 vfat 没设标签）返回 None，由调用方退回挂载点名。
 #[cfg(target_os = "linux")]
 fn native_volume_label(root: &Path) -> Option<String> {
-    // Linux：每个候选卷 fork 一次 lsblk（15~40ms）。如果埋点表里这行累计很高，
-    // 说明该改成「第一轮 lsblk -J 取全表、之后内存查表」—— 别凭感觉优化。
+    // 【关键】OpenCore 1.0.8 InternalDescribeBootEntry 取的是「文件系统卷标」
+    // （OcGetVolumeLabel = FS Volume Label）。`lsblk -no LABEL <挂载点>` 对挂载路径
+    // 经常回空（lsblk 要设备节点），导致读不到卷标 → 之前误退回盘符/GPT名。
+    // 正确做法：findmnt 先把挂载点解析成设备节点（/dev/nvme0n1p5），再 lsblk 读 LABEL。
     let _span = perf::span("cmd.lsblk_label");
-    let output = command("lsblk")
-        .args(["-no", "LABEL"])
+    let mut label_of = |target: &std::ffi::OsStr| -> Option<String> {
+        let output = command("lsblk")
+            .args(["-no", "LABEL"])
+            .arg(target)
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(str::to_string)
+    };
+    // 1) 挂载点 → 设备节点（findmnt -no SOURCE <挂载点>）
+    let device = command("findmnt")
+        .args(["-no", "SOURCE"])
         .arg(root)
         .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty() && s.starts_with('/'));
+    if let Some(dev) = device {
+        if let Some(label) = label_of(std::ffi::OsStr::new(&dev)) {
+            return Some(label);
+        }
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    text.lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string)
+    // 2) 退回直接传 root（有些平台 lsblk 认挂载路径）
+    label_of(root.as_os_str())
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
