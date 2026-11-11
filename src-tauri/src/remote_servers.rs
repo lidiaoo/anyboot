@@ -3740,37 +3740,92 @@ fn refind_row_class(system: &str, label: &str, kind: Option<&str>) -> String {
 /// 与 `refind_from_status`（手动模式的 vars 快照）的区别：
 /// 自动模式的「当前项」看 `entries[].lastBoot` 命中的那条（与 PC 端
 /// effectiveGrubForNextBoot / 托盘同一口径），没有就退回 `previousBoot`。
-fn refind_from_sim(value: &serde_json::Value) -> BootGroup {
+
+/// rEFInd（自动模式）：从 `refindSim` 生成下拉选项 —— 与 PC 系统引导页 / 移动端
+/// 一致：同一引导分区折叠的多个内核（children，source=kernel）展开成「父条目 ·
+/// 内核名」子项，并用 header 行标出父条目（组头，不可选）。selected 高亮看
+/// entries[].lastBoot 命中的顶层条目。
+fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
     let mut options: Vec<BootOption> = Vec::new();
     let mut current = String::new();
-    if let Some(entries) = value.get("entries").and_then(|v| v.as_array()) {
-        for item in entries {
-            let title = item
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if title.is_empty() {
-                continue;
+    let empty = Vec::new();
+    let entries = sim
+        .get("entries")
+        .and_then(|item| item.as_array())
+        .unwrap_or(&empty);
+    for entry in entries {
+        if entry.get("hidden").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let title = entry
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if title.is_empty() {
+            continue;
+        }
+        let kind = entry.get("kind").and_then(|v| v.as_str());
+        let class = refind_row_class(&title, &title, kind).to_string();
+        let is_last = entry.get("lastBoot").and_then(|v| v.as_bool()).unwrap_or(false);
+        // 折叠的内核子项（source=kernel）
+        let mut kernels: Vec<String> = Vec::new();
+        if let Some(children) = entry.get("children").and_then(|v| v.as_array()) {
+            for child in children {
+                if child.get("source").and_then(|v| v.as_str()) != Some("kernel") {
+                    continue;
+                }
+                let ct = child
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                if ct.is_empty() {
+                    continue;
+                }
+                // 子项 title 可能是「内核名: refind_linux.conf 标签」，只取内核名
+                let cname = ct.split(':').next().unwrap_or(ct).trim().to_string();
+                kernels.push(if cname.is_empty() { ct.to_string() } else { cname });
             }
-            let kind = item
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .unwrap_or("linux");
-            let class = refind_row_class(title, title, Some(kind));
+        }
+        if kernels.is_empty() {
+            // 无内核子项：父条目普通一行
             options.push(BootOption {
-                value: title.to_string(),
-                label: title.to_string(),
-                class,
-                ..Default::default()
+                value: title.clone(),
+                label: title.clone(),
+                class: class.clone(),
+                header: false,
+                fixed: false,
             });
-            if current.is_empty() && item.get("lastBoot").and_then(|v| v.as_bool()) == Some(true) {
-                current = title.to_string();
+            if is_last && current.is_empty() {
+                current = title.clone();
+            }
+        } else {
+            // 组头（不可选）+ 每个内核一个子项（value=父条目 title 原文）
+            options.push(BootOption {
+                value: String::new(),
+                label: format!("{}（{} 个内核）", title, kernels.len()),
+                class: class.clone(),
+                header: true,
+                fixed: true,
+            });
+            for cname in &kernels {
+                options.push(BootOption {
+                    value: title.clone(),
+                    label: format!("{} · {}", title, cname),
+                    class: class.clone(),
+                    header: false,
+                    fixed: false,
+                });
+            }
+            if is_last && current.is_empty() {
+                current = title.clone();
             }
         }
     }
     if current.is_empty() {
-        if let Some(prev) = value.get("previousBoot").and_then(|v| v.as_str()) {
+        if let Some(prev) = sim.get("previousBoot").and_then(|v| v.as_str()) {
             let prev = prev.trim();
             if !prev.is_empty() && options.iter().any(|o| o.value == prev) {
                 current = prev.to_string();
@@ -3781,15 +3836,15 @@ fn refind_from_sim(value: &serde_json::Value) -> BootGroup {
         kind: "refind".to_string(),
         title: "rEFInd".to_string(),
         available: !options.is_empty(),
-        current,
-        note: value
-            .get("summary")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string(),
+        current: current.clone(),
+        next: current.clone(),
+        saved: current,
+        note: if options.is_empty() {
+            "这台电脑没部署 rEFInd（或还没设置过下次启动项）".to_string()
+        } else {
+            String::new()
+        },
         options,
-        ..Default::default()
     }
 }
 
@@ -4620,8 +4675,26 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
             .channels
             .views
             .clone();
+        // rEFInd 按读取方式分流（与 PC 系统引导页 / 移动端一致）：
+        // 自动 → refindSim（含同分区折叠的内核 children）；手动 → vars 快照。
+        let refind_mode = crate::stored_settings(app).refind_mode;
+        let refind = if refind_mode == crate::state::LoaderMode::Manual {
+            refind_from_status(&status)
+        } else {
+            // 直接取进程内 refind_sim（SimPreview）序列化后喂 refind_from_sim ——
+            // remote_status_json 把 refindSim 转成了 variables 形状、不再单给 refindSim key，
+            // 所以这里不能从 status 拿。
+            let sim_json = app
+                .state::<std::sync::Mutex<crate::state::AppState>>()
+                .lock()
+                .ok()
+                .and_then(|state| state.refind_sim.clone())
+                .and_then(|sim| serde_json::to_value(&sim).ok())
+                .unwrap_or(serde_json::Value::Null);
+            refind_from_sim(&sim_json)
+        };
         let mut info = RemoteBootInfo {
-            refind: refind_from_status(&status),
+            refind,
             grub: grub_from_json(&grub_json, &format),
             channels: channel_views.iter().map(channel_from_view).collect(),
             ..Default::default()
