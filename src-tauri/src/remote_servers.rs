@@ -4410,11 +4410,13 @@ fn push_grub_option(
     } else {
         format!(" · {}", parts.join(" · "))
     };
-    let icon = crate::menu_model::grub_os_icon(&format!("{group_prefix}{}", entry.name));
-    let arrow = if top { "" } else { "↳ " };
+    // 不再把「↳ 」箭头和图标 emoji 拼进 label：电脑列表的下拉现在用主菜单同款
+    // GrubList 渲染（自带 ▾/↳ 箭头与缩进），拼了就会出现「▾ ▸ 🐧 …」「↳ ↳ 🐧 …」
+    // 的双重箭头（用户实测）。label 只留纯文字。
+    let _ = top;
     options.push(BootOption {
         value: entry.selector.clone(),
-        label: format!("{arrow}{icon}{group_prefix}{label}{suffix}"),
+        label: format!("{group_prefix}{label}{suffix}"),
         class: grub_class(
             &entry.name,
             entry.class.as_deref().unwrap_or(""),
@@ -4509,14 +4511,9 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let group_titles = grub_submenu_titles(value);
     let mut options: Vec<BootOption> = Vec::new();
 
-    // 置顶当前选中项（组内子项补「组名 › 」前缀 —— 与托盘/主窗置顶行同一规则）
+    // 置顶当前选中项（不拼「组名 › 」前缀 —— 与主窗/托盘同一规则：归属由组头+缩进表达）
     if let Some(pinned) = entries.iter().find(|entry| entry.selector == active) {
-        let prefix = pinned
-            .submenu
-            .as_deref()
-            .and_then(|id| group_titles.get(id))
-            .map(|title| format!("{title} › "))
-            .unwrap_or_default();
+        let prefix = "";
         push_grub_option(
             &mut options,
             format,
@@ -4597,10 +4594,8 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
                 let count = children_of.get(submenu_id).map(Vec::len).unwrap_or(0);
                 options.push(BootOption {
                     value: String::new(),
-                    label: format!(
-                        "▸ {}{title}（{count} 项{location}）",
-                        crate::menu_model::grub_os_icon(&title)
-                    ),
+                    // 组头不拼「▸ 」和图标 emoji —— GrubList 自带 ▾（同上，避免双重箭头）
+                    label: format!("{title}（{count} 项{location}）"),
                     class: String::new(),
                     header: true,
                     fixed: false,
@@ -6155,12 +6150,12 @@ mod tests {
             ]
         });
         let group = grub_from_json(&value, "raw");
-        // 与托盘同一结构：一行组头（计数）+ 子项 ↳ 缩进
+        // 组头（计数）+ 子项；箭头由前端 GrubList 自带，label 是纯文字
         assert!(group.options[0].header);
         assert!(group.options[0].label.contains("（2 项）"), "{}", group.options[0].label);
         assert!(!group.options[1].header);
-        assert_eq!(group.options[1].label, "↳ 🐧 Ubuntu, with Linux 6.8.0");
-        assert_eq!(group.options[2].label, "↳ Advanced options for Ubuntu (recovery mode)");
+        assert_eq!(group.options[1].label, "Ubuntu, with Linux 6.8.0");
+        assert_eq!(group.options[2].label, "Advanced options for Ubuntu (recovery mode)");
     }
 
     /// 子菜单的 `submenu` 是内部 id（`gnulinux-advanced-<uuid>`），下拉里必须换成
@@ -6183,9 +6178,9 @@ mod tests {
         let group = grub_from_json(&value, "minimal");
         assert_eq!(
             group.options[0].label,
-            "▸ 🐧 Advanced options for CachyOS Linux（1 项）"
+            "Advanced options for CachyOS Linux（1 项）"
         );
-        assert_eq!(group.options[1].label, "↳ 🐧 cachyos");
+        assert_eq!(group.options[1].label, "cachyos");
         assert!(
             !group.options.iter().any(|option| option.label.contains("gnulinux-advanced")),
             "下拉文字里不该出现内部 id"
@@ -6272,21 +6267,22 @@ mod tests {
             ]
         });
         let group = grub_from_json(&value, "simple");
-        // 置顶行在最前，带「组名 › 」前缀
+        // 置顶行在最前（不再拼「组名 › 」前缀 —— 箭头由前端 GrubList 自带）
         assert_eq!(group.options[0].value, "g>1");
         assert!(
-            group.options[0].label.contains("Advanced options for CachyOS › cachyos-fallback"),
+            group.options[0].label.contains("cachyos-fallback"),
             "{}",
             group.options[0].label
         );
+        assert!(!group.options[0].label.contains("› "), "{}", group.options[0].label);
         // 顶层条目照常在原位出现（置顶行之外它还在）
         assert_eq!(group.options[1].value, "0");
         // 组头带计数与 ESP 位置（simple 档带，极简/原始不带）
         assert!(group.options[2].header);
         assert!(group.options[2].label.contains("（2 项"), "{}", group.options[2].label);
         assert!(group.options[2].label.contains("位于H:\\ UUID=abcd-1234"));
-        // 子项缩进
-        assert!(group.options[3].label.starts_with("↳ "));
+        // 子项是纯文字（箭头由前端 GrubList 自带）
+        assert!(!group.options[3].label.starts_with("↳ "));
         // 极简档组头不带位置
         let minimal = grub_from_json(&value, "minimal");
         assert!(minimal.options[2].label.contains("（2 项）"));
