@@ -795,6 +795,9 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
                     other => other.to_xml(),
                 })
         });
+    // 菜单预演：纯读（卷 + 预定义路径 + Preboot + BootOrder），不写盘、不碰 NVRAM。
+    // 先算出来 —— current_default（卡片「当前项」文字）和 menu_preview 都用它。
+    let preview = oc_menu::preview(esp_root);
     let last_boot = channel_state_key(esp_root, "opencore", "bootNext")
         .map(|number| format!("Boot{number}（AnyBoot 上次写入的 BootNext）"));
     let last_boot_at = channel_state_key(esp_root, "opencore", "updatedAt");
@@ -831,12 +834,19 @@ pub(crate) fn view(esp_root: &Path) -> ChannelView {
         detail: version.map(|version| format!("OpenCore {version} · 切换经 NVRAM BootNext")),
         health,
         entries,
-        current_default: None,
+        // 当前默认项（OC 卡片「当前项」文字回显）：取预演菜单里 default=true 的那条标题。
+        // 之前这里硬编码 None，导致卡片的「当前项」文字为空/与列表高亮(default 标记)不一致
+        // （用户报「opencore 选中后的展示和选中的文字不一致」）。
+        current_default: preview
+            .entries
+            .iter()
+            .find(|entry| entry.default)
+            .map(|entry| entry.title.trim().to_string()),
         last_boot,
         last_boot_at,
         error: None,
         // 菜单预演：纯读（卷 + 预定义路径 + Preboot + BootOrder），不写盘、不碰 NVRAM
-        menu_preview: Some(oc_menu::preview(esp_root)),
+        menu_preview: Some(preview),
     }
 }
 
