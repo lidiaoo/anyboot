@@ -287,6 +287,24 @@ const powerHints = computed(() =>
 function channelOf(kind: string) {
   return (props.info?.channels ?? []).find((c) => c.kind === kind);
 }
+/** 通道列回显：current 是归一后的切换值域（opencore-default:… 裸 spec），直接渲染
+ *  会把 spec 原串印出来。照主界面（系统引导页）的口径——显示**命中的条目名**：
+ *  按 value 精确命中，再按标题互相包含兜底；都不中才原样显示。 */
+function channelEcho(kind: string): string {
+  const ch = channelOf(kind);
+  if (!ch || !ch.available) return "未检测到";
+  const opts = ((ch.options ?? []) as { value?: string; label?: string; header?: boolean }[]);
+  if (!opts.length) return "未选择";
+  const cur = String(ch.current || "");
+  const hit =
+    opts.filter((o) => !o.header && o.value === cur)[0] ||
+    opts.filter((o) => {
+      if (o.header || !cur) return false;
+      const text = String(o.label || "").trim();
+      return !!text && (text === cur || text.indexOf(cur) >= 0 || cur.indexOf(text) >= 0);
+    })[0];
+  return hit?.label || cur || "未选择";
+}
 /** 通道 kind → 显示名（channel:opencore → OpenCore） */
 function channelTitle(kind: string): string {
   const base = kind.startsWith("channel:") ? kind.slice(8) : kind;
@@ -436,7 +454,7 @@ function onRowClick() {
             :disabled="!channelOf(kind)?.available || !(channelOf(kind)?.options?.length)"
             @click.stop="openPicker(kind)"
           >
-            <span class="t">{{ channelOf(kind)?.current || (channelOf(kind)?.available ? "未选择" : "未检测到") }}</span>
+            <span class="t">{{ channelEcho(kind) }}</span>
           </button>
         </div>
       </div>
