@@ -525,6 +525,50 @@ const SOL_RELEASE_TARGET: &str = if cfg!(target_os = "windows") {
 /// 版本号（不带 v 前缀）：发布 sol 面板时跟着仓库 tag 更新这一行。
 const SOL_RELEASE_VERSION: &str = "0.1.0";
 
+/// 当前 GitHub 上的最新 release 版本（去 v 前缀）。60 秒内存缓存；解析失败回退
+/// 到 pinned 值 —— 以前这里写死 v0.1.0，上游发新版后「获取不到最新 release」、
+/// 下载也永远指旧 tag（2026-11-11 用户实测：上游已发 v0.1.1，面板仍追 0.1.0）。
+fn sol_latest_version() -> String {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(std::time::Instant, String)>>> =
+        std::sync::OnceLock::new();
+    let cell = CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(guard) = cell.lock() {
+        if let Some((at, tag)) = guard.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(60) {
+                return tag.clone();
+            }
+        }
+    }
+    let resolved = command("curl")
+        .args([
+            "-fsSL",
+            "--connect-timeout",
+            "10",
+            "--max-time",
+            "20",
+            "https://api.github.com/repos/lidiaoo/sol/releases/latest",
+        ])
+        .stderr(Stdio::piped())
+        .output()
+        .ok()
+        .and_then(|output| {
+            let text = String::from_utf8_lossy(&output.stdout);
+            text.lines()
+                .find(|line| line.trim_start().starts_with("\"tag_name\""))
+                .and_then(|line| {
+                    line.split(':').nth(1).map(|value| {
+                        value.trim().trim_matches('"').trim_matches(',').trim_start_matches('v').to_string()
+                    })
+                })
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_else(|| SOL_RELEASE_VERSION.to_string());
+    if let Ok(mut guard) = cell.lock() {
+        *guard = Some((std::time::Instant::now(), resolved.clone()));
+    }
+    resolved
+}
+
 /// release 资产文件名：Windows 官方发 .zip，其余平台 .tar.gz（release.sh 命名）。
 fn sol_asset_name() -> String {
     if cfg!(target_os = "windows") {
@@ -1472,7 +1516,9 @@ pub(crate) async fn sol_install_download(
     // 官方资产名带版本号（sol-v0.1.0-linux-amd64.tar.gz），Windows 是 zip：
     // 后缀由 sol_asset_name() 按平台给出，与 scripts/release.sh 的命名一致。
     let asset = sol_asset_name();
-    let url = format!("{SOL_RELEASE_URL}/v{SOL_RELEASE_VERSION}/{asset}");
+    let version = sol_latest_version();
+    sol_log(&app, format!("跟随 release 版本：v{version}"));
+    let url = format!("{SOL_RELEASE_URL}/v{version}/{asset}");
     let target = dir.join(&asset);
     sol_log(&app, format!("开始下载 {url}"));
 
@@ -1501,6 +1547,9 @@ pub(crate) async fn sol_install_download(
                                     target.display()
                                 ),
                             );
+                            // 秒回路径也要推 done：前端 downloading 只靠这条事件收尾，
+                            // 不推就永远卡「下载中 0%」（2026-11-11 用户实测）
+                            push_progress(&app, 0, None, true, true);
                             return Ok(target.display().to_string());
                         }
                         Some(actual) => sol_log(
@@ -1526,6 +1575,7 @@ pub(crate) async fn sol_install_download(
                     if let Some(sum) = file_md5(&target) {
                         let _ = fs::write(&sidecar, format!("{sum}  {}\n", asset));
                     }
+                    push_progress(&app, 0, None, true, true);
                     return Ok(target.display().to_string());
                 }
                 sol_log(
@@ -1543,6 +1593,7 @@ pub(crate) async fn sol_install_download(
                         target.display()
                     ),
                 );
+                push_progress(&app, 0, None, true, true);
                 return Ok(target.display().to_string());
             }
         }
@@ -1563,7 +1614,14 @@ pub(crate) async fn sol_install_download(
         sol_log(&app, "未能从 HEAD 拿到包大小，进度条按已落盘字节显示".to_string());
     }
 
-    let (child, _is_curl) = spawn_download_child(&url, &target)?;
+    let (child, _is_curl) = match spawn_download_child(&url, &target) {
+        Ok(pair) => pair,
+        Err(message) => {
+            push_progress(&app, 0, None, true, false);
+            sol_log(&app, format!("下载失败：{message}"));
+            return Err(message);
+        }
+    };
 
     // 轮询收集：curl 的 stderr 流（百分比）+ 落盘文件大小，推 sol-download-progress
     let app_for_watch = app.clone();
@@ -1610,7 +1668,7 @@ pub(crate) struct SolProjectInfo {
     pub(crate) repo: String,
     /// releases 页
     pub(crate) releases: String,
-    /// 当前跟随的版本
+    /// 当前跟随的版本（releases/latest 实时解析，60s 缓存，失败回退内置值）
     pub(crate) version: String,
     /// 当前平台资产名
     pub(crate) asset: String,

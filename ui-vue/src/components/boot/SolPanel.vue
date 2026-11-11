@@ -263,10 +263,19 @@ function manualInstall() {
   void call("sol_one_click_install_terminal", { dir: null, archive: null }).catch(() => {});
 }
 
-function download() {
+async function download() {
   downloading.value = true;
   progress.value = 0;
-  void call("sol_install_download", { dir: null }).catch(() => {});
+  // 事件只是进度来源，**收尾必须自己兜底**：复用路径秒回、spawn 失败等都可能
+  // 不带 done 事件（旧版吞错误后永远「下载中 0%」）。失败原因从 catch 里透出。
+  try {
+    await call<string>("sol_install_download", { dir: null });
+    progress.value = 100;
+  } catch (error) {
+    logs.value.push(`${nowTime()} 下载失败：${String(error)}`);
+  } finally {
+    setTimeout(() => { downloading.value = false; }, 300);
+  }
 }
 
 function restartService() {
