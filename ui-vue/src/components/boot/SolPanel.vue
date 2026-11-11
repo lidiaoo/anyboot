@@ -263,13 +263,48 @@ function manualInstall() {
   void call("sol_one_click_install_terminal", { dir: null, archive: null }).catch(() => {});
 }
 
+/** GitHub 下载加速：默认「不走加速」直连；预设为社区镜像（可用性随时变），
+ *  也支持自定义前缀。选择存 localStorage（本机偏好，桌面端用）。 */
+const MIRROR_KEY = "solDownloadMirror";
+const MIRROR_PRESETS: { id: string; label: string }[] = [
+  { id: "off", label: "不走加速（直连 GitHub）" },
+  { id: "ghfast.top", label: "ghfast.top 加速" },
+  { id: "gh-proxy.com", label: "gh-proxy.com 加速" },
+  { id: "ghproxy.net", label: "ghproxy.net 加速" },
+  { id: "mirror.ghproxy.com", label: "mirror.ghproxy.com 加速" },
+  { id: "custom", label: "自定义…" },
+];
+const mirror = ref("off");
+const mirrorCustom = ref("");
+try {
+  mirror.value = localStorage.getItem(MIRROR_KEY) || "off";
+  mirrorCustom.value = localStorage.getItem(`${MIRROR_KEY}:custom`) || "";
+} catch { /* 无 localStorage 环境忽略 */ }
+function saveMirror(): void {
+  try {
+    localStorage.setItem(MIRROR_KEY, mirror.value);
+    localStorage.setItem(`${MIRROR_KEY}:custom`, mirrorCustom.value);
+  } catch { /* 忽略 */ }
+}
+/** 后端 mirror 参数：off → 不传；预设 → 名字；自定义 → 前缀原文（http(s):// 开头） */
+function mirrorArg(): string | null {
+  if (mirror.value === "off") return null;
+  if (mirror.value === "custom") return mirrorCustom.value.trim() || null;
+  return mirror.value;
+}
+
 async function download() {
+  const mirrorValue = mirrorArg();
+  if (mirror.value === "custom" && !mirrorValue) {
+    logs.value.push(`${nowTime()} 自定义加速前缀为空：请填一个 http(s):// 开头的前缀，或选「不走加速」`);
+    return;
+  }
   downloading.value = true;
   progress.value = 0;
   // 事件只是进度来源，**收尾必须自己兜底**：复用路径秒回、spawn 失败等都可能
   // 不带 done 事件（旧版吞错误后永远「下载中 0%」）。失败原因从 catch 里透出。
   try {
-    await call<string>("sol_install_download", { dir: null });
+    await call<string>("sol_install_download", { dir: null, mirror: mirrorValue });
     progress.value = 100;
   } catch (error) {
     logs.value.push(`${nowTime()} 下载失败：${String(error)}`);
@@ -403,6 +438,19 @@ async function pickDir() {
       </div>
 
       <span class="remote-inline">
+        <select id="sol-mirror" v-model="mirror" title="GitHub 下载加速（默认直连）" @change="saveMirror">
+          <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
+        </select>
+        <input
+          v-if="mirror === 'custom'"
+          id="sol-mirror-custom"
+          v-model="mirrorCustom"
+          spellcheck="false"
+          type="text"
+          placeholder="自定义前缀，如 https://ghfast.top/（拼在 GitHub URL 前）"
+          style="width: 280px"
+          @change="saveMirror"
+        />
         <button type="button" id="sol-download" class="secondary" @click="download">下载</button>
         <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">选择安装包…</button>
         <button type="button" id="sol-extract" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">

@@ -525,10 +525,41 @@ const SOL_RELEASE_TARGET: &str = if cfg!(target_os = "windows") {
 /// 版本号（不带 v 前缀）：发布 sol 面板时跟着仓库 tag 更新这一行。
 const SOL_RELEASE_VERSION: &str = "0.1.0";
 
+/// GitHub 国内镜像加速前缀（用户可选；`{url}` 原样拼在后面）。
+/// 这些站是社区加速服务，可用性随时间变化，列表只求「有几个能用的」，
+/// 拿不准时用户可以选「自定义」自己填前缀。
+const SOL_MIRROR_PRESETS: &[(&str, &str)] = &[
+    ("ghfast.top", "https://ghfast.top/"),
+    ("gh-proxy.com", "https://gh-proxy.com/"),
+    ("ghproxy.net", "https://ghproxy.net/"),
+    ("mirror.ghproxy.com", "https://mirror.ghproxy.com/"),
+];
+
+/// 归一化用户传入的镜像选择：
+/// * `None` / 空串 / "off" → 不走加速（直连 github.com）
+/// * 预设名（ghfast.top 等） → 对应前缀
+/// * 自定义（http(s):// 开头的任意前缀） → 原样采用，末尾补 `/`
+/// * 其它 → 不合法，回退直连
+fn sol_mirror_prefix(mirror: Option<&str>) -> Option<String> {
+    let value = mirror?.trim();
+    if value.is_empty() || value.eq_ignore_ascii_case("off") {
+        return None;
+    }
+    if let Some((_, prefix)) = SOL_MIRROR_PRESETS.iter().find(|(name, _)| *name == value) {
+        return Some((*prefix).to_string());
+    }
+    if value.starts_with("http://") || value.starts_with("https://") {
+        let mut prefix = value.trim_end_matches('/').to_string();
+        prefix.push('/');
+        return Some(prefix);
+    }
+    None
+}
+
 /// 当前 GitHub 上的最新 release 版本（去 v 前缀）。60 秒内存缓存；解析失败回退
 /// 到 pinned 值 —— 以前这里写死 v0.1.0，上游发新版后「获取不到最新 release」、
 /// 下载也永远指旧 tag（2026-11-11 用户实测：上游已发 v0.1.1，面板仍追 0.1.0）。
-fn sol_latest_version() -> String {
+fn sol_latest_version(mirror_prefix: Option<&str>) -> String {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<Option<(std::time::Instant, String)>>> =
         std::sync::OnceLock::new();
     let cell = CACHE.get_or_init(|| std::sync::Mutex::new(None));
@@ -555,6 +586,7 @@ fn sol_latest_version() -> String {
         .output()
         .ok()
         .and_then(|output| {
+            let _ = mirror_prefix; // 直连 302 不受 API 限流影响，保持直连
             let text = String::from_utf8_lossy(&output.stdout);
             text.lines()
                 .filter(|line| line.to_ascii_lowercase().starts_with("location:"))
@@ -1536,8 +1568,17 @@ pub(crate) fn sol_download_dir_default() -> PathBuf {
 pub(crate) async fn sol_install_download(
     app: AppHandle,
     dir: Option<String>,
+    mirror: Option<String>,
 ) -> Result<String, String> {
-    trace(&app, "command", "sol_install_download");
+    let mirror_prefix = sol_mirror_prefix(mirror.as_deref());
+    trace(
+        &app,
+        "command",
+        &format!(
+            "sol_install_download mirror={}",
+            mirror_prefix.as_deref().unwrap_or("off(直连)")
+        ),
+    );
     let dir = match dir.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         Some(value) => expand_home_dir(value),
         None => sol_download_dir_default(),
@@ -1547,9 +1588,15 @@ pub(crate) async fn sol_install_download(
     // 官方资产名带版本号（sol-v0.1.0-linux-amd64.tar.gz），Windows 是 zip：
     // 后缀由 sol_asset_name() 按平台给出，与 scripts/release.sh 的命名一致。
     let asset = sol_asset_name();
-    let version = sol_latest_version();
+    let version = sol_latest_version(mirror_prefix.as_deref());
     sol_log(&app, format!("跟随 release 版本：v{version}"));
     let url = format!("{SOL_RELEASE_URL}/v{version}/{asset}");
+    // 加速镜像只改「从哪里下载」，不改「下载什么」：把 github.com 的完整 URL
+    // 原样拼到镜像前缀后面（ghproxy 系的约定格式）。
+    let url = match &mirror_prefix {
+        Some(prefix) => format!("{prefix}{url}"),
+        None => url,
+    };
     let target = dir.join(&asset);
     sol_log(&app, format!("开始下载 {url}"));
 
@@ -1711,7 +1758,7 @@ pub(crate) fn sol_project_info() -> SolProjectInfo {
     SolProjectInfo {
         repo: "https://github.com/lidiaoo/sol".to_string(),
         releases: "https://github.com/lidiaoo/sol/releases".to_string(),
-        version: SOL_RELEASE_VERSION.to_string(),
+        version: sol_latest_version(None),
         asset: sol_asset_name(),
     }
 }
@@ -2901,7 +2948,7 @@ async fn sol_prepare_package(
             sol_log(app, format!("① 使用本地安装包 {}", path.display()));
             path.display().to_string()
         }
-        None => sol_install_download(app.clone(), dir.clone())
+        None => sol_install_download(app.clone(), dir.clone(), None)
             .await
             .map_err(|error| {
                 sol_log(app, format!("一键安装中止（下载失败）：{error}"));
