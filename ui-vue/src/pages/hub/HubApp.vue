@@ -426,7 +426,6 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
   </Teleport>
   <Teleport to="body">
     <footer>
-      <span class="dot" />
       <span id="footText">{{ footText }}</span>
       <span class="sep">·</span>
       <span id="footCount">{{ footCount }}</span>

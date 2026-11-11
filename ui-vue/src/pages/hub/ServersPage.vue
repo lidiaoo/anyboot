@@ -538,7 +538,6 @@ async function testOne(server: HubServer) {
 
   <!-- 底栏（旧版 .footer） -->
   <footer>
-    <span class="dot" />
     <span id="footText">终端 / 文件 / 密钥均在独立窗口</span>
     <span class="sep">·</span>
     <span id="footCount">{{ store.servers.length }} 台服务器</span>

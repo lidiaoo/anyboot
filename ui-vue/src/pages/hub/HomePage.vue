@@ -293,7 +293,6 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           @click="selectChip(chip.id)"
           @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
-          <span class="dot" :class="{ ok: chip.online }" aria-hidden="true" :title="chip.online ? '在线' : '未连接'" />
           {{ chip.name }}
           <span v-if="chip.sub" class="mini">{{ chip.sub }}</span>
           <button
