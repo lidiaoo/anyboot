@@ -130,10 +130,20 @@ fn option_targets_on(value: &[u8], path: &str, volume: &str) -> bool {
     if !option_targets(value, path) {
         return false;
     }
-    // 描述为空（老固件可能不带）→ 保持路径判据（不因缺描述而漏判）
+    // Preboot / macOS 项（volume 是「Preboot xxxx」或「—」）：这类项在 OCBtOrder 里
+    // 有真实槽，但启动项的 description 是条目名（如「MAC」）而不是卷标，path 又是
+    // APFS Preboot 路径 —— 不能用「description==volume」去否它，否则 MAC 会被判成
+    // 「不在默认槽里」→ 走「凭空造新条目」→ Preboot 造不出 → 报错（用户报的 bug）。
+    // 这类项只按 path 认槽（与旧行为一致，交给 set_default ① 重排即可）。
+    let v = volume.trim();
+    if v.starts_with("Preboot") || v == "—" || v.is_empty() {
+        return true;
+    }
+    // 普通卷（ARCH-EFI / REFIND / WINDOWS-EFI …）：再多校验 description(卷标)，
+    // 区分多块 ESP 上同名的 \EFI\BOOT\BOOTX64.EFI。
     match oc_menu::parse_load_option(value) {
         Some((description, _)) if !description.trim().is_empty() => {
-            description.trim().eq_ignore_ascii_case(volume.trim())
+            description.trim().eq_ignore_ascii_case(v)
         }
         _ => true,
     }
