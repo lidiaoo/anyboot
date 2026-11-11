@@ -1691,7 +1691,8 @@ class ComputerListActivity : ComponentActivity() {
             else -> { color = palette.fgFaint; label = "检测中…" }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // 状态绿点已删除（用户：电脑端/移动端都删状态绿点）——只保留文字。
+            Box(Modifier.size(5.dp).clip(CircleShape).background(color))
+            Spacer(Modifier.width(4.dp))
             Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = color, maxLines = 1)
         }
     }
@@ -2333,9 +2334,6 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
-                } else if (dot.isNotEmpty()) {
-                    BootDot(dot)
-                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     valueLabel,
@@ -2470,9 +2468,6 @@ class ComputerListActivity : ComponentActivity() {
                         strokeWidth = 2.dp,
                         color = palette.accent,
                     )
-                    Spacer(Modifier.width(7.dp))
-                } else if (dot.isNotEmpty()) {
-                    BootDot(dot)
                     Spacer(Modifier.width(7.dp))
                 }
                 Text(
