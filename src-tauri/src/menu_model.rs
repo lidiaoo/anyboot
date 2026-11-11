@@ -243,12 +243,19 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
     // 归属由组头 ▸ 组名 + 缩进表达）
     if let Some(pinned) = grub.entries.iter().find(|entry| entry.selector == active) {
         let prefix = "";
+        let icon_hint = pinned
+            .submenu
+            .as_deref()
+            .and_then(|id| group_titles.get(id))
+            .map(|title| title.to_string())
+            .unwrap_or_default();
         grub_push_entry(
             &mut items,
             format,
             pinned,
             true,
             &prefix,
+            &icon_hint,
             &std::collections::HashMap::new(),
             &mut std::collections::HashSet::new(),
             busy,
@@ -272,6 +279,7 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
                 format,
                 entry,
                 true,
+                "",
                 "",
                 &top_counts,
                 &mut top_emitted,
@@ -314,6 +322,7 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
                 format,
                 child,
                 false,
+                "",
                 "",
                 &counts,
                 &mut emitted,
@@ -991,12 +1000,16 @@ pub(crate) fn grub_collapse<'a>(
 /// 箭头在图标的**前面** —— 与主窗 `makeRow`（`arrow + icon + text`）逐字对齐，
 /// 组头那行也是「▸ 图标 组名」同一顺序。
 /// 置顶行带 `group_prefix`（组名 › ）、不做缩进箭头；原位行顶层无箭头、组内 ↳。
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn grub_push_entry(
     items: &mut Vec<MenuNode>,
     format: &str,
     entry: &grub::GrubEntry,
     top: bool,
     group_prefix: &str,
+    // 图标判定串：置顶行传组名（组名里的 linux/windows 关键字给出 🐧/🪟），
+    // 其余传空 —— entry.name 本身有关键字时照样判得出。
+    icon_hint: &str,
     counts: &std::collections::HashMap<String, usize>,
     emitted: &mut std::collections::HashSet<String>,
     busy: bool,
@@ -1031,7 +1044,7 @@ pub(crate) fn grub_push_entry(
     } else {
         format!(" · {}", parts.join(" · "))
     };
-    let icon = grub_os_icon(&format!("{group_prefix}{}", entry.name));
+    let icon = grub_os_icon(&format!("{icon_hint}{}", entry.name));
     let arrow = if top { "" } else { "↳ " };
     items.push(menu_marked_choice_item(
         format!("grub-switch:{}", entry.selector),

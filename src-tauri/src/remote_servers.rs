@@ -6215,8 +6215,8 @@ mod tests {
                  "chainloader": false, "kernels": ["vmlinuz-6.8.0-45-generic"]}
             ]
         });
-        // 极简 / 简易：去掉 vmlinuz- 与 linux- 前缀（行首是系统图标，按标题判）
-        assert_eq!(grub_from_json(&value, "minimal").options[0].label, "🐧 cachyos");
+        // 极简 / 简易：去掉 vmlinuz- 与 linux- 前缀；图标由前端渲染，label 纯文字
+        assert_eq!(grub_from_json(&value, "minimal").options[0].label, "cachyos");
         assert_eq!(grub_from_json(&value, "simple").options[1].label, "6.8.0-45-generic");
         // 中等：完整内核名
         assert_eq!(
@@ -6226,11 +6226,11 @@ mod tests {
         // 原始 / 复杂：标题原文 + 行尾附内核名
         assert_eq!(
             grub_from_json(&value, "raw").options[0].label,
-            "🐧 CachyOS Linux · vmlinuz-linux-cachyos"
+            "CachyOS Linux · vmlinuz-linux-cachyos"
         );
         assert_eq!(
             grub_from_json(&value, "detailed").options[0].label,
-            "🐧 CachyOS Linux · vmlinuz-linux-cachyos"
+            "CachyOS Linux · vmlinuz-linux-cachyos"
         );
         // 没有 kernels 时退回标题（不猜）
         let plain = serde_json::json!({
@@ -6241,7 +6241,7 @@ mod tests {
         });
         assert_eq!(
             grub_from_json(&plain, "minimal").options[0].label,
-            "🪟 Windows Boot Manager"
+            "Windows Boot Manager"
         );
     }
 
