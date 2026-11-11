@@ -539,14 +539,17 @@ fn sol_latest_version() -> String {
             }
         }
     }
-    let resolved = command("curl")
+    // 两级解析，**重定向优先**：api.github.com 匿名限流 60 次/小时/IP，很容易
+    // 403（2026-11-11 实测），而 releases/latest 的 302 走的是网页域名不受限——
+    // `location: …/releases/tag/vX.Y.Z` 里直接就有 tag。
+    let redirect_resolved = command("curl")
         .args([
-            "-fsSL",
+            "-sI",
             "--connect-timeout",
             "10",
             "--max-time",
             "20",
-            "https://api.github.com/repos/lidiaoo/sol/releases/latest",
+            "https://github.com/lidiaoo/sol/releases/latest",
         ])
         .stderr(Stdio::piped())
         .output()
@@ -554,15 +557,43 @@ fn sol_latest_version() -> String {
         .and_then(|output| {
             let text = String::from_utf8_lossy(&output.stdout);
             text.lines()
-                .find(|line| line.trim_start().starts_with("\"tag_name\""))
-                .and_then(|line| {
-                    line.split(':').nth(1).map(|value| {
-                        value.trim().trim_matches('"').trim_matches(',').trim_start_matches('v').to_string()
-                    })
+                .filter(|line| line.to_ascii_lowercase().starts_with("location:"))
+                .find_map(|line| {
+                    let target = line.split_once(':')?.1.trim();
+                    let tag = target.rsplit('/').next()?.trim();
+                    tag.strip_prefix('v').map(str::to_string).filter(|value| !value.is_empty())
                 })
-                .filter(|value| !value.is_empty())
-        })
-        .unwrap_or_else(|| SOL_RELEASE_VERSION.to_string());
+        });
+    let resolved = match redirect_resolved {
+        Some(version) => version,
+        None => {
+            // 后备：GitHub API（可能 403 限流）
+            command("curl")
+                .args([
+                    "-fsSL",
+                    "--connect-timeout",
+                    "10",
+                    "--max-time",
+                    "20",
+                    "https://api.github.com/repos/lidiaoo/sol/releases/latest",
+                ])
+                .stderr(Stdio::piped())
+                .output()
+                .ok()
+                .and_then(|output| {
+                    let text = String::from_utf8_lossy(&output.stdout);
+                    text.lines()
+                        .find(|line| line.trim_start().starts_with("\"tag_name\""))
+                        .and_then(|line| {
+                            line.split(':').nth(1).map(|value| {
+                                value.trim().trim_matches('"').trim_matches(',').trim_start_matches('v').to_string()
+                            })
+                        })
+                        .filter(|value| !value.is_empty())
+                })
+                .unwrap_or_else(|| SOL_RELEASE_VERSION.to_string())
+        }
+    };
     if let Ok(mut guard) = cell.lock() {
         *guard = Some((std::time::Instant::now(), resolved.clone()));
     }
