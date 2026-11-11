@@ -88,10 +88,11 @@ const displayName = computed(() => {
   const baseText = props.group
     ? props.entry.name
     : formatText(props.entry, props.format);
-  // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）
+  // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）。
+  // 子项不再加「↳ 」前缀：组头已有 ▾ 且子项自带缩进+引导线，箭头是多余的
+  //（用户：grub 列表的名字前不要加箭头，列表自带）。
   const arrow = props.group ? '▾ ' : '';
-  const body =
-    props.group || props.depth === 0 ? arrow + baseText : `↳ ${baseText}`;
+  const body = arrow + baseText;
   return prefix + body;
 });
 

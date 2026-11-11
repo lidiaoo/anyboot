@@ -3813,7 +3813,9 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
             for cname in &kernels {
                 options.push(BootOption {
                     value: title.clone(),
-                    label: format!("{} · {}", title, cname),
+                    // 子项只显示内核名 —— 组头（header 行）已经是父条目全名，重复拼接
+                    // 会让二级名字又长又重复（用户：二级名字不要把一级名字加一起）。
+                    label: cname.clone(),
                     class: class.clone(),
                     header: false,
                     fixed: false,
