@@ -79,6 +79,18 @@ function formatText(entry: { kernels?: string[]; name?: string }, format: string
   ) : (entry.name ?? "");
 }
 
+/** 平台图标（对齐后端 grub_os_icon 的映射）：class 优先，名字关键词兜底。
+ *  主界面列表与电脑列表下拉共用本组件 —— 图标在这里渲染，后端 label 保持纯文字。 */
+const osIcon = computed(() => {
+  const hay = `${props.entry.class ?? ""} ${props.entry.name ?? ""}`.toLowerCase();
+  if (hay.includes("win") || hay.includes("microsoft")) return "🪟 ";
+  if (hay.includes("mac") || hay.includes("apple")) return "🍎 ";
+  if (hay.includes("linux") || hay.includes("cachyos") || hay.includes("ubuntu")
+    || hay.includes("fedora") || hay.includes("mint") || hay.includes("manjaro")
+    || hay.includes("arch")) return "🐧 ";
+  return "";
+});
+
 const displayName = computed(() => {
   // 置顶子项不再拼「组名 › 」前缀：这是代码拼的箭头，grub.cfg 原文里没有；
   // 列表自带的组头（▸ 组名 N 项）+ 缩进已能表明归属（用户：删掉 grub 自己拼的箭头）。
@@ -88,10 +100,9 @@ const displayName = computed(() => {
     ? props.entry.name
     : formatText(props.entry, props.format);
   // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）；子项带「↳ 」。
-  const arrow = props.group ? '▾ ' : '';
-  const body =
-    props.group || props.depth === 0 ? arrow + baseText : `↳ ${baseText}`;
-  return prefix + body;
+  // 图标跟在箭头后：组头「▾ 🐧 组名」、子项「↳ 🐧 内核名」。
+  const arrow = props.group ? '▾ ' : props.depth === 0 ? '' : '↳ ';
+  return prefix + arrow + osIcon.value + baseText;
 });
 
 /** 右侧小字：组头显示「N 项」；普通项显示变体数 / 内核 / class */
