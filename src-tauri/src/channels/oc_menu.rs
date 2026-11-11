@@ -378,7 +378,28 @@ fn disk_guid(root: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Windows：从挂载根（`S:\`）反查该分区的 GPT 分区 GUID。
+/// 复用 `channels::partitions`（一次 Get-Partition + 60s 缓存，不额外起 PowerShell）。
+/// 多块 ESP 都有 `\EFI\BOOT\BOOTX64.EFI` 时，`match_index` 靠这个 GUID 把启动项
+/// 落到正确的那块卷上 —— 没有它（旧实现返回 None）就会退 candidates[0]，默认/高亮
+/// 标到错的 ESP（与 Linux 修复前同 bug）。
+#[cfg(target_os = "windows")]
+fn disk_guid(root: &Path) -> Option<String> {
+    // 从 `S:\` 取盘符 S
+    let letter = root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .chars()
+        .next()?;
+    let letter = letter.to_ascii_uppercase();
+    super::partitions::all()
+        .into_iter()
+        .find(|part| part.letter.map(|c| c.to_ascii_uppercase()) == Some(letter))
+        .map(|part| part.guid)
+        .filter(|guid| !guid.is_empty())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn disk_guid(_root: &Path) -> Option<String> {
     None
 }
