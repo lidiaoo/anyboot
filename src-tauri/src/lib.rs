@@ -2550,8 +2550,13 @@ async fn run_startup_admin_scan(app: AppHandle, allow_prompt: bool) -> Result<()
         // 失败不致命：preview 会给出「点重新读取补齐」的说明。
         #[cfg(not(target_os = "macos"))]
         let _ = crate::channels::apfs_reader::scan_preboot_elevated(false, elevation);
-        // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 模拟复用内核清单出条目。
-        let _ = crate::channels::refind_menu::refresh_sim(&handle);
+        // GRUB 扫描（含 probe cache）完成后，再让 rEFInd 家族模拟复用内核清单出条目。
+        // **两个通道都要重算**：并行段的 sim 是在 APFS 提权扫描与 GRUB probe cache
+        // 就绪**之前**算的（那时两者都还没有）——refind 通道此前有这步收尾、
+        // refindplus 没有，表现为「启动后两块卡都缺 macOS(APFS) 条目（refindplus
+        // 连内核都缺），点重新模拟才出来」（2026-11-11 用户报的根因）。
+        let _ = crate::channels::refind_menu::refresh_sim_for(&handle, false, "refind");
+        let _ = crate::channels::refind_menu::refresh_sim_for(&handle, false, "refindplus");
         // 启动扫描是**自动**的：任何引导器「扫描完成 / 没有识别到条目 / 未找到」
         // 都不该弹给用户（用户要求「应用启动时候的扫描关闭所有引导器这个提示，
         // 只有用户手动点重新扫描才有提示」）。所以这里把本轮启动扫描产生的

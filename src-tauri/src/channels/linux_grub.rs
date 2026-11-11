@@ -2529,8 +2529,10 @@ pub(crate) fn scan_blocking(
             false,
             crate::channels::Elevation::Allow,
         );
-        // APFS 缓存刚填上，重算一次 rEFInd 预演，macOS 条目才会跟着出现
-        let _ = crate::channels::refind_menu::refresh_sim(&app);
+        // APFS 缓存刚填上，重算 rEFInd 家族两个通道的预演，macOS 条目才会跟着出现
+        // （refindplus 通道漏了就会「refind 卡有 macOS、RefindPlus 卡没有」）
+        let _ = crate::channels::refind_menu::refresh_sim_for(&app, false, "refind");
+        let _ = crate::channels::refind_menu::refresh_sim_for(&app, false, "refindplus");
     }
     Some(view)
 }
