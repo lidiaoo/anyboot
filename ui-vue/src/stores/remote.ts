@@ -193,14 +193,13 @@ export const useRemoteStore = defineStore("remote", () => {
   /** 切换引导项（通道 / GRUB / rEFInd / RefindPlus 由 kind 区分） */
   async function switchBoot(payload: Record<string, unknown>): Promise<void> {
     const id = String(payload.serverId ?? payload.server_id ?? "");
-    // RefindPlus 通道的本机行：走主界面引导页同一入口 switch_system（channel-aware，
-    // 对端按它自己的 refindplusMode 分流）；远端行仍走 remote_boot_switch（后端按 kind
-    // 分流出 /api/switch?system=…&channel=refindplus，与 rEFInd 的切换路径对称）。
-    if (payload.kind === "refindplus" && id === "local") {
-      await call("switch_system", { system: String(payload.value ?? ""), channel: "refindplus" });
-    } else {
-      await call("remote_boot_switch", payload);
-    }
+    // RefindPlus 与 refind 同路：一律走 remote_boot_switch —— 后端本机臂
+    // （SwitchRefindPlus）按本机 refindplusMode 分流（自动=标题原文写它自己的
+    // vars/PreviousBoot；手动=三系统快照），远端臂出
+    // /api/switch?system=…&channel=refindplus。**不能**走 switch_system：那条链
+    // 只认三系统名，自动模式下组的 value 是菜单标题原文，会静默吃成「未知系统」
+    // （用户实测「点了一个没反应」的根因）。
+    await call("remote_boot_switch", payload);
     if (id) await refreshBoot(id);
   }
 
