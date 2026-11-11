@@ -570,6 +570,36 @@ fn native_volume_label(_root: &Path) -> Option<String> {
 /// macOS：挂载目录名就是卷标（`/Volumes/MacOS-efi` → `MacOS-efi`），直接用。
 /// Windows：盘符不是卷名 —— 以前这里返回 `H:\` 就是被当卷标印出去的那个 bug。
 /// 给一块没标签的 ESP 一个能认的名字（macOS 挂上去也是叫 `EFI`）。
+/// Linux：从挂载点反查该分区在 GPT 里的分区名（`PARTNAME`，如 `MacOS-efi`、
+/// `windows-efi`）。卷标(LABEL)读不到时用它当显示名——比挂载点目录名
+/// （`nvme0n1p3`）友好，也与 Windows/macOS 的文字卷名口径一致。
+///
+/// 走 sysfs（`/sys/class/block/<dev>/uevent` 里的 `PARTNAME=`）而不是
+/// `lsblk -o PARTNAME`：这台机器上的 lsblk 不认 PARTNAME 列（报「未知列」），
+/// 而内核直接在 sysfs 暴露 PARTNAME，最可靠。设备名用 findmnt 从挂载点取。
+#[cfg(target_os = "linux")]
+fn linux_partition_name(root: &Path) -> Option<String> {
+    // 挂载点 → 设备（/dev/nvme0n1p5）
+    let source = command("findmnt")
+        .args(["-no", "SOURCE"])
+        .arg(root)
+        .output()
+        .ok()?;
+    let source = String::from_utf8_lossy(&source.stdout).trim().to_string();
+    if source.is_empty() {
+        return None;
+    }
+    let base = source.rsplit('/').next().unwrap_or(&source).to_string();
+    // /sys/class/block/<base>/uevent → PARTNAME=xxx
+    let uevent = fs::read_to_string(format!("/sys/class/block/{base}/uevent")).ok()?;
+    uevent
+        .lines()
+        .find_map(|line| line.strip_prefix("PARTNAME="))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
 fn fallback_label(root: &Path) -> String {
     #[cfg(target_os = "windows")]
     {
@@ -593,6 +623,22 @@ fn fallback_label(root: &Path) -> String {
             };
         }
     }
+    // Linux：卷标读不到时别用挂载点目录名（nvme0n1p3 / anyboot-xxx-nvme0n1p4，
+    // 看起来像「盘符」，三端不统一）。照 Windows 口径给能认的文字：
+    //   有 EFI 目录（是 ESP）→「EFI」；否则有 GPT 分区名(PARTNAME) → 用它；再否则「卷」。
+    #[cfg(target_os = "linux")]
+    {
+        // 优先用 GPT 分区名（windows-efi / MacOS-efi …）——比笼统的「EFI」更具体，
+        // 多块 ESP 也能区分。读不到再看是不是 ESP、最后兜底「卷」。
+        if let Some(partname) = linux_partition_name(root) {
+            return partname;
+        }
+        if grub_rel(root, "EFI").is_dir() {
+            return "EFI".to_string();
+        }
+        return "卷".to_string();
+    }
+    #[allow(unreachable_code)]
     root.file_name()
         .map(|name| name.to_string_lossy().to_string())
         .filter(|name| !name.is_empty())
