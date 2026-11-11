@@ -580,7 +580,25 @@ fn native_volume_label(root: &Path) -> Option<String> {
     label_of(root.as_os_str())
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+/// macOS：读 FAT/exFAT 卷的卷标（对齐 OpenCore `OcGetVolumeLabel`）。
+/// macOS 挂载非 APFS 卷时，`/Volumes/<卷标>` 的目录名就是文件系统卷标，
+/// 直接取挂载点末段（`/Volumes/MacOS-efi` → `MacOS-efi`）即可，不必 fork diskutil。
+/// 若挂载点不在 /Volumes 下（罕见），退回 diskutil 的 VolumeName。
+#[cfg(target_os = "macos")]
+fn native_volume_label(root: &Path) -> Option<String> {
+    // /Volumes/<卷标> 形态：取末段
+    let p = root.to_string_lossy();
+    if let Some(rest) = p.strip_prefix("/Volumes/") {
+        let name = rest.trim_end_matches('/');
+        if !name.is_empty() && !name.contains('/') {
+            return Some(name.to_string());
+        }
+    }
+    // 退回 diskutil（同 root_volume_label 的兜底做法）
+    diskutil_field(&root.to_string_lossy(), "VolumeName")
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn native_volume_label(_root: &Path) -> Option<String> {
     None
 }
