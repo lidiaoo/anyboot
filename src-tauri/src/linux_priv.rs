@@ -1040,7 +1040,15 @@ pub(crate) async fn linux_priv_install(
     .map_err(|error| format!("安装免密组件执行失败: {error}"))??;
     // 装完必须推送新快照：linuxPriv 在 UiState 里，不 publish 前端就永远看到旧状态
     // （用户报「点完还是不变，虽然提示成功」的根因 —— 这两个命令以前根本没 publish）。
-    crate::ui_state::publish_ui(&app);
+        crate::ui_state::publish_ui(&app);
+    // 装好**立即补跑**「开机自动挂载 ESP」与「提权预扫」：这两步只在程序启动时
+    // 跑一次，启动后才装组件的话（用户实测：Fedora 上先启动、后安装，OC 扫描
+    // 不如 Arch），不补跑就得重启程序才能挂上 ESP、出 OC 菜单。
+    #[cfg(target_os = "linux")]
+    {
+        crate::channels::spawn_boot_esp_mount(app.clone());
+        crate::channels::spawn_boot_privileged_scan(app.clone());
+    }
     Ok(result)
 }
 
