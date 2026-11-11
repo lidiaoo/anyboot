@@ -2045,15 +2045,32 @@ fn linux_kernel_entries(
 /// 候选内核按 mtime 新→旧；`vmlinuz-0-rescue` 永远沉底（`scan.c:698`：
 /// 否则折叠之后它会排在最前、被当成默认内核）。
 fn sort_candidates_desc(files: &mut [(String, i64)]) {
-    files.sort_by(|left, right| {
-        let rescue_left = left.0.contains("vmlinuz-0-rescue");
-        let rescue_right = right.0.contains("vmlinuz-0-rescue");
+    // 官方 AddLoaderListEntry（main.c:1219）的插入序对**并列 mtime** 的语义是
+    // LIFO：`TimeComp(New,Cur) < 0` 才后移，相等立即插在等值者**前面** —— 所以
+    // 同一秒安装的内核，**目录枚举顺序靠后的反而排最前**（用户实测：manjaro 卷
+    // 同一秒装了 7.1-x86_64 与 linux-cachyos-rc，真 rEFInd 的主条目是后者）。
+    // 我们的目录枚举与官方驱动都按同一磁盘目录项顺序走，因此「后枚举者优先」
+    // 就能复刻官方结果；按名字排不行（7.1-x86_64 < linux-cachyos-rc 会选错）。
+    let mut indexed: Vec<(usize, String, i64)> = files
+        .iter()
+        .enumerate()
+        .map(|(index, (name, mtime))| (index, name.clone(), *mtime))
+        .collect();
+    indexed.sort_by(|left, right| {
+        let rescue_left = left.1.contains("vmlinuz-0-rescue");
+        let rescue_right = right.1.contains("vmlinuz-0-rescue");
         match (rescue_left, rescue_right) {
             (true, false) => std::cmp::Ordering::Greater,
             (false, true) => std::cmp::Ordering::Less,
-            _ => right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)),
+            // mtime 降序；并列时**枚举序号大的在前**（官方 LIFO）
+            _ => right.2.cmp(&left.2).then_with(|| right.0.cmp(&left.0)),
         }
     });
+    let sorted: Vec<(String, i64)> = indexed
+        .into_iter()
+        .map(|(_, name, mtime)| (name, mtime))
+        .collect();
+    files.clone_from_slice(&sorted);
 }
 
 /// 目录是否在 `dont_scan_dirs` 里（rEFInd 的元素可能是 `卷:GUID` 前缀，这边只比路径）。
