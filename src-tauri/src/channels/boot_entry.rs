@@ -249,10 +249,36 @@ fn partition_info_platform(esp_root: &Path) -> Result<HdNode, String> {
     })
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+/// Windows：从挂载根（`S:\`）取盘符 → 复用 channels::partitions（Get-Partition 缓存）
+/// 找到该分区 → 组装 HdNode（HardDrive 节点：分区号 + 起始 LBA + 扇区数 + GPT GUID）。
+/// 与 Linux(lsblk)/macOS(diskutil) 同一份语义，让「凭空造新 OCBt 启动项」三端都能做。
+#[cfg(target_os = "windows")]
+fn partition_info_platform(esp_root: &Path) -> Result<HdNode, String> {
+    let letter = esp_root
+        .to_string_lossy()
+        .trim_end_matches(['\\', '/'])
+        .chars()
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .ok_or_else(|| format!("无法从 {} 取盘符", esp_root.display()))?;
+    let part = super::partitions::all()
+        .into_iter()
+        .find(|part| part.letter.map(|c| c.to_ascii_uppercase()) == Some(letter))
+        .ok_or_else(|| format!("Get-Partition 里找不到盘符 {letter}: 对应的分区"))?;
+    const SECTOR: u64 = 512;
+    let guid = guid_bytes(&part.guid)
+        .ok_or_else(|| format!("分区 GUID {:?} 解析失败（不是 GPT 分区？）", part.guid))?;
+    Ok(HdNode {
+        partition: part.partition,
+        start_lba: part.offset / SECTOR,
+        size_sectors: part.size / SECTOR,
+        guid,
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn partition_info_platform(_esp_root: &Path) -> Result<HdNode, String> {
-    Err("Windows 上还没有实现「直接写固件启动项」，请让引导器自己注册（OC 的 LauncherOption）"
-        .to_string())
+    Err("这个平台还没有实现「直接写固件启动项」".to_string())
 }
 
 #[cfg(test)]
