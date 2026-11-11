@@ -239,14 +239,10 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
         }
     };
 
-    // 置顶当前选中项（组内子项补「组名 › 」前缀，与主窗置顶行同一规则）
+    // 置顶当前选中项（不再补「组名 › 」前缀 —— 与主窗同一规则：删代码拼的箭头，
+    // 归属由组头 ▸ 组名 + 缩进表达）
     if let Some(pinned) = grub.entries.iter().find(|entry| entry.selector == active) {
-        let prefix = pinned
-            .submenu
-            .as_deref()
-            .and_then(|id| group_titles.get(id))
-            .map(|title| format!("{title} › "))
-            .unwrap_or_default();
+        let prefix = "";
         grub_push_entry(
             &mut items,
             format,

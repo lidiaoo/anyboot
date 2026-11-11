@@ -80,19 +80,17 @@ function formatText(entry: { kernels?: string[]; name?: string }, format: string
 }
 
 const displayName = computed(() => {
-  const prefix =
-    props.pinned && props.entry.submenu
-      ? `${props.groupTitle || props.entry.submenu} › `
-      : "";
+  // 置顶子项不再拼「组名 › 」前缀：这是代码拼的箭头，grub.cfg 原文里没有；
+  // 列表自带的组头（▸ 组名 N 项）+ 缩进已能表明归属（用户：删掉 grub 自己拼的箭头）。
+  const prefix = "";
   // 缩进靠 CSS（.is-child / .depth-N），这里只用箭头补强「这是组里的项」
   const baseText = props.group
     ? props.entry.name
     : formatText(props.entry, props.format);
-  // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）。
-  // 子项不再加「↳ 」前缀：组头已有 ▾ 且子项自带缩进+引导线，箭头是多余的
-  //（用户：grub 列表的名字前不要加箭头，列表自带）。
+  // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）；子项带「↳ 」。
   const arrow = props.group ? '▾ ' : '';
-  const body = arrow + baseText;
+  const body =
+    props.group || props.depth === 0 ? arrow + baseText : `↳ ${baseText}`;
   return prefix + body;
 });
 
