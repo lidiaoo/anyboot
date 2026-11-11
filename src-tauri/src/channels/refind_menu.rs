@@ -2234,9 +2234,12 @@ mod tests {
         );
     }
 
-    /// 没带 refind_linux.conf 的后续内核：rEFInd 静默丢弃，我们记一条 info。
+    /// 没带 refind_linux.conf 的后续内核：**不再丢弃**（2026-11-11 修正）——
+    /// 真实 rEFInd 装了 ext4 驱动照样把同分区内核折叠进第一个内核的子屏
+    /// （options 用默认空），并不需要 conf。旧实现 rows 为空就 dropped，
+    /// 导致「真实 rEFInd 能列出某分区所有内核、我们只剩第一条」（用户实测）。
     #[test]
-    fn linux_scan_reports_dropped_kernelless_conf() {
+    fn linux_scan_folds_kernelless_conf_into_submenu() {
         let listing = DirListing {
             dir: "boot".to_string(),
             files: vec![file("vmlinuz-linux", 100), file("vmlinuz-linux-lts", 90)],
@@ -2254,10 +2257,10 @@ mod tests {
             &mut issues,
         );
         assert_eq!(out.len(), 1, "只有第一个内核成条目");
-        assert_eq!(out[0].children.len(), 1, "没有 conf，子屏只有默认项");
+        assert_eq!(out[0].children.len(), 2, "默认项 + 折叠的 vmlinuz-linux-lts");
         assert!(
-            issues.iter().any(|issue| issue.text.contains("vmlinuz-linux-lts")),
-            "丢弃名单必须写进 issues"
+            out[0].children.iter().any(|child| child.title == "vmlinuz-linux-lts"),
+            "后续内核应折叠进子屏"
         );
     }
 

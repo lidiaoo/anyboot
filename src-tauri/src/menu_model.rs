@@ -644,6 +644,9 @@ pub(crate) struct RefindRow {
     pub(crate) kind: String,
     pub(crate) system: Option<String>,
     pub(crate) is_default: bool,
+    /// 同一分区折叠的内核名（rEFInd fold_linux_kernels；手动模式恒空）。
+    /// 托盘照 GRUB 的二级结构：父条目一行，内核 ↳ 挂在下面。
+    pub(crate) children: Vec<String>,
 }
 
 /// rEFInd 当前的**数据源**（按 `Settings.refind_mode` 选），下次启动行与托盘
@@ -668,6 +671,7 @@ impl RefindSource<'_> {
                     kind: item.system.clone(),
                     system: Some(item.system.clone()),
                     is_default: item.active,
+                    children: Vec::new(),
                 })
                 .collect();
         }
@@ -676,12 +680,29 @@ impl RefindSource<'_> {
                 sim.entries
                     .iter()
                     .filter(|entry| !entry.hidden && !entry.title.trim().is_empty())
-                    .map(|entry| RefindRow {
-                        value: entry.title.clone(),
-                        label: entry.title.trim().to_string(),
-                        kind: entry.kind.clone(),
-                        system: None,
-                        is_default: entry.last_boot,
+                    .map(|entry| {
+                        // 折叠的内核（source=kernel）——托盘二级列表的数据
+                        let children: Vec<String> = entry
+                            .children
+                            .iter()
+                            .filter(|child| child.source == "kernel")
+                            .filter_map(|child| {
+                                let ct = child.title.trim();
+                                if ct.is_empty() {
+                                    return None;
+                                }
+                                let cname = ct.split(':').next().unwrap_or(ct).trim();
+                                Some(if cname.is_empty() { ct.to_string() } else { cname.to_string() })
+                            })
+                            .collect();
+                        RefindRow {
+                            value: entry.title.clone(),
+                            label: entry.title.trim().to_string(),
+                            kind: entry.kind.clone(),
+                            system: None,
+                            is_default: entry.last_boot,
+                            children,
+                        }
                     })
                     .collect()
             })
@@ -711,12 +732,45 @@ pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool) -> Vec<MenuNod
             entry.is_default,
         )
     };
+    // 折叠内核子项：点它 = 把所属分区条目设为下次启动（PreviousBoot 只存顶层
+    // 标题，与主窗/电脑列表同一语义）。
+    let kernel_row = |entry: &RefindRow, kernel: &str| {
+        menu_marked_choice_item(
+            format!("refind-switch:{}", entry.value),
+            format!("↳ {}{}", grub_os_icon(kernel), kernel),
+            !busy,
+            entry.is_default,
+        )
+    };
     let mut items: Vec<MenuNode> = Vec::new();
     if let Some(picked) = rows.iter().find(|entry| entry.is_default) {
         items.push(row(picked));
     }
-    for entry in rows.iter().filter(|entry| !entry.is_default) {
-        items.push(row(entry));
+    // **照 GRUB 的二级结构**：有折叠内核的条目出「▸ 父条目（N 个内核）」+
+    // 「↳ 内核」子项；没有的保持普通行。默认项置顶之外，原位照常出现（与
+    // GRUB 置顶行之外它还在，同一规则）。
+    for entry in rows {
+        if entry.children.is_empty() {
+            if entry.is_default {
+                continue; // 置顶行已经出过
+            }
+            items.push(row(entry));
+            continue;
+        }
+        items.push(menu_marked_choice_item(
+            format!("refind-switch:{}", entry.value),
+            format!(
+                "▸ {}{}（{} 个内核）",
+                grub_os_icon(&entry.label),
+                entry.label,
+                entry.children.len()
+            ),
+            !busy,
+            entry.is_default,
+        ));
+        for kernel in &entry.children {
+            items.push(kernel_row(entry, kernel));
+        }
     }
     items
 }
