@@ -361,22 +361,44 @@ fn run_privileged_scan(elevation: super::Elevation) -> Result<Vec<PrebootItem>, 
         "--out".to_string(),
         out_path.to_string_lossy().to_string(),
     ];
+    let parse_result = || -> Result<Vec<PrebootItem>, String> {
+        let text = std::fs::read_to_string(&out_path)
+            .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
+        let payload: PrivilegedScanFile = serde_json::from_str(&text)
+            .map_err(|error| format!("提权扫描结果不是合法 JSON：{error}"))?;
+        if payload.ok {
+            Ok(payload.items)
+        } else {
+            Err(payload
+                .error
+                .unwrap_or_else(|| "提权扫描失败（子进程没给原因）".to_string()))
+        }
+    };
     if elevation.is_silent() {
-        super::elevate::run_silent_op("apfs_scan", serde_json::json!({}), &out_path)?;
-    } else {
-        super::elevate::run_privileged_op("apfs_scan", serde_json::json!({}), &args, &out_path)?;
+        // 【Linux 优先走 sudoers 免密助手】开机自动扫发生在没人看屏幕的时候，
+        // Silent 通道的语义是「只走免密、绝不弹框」——而 Linux 的免密链
+        // （/etc/sudoers.d/anyboot → NOPASSWD anyboot-priv）恰好全程无感且
+        // 远程定案允许它用。以前这里直接落 Windows 专用通道：Linux 上恒定
+        // 失败「这个平台没有静默提权通道」→ 启动后 rEFInd 家族两块卡的
+        // macOS(APFS) 条目永远缺席、点重新模拟（Allow→免密成功）才出来
+        // （2026-11-11 用户实测）。助手没装/版本不匹配时如实报错，保持不弹框。
+        #[cfg(target_os = "linux")]
+        {
+            if crate::linux_priv::status().state == "ready" {
+                crate::linux_priv::run_via_helper(&args, &out_path)?;
+                return parse_result();
+            }
+            return Err("没装免密组件（或版本不匹配）：开机自动扫不弹框，装好免密组件后                         重开 AnyBoot 即自动完成；也可以手动点一次「重新模拟」补齐"
+                .to_string());
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            super::elevate::run_silent_op("apfs_scan", serde_json::json!({}), &out_path)?;
+            return parse_result();
+        }
     }
-    let text = std::fs::read_to_string(&out_path)
-        .map_err(|error| format!("提权子进程退出了但结果文件读不到：{error}"))?;
-    let payload: PrivilegedScanFile = serde_json::from_str(&text)
-        .map_err(|error| format!("提权扫描结果不是合法 JSON：{error}"))?;
-    if payload.ok {
-        Ok(payload.items)
-    } else {
-        Err(payload
-            .error
-            .unwrap_or_else(|| "提权扫描失败（子进程没给原因）".to_string()))
-    }
+    super::elevate::run_privileged_op("apfs_scan", serde_json::json!({}), &args, &out_path)?;
+    parse_result()
 }
 
 /// 跑一次 Preboot 扫描并序列化成 JSON 文本。
