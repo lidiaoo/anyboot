@@ -708,8 +708,10 @@ pub(crate) fn remote_ui_command_inner(
         "hub_download_dir_default" => Ok(serde_json::Value::String(
             crate::hub_sftp::hub_download_dir_default(app.clone())?,
         )),
-        "sol_project_info" => serde_json::to_value(crate::sol_panel::sol_project_info())
-            .map_err(|e| format!("序列化失败: {e}")),
+        "sol_project_info" => {
+            let info = tauri::async_runtime::block_on(crate::sol_panel::sol_project_info());
+            serde_json::to_value(info).map_err(|e| format!("序列化失败: {e}"))
+        }
         "hub_list_tunnels" => serde_json::to_value(crate::hub_tunnel::hub_list_tunnels(app.clone())?)
             .map_err(|e| format!("序列化失败: {e}")),
         "hub_keys_list" => serde_json::to_value(tauri::async_runtime::block_on(
@@ -1276,10 +1278,20 @@ pub(crate) fn remote_ui_command_inner(
             tauri::async_runtime::block_on(sol_panel::sol_install_download(
                 app.clone(),
                 ui_opt_str(args, "dir"),
+                args.get("mirror").and_then(|value| value.as_str()).map(str::to_string),
+                args.get("force").and_then(|value| value.as_bool()),
             ))
             .map(serde_json::Value::String)
         }
-        "sol_extract" => {
+        // 删除本地安装包（+ md5 旁车）：远程端也要能删（与下载/解压同权）
+        "sol_delete_package" => {
+            let local = tauri::async_runtime::block_on(sol_panel::sol_delete_package(
+                app.clone(),
+                ui_opt_str(args, "dir"),
+            ))?;
+            serde_json::to_value(local).map_err(|error| format!("序列化失败: {error}"))
+        }
+"sol_extract" => {
             let archive = ui_str(args, "archive")?;
             let dir = ui_opt_str(args, "dir");
             tauri::async_runtime::block_on(sol_panel::sol_extract(app.clone(), archive, dir))

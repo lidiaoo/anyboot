@@ -1569,7 +1569,9 @@ pub(crate) async fn sol_install_download(
     app: AppHandle,
     dir: Option<String>,
     mirror: Option<String>,
+    force: Option<bool>,
 ) -> Result<String, String> {
+    let force = force.unwrap_or(false);
     let mirror_prefix = sol_mirror_prefix(mirror.as_deref());
     trace(
         &app,
@@ -1601,9 +1603,10 @@ pub(crate) async fn sol_install_download(
     sol_log(&app, format!("开始下载 {url}"));
 
     // **已有包且校验一致就复用**（用户定案）：不重复下载。
+    // 「重新下载」按钮走 force=true：跳过整段复用逻辑、先删旧包再下。
     // 校验 = 与 release 端的 md5 清单比对（sol-vX.Y.Z-SHA256SUMS / md5 资产）；
     // 拿不到官方校验值时退化为「同名包大小与 HEAD Content-Length 一致即复用」。
-    if target.is_file() {
+    if !force && target.is_file() {
         let local_size = fs::metadata(&target).map(|meta| meta.len()).unwrap_or(0);
         if local_size > 0 {
             // ① 有 md5 旁车：本地 md5 == 旁车记录的 md5 → 就是上次下载的那份，复用
@@ -1754,13 +1757,22 @@ pub(crate) struct SolProjectInfo {
 
 /// 取 sol 项目的 GitHub 信息（纯常量，不联网）。
 #[tauri::command]
-pub(crate) fn sol_project_info() -> SolProjectInfo {
-    SolProjectInfo {
+pub(crate) async fn sol_project_info() -> SolProjectInfo {
+    // version 走 releases/latest 的 302（一次网络请求）——同步命令会阻塞 UI 线程
+    // （blocking_guard 测试抓的），所以挪进 spawn_blocking。
+    tauri::async_runtime::spawn_blocking(|| SolProjectInfo {
         repo: "https://github.com/lidiaoo/sol".to_string(),
         releases: "https://github.com/lidiaoo/sol/releases".to_string(),
         version: sol_latest_version(None),
         asset: sol_asset_name(),
-    }
+    })
+    .await
+    .unwrap_or_else(|_| SolProjectInfo {
+        repo: "https://github.com/lidiaoo/sol".to_string(),
+        releases: "https://github.com/lidiaoo/sol/releases".to_string(),
+        version: SOL_RELEASE_VERSION.to_string(),
+        asset: sol_asset_name(),
+    })
 }
 
 /// 打开 sol 项目的 GitHub 页面（repo / releases，白名单）。
@@ -1796,46 +1808,72 @@ pub(crate) struct SolLocalPackage {
 }
 
 /// 查询本地是否已有安装包（不下载、不提权）。
+/// 本地安装包状态（[`sol_local_package`] 与 [`sol_delete_package`] 共用）。
+fn local_package_status(dir: Option<&str>) -> SolLocalPackage {
+    let target_dir = resolve_sol_dir_raw(&dir.map(str::to_string));
+    let asset = sol_asset_name();
+    let archive = target_dir.join(&asset);
+    let exists = archive.is_file();
+    let size = if exists {
+        fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0)
+    } else {
+        0
+    };
+    let md5 = if exists { file_md5(&archive) } else { None };
+    let verified = match (&md5, fs::read_to_string(sol_md5_sidecar(&archive))) {
+        (Some(actual), Ok(recorded)) => recorded
+            .split_whitespace()
+            .next()
+            .map(|value| value.eq_ignore_ascii_case(actual))
+            .unwrap_or(false),
+        _ => false,
+    };
+    // 解压状态 = 安装目录下有官方包（sol-v*/ 里的 sol(.exe) + install.sh/.cmd）。
+    // Windows 包是 sol.exe + install.cmd，以前写死的 `sol` + `install.sh` 永远为假，
+    // 面板上因此始终显示「未解压」。
+    let extracted = sol_find_package_dir(&target_dir).is_some();
+    SolLocalPackage {
+        archive: exists.then(|| archive.display().to_string()),
+        size,
+        md5,
+        verified,
+        extracted,
+        dir: target_dir.display().to_string(),
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn sol_local_package(
     app: AppHandle,
     dir: Option<String>,
 ) -> Result<SolLocalPackage, String> {
     trace(&app, "command", "sol_local_package");
+    tauri::async_runtime::spawn_blocking(move || local_package_status(dir.as_deref()))
+        .await
+        .map_err(|error| format!("sol_local_package 任务失败：{error}"))
+}
+
+/// 删除本地安装包（+ md5 旁车）。返回删除后的本地包状态（前端直接刷新一栏）。
+/// 解压出来的 sol-v*/ 目录**不动**（那是已安装内容的来源，删它等于卸载）。
+#[tauri::command]
+pub(crate) async fn sol_delete_package(
+    app: AppHandle,
+    dir: Option<String>,
+) -> Result<SolLocalPackage, String> {
+    trace(&app, "command", &format!("sol_delete_package dir={dir:?}"));
     tauri::async_runtime::spawn_blocking(move || {
         let target_dir = resolve_sol_dir_raw(&dir);
-        let asset = sol_asset_name();
-        let archive = target_dir.join(&asset);
-        let exists = archive.is_file();
-        let size = if exists {
-            fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0)
-        } else {
-            0
-        };
-        let md5 = if exists { file_md5(&archive) } else { None };
-        let verified = match (&md5, fs::read_to_string(sol_md5_sidecar(&archive))) {
-            (Some(actual), Ok(recorded)) => recorded
-                .split_whitespace()
-                .next()
-                .map(|value| value.eq_ignore_ascii_case(actual))
-                .unwrap_or(false),
-            _ => false,
-        };
-        // 解压状态 = 安装目录下有官方包（sol-v*/ 里的 sol(.exe) + install.sh/.cmd）。
-        // Windows 包是 sol.exe + install.cmd，以前写死的 `sol` + `install.sh` 永远为假，
-        // 面板上因此始终显示「未解压」。
-        let extracted = sol_find_package_dir(&target_dir).is_some();
-        Ok(SolLocalPackage {
-            archive: exists.then(|| archive.display().to_string()),
-            size,
-            md5,
-            verified,
-            extracted,
-            dir: target_dir.display().to_string(),
-        })
+        let archive = target_dir.join(sol_asset_name());
+        match fs::remove_file(&archive) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("删除 {} 失败：{error}", archive.display())),
+        }
+        let _ = fs::remove_file(sol_md5_sidecar(&archive));
+        Ok(local_package_status(dir.as_deref()))
     })
     .await
-    .map_err(|error| format!("sol_local_package 任务失败：{error}"))?
+    .map_err(|error| format!("sol_delete_package 任务失败：{error}"))?
 }
 
 /// 安装包 md5 旁车文件路径：`<包>.md5`。
@@ -2948,7 +2986,7 @@ async fn sol_prepare_package(
             sol_log(app, format!("① 使用本地安装包 {}", path.display()));
             path.display().to_string()
         }
-        None => sol_install_download(app.clone(), dir.clone(), None)
+        None => sol_install_download(app.clone(), dir.clone(), None, None)
             .await
             .map_err(|error| {
                 sol_log(app, format!("一键安装中止（下载失败）：{error}"));

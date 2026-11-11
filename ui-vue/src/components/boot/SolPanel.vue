@@ -100,6 +100,51 @@ function clearLogs() {
   logs.value = [];
 }
 const downloading = ref(false);
+/** 本地安装包现状（下载/删除/进页面后刷新；状态行的依据） */
+interface LocalPkg {
+  archive?: string | null;
+  size?: number;
+  md5?: string | null;
+  verified?: boolean;
+  extracted?: boolean;
+  dir?: string;
+}
+const localPkg = ref<LocalPkg | null>(null);
+const deleteArmed = ref(false);
+async function refreshLocalPkg(): Promise<void> {
+  try {
+    localPkg.value =
+      (await call<LocalPkg>("sol_local_package", { dir: installDir.value || null })) ?? null;
+  } catch { /* 忽略 */ }
+}
+/** 人类可读的包大小 */
+function fmtSize(bytes?: number): string {
+  if (!bytes) return "0 B";
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+/** 「重新下载」：force=true 跳过复用、先删旧包再下 */
+async function redownload(): Promise<void> {
+  await download(true);
+}
+/** 「删除安装包」：两段式确认（先点一下进入待确认，再点才删），避免误触 */
+async function deletePackage(): Promise<void> {
+  if (!localPkg.value?.archive) return;
+  if (!deleteArmed.value) {
+    deleteArmed.value = true;
+    setTimeout(() => { deleteArmed.value = false; }, 3000);
+    return;
+  }
+  deleteArmed.value = false;
+  try {
+    localPkg.value =
+      (await call<LocalPkg>("sol_delete_package", { dir: installDir.value || null })) ?? null;
+    logs.value.push(`${nowTime()} 已删除安装包${localPkg.value.archive ? "" : "（含 md5 旁车）"}`);
+  } catch (error) {
+    logs.value.push(`${nowTime()} 删除失败：${String(error)}`);
+  }
+}
 /** 服务状态被权限挡住时显示「授权查看状态」（旧版 #sol-status-privileged） */
 const privilegedNeeded = ref(false);
 async function readPrivilegedStatus() {
@@ -157,10 +202,7 @@ async function refresh() {
       httpEnabledState.value = http.enabled ? "已开启（sol 控制面在跑）" : "已关闭";
     } catch { /* 忽略 */ }
     // 旧版 refreshSolPackage：sol_local_package 回填本地安装包状态
-    try {
-      const local = (await call<{ archive?: string; size?: number }>("sol_local_package", { dir: installDir.value || null })) ?? {};
-      archivePath.value = local.archive ? local.archive : archivePath.value;
-    } catch { /* 忽略 */ }
+    await refreshLocalPkg();
   } catch (error) {
     errorText.value = String(error);
     status.value = null;
@@ -293,7 +335,7 @@ function mirrorArg(): string | null {
   return mirror.value;
 }
 
-async function download() {
+async function download(force = false) {
   const mirrorValue = mirrorArg();
   if (mirror.value === "custom" && !mirrorValue) {
     logs.value.push(`${nowTime()} 自定义加速前缀为空：请填一个 http(s):// 开头的前缀，或选「不走加速」`);
@@ -304,12 +346,17 @@ async function download() {
   // 事件只是进度来源，**收尾必须自己兜底**：复用路径秒回、spawn 失败等都可能
   // 不带 done 事件（旧版吞错误后永远「下载中 0%」）。失败原因从 catch 里透出。
   try {
-    await call<string>("sol_install_download", { dir: null, mirror: mirrorValue });
+    await call<string>("sol_install_download", {
+      dir: null,
+      mirror: mirrorValue,
+      force: force || undefined,
+    });
     progress.value = 100;
   } catch (error) {
     logs.value.push(`${nowTime()} 下载失败：${String(error)}`);
   } finally {
     setTimeout(() => { downloading.value = false; }, 300);
+    void refreshLocalPkg();
   }
 }
 
@@ -417,7 +464,13 @@ async function pickDir() {
     <div class="setting-block sol-pkg-block">
       <span class="setting-text">
         <strong>安装包</strong>
-        <small class="setting-state" id="sol-pkg-state">{{ downloading ? `下载中 ${progress}%` : "未下载" }}</small>
+        <small class="setting-state" id="sol-pkg-state">{{
+          downloading
+            ? `下载中 ${progress}%`
+            : localPkg?.archive
+              ? `已下载 · ${fmtSize(localPkg.size)}${localPkg.verified ? " · md5 一致" : " · md5 未校验"}${localPkg.extracted ? " · 已解压" : ""}`
+              : "未下载"
+        }}</small>
       </span>
 
       <div v-if="downloading" id="sol-progress" class="sol-progress">
@@ -451,7 +504,16 @@ async function pickDir() {
           style="width: 280px"
           @change="saveMirror"
         />
-        <button type="button" id="sol-download" class="secondary" @click="download">下载</button>
+        <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">下载</button>
+        <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" title="跳过「已有包复用」，删旧包重新下" @click="redownload">重新下载</button>
+        <button
+          type="button"
+          id="sol-delete-package"
+          class="secondary"
+          :disabled="downloading || !localPkg?.archive"
+          :title="deleteArmed ? '再点一次确认删除（含 md5 旁车，不动已解压内容）' : '删除已下载的安装包'"
+          @click="deletePackage"
+        >{{ deleteArmed ? "确认删除？" : "删除安装包" }}</button>
         <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">选择安装包…</button>
         <button type="button" id="sol-extract" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">
           解压到安装目录
