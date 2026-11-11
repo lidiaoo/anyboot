@@ -216,7 +216,9 @@ echo "==> 自检 A3：前端资产确实是本轮构建的"
 # 前端源已从旧版 ui/ 迁到 ui-vue/（vite 产物经 gen-ui-assets.py 嵌入），校验基准
 # 改为 ui-vue/dist/index.html（2026-11-11，随 RefindPlus 轮打包修复）。
 BINREAL=$(readlink -f "$BIN" 2>/dev/null || echo "$BIN")
-ASSET_ROOT=$(ls -d "$(dirname "$BINREAL")/build"/anyboot-*/out/tauri-codegen-assets 2>/dev/null | tail -1)
+# ⚠ 目录名是内容哈希、与时间无关：tail -1（字典序）会选中**陈旧构建**的目录
+# （实测选到昨天的目录，把本轮资产误判成「codegen 没重编」）。按 mtime 取最新。
+ASSET_ROOT=$(ls -dt "$(dirname "$BINREAL")/build"/anyboot-*/out/tauri-codegen-assets 2>/dev/null | head -1)
 if [ -n "$ASSET_ROOT" ]; then
   node - "$ASSET_ROOT" "$PROJ/ui-vue/dist/index.html" <<'JSEOF'
 const fs = require('fs'), path = require('path'), zlib = require('zlib');
