@@ -122,6 +122,23 @@ pub(crate) fn move_to_front(order: &[u16], number: u16) -> Vec<u16> {
 }
 
 /// 一条 `EFI_LOAD_OPTION` 是不是指向 `path`（分区内路径，`\EFI\...` 写法）。
+/// 路径命中 **且** 启动项的描述（OC 写 OCBt#### 时用的 description，通常=卷标）
+/// 与目标卷标一致 —— 多块 ESP 都有 `\EFI\BOOT\BOOTX64.EFI` 时，只比路径会把
+/// REFIND 误认成 ARCH-EFI（同样的 BOOTX64 路径），导致「点 REFIND 却判定已在默认、
+/// 不写入」。加上描述校验后，同名文件按卷标区分开。
+fn option_targets_on(value: &[u8], path: &str, volume: &str) -> bool {
+    if !option_targets(value, path) {
+        return false;
+    }
+    // 描述为空（老固件可能不带）→ 保持路径判据（不因缺描述而漏判）
+    match oc_menu::parse_load_option(value) {
+        Some((description, _)) if !description.trim().is_empty() => {
+            description.trim().eq_ignore_ascii_case(volume.trim())
+        }
+        _ => true,
+    }
+}
+
 fn option_targets(value: &[u8], path: &str) -> bool {
     match oc_menu::parse_load_option(value) {
         Some((_, file_path)) => oc_menu::same_target(&oc_menu::normalized(&file_path), path),
@@ -250,7 +267,9 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     let mut slot: Option<u16> = None;
     for number in &order {
         if let Some(value) = namespace.read_option(*number) {
-            if option_targets(&value, &path) || title.is_some_and(|t| option_titled(&value, t)) {
+            if option_targets_on(&value, &path, volume)
+                || title.is_some_and(|t| option_titled(&value, t))
+            {
                 slot = Some(*number);
                 break;
             }
@@ -261,7 +280,9 @@ pub(crate) fn set_default(esp_root: &Path, target: &str) -> Result<String, Strin
     if slot.is_none() {
         for number in nvram::read_boot_order() {
             if let Some(value) = nvram::read_boot_option(number) {
-                if option_targets(&value, &path) || title.is_some_and(|t| option_titled(&value, t)) {
+                if option_targets_on(&value, &path, volume)
+                    || title.is_some_and(|t| option_titled(&value, t))
+                {
                     copied = Some(value);
                     break;
                 }

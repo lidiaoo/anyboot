@@ -351,7 +351,34 @@ fn disk_guid(root: &Path) -> Option<String> {
     guid_map().get(&key).cloned()
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Linux：从挂载点取该分区的 GPT 分区 GUID（`PARTUUID`，与启动项 HardDrive 节点里的
+/// 分区 GUID 同源）。走 sysfs `/sys/class/block/<dev>/uevent` 的 `PARTUUID=`（本机
+/// lsblk 不支持 PARTUUID 列时也照样能读到）。找不到返回 None。
+#[cfg(target_os = "linux")]
+fn disk_guid(root: &Path) -> Option<String> {
+    let source = command("findmnt")
+        .args(["-no", "SOURCE"])
+        .arg(root)
+        .output()
+        .ok()?;
+    if !source.status.success() {
+        return None;
+    }
+    let dev = String::from_utf8_lossy(&source.stdout).trim().to_string();
+    if dev.is_empty() {
+        return None;
+    }
+    let base = dev.rsplit('/').next().unwrap_or(&dev).to_string();
+    let uevent = fs::read_to_string(format!("/sys/class/block/{base}/uevent")).ok()?;
+    uevent
+        .lines()
+        .find_map(|line| line.strip_prefix("PARTUUID="))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn disk_guid(_root: &Path) -> Option<String> {
     None
 }

@@ -209,9 +209,13 @@ mod imp {
     pub(crate) fn write_var(name: &str, guid: &str, value: &[u8]) -> Result<(), NvramError> {
         let path = efivar_path(name, guid);
         let content = with_attr_header(value);
-        // 已经是 root（或 efivarfs 可写）就直写；efivarfs 必须一次 write 写全
+        // 已经是 root（或 efivarfs 可写）就直写；efivarfs 必须一次 write 写全。
+        // `create(true)`：写「尚不存在的变量」（如 OC 新建 OCBt0083 槽）时，efivarfs
+        // 必须先创建该变量文件再写——不 create 会 ENOENT（用户报「OCBt0083 没有那个
+        // 文件或目录」）。已存在的变量走 open 不受 create 影响。
         let direct = fs::OpenOptions::new()
             .write(true)
+            .create(true)
             .open(&path)
             .and_then(|mut file| file.write_all(&content));
         match direct {

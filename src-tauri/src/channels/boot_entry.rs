@@ -208,8 +208,10 @@ fn partition_info_platform(esp_root: &Path) -> Result<HdNode, String> {
     if device.is_empty() {
         return Err(format!("findmnt 找不到 {} 的设备", esp_root.display()));
     }
+    // `-b`：SIZE 用字节（默认是「500M」这种人类可读串，parse::<u64> 会失败；
+    // 用户报「分区大小 \"500M\" 解析失败」）。START 是起始扇区、不随 -b 变。
     let listing = command("lsblk")
-        .args(["-no", "PARTN,START,SIZE,PARTUUID,LOG-SEC"])
+        .args(["-b", "-no", "PARTN,START,SIZE,PARTUUID,LOG-SEC"])
         .arg(&device)
         .output()
         .map_err(|error| format!("执行 lsblk 失败: {error}"))?;
