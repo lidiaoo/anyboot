@@ -4300,9 +4300,10 @@ class ComputerListActivity : ComponentActivity() {
                 if (tag.isNotBlank()) parts.add(tag)
             }
             val suffix = if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
-            val icon = grubOsIcon(prefix + option.grubName)
+            // 平台图标由渲染层的 BootDot(platformEmoji) 负责，**不再拼进 label**——
+            // 否则一行两个平台图标（与 PC 端 9e61d40/2297eec 的同类修复对齐）
             val arrow = if (top) "" else "↳ "
-            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false))
+            rows.add(GrubRow(option, "$arrow$prefix$label$suffix", false))
         }
 
         // 置顶当前选中项（组内子项补「组名 › 」前缀）
