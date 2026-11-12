@@ -75,8 +75,15 @@ watch(currentTab, (tab) => {
   }
 });
 
-/** 下次启动区：是否需要折叠按钮（旧版 #nb-toggle） */
-const nextBootRowsOpen = ref(false);
+/** 下次启动区：明细是否展开。
+ *  null = 跟随设置里的显示方式（nextBoot === 'open' 时默认展开）；
+ *  非 null = 用户在这一页手动点开/收起过，临时覆盖设置。
+ *  旧版是 ref(false) + v-show 的「或」判断，设置成展开时按钮写着「展开」
+ *  但内容已经摊开，点了也没反应（用户 2026-11-12 截图里的状态）。 */
+const nextBootRowsOpen = ref<boolean | null>(null);
+const nextBootRowsVisible = computed(
+  () => nextBootRowsOpen.value ?? (adv.state.nextBoot === "open"),
+);
 
 /** 启动静默扫 Linux grub 的重试标志（旧版 grubAutoBootRetried） */
 
@@ -788,24 +795,29 @@ const statusHidden = computed(() => {
         id="tab-boot"
       >
         <!-- 下次启动 -->
-        <section v-if="adv.state.nextBoot !== 'off'" aria-label="下次启动" class="next-boot" id="next-boot">
+        <section
+          v-if="adv.state.nextBoot !== 'off'"
+          :class="['next-boot', { 'has-rows': nextBootRows.length > 0, 'nb-folded': !nextBootRowsVisible }]"
+          aria-label="下次启动"
+          id="next-boot"
+        >
           <div class="nb-head">
             <small>下次启动</small>
             <button
               type="button"
               id="nb-toggle"
               class="nb-toggle"
-              :aria-expanded="nextBootRowsOpen"
+              :aria-expanded="nextBootRowsVisible"
               :hidden="!nextBootRows.length"
-              @click="nextBootRowsOpen = !nextBootRowsOpen"
+              @click="nextBootRowsOpen = !nextBootRowsVisible"
             >
-              {{ nextBootRowsOpen ? "收起" : "展开" }}
+              {{ nextBootRowsVisible ? "收起" : "展开" }}
             </button>
           </div>
           <strong id="next-boot-name">{{ nextBootName }}</strong>
           <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">上次启动 <b>{{ nextBootLast }}</b></small>
           <div
-            v-show="(nextBootRowsOpen || adv.state.nextBoot === 'open') && nextBootRows.length"
+            v-show="nextBootRowsVisible && nextBootRows.length"
             class="next-boot-rows"
             id="next-boot-rows"
           >

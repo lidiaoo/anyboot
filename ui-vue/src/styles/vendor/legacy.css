@@ -486,8 +486,9 @@ h1,
 /* ---------- 下次启动：醒目大字（问题 7） ---------- */
 .next-boot {
   display: grid;
-  gap: 2px;
-  padding: 12px 16px;
+  gap: 1px;
+  /* 2026-11-12 用户定案：整卡再压一档，只留一小块展示区 */
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-left: 4px solid var(--ok);
   border-radius: 10px;
@@ -496,16 +497,16 @@ h1,
 
 .next-boot small {
   color: var(--text-dim);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
 }
 
 .next-boot strong {
   color: var(--ok);
   /* 2026-10-31 用户定案：整卡改小字；级联全链再长也不许省略号 —— 放不下
    * 就换行（overflow-wrap:anywhere，路径/长词也断得开） */
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
@@ -530,6 +531,12 @@ h1,
   row-gap: 6px;
 }
 .next-boot.has-rows > strong { display: none; }
+/* 收起态：明细没了，得把「当前下次启动项」露出来，否则整卡只剩一个标签 */
+.next-boot.has-rows.nb-folded > strong {
+  display: block;
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+}
 .next-boot.has-rows > .next-boot-rows { grid-column: 1 / -1; min-width: 0; }
 /* 标题行：标签 + 折叠按钮同一行（2026-11-01 用户定案）。
  * 按钮默认隐藏（HTML 里 hidden），由 boot-adv.js 按显示方式放开。 */
@@ -548,8 +555,8 @@ h1,
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10.5px;
+  line-height: 1.5;
   cursor: pointer;
   transition: color 120ms, border-color 120ms, background 120ms;
 }
@@ -564,26 +571,61 @@ h1,
   outline-offset: 1px;
 }
 /* 收起态：条目行由 JS 的 hidden 管，这里只补视觉（标题行维持原样） */
-.next-boot.nb-folded { row-gap: 0; }
+.next-boot.nb-folded { row-gap: 3px; }
 
 .next-boot-rows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
+  /* 2026-11-12 用户定案：明细只留一小块（约两行半），超了在块内滚，
+   * 不让四条长路径把整张卡顶到半屏高 */
+  max-height: min(132px, 22vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
 }
+/* 明细超过这一小块时右侧得有根细条，不然「半行字」看着像被裁坏了 */
+.next-boot-rows::-webkit-scrollbar { width: 6px; }
+.next-boot-rows::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--border-strong);
+}
+.next-boot-rows::-webkit-scrollbar-track { background: transparent; }
 .next-boot-rows[hidden] { display: none; }
 .nb-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 3px 6px;
   border: 1px solid var(--line, var(--border));
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel-2, rgba(0, 0, 0, 0.02));
 }
 .nb-row .ldr { flex: none; }
+/* 引导器名（rEFInd / GRUB / …）：定宽不换行，值那列才有足够横向空间 */
+.nb-row .k {
+  flex: 0 0 auto;
+  max-width: 42%;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 选中的条目：不省略，放不下换行；字号压到比说明文字还小半档 */
+.nb-row .v {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .nb-row .nb-tag {
   flex: none;
   font-size: 11px;
@@ -2301,7 +2343,7 @@ body.dock-right #hotzone {
 
   /* 「下次启动」整卡已是小字（见 .next-boot strong），窄窗再收半档 */
   .next-boot strong {
-    font-size: 12.5px;
+    font-size: 11.5px;
   }
 }
 
