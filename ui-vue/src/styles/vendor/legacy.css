@@ -2218,10 +2218,18 @@ body.dock-right #hotzone {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* iOS：聚焦 <16px 的输入框会自动放大页面，挪到手机上统一 16px */
-  input,
-  select {
-    font-size: 16px;
+  /* iOS 专用：聚焦 <16px 的输入框会自动放大页面。
+   * 以前这条只按「窗口窄」生效，结果 PC 主窗（460~580）里的输入框、SOL 配置
+   * 编辑器全被抬到 16px，比周围 12/13px 的正文大一圈（2026-11-12 用户截图：
+   * 「配置文件字的字号太大 应该和其他字都统一字号」）。
+   * 改成 @supports 认 iOS WebKit：只有 iPhone / iPad（含 WKWebView）才 16px，
+   * 桌面和安卓一律跟正文同号。 */
+  @supports (-webkit-touch-callout: none) {
+    input,
+    select,
+    #sol-section textarea {
+      font-size: 16px;
+    }
   }
 
   /* ---------- SOL 远程唤醒页（#/sol）手机适配 ----------
@@ -2286,10 +2294,8 @@ body.dock-right #hotzone {
     flex: 1 1 46%;
   }
 
-  /* 配置编辑器同样防 iOS 聚焦缩放（textarea 不在上面的 input 规则里） */
-  #sol-section textarea {
-    font-size: 16px;
-  }
+  /* 配置编辑器（textarea）的 iOS 16px 已并入上面 @supports 那块，
+   * 桌面/安卓保持 .sol-config-editor 的 12px，与周围说明文字同号。 */
 }
 
 /* ---------- 手机竖屏（WebView 视口约 354px）----------
