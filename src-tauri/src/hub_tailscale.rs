@@ -898,7 +898,22 @@ fn service_action_blocking(action: &str) -> Result<i8, String> {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        let detail = text.trim().lines().next().unwrap_or("").trim();
+        // sc.exe 的退出码就是 Win32 错误码，中文系统上第一行是
+        // 「[SC] StartService 失败 1056:」、第二行才是可读原因 —— 以前只取第一行，
+        // 用户看到的就只有一串码，还以为出事了。
+        let detail = sc_detail(&text);
+        // 1056 = ERROR_SERVICE_ALREADY_RUNNING，1062 = ERROR_SERVICE_NOT_ACTIVE。
+        // 点「启动」时服务本来就在跑（或点「停止」时本来就没跑）属于**已经达成
+        // 目标状态**，不是失败 —— 以回读到的状态为准，别再甩一条红色报错。
+        let code = output.status.code();
+        let benign = match action {
+            "start" => matches!(code, Some(1056)) || detail.contains("1056"),
+            "stop" => matches!(code, Some(1062)) || detail.contains("1062"),
+            _ => false,
+        };
+        if benign {
+            return Ok(service_running_state());
+        }
         // 非管理员跑 sc start/stop 会被拒（错误码 5），把话说明白
         if detail.contains("拒绝访问") || detail.contains("Access is denied") || detail.contains("(5)") {
             return Err("需要管理员权限：请右键 AnyBoot 以管理员身份运行后再操作服务级开关".to_string());
@@ -906,7 +921,7 @@ fn service_action_blocking(action: &str) -> Result<i8, String> {
         return Err(if detail.is_empty() {
             "服务操作失败".to_string()
         } else {
-            detail.to_string()
+            detail
         });
     }
     if action == "restart" {
@@ -922,17 +937,46 @@ fn service_action_blocking(action: &str) -> Result<i8, String> {
         let start = sc_command(&["start", SERVICE_NAME]).output();
         if let Ok(output) = start {
             if !output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout).to_string();
-                let detail = text.trim().lines().next().unwrap_or("").trim();
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let detail = sc_detail(&text);
+                // 停止没落地（还停在上一次实例）时 start 会报 1056，
+                // 但服务确实在跑 —— 同样按成功处理
+                if matches!(output.status.code(), Some(1056)) || detail.contains("1056") {
+                    return Ok(service_running_state());
+                }
                 return Err(if detail.is_empty() {
                     "服务重新启动失败".to_string()
                 } else {
-                    detail.to_string()
+                    detail
                 });
             }
         }
     }
     Ok(service_running_state())
+}
+
+/// 把 sc.exe 的输出压成一句人话：首行（含错误码）+ 次行原因。
+/// 例：`[SC] StartService 失败 1056:` / `服务的实例已在运行。`
+#[cfg(windows)]
+fn sc_detail(text: &str) -> String {
+    let mut lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
+    let Some(first) = lines.next() else {
+        return String::new();
+    };
+    match lines.next() {
+        // 首行只是「[SC] xxx 失败 N:」，冒号后没内容 —— 补上第二行的原因
+        Some(second) if first.ends_with(':') || first.ends_with('：') => {
+            format!("{first} {second}")
+        }
+        _ => first.to_string(),
+    }
 }
 
 /// Linux 服务级启停走 systemctl（桌面会话里 polkit 会弹授权框，确认即可；
@@ -2722,6 +2766,19 @@ pub(crate) async fn local_service_health(app: AppHandle) -> Result<bool, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// sc.exe 的错误输出是「首行错误码 + 空行 + 次行原因」两段，
+    /// 只取首行会让用户看到「[SC] StartService 失败 1056:」这种半句话。
+    #[cfg(windows)]
+    #[test]
+    fn sc_detail_merges_code_line_with_reason() {
+        assert_eq!(
+            sc_detail("[SC] StartService 失败 1056:\r\n\r\n服务的实例已在运行。\r\n"),
+            "[SC] StartService 失败 1056: 服务的实例已在运行。"
+        );
+        assert_eq!(sc_detail("单行错误"), "单行错误");
+        assert_eq!(sc_detail("   \n\n"), "");
+    }
 
     #[test]
     fn normalize_state_maps_known_values() {
