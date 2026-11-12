@@ -6,7 +6,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
-import { runStartupAdminScan, isTauri, linuxPrivStatus } from "@/api/tauri";
+import { runStartupAdminScan, isTauri, linuxPrivStatus, linuxGrubHelperReady } from "@/api/tauri";
 import HelperPrompt from "@/components/boot/HelperPrompt.vue";
 import TokenPrompt from "@/components/boot/TokenPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
@@ -242,6 +242,23 @@ onMounted(async () => {
         } catch {
           helperReady = false;
         }
+      } else if (osName === "windows") {
+        // Windows 的免密 = 安装器注册的特权服务（AnyBootHelper），**没有**「用户点一下
+        // 装助手」这条路（boot_helper 是 macOS/Linux 的通道）。所以这里永远不弹
+        // 「开启免密扫描」建议窗：
+        //   · 服务在跑、且当前这份就是 %ProgramFiles%\AnyBoot 里的安装副本 → 静默扫；
+        //   · 否则（便携副本 / 服务没起）→ 直接走 UAC 授权扫，让系统框自己说话。
+        // 以前这里落到 macOS 分支看 helper.installed，而 Windows 上那个字段恒 false
+        // （helper_install::view 的非 macOS 分支写死 supported:false），于是每次启动
+        // 都弹一个「开启免密」窗——用户点了只会调到一个不存在的通道。
+        let serviceReady = false;
+        try {
+          serviceReady = await linuxGrubHelperReady();
+        } catch {
+          serviceReady = false;
+        }
+        await runStartupAdminScan(!serviceReady).catch(() => {});
+        return;
       } else {
         // macOS：只看「助手装没装」，**不拿 stale 当门禁** —— 每次 App 重新构建，
         // /Library 里那份助手必然 stale（内容指纹变了），stale 的语义只是
