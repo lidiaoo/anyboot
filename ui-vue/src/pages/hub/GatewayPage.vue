@@ -1168,8 +1168,8 @@ function deletePair(id: string) {
       <!-- 需登录态：#tsLoginRow（拿到授权链接就显示；事件没到也能从错误文本兜底） -->
       <div id="tsLoginRow" :hidden="!loginUrl">
         <p class="field-hint" style="margin: 8px 0 0">
-          需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
-          登录完成后自动继续，不用再点开关。
+          需要登录 Tailscale 账号 —— 点下面按钮（或直接点链接）在浏览器完成授权，一次即可，凭据会记住。
+          授权完成后把开关<b>关开一次</b>就会连上（等超时的话，进程已经退了，必须重跑一次）。
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
           <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">打开登录页</button>
@@ -1181,7 +1181,7 @@ function deletePair(id: string) {
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
           ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就点<b>重新生成链接</b>或把开关<b>关开一次</b>。
-          链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
+          链接也可以复制到手机/其它设备的浏览器打开；授权完回到这里把开关关开一次即可。
         </p>
       </div>
 
@@ -1391,7 +1391,7 @@ function deletePair(id: string) {
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
           ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就把引擎<b>关开一次</b>重新生成。
-          链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
+          链接也可以复制到手机/其它设备的浏览器打开；授权完回到这里把开关关开一次即可。
         </p>
       </div>
 
