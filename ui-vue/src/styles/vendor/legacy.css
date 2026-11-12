@@ -2142,16 +2142,43 @@ body.dock-right #hotzone {
     max-height: 45vh;
   }
 
-  /* 设置行：文字一列 + 控件一列。flex 的 space-between 在窄屏会把
-   * 长小字压成一坨，grid 两列让标题/说明完整换行、控件靠右不被挤 */
+  /* 设置行：文字一列 + 控件一列。这里原来是 grid minmax(0,1fr) auto ——
+   * auto 列按内容定宽（两个输入框 + 按钮就 300 多），1fr 的 min 是 0，
+   * 于是被压到只剩一个字宽：PC 主窗 460 宽实测「提示音」竖排、
+   * 「HTTP 渠道（webhook / curl / 面板）」逐字换行、「监听地址 / 端口」
+   * 断在最后一个字上。改回 flex：文字列保底 132px，控件组放不下就整组
+   * 换到下一行并右对齐，绝不牺牲标题可读性。 */
   .setting {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    gap: 8px 12px;
+  }
+
+  .setting-text {
+    flex: 1 1 170px;
+    min-width: 170px;
+  }
+
+  .setting > .remote-inline {
+    flex: 0 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+  }
+
+  /* 行内定宽输入框（116px 那批）在窄窗里允许继续压缩到 56px，
+   * 按钮吸附在后面；再放不下就靠 flex-wrap 整组换行 */
+  .setting > .remote-inline input[type="text"] {
+    width: auto;
+    flex: 0 1 116px;
+    min-width: 56px;
   }
 
   /* 例外：token 行（setting-block）本来就是竖排结构，保持整行一列 */
   .setting.setting-block {
+    display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2167,19 +2194,31 @@ body.dock-right #hotzone {
    * 挤在 auto 列 → 溢出/挤压歪七扭八。统一改上下堆叠：标题/状态一行，
    * 控件组自己成一行、可换行铺开。 */
   #sol-section .setting {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: stretch;
+    /* 与上面 .setting 同一套 flex（原先是 grid 单列），这里保持竖排 */
+    flex-direction: column;
+    align-items: stretch;
     gap: 8px;
+  }
+
+  #sol-section .setting > .setting-text {
+    min-width: 0;
   }
 
   /* 例外：单个勾选框的行（HTTP 服务监听）保持「文字 | 勾选框」两列 */
   #sol-section #sol-http-enabled-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
+  /* SOL 页的控件组铺满整行（.setting > .remote-inline 的右推 margin
+     在竖排里会把控件挤成内容宽贴右边，这里收回） */
   #sol-section .remote-inline {
     flex: 1 1 auto;
     flex-wrap: wrap;
+    align-self: stretch;
+    justify-content: flex-start;
+    margin-left: 0;
   }
 
   /* 行内输入框不再定宽：内联的 width / flex 用 !important 顶掉，
@@ -5428,14 +5467,18 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 }
 @keyframes btn-spin { to { transform: rotate(360deg); } }
 
-/* 2026-11-08 基本设置(应用设置)小屏自适应：窄屏下每行竖排，输入控件限宽不再溢出右边界 */
-@media (max-width: 640px) {
+/* 基本设置(应用设置)超窄屏自适应：窗口拉到 400 以下（手机宽度）才整行竖排。
+   460 是主窗默认宽度，那种宽度下 .setting 的两列 + 控件组换行已经够看
+   （见 @media max-width:720 里的注释），竖排会把几十行设置拉成一长条、
+   开关行只剩一个孤零零的勾选框，反而更难读。 */
+@media (max-width: 400px) {
   .settings .setting {
     flex-direction: column;
     align-items: stretch;
     gap: 6px;
   }
   .settings .setting-text { min-width: 0; }
+  .settings .setting > .remote-inline { margin-left: 0; justify-content: flex-start; }
   .settings .setting input[type="number"],
   .settings .setting input[type="text"],
   .settings .setting select {

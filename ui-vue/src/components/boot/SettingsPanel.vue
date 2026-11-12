@@ -343,7 +343,7 @@ const isGuestUi = computed(() => guestUiTheme !== "");
     <label class="setting">
       <span class="setting-text">
         <strong>热区触发厚度</strong>
-        <small>40px（鼠标移入屏幕边往内这一段就呼出主窗）</small>
+        <small>鼠标移入屏幕边缘往内这一段就呼出主窗</small>
         <small class="setting-state" id="main-hotzone-thickness-state">{{ val("mainHotzoneThickness", 40) }} px</small>
       </span>
       <input id="main-hotzone-thickness"
@@ -431,7 +431,7 @@ const isGuestUi = computed(() => guestUiTheme !== "");
     <div class="setting">
       <span class="setting-text">
         <strong>窗口宽度</strong>
-        <small>460px（拖动实时调整窗口）</small>
+        <small>拖动实时调整窗口</small>
         <small class="setting-state" id="window-size-width-state">{{ val("windowSizeWidth", 460) }} px</small>
       </span>
       <span class="remote-inline">
@@ -451,7 +451,7 @@ const isGuestUi = computed(() => guestUiTheme !== "");
     <div class="setting">
       <span class="setting-text">
         <strong>窗口高度</strong>
-        <small>560px（拖动实时调整窗口）</small>
+        <small>拖动实时调整窗口</small>
         <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 560) }} px</small>
       </span>
       <span class="remote-inline">
@@ -578,7 +578,7 @@ const isGuestUi = computed(() => guestUiTheme !== "");
     <label class="setting">
       <span class="setting-text">
         <strong>窗口不透明度</strong>
-        <small>90%（拖动即时预览）</small>
+        <small>拖动即时预览，松手保存</small>
         <small class="setting-state" id="opacity-state">{{ fmtPct(val("opacityPercent", 90)) }}</small>
       </span>
       <input id="opacity"
