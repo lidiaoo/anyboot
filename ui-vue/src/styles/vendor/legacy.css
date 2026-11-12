@@ -566,16 +566,17 @@ h1,
   outline: 2px solid var(--btn);
   outline-offset: 1px;
 }
-/* 收起态：标题行独占整行，整卡压成一根小条 */
+/* 收起态：标题行独占整行。
+ * 内边距与展开态保持 8/12，两个态的标题行（含「展开 / 收起」按钮）落在
+ * 完全相同的坐标上，不随折叠跳动（2026-11-12 用户定案）。
+ * 按钮位置同理：一律紧跟标题文字，不许靠右。 */
 .next-boot.nb-folded {
   row-gap: 3px;
-  padding: 6px 12px;
 }
 .next-boot.nb-folded > .nb-head {
   grid-column: 1 / -1;
   width: 100%;
 }
-.next-boot.nb-folded .nb-toggle { margin-left: auto; }
 
 .next-boot-rows {
   display: flex;
