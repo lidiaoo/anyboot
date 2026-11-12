@@ -41,6 +41,8 @@ interface SolStatus {
   [key: string]: unknown;
 }
 
+import { useToastStore } from "@/stores/toast";
+const toast = useToastStore();
 const status = ref<SolStatus | null>(null);
 const loading = ref(true);
 const errorText = ref("");
@@ -145,8 +147,10 @@ async function deletePackage(): Promise<void> {
   try {
     localPkg.value =
       (await call<LocalPkg>("sol_delete_package", { dir: installDir.value || null })) ?? null;
+    toast.show("已删除安装包");
     logs.value.push(`${nowTime()} 已删除安装包${localPkg.value.archive ? "" : "（含 md5 旁车）"}`);
   } catch (error) {
+    toast.show(`删除失败：${String(error)}`, "bad");
     logs.value.push(`${nowTime()} 删除失败：${String(error)}`);
   }
 }
@@ -354,14 +358,20 @@ async function download(force = false) {
   // 事件只是进度来源，**收尾必须自己兜底**：复用路径秒回、spawn 失败等都可能
   // 不带 done 事件（旧版吞错误后永远「下载中 0%」）。失败原因从 catch 里透出。
   try {
-    await call<string>("sol_install_download", {
+    const path = await call<string>("sol_install_download", {
       dir: null,
       mirror: mirrorValue,
       force: force || undefined,
     });
     progress.value = 100;
+    toast.show(`下载完成：${String(path).split(/[\\/]/).pop() ?? "安装包"}`);
   } catch (error) {
     const text = String(error);
+    if (cancelRequested.value) {
+      toast.show("已取消下载");
+    } else {
+      toast.show(`下载失败：${text}`, "bad");
+    }
     logs.value.push(`${nowTime()} ${cancelRequested.value ? "下载已取消" : `下载失败：${text}`}`);
   } finally {
     setTimeout(() => { downloading.value = false; }, 300);
@@ -376,6 +386,7 @@ async function cancelDownload(): Promise<void> {
   try {
     await call<boolean>("sol_download_cancel");
   } catch (error) {
+    toast.show(`取消失败：${String(error)}`, "bad");
     logs.value.push(`${nowTime()} 取消失败：${String(error)}`);
   }
 }
