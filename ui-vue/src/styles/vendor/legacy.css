@@ -1730,7 +1730,9 @@ label.setting {
 
 .setting-text strong {
   color: var(--text);
-  font-size: 14px;
+  /* 字号统一（用户 2026-11-12）：原来 14px，与下面的 12px 说明差两级，
+     一屏里字大大小小像拼起来的。行标题 13px、正文 12px 只差一级。 */
+  font-size: 13px;
 }
 
 .setting-text small {
@@ -2269,7 +2271,7 @@ body.dock-right #hotzone {
  * 全部沿用面板既有 token（--panel / --border / --ok / --warn），不引入新色板。 */
 .sol-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.6;
   color: var(--text-dim, #94a3b8);
 }
@@ -2429,7 +2431,8 @@ button.primary-sol:hover:not(:disabled) {
   border-radius: 8px;
   background: var(--input-bg, #141a2e);
   color: var(--text-dim, #94a3b8);
-  font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 日志区与正文同号：11px 在这页里是独一份的小号，行高正常但字明显更瘦 */
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -2443,7 +2446,7 @@ button.primary-sol:hover:not(:disabled) {
 
 /* 安装目录行的小状态字（~ 展开后的真实路径提示） */
 #sol-dir-state {
-  font-size: 11px;
+  font-size: 12px;
 }
  * 三引导器通道（systemd-boot / OpenCore / Clover）· 增量样式
  * 复用 .refind 的卡片背板与 .zone-tag 圆标，新增的只有：

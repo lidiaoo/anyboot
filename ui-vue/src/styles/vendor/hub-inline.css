@@ -218,7 +218,12 @@
   }
   .server-row .s-host .txt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .server-row .s-right { text-align: right; flex: none; }
-  .server-row .s-ms { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .server-row .s-ms { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: rgb(var(--fg-faint)); }
+  /* 延迟档位：模板给的是 class="s-ms ok|warn|bad"，而下面那组 .ms-ok 是全名的另一套，
+     两套对不上 → 以前耗时一直是灰的。这里按 .s-ms 的语义补上颜色。 */
+  .server-row .s-ms.ok { color: rgb(var(--ok)); }
+  .server-row .s-ms.warn { color: rgb(var(--warn)); }
+  .server-row .s-ms.bad { color: rgb(var(--bad)); }
   .server-row .s-state { display: block; font-size: 10px; color: rgb(var(--fg-faint)); margin-top: 1px; }
   .ms-ok { color: rgb(var(--ok)); }
   .ms-warn { color: rgb(var(--warn)); }
@@ -2162,7 +2167,10 @@
   /* 通道行首的探测短状态（延迟 / 不通 / 未测出；完整原因在 .cq-dev-reason） */
   .cq-probe-ms { font-size:9px; color:rgb(var(--fg-faint)); flex:none; }
   .cq-probe-ms.ok { color:rgb(var(--ok)) !important; }
-  .cq-probe-ms.bad { color:rgb(var(--warn)) !important; }
+  /* 延迟分档（与「服务器」页同一套阈值 80/300）：warn=偏慢、bad=很慢或不通 */
+  .cq-probe-ms.warn { color:rgb(var(--warn)) !important; }
+  .cq-probe-ms.bad { color:rgb(var(--bad)) !important; }
+  .cq-probe-ms.skip { color:rgb(var(--fg-faint)) !important; }
 
   /* ---- 远程接入分页标签 + Tailscale 卡窄窗自适应（放末尾覆盖基础规则） ---- */
   @media (max-width: 720px) {

@@ -156,7 +156,9 @@ const ROUTE_LABELS: Record<string, string> = {
   ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
 };
 interface ConnectLine { dataK: string; kindLabel: string; address: string; ok: boolean; ms: number; skipped: boolean;
-  badge: string; reason: string; macs: string[]; isLan: boolean; url: string; }
+  badge: string; reason: string; macs: string[]; isLan: boolean; url: string;
+  /** 延迟档位（决定 badge 颜色）：ok <80 / warn <300 / bad ≥300 或不通 / skip 未测出 */
+  tone: "" | "ok" | "warn" | "bad" | "skip"; }
 const connectLines = computed<ConnectLine[]>(() => {
   // 照抄 v0.2.5：连通性行 = 每个「局域网地址」一行(直连) + 每个「配对」一行(远程通道)；
   // 探测结果从 info.probe_results 查(kind + 地址/配对id)，有无探测都出地址行。
@@ -177,8 +179,12 @@ const connectLines = computed<ConnectLine[]>(() => {
   }
   const badgeOf = (st?: { ok: boolean; ms: number; error: string }) => {
     const skipped = !!st && !st.ok && /未测出|未探测/.test(st.error || "");
+    // 延迟档位与「服务器」页同一套阈值（80 / 300）。以前只有 ok/bad 两态，
+    // 200ms 和 20ms 一个颜色，看不出通道快慢。
+    const tone: ConnectLine["tone"] = !st ? "" : !st.ok ? (skipped ? "skip" : "bad")
+      : st.ms < 80 ? "ok" : st.ms < 300 ? "warn" : "bad";
     return {
-      ok: !!st?.ok, ms: st?.ms ?? 0, skipped,
+      ok: !!st?.ok, ms: st?.ms ?? 0, skipped, tone,
       badge: st?.ok ? `${st.ms} ms` : skipped ? "未测出" : (st ? "不通" : ""),
       reason: !st || st.ok || skipped ? "" : (st.error || "不通"),
     };
@@ -189,7 +195,7 @@ const connectLines = computed<ConnectLine[]>(() => {
     for (const addr of addresses) {
       const b = badgeOf(probeByKey.get(`lan\u0000${addr}`));
       out.push({ dataK: "lan", kindLabel: ROUTE_LABELS.lan, address: addr, ok: b.ok, ms: b.ms, skipped: b.skipped,
-        badge: b.badge, reason: b.reason, macs: macsMap[addr] ?? [], isLan: true,
+        badge: b.badge, reason: b.reason, macs: macsMap[addr] ?? [], isLan: true, tone: b.tone,
         url: `http://${addr}/?token=${encodeURIComponent(rowTok)}` });
     }
   }
@@ -201,7 +207,7 @@ const connectLines = computed<ConnectLine[]>(() => {
     if (disabled.has(kind) || hidden.has(kind) || p.show_probe === false) continue;
     const b = badgeOf(probeByKey.get(`${kind}\u0000${p.addr}`) || (p.id ? probeByKey.get(`${kind}\u0000${p.id}`) : undefined));
     out.push({ dataK: kind, kindLabel: ROUTE_LABELS[kind] ?? (p.kind || "远程"), address: String(p.addr), ok: b.ok, ms: b.ms,
-      skipped: b.skipped, badge: b.badge, reason: b.reason, macs: [], isLan: false,
+      skipped: b.skipped, badge: b.badge, reason: b.reason, macs: [], isLan: false, tone: b.tone,
       url: `http://${p.addr}/?token=${encodeURIComponent(p.token ? String(p.token) : rowTok)}` });
   }
   return out;
@@ -494,7 +500,7 @@ function onRowClick() {
       <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
         <div class="cq-dev-top">
           <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
-          <span class="cq-probe-ms" :class="ln.ok ? 'ok' : (ln.skipped ? '' : 'bad')" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
+          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
           <button type="button" class="cq-remote-act" title="复制这个地址（含访问令牌）" @click.stop="copyUrl(ln.url, ln.address)">复制</button>
           <button type="button" class="cq-remote-act" title="用系统默认浏览器打开这个地址" @click.stop="openUrl(ln.url)">浏览器打开</button>
         </div>

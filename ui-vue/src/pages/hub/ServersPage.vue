@@ -110,6 +110,13 @@ const msText = computed(() => {
   return ms === null ? "—" : `${ms} ms`;
 });
 
+/** 详情「延迟」格的颜色：与列表的 msClass 同一档位（<80 ok / <300 warn / ≥300 bad） */
+const msTextClass = computed(() => {
+  const ms = testMs(selectedId.value);
+  if (ms === null) return "ms-none";
+  return ms < 80 ? "ms-ok" : ms < 300 ? "ms-warn" : "ms-bad";
+});
+
 /** 测试回执行（旧版 #detailTestLine） */
 const testLine = computed(() => {
   const result = store.testResults.get(selectedId.value);
@@ -483,7 +490,7 @@ async function testOne(server: HubServer) {
             </div>
             <div>
               <p class="k">延迟</p>
-              <p class="v mono">{{ msText }}</p>
+              <p class="v mono" :class="msTextClass">{{ msText }}</p>
             </div>
           </div>
 

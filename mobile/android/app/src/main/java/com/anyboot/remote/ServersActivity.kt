@@ -780,11 +780,19 @@ class ServersActivity : ComponentActivity() {
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     if (server.lastRttMs >= 0) {
+                        // 延迟档位与 PC 端一致：<80 绿、<300 黄、≥300 红。
+                        // 以前固定用 accent，快慢看起来一个样。
+                        val rtt = server.lastRttMs
+                        val rttColor = when {
+                            rtt < 80 -> palette.ok
+                            rtt < 300 -> palette.warn
+                            else -> palette.bad
+                        }
                         Text(
-                            "${server.lastRttMs}ms",
+                            "${rtt}ms",
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
-                            color = palette.accent,
+                            color = rttColor,
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {

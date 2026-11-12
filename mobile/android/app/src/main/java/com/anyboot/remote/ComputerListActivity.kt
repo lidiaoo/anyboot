@@ -1461,8 +1461,9 @@ class ComputerListActivity : ComponentActivity() {
                                     fontWeight = FontWeight.SemiBold,
                                     color = when {
                                         !pair.enabled -> palette.fgFaint
-                                        pair.state.startsWith("使用中") -> palette.accent
-                                        pair.ok -> palette.ok
+                                        // 「使用中」也按延迟分档：颜色表达快慢，身份由文案说
+                                        pair.state.startsWith("使用中") -> rttColor(palette, msOf(pair.state))
+                                        pair.ok -> rttColor(palette, msOf(pair.state))
                                         pair.state == "不通" -> palette.bad
                                         else -> palette.fgFaint
                                     },
@@ -1727,11 +1728,7 @@ class ComputerListActivity : ComponentActivity() {
                     probeStateText(hit),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = when {
-                        hit == null -> palette.fgFaint
-                        hit.ok -> palette.ok
-                        else -> palette.bad
-                    },
+                    color = probeColor(palette, hit),
                 )
                 Text(
                     "直连",
@@ -1856,9 +1853,8 @@ class ComputerListActivity : ComponentActivity() {
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = when {
-                        !inUse && hit == null -> palette.fgFaint
-                        inUse || hit?.ok == true -> palette.ok
-                        else -> palette.bad
+                        inUse -> rttColor(palette, msOf(stateText))
+                        else -> probeColor(palette, hit)
                     },
                 )
                 Text(
@@ -4895,6 +4891,28 @@ class ComputerListActivity : ComponentActivity() {
         hit.ok -> "通 " + hit.ms + "ms"
         hit.error.contains("未测出") || hit.error.contains("未探测") -> "未测出"
         else -> "不通"
+    }
+
+    /** 从「通 12ms / 使用中 12ms」这类文案里摘延迟；摘不到返回 -1。 */
+    private fun msOf(text: String): Long =
+        Regex("(\\d+)\\s*ms").find(text)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: -1L
+
+    /** 延迟配色：与 PC 端（服务器页 / 电脑列表）同一套阈值 —— <80 绿、<300 黄、≥300 红；
+     *  取不到延迟时灰。以前通过一律绿色，20ms 和 500ms 一个样。
+     *  调色板从调用处的 `LocalPalette.current` 传进来（本文件里 palette 是每个
+     *  composable 的局部值，不是类字段）。 */
+    private fun rttColor(palette: Palette, ms: Long): Color = when {
+        ms < 0 -> palette.fgFaint
+        ms < 80 -> palette.ok
+        ms < 300 -> palette.warn
+        else -> palette.bad
+    }
+
+    /** 探测结果文字的颜色：没结果灰、未测出灰、不通红、通 → 按延迟分档。 */
+    private fun probeColor(palette: Palette, hit: ProbeEngine.Hit?): Color = when {
+        hit == null -> palette.fgFaint
+        !hit.ok -> if (hit.error.contains("未测出") || hit.error.contains("未探测")) palette.fgFaint else palette.bad
+        else -> rttColor(palette, hit.ms)
     }
 
     /** 完整失败原因（样式 3：地址行下面的小字，换行铺全）；空 = 不垫 */
