@@ -530,13 +530,9 @@ h1,
   align-items: baseline;
   row-gap: 6px;
 }
+/* 2026-11-12 用户定案：收起态只留「下次启动 + 展开」这一行，明细里的任何字
+ * （包括当前项）都不许露出来 —— 整卡退化成一根小条。 */
 .next-boot.has-rows > strong { display: none; }
-/* 收起态：明细没了，得把「当前下次启动项」露出来，否则整卡只剩一个标签 */
-.next-boot.has-rows.nb-folded > strong {
-  display: block;
-  grid-column: 1 / -1;
-  font-size: 11.5px;
-}
 .next-boot.has-rows > .next-boot-rows { grid-column: 1 / -1; min-width: 0; }
 /* 标题行：标签 + 折叠按钮同一行（2026-11-01 用户定案）。
  * 按钮默认隐藏（HTML 里 hidden），由 boot-adv.js 按显示方式放开。 */
@@ -570,28 +566,25 @@ h1,
   outline: 2px solid var(--btn);
   outline-offset: 1px;
 }
-/* 收起态：条目行由 JS 的 hidden 管，这里只补视觉（标题行维持原样） */
-.next-boot.nb-folded { row-gap: 3px; }
+/* 收起态：标题行独占整行，整卡压成一根小条 */
+.next-boot.nb-folded {
+  row-gap: 3px;
+  padding: 6px 12px;
+}
+.next-boot.nb-folded > .nb-head {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+.next-boot.nb-folded .nb-toggle { margin-left: auto; }
 
 .next-boot-rows {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
-  /* 2026-11-12 用户定案：明细只留一小块（约两行半），超了在块内滚，
-   * 不让四条长路径把整张卡顶到半屏高 */
-  max-height: min(132px, 22vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-right: 2px;
+  /* 2026-11-12 用户定案：明细区不许出滚动条 —— 展开就整段铺开，
+   * 高度由内容决定（页面整体本来就能滚），收起则整块不占位。 */
 }
-/* 明细超过这一小块时右侧得有根细条，不然「半行字」看着像被裁坏了 */
-.next-boot-rows::-webkit-scrollbar { width: 6px; }
-.next-boot-rows::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: var(--border-strong);
-}
-.next-boot-rows::-webkit-scrollbar-track { background: transparent; }
 .next-boot-rows[hidden] { display: none; }
 .nb-row {
   display: flex;
