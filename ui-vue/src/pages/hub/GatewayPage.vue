@@ -398,6 +398,74 @@ function clearLogs() {
 const message = ref("");
 const errorText = ref("");
 
+/**
+ * 从自由文本里抠出可点链接。
+ *
+ * 典型场景：点 Tailscale 直连的开关 → `tailscale up` 在 stderr 里打出
+ * `To authenticate, visit: https://login.tailscale.com/a/xxxx` → 120 秒没人授权
+ * 后整段文本被当成错误提示铺在页脚。以前那只是一行纯文字：链接不能点、
+ * body 上的 `user-select: none` 又让人连复制都做不到，只能照着屏幕手敲。
+ *
+ * 尾部标点要剥掉（"…/a/abcd." 这种句号收尾很常见），否则点开会 404。
+ */
+const URL_RE = /https?:\/\/[^\s<>"'`）】]+/g;
+function stripTrailingPunct(url: string): string {
+  return url.replace(/[.,;:!?、。；：！？…"'”’]+$/, "");
+}
+function extractUrls(text: string): string[] {
+  if (!text) return [];
+  const out: string[] = [];
+  for (const raw of text.match(URL_RE) ?? []) {
+    const url = stripTrailingPunct(raw);
+    if (url && !out.includes(url)) out.push(url);
+  }
+  return out;
+}
+
+/** 错误/提示行按「文本 / 链接」切段，链接单独渲染成 <a> */
+const errorSegments = computed<{ text?: string; url?: string }[]>(() => {
+  const text = errorText.value;
+  if (!text) return [];
+  const segs: { text?: string; url?: string }[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    const start = match.index ?? 0;
+    const url = stripTrailingPunct(match[0]);
+    if (!url) continue;
+    if (start > last) segs.push({ text: text.slice(last, start) });
+    segs.push({ url });
+    last = start + url.length; // 被剥掉的尾标点留到下一段文本里
+  }
+  if (last < text.length) segs.push({ text: text.slice(last) });
+  return segs;
+});
+
+/** 用系统浏览器打开外部链接（Tauri 走 remote_open_page，网页端开新窗） */
+async function openExternal(url: string) {
+  if (!/^https?:\/\//i.test(url)) return;
+  const { isTauri } = await import("@/api/tauri");
+  if (isTauri()) {
+    void call("remote_open_page", { url }).catch((e) => toast.show("打开失败：" + e, "bad"));
+    return;
+  }
+  const w = window.open(url, "_blank", "noopener");
+  if (!w) toast.show("浏览器拦截了新窗口，请手动复制链接", "bad");
+}
+
+/**
+ * 错误文本里出现 Tailscale 授权链接就顺手点亮登录卡片。
+ * 事件通道（tailscale-login-url）只在 Tauri 里可用，网页端拿不到 —— 文本兜底。
+ */
+watch(errorText, (text) => {
+  const url = extractUrls(text).find((u) => /^https:\/\/login\.tailscale\.com\//i.test(u));
+  if (url) loginUrl.value = url;
+});
+/** 授权完成（连上了）就把旧链接收起来，避免一直挂着一张过期卡片 */
+watch(
+  () => tsStatus.value?.running,
+  (running) => { if (running) loginUrl.value = ""; },
+);
+
 /** 自动刷新（旧版 `.gw-ar` 三合一控件） */
 const autoSec = ref(3);
 /** gwAutoSec 的上一档值（Escape 还原用，旧版 gwAutoSec） */
@@ -1097,8 +1165,8 @@ function deletePair(id: string) {
         </div>
       </div>
 
-      <!-- 需登录态：#tsLoginRow -->
-      <div id="tsLoginRow" :hidden="true">
+      <!-- 需登录态：#tsLoginRow（拿到授权链接就显示；事件没到也能从错误文本兜底） -->
+      <div id="tsLoginRow" :hidden="!loginUrl">
         <p class="field-hint" style="margin: 8px 0 0">
           需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
           登录完成后自动继续，不用再点开关。
@@ -1108,7 +1176,9 @@ function deletePair(id: string) {
           <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">复制登录链接</button>
           <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">重新生成链接</button>
         </div>
-        <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
+        <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
+          <a :href="loginUrl" class="gw-url" :title="'用浏览器打开：' + loginUrl" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+        </p>
         <p class="field-hint" style="margin: 6px 0 0">
           ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就点<b>重新生成链接</b>或把开关<b>关开一次</b>。
           链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
@@ -1316,7 +1386,9 @@ function deletePair(id: string) {
           <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">复制登录链接</button>
           <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">重新生成链接</button>
         </div>
-        <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">{{ loginUrl }}</p>
+        <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
+          <a :href="loginUrl" class="gw-url" :title="'用浏览器打开：' + loginUrl" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+        </p>
         <p class="field-hint" style="margin: 6px 0 0">
           ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就把引擎<b>关开一次</b>重新生成。
           链接也可以复制到手机/其它设备的浏览器打开，授权完这边自动继续。
@@ -1466,8 +1538,20 @@ function deletePair(id: string) {
     @close="tsnLogOpen = false; stopLogTimer()"
   />
 
-  <p v-if="message" style="font-size: 12.5px; color: rgb(var(--ok))">{{ message }}</p>
-  <p v-if="errorText" style="font-size: 12.5px; color: rgb(var(--bad))">{{ errorText }}</p>
+  <p v-if="message" class="gw-msgline">{{ message }}</p>
+  <!-- 错误/提示行：链接单独渲染成可点，整段允许鼠标选中复制（body 默认禁选） -->
+  <p v-if="errorText" class="gw-errline">
+    <template v-for="(seg, i) in errorSegments" :key="i">
+      <a
+        v-if="seg.url"
+        :href="seg.url"
+        class="gw-url"
+        :title="'用浏览器打开：' + seg.url"
+        @click.prevent="openExternal(seg.url)"
+      >{{ seg.url }}</a>
+      <template v-else>{{ seg.text }}</template>
+    </template>
+  </p>
 </template>
 
 <!--

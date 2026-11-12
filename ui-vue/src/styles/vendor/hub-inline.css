@@ -2025,8 +2025,18 @@
     background:rgb(var(--warn) / .1); border:1px solid rgb(var(--warn) / .35); color:rgb(var(--warn));
   }
   .gw-status { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; }
-  .gw-url { color:rgb(var(--link)); text-decoration:none; word-break:break-all; }
+  .gw-url { color:rgb(var(--link)); text-decoration:none; word-break:break-all; cursor:pointer; user-select:text; }
   .gw-url:hover { text-decoration:underline; }
+  /* 网关页底部的状态/错误行。
+     body 上是 user-select:none（拖选全站文字会把布局弄花），但这两行经常带着
+     tailscale 的授权链接和原始报错，用户必须能选中复制 —— 单独放行。
+     错误行保留 pre-wrap：CLI 输出本身带换行，压成一行更难读。 */
+  .gw-msgline { margin:0; font-size:12.5px; line-height:1.6; color:rgb(var(--ok)); user-select:text; cursor:text; }
+  .gw-errline {
+    margin:0; font-size:12.5px; line-height:1.65; color:rgb(var(--bad));
+    white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; cursor:text;
+  }
+  .gw-errline .gw-url { color:rgb(var(--link)); text-decoration:underline; }
   .gw-meta { font-size:11px; color:rgb(var(--fg-faint)); }
   .gw-err {
     margin-top:10px; padding:8px 12px; border-radius:9px; font-size:12px; line-height:1.6;
