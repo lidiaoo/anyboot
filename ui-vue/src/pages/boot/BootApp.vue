@@ -243,8 +243,14 @@ onMounted(async () => {
           helperReady = false;
         }
       } else {
+        // macOS：只看「助手装没装」，**不拿 stale 当门禁** —— 每次 App 重新构建，
+        // /Library 里那份助手必然 stale（内容指纹变了），stale 的语义只是
+        // 「建议重装」，真正能不能用由协议版本决定（助手侧自己校验，
+        // 不兼容时 probe 会回明确原因）。以前在这里挡 stale，导致「只要更新过
+        // App，启动就判定免密未就绪 → 走建议窗/密码框，用户一关就不扫 GRUB」，
+        // 表现为「macOS 启动后 GRUB 没扫出来」（2026-11-12 用户实测）。
         const h = ui.state?.helper;
-        helperReady = Boolean(h?.installed && !h?.stale);
+        helperReady = Boolean(h?.installed);
       }
       if (helperReady) {
         await runStartupAdminScan(false).catch(() => {}); // 免密就绪：静默扫
