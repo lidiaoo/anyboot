@@ -38,9 +38,19 @@ interface GatewayConfig {
 
 interface TailscaleStatus {
   installed: boolean;
-  running: boolean;
+  /** running / needs_login / stopped / needs_gui / needs_reboot / needs_approval / unknown */
+  state?: string;
   ip: string;
+  /** MagicDNS 全名（已去尾点） */
+  dnsName?: string;
   version: string;
+  cliPath?: string;
+  /** tailscaled 系统服务：1=运行中 / 0=已停止 / -1=查不了（macOS 恒 -1） */
+  serviceRunning?: number;
+  /** 是否已保存 AuthKey（密钥本身不回传） */
+  authkeySet?: boolean;
+  /** windows / macos / linux */
+  platform?: string;
 }
 
 interface PairRow {
@@ -68,16 +78,98 @@ const busy = ref("");
 const manualOpen = ref(false);
 const manualPath = ref("");
 
-/** Tailscale 状态文案（旧版 tsStateText） */
-const tsStateText = computed(() => {
-  if (!tsStatus.value) return "正在检测 Tailscale…";
-  if (!tsStatus.value.installed) return "未安装 Tailscale";
-  return tsStatus.value.running ? "已连接" : "未连接";
+/**
+ * 后端 `gateway_tailscale_status` 只有 `state` + `serviceRunning`，从来没有 `running` 字段
+ * （旧版 hub.html:13402 是拿 `state === 'running' && ip` 现算的）。移植时误信了不存在的
+ * `running`，整张卡就永远停在「未连接」——主开关永远拨不上去、「服务」开关永远走 stop、
+ * 地址行永不出现、4 个自救卡片（停止/GUI/待重启/待允许）被写死隐藏。
+ */
+const tsState = computed(() => tsStatus.value?.state ?? "");
+/** 真·连上：装了 + state=running + 拿到 100.x 地址（旧版同一判据） */
+const tsRunning = computed(
+  () => Boolean(tsStatus.value?.installed) && tsState.value === "running" && Boolean(tsStatus.value?.ip),
+);
+/** 副开关「服务」的数据源：serviceRunning >= 0 才代表这个平台查得到服务 */
+const tsSvcKnown = computed(() => {
+  const n = tsStatus.value?.serviceRunning;
+  return Boolean(tsStatus.value?.installed) && typeof n === "number" && n >= 0;
 });
+const tsSvcOn = computed(() => tsSvcKnown.value && tsStatus.value?.serviceRunning === 1);
+/** 服务已确认没跑 + 状态未知 → 主开关拨上去也没意义（后端会直接失败） */
+const tsSvcDead = computed(() => tsState.value === "unknown" && tsStatus.value?.serviceRunning === 0);
+/** 这三种状态下 CLI 根本起不来，主开关必须禁用，否则点了只会报错 */
+const tsSwLocked = computed(() =>
+  ["needs_gui", "needs_reboot", "needs_approval"].includes(tsState.value),
+);
+/** 主开关忙碌：等授权期间保持「开」，别被自动刷新弹回去（旧版 tsUpIntent） */
+const tsBusy = ref(false);
+const tsUpIntent = ref(false);
+const tsSvcBusy = ref(false);
+
+/** Tailscale 状态文案（旧版 tsStateText 的 8 个分支） */
+const tsStateText = computed(() => {
+  const st = tsStatus.value;
+  if (!st) return "正在检测 Tailscale…";
+  if (!st.installed) return "未检测到 Tailscale";
+  if (tsRunning.value) return "运行中" + (st.dnsName ? " · " + st.dnsName : "");
+  switch (tsState.value) {
+    case "needs_login":
+      return "已安装 · 待登录";
+    case "stopped":
+      return "已安装 · 已停止";
+    case "needs_gui":
+      return "已安装 · Tailscale.app 未启动";
+    case "needs_reboot":
+      return "已安装 · 需要重启 Mac 才能启用";
+    case "needs_approval":
+      return "已安装 · 网络扩展待允许";
+    default:
+      return st.serviceRunning === 0 ? "已安装 · tailscaled 服务未运行" : "已安装 · 状态未知";
+  }
+});
+
+/** 未安装态说明（mac 是 .pkg 系统安装器要管理员授权，win 是 setup.exe，linux 是 tarball） */
+const tsDlHint = computed(() =>
+  tsStatus.value?.platform === "macos"
+    ? "没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。"
+      + "下载官方安装包后会自动弹出系统安装器（需要管理员授权），装好并登录，再点「重新检测」。"
+    : "没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。"
+      + "下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。",
+);
+
+/** 已保存 AuthKey 时把提示换成「留空不动 / 清空即删除」，避免用户以为要重填 */
+const tsKeyPlaceholder = computed(() =>
+  tsStatus.value?.authkeySet ? "已保存（留空不动，清空后点保存即删除）" : "留空则走浏览器登录",
+);
+const tsKeyHint = computed(() =>
+  tsStatus.value?.authkeySet
+    ? "已保存 AuthKey：连接时免浏览器登录（密钥存本机 0600 文件，不进命令行参数）。"
+    : "在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它连接时免浏览器登录。",
+);
+/** 登录卡片可见性：待登录恒显示；拿到链接后也留着（up 阻塞期间状态还没转成 needs_login） */
+const tsLoginVisible = computed(
+  () => Boolean(tsStatus.value?.installed) && (tsState.value === "needs_login" || Boolean(loginUrl.value)),
+);
 
 /** Tailscale 安装包下载进度（旧版 #tsProgressRow） */
 const tsDownloading = ref(false);
 const tsProgress = ref(0);
+
+/** 本机 HTTP 服务端口（旧版 localEndpoint.port；拿不到就按默认 12300 拼地址） */
+const httpPort = ref(12300);
+/** 局域网直连地址：只有真连上才给（旧版 tsAddr，端口弱化显示） */
+const tsAddr = computed(() => (tsRunning.value ? `http://${tsStatus.value?.ip}` : ""));
+/** 本机服务自检（旧版 tsHealth：防 12300 被保留段占用导致静默 bind 失败） */
+const tsHealthOk = ref<boolean | null>(null);
+async function tsHealth() {
+  tsHealthOk.value = null;
+  try {
+    await call<boolean>("local_service_health");
+    tsHealthOk.value = true;
+  } catch {
+    tsHealthOk.value = false;
+  }
+}
 
 /** Funnel 公网通道状态（旧版 #tsfBlock，4 种状态：off/starting/needs_authorize/ready/error） */
 interface TsfStatus {
@@ -172,8 +264,12 @@ function copyLoginUrl() {
   try { const ta=document.createElement("textarea"); ta.value=url; ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); } catch { toast.show("复制失败，请手动复制：" + url, "bad"); }
 }
 function regenLoginUrl() {
-  // 旧版：把开关关开一次重新生成登录链接（不是单独 IPC）
-  toggleTailscale();
+  // 旧版：把开关拨到「开」再走一遍 up（等同关开一次），拿新链接
+  if (tsBusy.value) {
+    toast.show("上一次开关操作还在执行，稍等一下", "bad");
+    return;
+  }
+  tsSetUp(true);
 }
 
 // 登录链接受 login.tailscale.com 白名单校验（旧版双保险）。内置引擎优先用后端
@@ -311,8 +407,21 @@ function tsDownload() {
   });
 }
 
+/** 打开官网下载页（旧版 #tsManualLink → remote_open_page，window.open 只会开新 webview） */
 function tsOpenManual() {
-  void call("gateway_tailscale_launch_gui").catch(() => {});
+  void openExternal("https://tailscale.com/download");
+}
+
+/** macOS GUI 没常驻：拉起 Tailscale.app，等 4 秒自动重探（旧版 tsGuiLaunchTimer） */
+let tsGuiTimer: number | null = null;
+function tsLaunchGui() {
+  void call("gateway_tailscale_launch_gui")
+    .then(() => {
+      toast.show("正在打开 Tailscale.app，稍后自动重新检测…");
+      if (tsGuiTimer !== null) window.clearTimeout(tsGuiTimer);
+      tsGuiTimer = window.setTimeout(() => void refreshAll(), 4000);
+    })
+    .catch((e) => toast.show(String(e || "打开失败"), "bad"));
 }
 
 function tsSaveKey() {
@@ -320,20 +429,44 @@ function tsSaveKey() {
   void run("保存密钥", () => call("gateway_tailscale_set_authkey", { key }), "密钥已保存");
 }
 
-function tailscaleService() {
-  const action = tsStatus.value?.running ? "stop" : "start";
-  void run("切换服务", () => call("gateway_tailscale_service", { action }), "已切换");
+/**
+ * 副开关：启停 tailscaled 系统服务。
+ * 判据必须是**复选框自己的状态**（旧版用 this.checked）—— 之前按 `running`（一个后端
+ * 根本不存在的字段）算 action，永远是 stop，开关点了等于反着来。
+ */
+function tailscaleService(ev: Event) {
+  const el = ev.target as HTMLInputElement;
+  const on = el.checked;
+  if (tsSvcBusy.value) {
+    el.checked = !on;
+    return;
+  }
+  tsSvcBusy.value = true;
+  void call("gateway_tailscale_service", { action: on ? "start" : "stop" })
+    .then(async () => {
+      tsSvcBusy.value = false;
+      toast.show(on ? "tailscaled 服务已启动" : "tailscaled 服务已停止");
+      await refreshAll();
+    })
+    .catch(async (e) => {
+      tsSvcBusy.value = false;
+      el.checked = !on;
+      await refreshAll();
+      toast.show("服务开关失败：" + e, "bad");
+    });
 }
 
 async function copyTsAddr() {
-  const ip = tsStatus.value?.ip;
-  if (!ip) return;
+  const addr = tsRunning.value ? `${tsAddr.value}:${httpPort.value}` : "";
+  if (!addr) {
+    toast.show("没有可复制的地址 —— 先把 Tailscale 连上", "bad");
+    return;
+  }
   try {
-    await navigator.clipboard.writeText(ip);
-    message.value = "地址已复制";
-    toast.show("地址已复制");
+    await navigator.clipboard.writeText(addr);
+    toast.show("Tailscale 直连地址已复制：" + addr);
   } catch {
-    /* 剪贴板不可用 */
+    toast.show("复制失败 —— 浏览器拒绝了剪贴板权限，请手动选中复制", "bad");
   }
 }
 
@@ -461,10 +594,9 @@ watch(errorText, (text) => {
   if (url) loginUrl.value = url;
 });
 /** 授权完成（连上了）就把旧链接收起来，避免一直挂着一张过期卡片 */
-watch(
-  () => tsStatus.value?.running,
-  (running) => { if (running) loginUrl.value = ""; },
-);
+watch(tsRunning, (running) => {
+  if (running) loginUrl.value = "";
+});
 
 /** 自动刷新（旧版 `.gw-ar` 三合一控件） */
 const autoSec = ref(3);
@@ -489,7 +621,7 @@ const cfRunning = computed(() => Boolean(config.value?.tunnel?.running));
 // 三个 tab 的状态点：真实反映各通道是否在运行（之前 tsn 分支漏接、永远 off）。
 function tabDotState(key: string): "on" | "off" {
   if (key === "cf") return cfRunning.value ? "on" : "off";
-  if (key === "ts") return tsStatus.value?.running ? "on" : "off";
+  if (key === "ts") return tsRunning.value ? "on" : "off";
   if (key === "tsn") return tsnRunning.value ? "on" : "off";
   return "off";
 }
@@ -525,6 +657,9 @@ async function refreshAll() {
   } catch {
     tsStatus.value = null;
   }
+  // 连上才做本机服务自检（旧版在每次渲染的 running 分支里调 tsHealth）
+  if (tsRunning.value) void tsHealth();
+  else tsHealthOk.value = null;
   // 内置引擎(Tailscale 内置)状态也要跟着自动刷新，否则登录后「需要登录/已启用」不会自己变
   await refreshTsn();
   await refreshFunnel();
@@ -561,6 +696,13 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
 }
 
 onMounted(async () => {
+  // 本机 HTTP 端口（Tailscale 直连地址要拼 :port；旧版取 localEndpoint.port）
+  try {
+    const ep = await call<{ port?: number }>("local_http_endpoint");
+    if (ep && typeof ep.port === "number" && ep.port > 0) httpPort.value = ep.port;
+  } catch {
+    /* 拿不到就按默认 12300 */
+  }
   // 【修复】浏览器/手机端(非 Tauri)：没有 tauri event/listen，原有的 listen 调用会抛错
   // 中断 onMounted → 后面 refreshAll 不执行 → 三个通道 dot 全灰。这里非 Tauri 直接拉数据。
   if (!isTauri()) {
@@ -698,7 +840,9 @@ function tsLogout() {
 }
 
 function tsExtensionSettings() {
-  void call("gateway_tailscale_open_extension_settings").catch(() => {});
+  void call("gateway_tailscale_open_extension_settings")
+    .then(() => toast.show("已打开系统设置 —— 打开 Tailscale 开关后回来点「重新检测」"))
+    .catch((e) => toast.show(String(e || "打开失败"), "bad"));
 }
 
 function tsFunnelToggle(on: boolean) {
@@ -739,9 +883,50 @@ function killOrphan() {
 }
 
 // ---- Tailscale ----
-function toggleTailscale() {
-  const up = !tsStatus.value?.running;
-  void run("切换 Tailscale", () => call("gateway_tailscale_toggle", { up }), "已切换");
+/**
+ * 主开关：tailscale up / down（登录级）。
+ * 旧版语义（hub.html:13529）三件不能省：
+ * 1. 用复选框自己的状态当意图，不用「当前是否 running」反推（待登录时 running 恒 false，
+ *    反推会导致「想断开却再 up 一次」）；
+ * 2. 忙碌期间保持「开」（tsUpIntent），别被 3 秒自动刷新弹回去；
+ * 3. 拨动即清掉上一轮的登录链接，等新事件（否则旧链接会一直挂着）。
+ */
+function toggleTailscale(ev: Event) {
+  const el = ev.target as HTMLInputElement;
+  const on = el.checked;
+  if (tsBusy.value) {
+    el.checked = !on;
+    return;
+  }
+  tsSetUp(on, () => {
+    el.checked = !on;
+  });
+}
+
+/** up / down 的实际执行体（主开关与「重新生成链接」共用；旧版共用同一个 change 处理器） */
+function tsSetUp(on: boolean, revert?: () => void) {
+  tsBusy.value = true;
+  tsUpIntent.value = on;
+  loginUrl.value = "";
+  if (on && tsState.value === "needs_login") toast.show("正在拉起浏览器登录 Tailscale…");
+  void call<TailscaleStatus>("gateway_tailscale_toggle", { up: on })
+    .then(async (st) => {
+      tsBusy.value = false;
+      tsUpIntent.value = false;
+      if (st && typeof st === "object") tsStatus.value = st;
+      await refreshAll();
+      toast.show(on ? "Tailscale 已连接" : "Tailscale 已断开");
+    })
+    .catch(async (e) => {
+      tsBusy.value = false;
+      tsUpIntent.value = false;
+      revert?.();
+      await refreshAll();
+      const msg = String(e);
+      // 「待授权」不是失败：后端已把链接推进卡片，别用红色报错糊用户一脸
+      if (/^待授权/.test(msg)) toast.show(msg.replace(/^待授权（需在浏览器完成登录）：/, "需在浏览器登录 Tailscale："));
+      else toast.show("Tailscale 开关失败：" + msg, "bad");
+    });
 }
 
 // ---- 配对 ----
@@ -1086,7 +1271,7 @@ function deletePair(id: string) {
     <div class="gw-card" id="tsCard">
       <div class="gw-card-head">
         <h3>Tailscale 直连</h3>
-        <span class="tsf-badge" id="tsBadge" :hidden="!tsStatus?.installed">已安装 · 局域网 100.x</span>
+        <span class="tsf-badge" id="tsBadge" :hidden="!tsRunning">已安装 · 局域网 100.x</span>
         <span style="flex: 1" />
         <span
           class="gw-sw-group"
@@ -1095,20 +1280,26 @@ function deletePair(id: string) {
           title="连接 / 断开 Tailscale（登录级，等于 tailscale up / down；待登录时点击会拉起浏览器登录）"
         >
           <span class="gw-sw-cap">连接</span>
-          <label class="switch" id="tsMainSwWrap">
-            <input type="checkbox" id="tsMainSw" :checked="tsStatus?.running" @change="toggleTailscale" />
+          <label class="switch" id="tsMainSwWrap" :class="{ loading: tsBusy }">
+            <input
+              type="checkbox"
+              id="tsMainSw"
+              :checked="tsRunning || (tsBusy && tsUpIntent)"
+              :disabled="tsBusy || tsSvcDead || tsSwLocked"
+              @change="toggleTailscale"
+            />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
         <span
           class="gw-sw-group"
           id="tsSvcSwGroup"
-          :hidden="!tsStatus?.installed"
+          :hidden="!tsSvcKnown"
           title="启动 / 停止 tailscaled 系统服务（Windows；需要管理员权限）"
         >
           <span class="gw-sw-cap">服务</span>
-          <label class="switch" id="tsSvcSwWrap">
-            <input type="checkbox" id="tsSvcSw" :checked="tsStatus?.running" @change="tailscaleService" />
+          <label class="switch" id="tsSvcSwWrap" :class="{ loading: tsSvcBusy }">
+            <input type="checkbox" id="tsSvcSw" :checked="tsSvcOn" :disabled="tsSvcBusy || tsBusy" @change="tailscaleService" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
@@ -1120,17 +1311,14 @@ function deletePair(id: string) {
       </div>
 
       <div class="gw-status" id="tsStateRow">
-        <span class="pulse" id="tsPulse" :hidden="!tsStatus?.running" />
+        <span class="pulse" id="tsPulse" :hidden="!tsRunning" />
         <span id="tsStateText">{{ tsStateText }}</span>
-        <span class="mono gw-meta" id="tsMeta">{{ tsStatus?.version || "" }}</span>
+        <span class="mono gw-meta" id="tsMeta">{{ tsStatus?.version ? "CLI " + tsStatus.version : "" }}</span>
       </div>
 
       <!-- 未安装态：#tsDlRow -->
       <div id="tsDlRow" :hidden="tsStatus?.installed">
-        <p class="field-hint" id="tsDlHint" style="margin: 8px 0 0">
-          没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。
-          下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。
-        </p>
+        <p class="field-hint" id="tsDlHint" style="margin: 8px 0 0">{{ tsDlHint }}</p>
         <div class="gw-binary">
           <span id="tsDlText">安装包未下载</span>
           <span style="flex: 1" />
@@ -1144,7 +1332,7 @@ function deletePair(id: string) {
       </div>
 
       <!-- 未连接态：#tsKeyRow（AuthKey 配置） -->
-      <div id="tsKeyRow" :hidden="!tsStatus?.installed || tsStatus?.running">
+      <div id="tsKeyRow" :hidden="!tsStatus?.installed || tsRunning">
         <div class="field" style="margin-top: 10px">
           <label for="tsKey">AuthKey（可选，推荐填）</label>
           <div style="display: flex; gap: 8px; align-items: center">
@@ -1154,19 +1342,17 @@ function deletePair(id: string) {
               type="password"
               class="mono"
               style="flex: 1"
-              placeholder="留空则走浏览器登录"
+              :placeholder="tsKeyPlaceholder"
               autocomplete="off"
             />
             <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">保存</button>
           </div>
-          <p class="field-hint" id="tsKeyHint">
-            在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它连接时免浏览器登录。
-          </p>
+          <p class="field-hint" id="tsKeyHint">{{ tsKeyHint }}</p>
         </div>
       </div>
 
       <!-- 需登录态：#tsLoginRow（拿到授权链接就显示；事件没到也能从错误文本兜底） -->
-      <div id="tsLoginRow" :hidden="!loginUrl">
+      <div id="tsLoginRow" :hidden="!tsLoginVisible">
         <p class="field-hint" style="margin: 8px 0 0">
           需要登录 Tailscale 账号 —— 点下面按钮（或直接点链接）在浏览器完成授权，一次即可，凭据会记住。
           授权完成后把开关<b>关开一次</b>就会连上（等超时的话，进程已经退了，必须重跑一次）。
@@ -1186,10 +1372,10 @@ function deletePair(id: string) {
       </div>
 
       <!-- 运行中态：#tsAddrRow -->
-      <div id="tsAddrRow" :hidden="!tsStatus?.running">
+      <div id="tsAddrRow" :hidden="!tsRunning">
         <div class="gw-status" style="margin-top: 8px">
           <span class="field-hint" style="margin: 0">局域网直连地址</span>
-          <span class="mono ts-addr" id="tsAddr">{{ tsStatus?.ip || "" }}</span>
+          <span class="mono ts-addr" id="tsAddr">{{ tsAddr }}<span class="ts-port">:{{ httpPort }}</span></span>
           <span style="flex: 1" />
           <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">复制</button>
           <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
@@ -1197,9 +1383,25 @@ function deletePair(id: string) {
         <div class="gw-status" style="margin-top: 6px">
           <span
             id="tsHealthDot"
-            style="display: inline-flex; width: 8px; height: 8px; border-radius: 50%; background: rgb(var(--fg-faint)); flex: none"
+            :style="{
+              display: 'inline-flex',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              flex: 'none',
+              background: tsHealthOk === true ? 'rgb(var(--ok))' : tsHealthOk === false ? 'rgb(var(--warn))' : 'rgb(var(--fg-faint))',
+            }"
           />
-          <span id="tsHealthText" style="font-size: 12px; color: rgb(var(--fg-dim))">正在自检本机服务…</span>
+          <span
+            id="tsHealthText"
+            :style="{ fontSize: '12px', color: tsHealthOk === false ? 'rgb(var(--warn))' : 'rgb(var(--fg-dim))' }"
+          >{{
+            tsHealthOk === true
+              ? `本机服务自检通过（127.0.0.1:${httpPort}）`
+              : tsHealthOk === false
+                ? "自检失败：本机服务未监听 —— 先确认 AnyBoot 服务在运行 / 端口未被保留段占用"
+                : `正在自检本机服务（127.0.0.1:${httpPort}）…`
+          }}</span>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
           ⚠️ 此地址仅同一 tailnet 内设备（登录同一 Tailscale 账号）可达，安全依赖配对令牌，请勿外传配对码。
@@ -1208,22 +1410,22 @@ function deletePair(id: string) {
       </div>
 
       <!-- 停止态：#tsStoppedRow -->
-      <div id="tsStoppedRow" :hidden="true">
+      <div id="tsStoppedRow" :hidden="!tsStatus?.installed || tsState !== 'stopped'">
         <p class="field-hint" style="margin: 8px 0 0">
           Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
         </p>
       </div>
 
       <!-- GUI 未启动态：#tsGuiRow -->
-      <div id="tsGuiRow" :hidden="true">
+      <div id="tsGuiRow" :hidden="!tsStatus?.installed || tsState !== 'needs_gui'">
         <p class="field-hint" style="margin: 8px 0 6px">
           Tailscale 已安装但 GUI 没有运行 —— 点下面打开 Tailscale.app（菜单栏出现图标即就绪），稍等几秒后自动重新检测。
         </p>
-        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsOpenManual">打开 Tailscale.app</button>
+        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsLaunchGui">打开 Tailscale.app</button>
       </div>
 
       <!-- 网络扩展待重启态：#tsRebootRow -->
-      <div id="tsRebootRow" :hidden="true">
+      <div id="tsRebootRow" :hidden="!tsStatus?.installed || tsState !== 'needs_reboot'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
           Tailscale 已经装好，但系统里那个旧的网络扩展还在「等待重启卸载」——
           新扩展因此无法激活，连接会一直失败。<b>重启 Mac</b> 后它会自动换成新扩展，
@@ -1233,7 +1435,7 @@ function deletePair(id: string) {
       </div>
 
       <!-- 网络扩展待授权态：#tsApprovalRow -->
-      <div id="tsApprovalRow" :hidden="true">
+      <div id="tsApprovalRow" :hidden="!tsStatus?.installed || tsState !== 'needs_approval'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
           Tailscale 已安装，但系统里的<b>网络扩展还没被允许</b> —— 批准之前它连不上网络，点连接一定失败。
           点下面打开「系统设置 → 通用 → 登录项与扩展 → 网络扩展」，把 <b>Tailscale</b> 打开
