@@ -639,10 +639,18 @@ fn sol_latest_version(mirror_prefix: Option<&str>) -> String {
 
 /// release 资产文件名：Windows 官方发 .zip，其余平台 .tar.gz（release.sh 命名）。
 fn sol_asset_name() -> String {
+    sol_asset_name_for(SOL_RELEASE_VERSION)
+}
+
+/// 按**指定版本**拼资产名。必须与 URL 里的 tag 用同一个版本 ——
+/// 以前固定用 `SOL_RELEASE_VERSION` 拼文件名、tag 却跟 `releases/latest`，
+/// 上游发新版后就成了 `/download/v0.1.1/sol-v0.1.0-linux-amd64.tar.gz`（404，
+/// 下载报 exit 22）—— 2026-11-12 用户实测。
+fn sol_asset_name_for(version: &str) -> String {
     if cfg!(target_os = "windows") {
-        format!("sol-v{SOL_RELEASE_VERSION}-{SOL_RELEASE_TARGET}.zip")
+        format!("sol-v{version}-{SOL_RELEASE_TARGET}.zip")
     } else {
-        format!("sol-v{SOL_RELEASE_VERSION}-{SOL_RELEASE_TARGET}.tar.gz")
+        format!("sol-v{version}-{SOL_RELEASE_TARGET}.tar.gz")
     }
 }
 
@@ -1594,9 +1602,10 @@ pub(crate) async fn sol_install_download(
 
     // 官方资产名带版本号（sol-v0.1.0-linux-amd64.tar.gz），Windows 是 zip：
     // 后缀由 sol_asset_name() 按平台给出，与 scripts/release.sh 的命名一致。
-    let asset = sol_asset_name();
     let version = sol_latest_version(mirror_prefix.as_deref());
-    sol_log(&app, format!("跟随 release 版本：v{version}"));
+    // 文件名必须与 tag 同版本（sol-v{tag}.tar.gz），否则 404
+    let asset = sol_asset_name_for(&version);
+    sol_log(&app, format!("跟随 release 版本：v{version}（资产 {asset}）"));
     let url = format!("{SOL_RELEASE_URL}/v{version}/{asset}");
     // 加速镜像只改「从哪里下载」，不改「下载什么」：把 github.com 的完整 URL
     // 原样拼到镜像前缀后面（ghproxy 系的约定格式）。
@@ -1778,7 +1787,7 @@ pub(crate) async fn sol_project_info(mirror: Option<String>) -> SolProjectInfo {
     let prefix_for_fallback = prefix.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let version = sol_latest_version(None);
-        let asset = sol_asset_name();
+        let asset = sol_asset_name_for(&version);
         let direct = format!("{SOL_RELEASE_URL}/v{version}/{asset}");
         let download_url = match &prefix {
             Some(prefix) => format!("{prefix}{direct}"),
@@ -1861,10 +1870,39 @@ pub(crate) fn sol_download_cancel() -> bool {
 }
 
 /// 本地安装包状态（[`sol_local_package`] 与 [`sol_delete_package`] 共用）。
+/// 在目录里找任一版本的官方包（`sol-v*<平台>.tar.gz` / `.zip`），取 mtime 最新。
+/// 版本号跟随 `releases/latest` 后会变（v0.1.0 → v0.1.1），不能只盯 pinned 文件名。
+fn find_local_archive(target_dir: &Path) -> Option<PathBuf> {
+    let suffix = if cfg!(target_os = "windows") { ".zip" } else { ".tar.gz" };
+    let platform = SOL_RELEASE_TARGET;
+    let Ok(entries) = fs::read_dir(target_dir) else {
+        let fallback = target_dir.join(sol_asset_name());
+        return fallback.is_file().then_some(fallback);
+    };
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("sol-v") || !name.ends_with(suffix) || !name.contains(platform) {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        if best.as_ref().map(|(at, _)| modified > *at).unwrap_or(true) {
+            best = Some((modified, path));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
 fn local_package_status(dir: Option<&str>) -> SolLocalPackage {
     let target_dir = resolve_sol_dir_raw(&dir.map(str::to_string));
-    let asset = sol_asset_name();
-    let archive = target_dir.join(&asset);
+    let archive = find_local_archive(&target_dir)
+        .unwrap_or_else(|| target_dir.join(sol_asset_name()));
     let exists = archive.is_file();
     let size = if exists {
         fs::metadata(&archive).map(|meta| meta.len()).unwrap_or(0)
@@ -1915,7 +1953,8 @@ pub(crate) async fn sol_delete_package(
     trace(&app, "command", &format!("sol_delete_package dir={dir:?}"));
     tauri::async_runtime::spawn_blocking(move || {
         let target_dir = resolve_sol_dir_raw(&dir);
-        let archive = target_dir.join(sol_asset_name());
+        let archive = find_local_archive(&target_dir)
+            .unwrap_or_else(|| target_dir.join(sol_asset_name()));
         match fs::remove_file(&archive) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
