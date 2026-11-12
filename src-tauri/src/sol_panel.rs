@@ -2058,7 +2058,7 @@ fn watch_download_progress(
     // 轮询循环（子进程退出检测、文件量尺寸全停）——一键下载「卡死」的根因。
     // 线程只管往共享 buffer 里塞字节，主循环照常每 500ms 醒来。
     let stderr = stderr_pipe;
-    let _reader_handle = stderr.map(|stream| {
+    let reader_handle = stderr.map(|stream| {
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stream);
             let mut collected: Vec<u8> = Vec::new();
@@ -2096,16 +2096,40 @@ fn watch_download_progress(
             if status.success() && !cancelled {
                 return DownloadOutput { ok: true, message: String::new() };
             }
-            // 取消与失败在这里分叉：前端按 cancelled 分别提示「已取消 / 下载中断」
-            return DownloadOutput {
-                ok: false,
-                message: if cancelled {
-                    "下载已取消".to_string()
-                } else {
-                    // curl 失败 → 前端体感是「下载中断」；wget 退路在 spawn 阶段已经走过
-                    format!("下载子进程退出（exit {}）", status.code().unwrap_or(-1))
-                },
+            if cancelled {
+                return DownloadOutput { ok: false, message: "下载已取消".to_string() };
+            }
+            // 失败原因要具体：curl 的 stderr（reader 线程收集的最后 8KB）里有
+            // 「curl: (22) The requested URL returned error: 404」这种原话，抽出来带上。
+            // stderr 在子进程退出时就关闭了，join 立刻返回。
+            let stderr_text = reader_handle
+                .and_then(|handle| handle.join().ok())
+                .map(|collected| String::from_utf8_lossy(&collected).to_string())
+                .unwrap_or_default();
+            let curl_line = stderr_text
+                .lines()
+                .rev()
+                .find(|line| {
+                    let line = line.trim();
+                    (line.starts_with("curl:") || line.contains("error"))
+                        && !line.trim().is_empty()
+                })
+                .map(str::trim)
+                .unwrap_or("");
+            let code = status.code().unwrap_or(-1);
+            let hint = match code {
+                22 => "HTTP 4xx/5xx（地址不存在 / 镜像上没有这个包 / 无权限）",
+                6 => "域名解析失败（断网 / DNS 污染 / 镜像地址写错）",
+                7 => "连不上（断网 / 防火墙 / 镜像站挂了）",
+                28 => "超时（网络太慢或镜像站无响应）",
+                _ => "下载子进程异常退出",
             };
+            let detail = if curl_line.is_empty() {
+                format!("退出码 {code}：{hint}")
+            } else {
+                format!("{curl_line}（退出码 {code}：{hint}）")
+            };
+            return DownloadOutput { ok: false, message: detail };
         }
         if DOWNLOAD_CANCEL.load(std::sync::atomic::Ordering::Relaxed) {
             if let Ok(mut guard) = DOWNLOAD_CHILD.lock() {
