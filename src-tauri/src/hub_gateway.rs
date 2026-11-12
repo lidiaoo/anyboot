@@ -2173,7 +2173,14 @@ pub(crate) fn gateway_set_autostart(
         "gateway_set_autostart",
         &format!("远程接入：{label} 启动自启={enabled}"),
         |settings| match key.as_str() {
-            "tunnel" => settings.gateway_autostart = enabled,
+            "tunnel" => {
+                settings.gateway_autostart = enabled;
+                // 勾自启时把空模式落成 quick：界面上「快速隧道」就是默认选中项，
+                // 但点「开启通道」不写 mode，不归一的话配置文件里会长期是空串。
+                if enabled && settings.gateway_mode.is_empty() {
+                    settings.gateway_mode = "quick".to_string();
+                }
+            }
             "tailscale" => settings.tailscale_autostart = enabled,
             _ => settings.tsnet_autostart = enabled,
         },
@@ -2181,20 +2188,44 @@ pub(crate) fn gateway_set_autostart(
     )
 }
 
+/// 自启决策：返回实际要起的模式（None = 不该起）。
+/// - 没勾自启 → None（残留通道不动，交给网关页让用户选「沿用 / 终止」）
+/// - mode 为空 → quick（界面默认「快速隧道」，且 quick 不需要任何配置）
+/// - named 但没存 Token → None（起了也会立刻失败）
+fn autostart_mode(autostart: bool, mode: &str, named_token: &str) -> Option<String> {
+    if !autostart {
+        return None;
+    }
+    let mode = if mode.trim().is_empty() { "quick" } else { mode.trim() };
+    if mode == "named" && named_token.trim().is_empty() {
+        return None;
+    }
+    Some(mode.to_string())
+}
+
 /// 启动时的通道自启：勾了「启动软件时自动开启通道」就在这里拉起。
 /// quick 也支持 —— 地址每次会变，但通道先就位，新地址在本页/出码里都是现成的；
-/// named 必须已存 Tunnel Token，quick 不需要。mode 为空（未配置过）不自启。
+/// named 必须已存 Tunnel Token，quick 不需要。
+///
+/// mode 为空按 **quick** 处理：界面上「快速隧道」是默认选中的那档，点「开启通道」
+/// 也不会写 mode（只有切模式/保存配置才写），所以空 mode + 勾了自启是最常见的
+/// 组合。以前这里对空 mode 直接 return，导致「勾了自启但通道永远不开」。
 pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
     let settings = crate::stored_settings(app);
     // 没勾自启：残留通道不动，网关页列出来让用户选「沿用 / 终止」
-    if !settings.gateway_autostart || settings.gateway_mode.is_empty() {
+    let Some(mode) = autostart_mode(
+        settings.gateway_autostart,
+        &settings.gateway_mode,
+        &settings.gateway_named_token,
+    ) else {
         return;
-    }
-    if settings.gateway_mode == "named" && settings.gateway_named_token.trim().is_empty() {
+    };
+    // cloudflared 没下载/被删：不空转一次注定失败的重启循环，留日志说明原因
+    if !binary_status(app).installed {
+        gw_log(app, "[gateway] 启动自启跳过：cloudflared 未就位");
         return;
     }
     let app = app.clone();
-    let mode = settings.gateway_mode.clone();
     let token = settings.gateway_named_token.clone();
     let url = settings.gateway_named_url.clone();
     std::thread::spawn(move || {
@@ -2215,6 +2246,24 @@ pub(crate) fn autostart_tunnel(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 回归：勾了自启 + 从没切过模式（配置里 mode 为空）必须按 quick 起。
+    /// 以前空 mode 直接 return，界面显示「快速隧道已选中」但重启后通道始终关着。
+    #[test]
+    fn autostart_mode_normalizes_empty_to_quick() {
+        assert_eq!(autostart_mode(true, "", ""), Some("quick".to_string()));
+        assert_eq!(autostart_mode(true, "   ", ""), Some("quick".to_string()));
+        assert_eq!(autostart_mode(true, "quick", ""), Some("quick".to_string()));
+        assert_eq!(
+            autostart_mode(true, "named", "tok"),
+            Some("named".to_string())
+        );
+        // named 没 Token：宁可不启，也别起一个注定失败的进程
+        assert_eq!(autostart_mode(true, "named", "  "), None);
+        // 没勾自启：任何模式都不动
+        assert_eq!(autostart_mode(false, "", ""), None);
+        assert_eq!(autostart_mode(false, "quick", ""), None);
+    }
 
     #[test]
     fn supported_platforms_have_assets_and_hashes() {

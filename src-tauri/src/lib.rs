@@ -3759,7 +3759,8 @@ pub fn run() {
             // HTTP 服务与待执行请求的调度线程（托盘已就绪，publish_ui 能刷菜单）
             apply_http_config(app.handle());
             spawn_notify_scheduler(app.handle());
-            // 远程接入网关：named 模式勾了自启就在这里拉起（quick 不自启，地址会变）
+            // 远程接入网关：勾了自启就拉起（mode 为空按快速隧道处理；
+            // named 需要已存 Token）
             hub_gateway::autostart_tunnel(app.handle());
             // 另两张通道卡的自启（各看自己的开关）：系统 Tailscale / 内置引擎
             hub_tailscale::autostart_connect(app.handle());
