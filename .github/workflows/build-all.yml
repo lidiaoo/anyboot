@@ -176,12 +176,26 @@ jobs:
         with:
           name: ui-vue-dist
           path: .
-      - name: tauri build（universal dmg）
-        run: env -u CARGO CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar npx tauri build --target universal-apple-darwin
+      # 只出 .app（不打 tauri 的 dmg）：tauri 的 bundle_dmg.sh 在 GitHub Actions 无 GUI 的
+      # macOS runner 上会因 Finder AppleScript 失败（v0.2.9 实测 desktop-macos 就卡在这）。
+      # 改为：tauri 只打包 .app → 用 hdiutil 纯命令行造 dmg（不依赖 Finder/AppleScript，CI 可靠）。
+      - name: tauri build（universal .app）
+        run: env -u CARGO CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar npx tauri build --target universal-apple-darwin --bundles app
+      - name: 打包 dmg（hdiutil，无 AppleScript）
+        run: |
+          set -e
+          APP_DIR="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          APP="$(find "$APP_DIR" -maxdepth 1 -name '*.app' | head -1)"
+          echo "app = $APP"
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p "$APP_DIR/dmg"
+          OUT="$APP_DIR/dmg/AnyBoot_${VERSION}_universal.dmg"
+          hdiutil create -volname "AnyBoot" -srcfolder "$APP" -ov -format UDZO "$OUT"
+          ls -la "$OUT"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-macos
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/macos/dmg/*.dmg
 
   android:
     runs-on: ubuntu-latest
