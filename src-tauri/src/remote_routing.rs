@@ -709,7 +709,9 @@ pub(crate) fn remote_ui_command_inner(
             crate::hub_sftp::hub_download_dir_default(app.clone())?,
         )),
         "sol_project_info" => {
-            let info = tauri::async_runtime::block_on(crate::sol_panel::sol_project_info());
+            let info = tauri::async_runtime::block_on(crate::sol_panel::sol_project_info(
+                args.get("mirror").and_then(|value| value.as_str()).map(str::to_string),
+            ));
             serde_json::to_value(info).map_err(|e| format!("序列化失败: {e}"))
         }
         "hub_list_tunnels" => serde_json::to_value(crate::hub_tunnel::hub_list_tunnels(app.clone())?)

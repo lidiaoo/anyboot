@@ -58,6 +58,19 @@ const httpEnabled = ref(false);
 const httpToken = ref("");
 const installDirPlaceholder = ref("");
 const projectVersion = ref("");
+/** 「下载」实际会请求的完整地址（含当前所选加速前缀）——页面上明示，便于排查 404 */
+const downloadUrl = ref("");
+async function refreshProject(): Promise<void> {
+  try {
+    const info =
+      (await call<{ version?: string; latest?: string; downloadUrl?: string }>(
+        "sol_project_info",
+        { mirror: mirrorArg() },
+      )) ?? {};
+    projectVersion.value = info.version || info.latest || "";
+    downloadUrl.value = info.downloadUrl || "";
+  } catch { /* 忽略 */ }
+}
 /** 旧版 sol_project_open：打开 GitHub 仓库 / Releases 页 */
 async function openProject(page: "repo" | "releases") {
   try {
@@ -228,11 +241,8 @@ onMounted(async () => {
     const dir = (await call<string>("sol_default_dir")) || "";
     if (dir && !installDir.value) installDirPlaceholder.value = dir;
   } catch { /* 忽略 */ }
-  // 旧版：sol_project_info 回填项目版本行
-  try {
-    const info = (await call<{ version?: string; latest?: string }>("sol_project_info")) ?? {};
-    projectVersion.value = info.version || info.latest || "";
-  } catch { /* 忽略 */ }
+  // 旧版：sol_project_info 回填项目版本行 + 实际下载地址
+  void refreshProject();
   // 历史日志（旧版 loadSolLogs：sol_logs 回填本会话 [sol] 段）
   try {
     const history = (await call<string[]>("sol_logs")) ?? [];
@@ -338,6 +348,7 @@ function saveMirror(): void {
     localStorage.setItem(MIRROR_KEY, mirror.value);
     localStorage.setItem(`${MIRROR_KEY}:custom`, mirrorCustom.value);
   } catch { /* 忽略 */ }
+  void refreshProject(); // 地址随镜像变
 }
 /** 后端 mirror 参数：off → 不传；预设 → 名字；自定义 → 前缀原文（http(s):// 开头） */
 function mirrorArg(): string | null {
@@ -376,6 +387,7 @@ async function download(force = false) {
   } finally {
     setTimeout(() => { downloading.value = false; }, 300);
     void refreshLocalPkg();
+    void refreshProject();
   }
 }
 
@@ -552,6 +564,9 @@ async function pickDir() {
         </button>
       </span>
 
+      <small class="sol-hint" id="sol-pkg-url" title="「下载」按钮实际请求的地址（含当前加速前缀）；可复制到浏览器/curl 排查">
+        下载地址：<code style="word-break: break-all">{{ downloadUrl || "解析中…" }}</code>
+      </small>
       <small class="sol-hint" id="sol-pkg-hint">
         从 GitHub release 下载当前平台的 sol-<span id="sol-pkg-target">…</span> 包；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。
       </small>

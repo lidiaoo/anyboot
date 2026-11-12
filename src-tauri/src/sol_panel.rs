@@ -1764,25 +1764,49 @@ pub(crate) struct SolProjectInfo {
     pub(crate) version: String,
     /// 当前平台资产名
     pub(crate) asset: String,
+    /// 「下载」按钮实际会请求的完整地址（已拼上当前所选加速前缀）——
+    /// 给用户看一眼：排查 404 / 确认镜像是否生效 / 手动 curl 用。
+    pub(crate) download_url: String,
 }
 
 /// 取 sol 项目的 GitHub 信息（纯常量，不联网）。
 #[tauri::command]
-pub(crate) async fn sol_project_info() -> SolProjectInfo {
+pub(crate) async fn sol_project_info(mirror: Option<String>) -> SolProjectInfo {
     // version 走 releases/latest 的 302（一次网络请求）——同步命令会阻塞 UI 线程
     // （blocking_guard 测试抓的），所以挪进 spawn_blocking。
-    tauri::async_runtime::spawn_blocking(|| SolProjectInfo {
-        repo: "https://github.com/lidiaoo/sol".to_string(),
-        releases: "https://github.com/lidiaoo/sol/releases".to_string(),
-        version: sol_latest_version(None),
-        asset: sol_asset_name(),
+    let prefix = sol_mirror_prefix(mirror.as_deref());
+    let prefix_for_fallback = prefix.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let version = sol_latest_version(None);
+        let asset = sol_asset_name();
+        let direct = format!("{SOL_RELEASE_URL}/v{version}/{asset}");
+        let download_url = match &prefix {
+            Some(prefix) => format!("{prefix}{direct}"),
+            None => direct,
+        };
+        SolProjectInfo {
+            repo: "https://github.com/lidiaoo/sol".to_string(),
+            releases: "https://github.com/lidiaoo/sol/releases".to_string(),
+            version,
+            asset,
+            download_url,
+        }
     })
     .await
-    .unwrap_or_else(|_| SolProjectInfo {
-        repo: "https://github.com/lidiaoo/sol".to_string(),
-        releases: "https://github.com/lidiaoo/sol/releases".to_string(),
-        version: SOL_RELEASE_VERSION.to_string(),
-        asset: sol_asset_name(),
+    .unwrap_or_else(|_| {
+        let asset = sol_asset_name();
+        let direct = format!("{SOL_RELEASE_URL}/v{SOL_RELEASE_VERSION}/{asset}");
+        let download_url = match &prefix_for_fallback {
+            Some(prefix) => format!("{prefix}{direct}"),
+            None => direct,
+        };
+        SolProjectInfo {
+            repo: "https://github.com/lidiaoo/sol".to_string(),
+            releases: "https://github.com/lidiaoo/sol/releases".to_string(),
+            version: SOL_RELEASE_VERSION.to_string(),
+            asset,
+            download_url,
+        }
     })
 }
 
