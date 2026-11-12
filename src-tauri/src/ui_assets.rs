@@ -9,7 +9,7 @@
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/_plugin-vue_export-helper-BtJJKats.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/_plugin-vue_export-helper-BtJJKats.js")),
-    ("assets/chunks/AboutPage-BA53Tblf.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-BA53Tblf.js")),
+    ("assets/chunks/AboutPage-BnYSuXsg.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-BnYSuXsg.js")),
     ("assets/chunks/app-dZujiasX.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/app-dZujiasX.js")),
     ("assets/chunks/event-DAUC2NKs.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/event-DAUC2NKs.js")),
     ("assets/chunks/http-C8xNZTh3.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/http-C8xNZTh3.js")),
@@ -25,8 +25,8 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/useEscape-Psa1VBkV.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-Psa1VBkV.js")),
     ("assets/hub-backup-dkZWtdMY.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-dkZWtdMY.js")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),
-    ("assets/hub-BXx64LeZ.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-BXx64LeZ.js")),
     ("assets/hub-CxzTdxqt.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-CxzTdxqt.css")),
+    ("assets/hub-eIl80Dk5.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-eIl80Dk5.js")),
     ("assets/hub-files-CdVd9Wh_.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-files-CdVd9Wh_.js")),
     ("assets/hub-files-LgRiBib1.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-files-LgRiBib1.css")),
     ("assets/hub-keys-BPOB-YCu.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-keys-BPOB-YCu.css")),

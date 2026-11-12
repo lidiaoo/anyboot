@@ -66,6 +66,23 @@ interface PairRow {
 
 type TabKey = "cf" | "ts" | "tsn" | "pair";
 
+/**
+ * 拆掉 HTTP 桥的 `{"Ok": …}` 包装。
+ * 网页/手机端走 `/api/ui-command`，返回 `Result<T,String>` 的命令（funnel enable/disable、
+ * toggle 等）在 JSON 里会多包一层 `{"Ok":{…}}`，Tauri IPC 则直接给内层值 —— 不统一拆掉，
+ * 网页端就把 `{Ok:{state:'ready'}}` 当成状态对象，字段全 undefined（表现为「点了没反应」）。
+ */
+function unwrapOk<T>(value: unknown): T | null {
+  if (value && typeof value === "object" && "Ok" in (value as Record<string, unknown>)) {
+    const inner = (value as { Ok: T }).Ok;
+    return (inner ?? null) as T | null;
+  }
+  if (value && typeof value === "object" && "Err" in (value as Record<string, unknown>)) {
+    return null;
+  }
+  return (value ?? null) as T | null;
+}
+
 const activeTab = ref<TabKey>("cf");
 // 旧版 ab-hub-gwtab：记住上次所在的远程接入分页
 try { activeTab.value = (localStorage.getItem("ab-hub-gwtab") || "cf") as typeof activeTab.value; } catch { /* 忽略 */ }
@@ -175,22 +192,27 @@ async function tsHealth() {
 interface TsfStatus {
   state: string;
   url?: string;
-  error?: string;
+  /** 人话说明（失败原因 / 授权提示）—— 后端字段名是 message，不是 error */
+  message?: string;
+  /** 官方授权页（needs_authorize 时的 setupUrl，白名单 tailscale.com/s/*） */
+  setupUrl?: string;
+  errorCode?: string;
 }
 const tsfStatus = ref<TsfStatus | null>(null);
+/** 开/关进行中（旧版 tsfBusy：开关转 loading、state 显示成 starting） */
+const tsfBusy = ref(false);
+/** 实际展示的状态：忙碌期一律 starting，否则取后端值 */
+const tsfState = computed(() => (tsfBusy.value ? "starting" : (tsfStatus.value?.state ?? "off")));
 const tsfStateText = computed(() => {
-  const s = tsfStatus.value?.state;
-  if (s === "starting") return "正在开启 Funnel…";
-  if (s === "needs_authorize") return "需要在 Tailscale 官方页授权";
-  if (s === "ready") return "Funnel 已开启";
-  if (s === "error") return "Funnel 出错";
+  const st = tsfStatus.value;
+  const state = tsfState.value;
+  if (state === "starting") return "正在开启 Funnel…";
+  if (state === "needs_authorize") return st?.message || "需要官方授权后才能开启";
+  if (state === "ready") return st?.url ? "Funnel 已开启" : "Funnel 已开启（未取得地址）" + (st?.message ? "：" + st.message : "");
+  if (state === "unavailable") return st?.message || "Tailscale 未就绪，装好并登录后可开启";
+  if (state === "error") return "开启失败" + (st?.message ? "：" + st.message : "");
   return "Funnel 未开启";
 });
-
-/** 打开 Funnel 官方授权页（旧版 #tsfAuthBtn） */
-function tsFunnelAuth() {
-  void call("gateway_tailscale_funnel_enable").catch((e) => toast.show("授权地址无效：" + e, "bad"));
-}
 
 /** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
 const namedToken = ref("");
@@ -845,20 +867,73 @@ function tsExtensionSettings() {
     .catch((e) => toast.show(String(e || "打开失败"), "bad"));
 }
 
-function tsFunnelToggle(on: boolean) {
-  if (on) {
-    void run("开启 Funnel", () => call("gateway_tailscale_funnel_enable"), "Funnel 已开启");
-  } else {
-    void run("关闭 Funnel", () => call("gateway_tailscale_funnel_disable"), "Funnel 已关闭");
+/**
+ * 开 / 关 Funnel。
+ * 旧版语义（hub.html:13846）三条必须保留，否则就是「点了没反应」：
+ * 1. **把返回的状态存下来**（原来 `run()` 把结果丢了，卡片永远显示未开启）；
+ * 2. 失败 / 未就绪时把开关弹回去，别留一个假的「开」；
+ * 3. needs_authorize 时点开关直接去官方授权页（不是再跑一次 enable）。
+ */
+async function tsFunnelToggle(on: boolean, ev?: Event) {
+  const el = ev?.target as HTMLInputElement | undefined;
+  const revert = () => {
+    if (el) el.checked = !on;
+  };
+  if (tsfBusy.value) {
+    revert();
+    return;
+  }
+  if (on && tsfStatus.value?.state === "needs_authorize") {
+    revert();
+    tsFunnelAuth();
+    return;
+  }
+  tsfBusy.value = true;
+  try {
+    const raw = await call<unknown>(on ? "gateway_tailscale_funnel_enable" : "gateway_tailscale_funnel_disable");
+    const st = unwrapOk<TsfStatus>(raw);
+    if (st) tsfStatus.value = st;
+    const state = tsfStatus.value?.state;
+    if (on) {
+      if (state === "ready") toast.show(tsfStatus.value?.url ? "Funnel 已开启：" + tsfStatus.value.url : "Funnel 已开启");
+      else if (state === "needs_authorize") {
+        revert();
+        toast.show(tsfStatus.value?.message || "需要先在 Tailscale 官方页授权", "bad");
+      } else {
+        revert();
+        toast.show("Funnel 开启失败：" + (tsfStatus.value?.message || "未知原因"), "bad");
+      }
+    } else if (state === "off") {
+      toast.show("Funnel 已关闭");
+    } else {
+      revert();
+      toast.show("Funnel 关闭失败：" + (tsfStatus.value?.message || "未知原因"), "bad");
+    }
+  } catch (e) {
+    revert();
+    toast.show("Funnel " + (on ? "开启" : "关闭") + "失败：" + e, "bad");
+  } finally {
+    tsfBusy.value = false;
   }
 }
 
-/** Funnel 当前状态（进入卡片时查一次） */
+/** 官方授权页（后端已白名单，前端再校验一次） */
+function tsFunnelAuth() {
+  const url = tsfStatus.value?.setupUrl ?? "";
+  if (!/^https:\/\/tailscale\.com\/s\//.test(url)) {
+    toast.show("授权地址无效 —— 先点一次开关或「重新检测」拿到最新提示", "bad");
+    return;
+  }
+  void openExternal(url);
+}
+
+/** Funnel 当前状态（每次刷新都重新取；**必须回写**，否则卡片永远显示未开启） */
 async function refreshFunnel() {
   try {
-    await call("gateway_tailscale_funnel_status");
+    const st = unwrapOk<TsfStatus>(await call("gateway_tailscale_funnel_status"));
+    if (st && typeof st === "object") tsfStatus.value = st;
   } catch {
-    /* 未安装时忽略 */
+    /* 未安装 / 旧后端：保持现状，不打扰 */
   }
 }
 
@@ -1449,28 +1524,34 @@ function deletePair(id: string) {
         <div class="tsf-sep">
           <div class="gw-card-head" style="margin: 0">
             <h3 style="font-size: 13px">Funnel 公网通道</h3>
-            <span class="tsf-badge" id="tsfBadge" :hidden="!tsfStatus?.url">公网 · 经 Tailscale 中继</span>
+            <span class="tsf-badge" id="tsfBadge" :hidden="tsfState !== 'ready'">公网 · 经 Tailscale 中继</span>
             <span style="flex: 1" />
             <span class="gw-sw-group" title="开启 / 关闭 Funnel 公网通道；需授权时点击会直接打开官方授权页">
-              <label class="switch" id="tsfSwWrap">
-                <input type="checkbox" id="tsfSw" :checked="tsfStatus?.state === 'ready'" @change="tsFunnelToggle(($event.target as HTMLInputElement).checked)" />
+              <label class="switch" id="tsfSwWrap" :class="{ loading: tsfBusy }">
+                <input
+                  type="checkbox"
+                  id="tsfSw"
+                  :checked="tsfState === 'ready'"
+                  :disabled="tsfBusy || tsfState === 'unavailable'"
+                  @change="tsFunnelToggle(($event.target as HTMLInputElement).checked, $event)"
+                />
                 <span class="trk" aria-hidden="true" />
               </label>
             </span>
           </div>
           <div class="gw-status" id="tsfStateRow" style="margin-top: 8px">
-            <span class="pulse" id="tsfPulse" :hidden="tsfStatus?.state !== 'starting'" />
+            <span class="pulse" id="tsfPulse" :hidden="tsfState !== 'starting'" />
             <span id="tsfStateText">{{ tsfStateText }}</span>
           </div>
 
           <!-- off 态说明 -->
-          <p class="field-hint" id="tsfOffRow" :hidden="tsfStatus?.state !== 'off'" style="margin: 8px 0 0">
+          <p class="field-hint" id="tsfOffRow" :hidden="tsfState !== 'off'" style="margin: 8px 0 0">
             把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）——
             手机<b>不装 Tailscale</b> 也能访问，地址固定；国内网络可能不稳，流量有带宽限制。
           </p>
 
           <!-- ready 态：公网地址行 -->
-          <div id="tsfAddrRow" :hidden="tsfStatus?.state !== 'ready'">
+          <div id="tsfAddrRow" :hidden="tsfState !== 'ready'">
             <div class="gw-status" style="margin-top: 8px">
               <span class="field-hint" style="margin: 0">公网地址</span>
               <span class="mono ts-addr" id="tsfAddr">{{ tsfStatus?.url || "" }}</span>
@@ -1484,20 +1565,20 @@ function deletePair(id: string) {
           </div>
 
           <!-- needs_authorize 态 -->
-          <div id="tsfAuthRow" :hidden="tsfStatus?.state !== 'needs_authorize'">
+          <div id="tsfAuthRow" :hidden="tsfState !== 'needs_authorize'">
             <p class="field-hint" style="margin: 8px 0 0">
               需要在 Tailscale 官方页允许 Funnel 并启用 HTTPS 证书（需 Owner / Admin 账号），一次授权长期有效。
             </p>
             <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
               <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">去官方授权页</button>
-              <button type="button" class="link-btn" id="tsfRetryBtn" @click="refreshFunnel">授权完成，重试</button>
+              <button type="button" class="link-btn" id="tsfRetryBtn" @click="tsFunnelToggle(true)">授权完成，重试</button>
             </div>
           </div>
 
           <!-- error 态 -->
-          <div id="tsfErrRow" :hidden="tsfStatus?.state !== 'error'">
-            <p class="field-hint" id="tsfErrText" style="margin: 8px 0 0">{{ tsfStatus?.error || "" }}</p>
-            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="refreshFunnel">重试</button>
+          <div id="tsfErrRow" :hidden="tsfState !== 'error'">
+            <p class="field-hint" id="tsfErrText" style="margin: 8px 0 0">{{ tsfStatus?.message || "" }}</p>
+            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="tsFunnelToggle(true)">重试</button>
           </div>
         </div>
       </div>

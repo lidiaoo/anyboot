@@ -1781,9 +1781,17 @@ pub(crate) fn funnel_probe_blocking() -> TailscaleFunnelStatus {
 pub(crate) fn funnel_enable_blocking(app: &AppHandle) -> TailscaleFunnelStatus {
     let cli = match funnel_precheck() {
         Ok(cli) => cli,
-        Err(status) => return status,
+        Err(status) => {
+            // 前置检查不过（未登录 / 已停止 / CLI 不在）也要留痕：否则点开关只有一句 toast，
+            // 日志里干干净净，分不清是后端没跑、还是前端没发请求。
+            ts_log(&format!("[Funnel] 开启前置检查未通过：{}", status.message));
+            return status;
+        }
     };
     if funnel_configured(&cli) {
+        // 已配置就直接回状态、不重复跑 CLI —— 但必须留一行日志：
+        // 「点了开关没反应 + 日志空白」正是这里静默跳过造成的。
+        ts_log("[Funnel] 检测到已配置，跳过开启");
         return funnel_probe_blocking();
     }
     let port = crate::stored_settings(app).http_port;
