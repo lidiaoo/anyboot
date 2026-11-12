@@ -2236,7 +2236,14 @@ body.dock-right #hotzone {
     gap: 8px;
   }
 
+  /* 【关键】上面给横排写的 .setting-text{flex:1 1 170px} 在列方向里
+   * flex-basis 管的是「高」：每块文字都被撑到 170px 底高，而 .setting-text
+   * 本身是 grid（align-content:normal=stretch），170px 又被摊到「标题 / 状态」
+   * 两行上 → 每行标题和状态各占半格，整页多出一大截空行
+   * （2026-11-12 用户截图：运行状态 …… 一大段空白 …… sol version…）。
+   * 竖排里文字块一律按内容高度走，不吃 flex 基准、也不许被拉伸。 */
   #sol-section .setting > .setting-text {
+    flex: 0 0 auto;
     min-width: 0;
   }
 
@@ -5513,7 +5520,8 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
     align-items: stretch;
     gap: 6px;
   }
-  .settings .setting-text { min-width: 0; }
+  /* 竖排里同一条坑：flex:1 1 170px 在列方向等于「高 170px」，必须收掉 */
+  .settings .setting-text { flex: 0 0 auto; min-width: 0; }
   .settings .setting > .remote-inline { margin-left: 0; justify-content: flex-start; }
   .settings .setting input[type="number"],
   .settings .setting input[type="text"],
