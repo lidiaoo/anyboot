@@ -623,7 +623,12 @@ fn sol_latest_version(mirror_prefix: Option<&str>) -> String {
                         .find(|line| line.trim_start().starts_with("\"tag_name\""))
                         .and_then(|line| {
                             line.split(':').nth(1).map(|value| {
-                                value.trim().trim_matches('"').trim_matches(',').trim_start_matches('v').to_string()
+                                // 从 `"tag_name": "v0.1.1",` 抠出版本号：**先两端的引号/逗号/空白一起剥干净**，
+                                // 再剥 v 前缀。之前顺序是 trim('"')→trim(',')：尾形如 `v0.1.1",` 时，
+                                // trim_matches('"') 只去首引号（尾是 ',' 不去），trim(',') 去掉逗号后留下尾部引号
+                                // → version = `0.1.1"` → 拼出 .../v0.1.1"/sol-v0.1.1"-darwin-amd64.tar.gz → 404。
+                                let cleaned = value.trim().trim_matches(|c: char| c == '"' || c == ',' || c.is_whitespace());
+                                cleaned.trim_start_matches('v').to_string()
                             })
                         })
                         .filter(|value| !value.is_empty())
@@ -1603,6 +1608,8 @@ pub(crate) async fn sol_install_download(
     // 官方资产名带版本号（sol-v0.1.0-linux-amd64.tar.gz），Windows 是 zip：
     // 后缀由 sol_asset_name() 按平台给出，与 scripts/release.sh 的命名一致。
     let version = sol_latest_version(mirror_prefix.as_deref());
+    // 防御：版本号只允许 0-9 . - 字母，去掉任何引号/斜杠/逗号等（避免拼出 404 的畸形 URL）
+    let version: String = version.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-').collect();
     // 文件名必须与 tag 同版本（sol-v{tag}.tar.gz），否则 404
     let asset = sol_asset_name_for(&version);
     sol_log(&app, format!("跟随 release 版本：v{version}（资产 {asset}）"));
