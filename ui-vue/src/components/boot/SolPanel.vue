@@ -100,6 +100,11 @@ function clearLogs() {
   logs.value = [];
 }
 const downloading = ref(false);
+/** 点过「取消下载」：后端收尾事件回来时按「已取消」提示，不显示成失败 */
+const cancelRequested = ref(false);
+/** 最近一次 done 事件的时间戳：done 之后 3 秒内的滞后进度事件直接忽略
+ *  （否则「下载完成」之后又闪回「下载中 0%」——用户实测） */
+let lastDoneAt = 0;
 /** 本地安装包现状（下载/删除/进页面后刷新；状态行的依据） */
 interface LocalPkg {
   archive?: string | null;
@@ -243,10 +248,12 @@ onMounted(async () => {
       (event) => {
         const { bytes, total, done, ok } = event.payload || {};
         if (done) {
+          lastDoneAt = Date.now();
           progress.value = ok ? 100 : progress.value;
           setTimeout(() => { downloading.value = false; }, ok ? 1500 : 200);
           return;
         }
+        if (Date.now() - lastDoneAt < 3000) return; // done 之后的滞后进度事件，忽略
         downloading.value = true;
         progress.value = total ? Math.round(((bytes ?? 0) / total) * 100) : 0;
       },
@@ -336,6 +343,7 @@ function mirrorArg(): string | null {
 }
 
 async function download(force = false) {
+  cancelRequested.value = false;
   const mirrorValue = mirrorArg();
   if (mirror.value === "custom" && !mirrorValue) {
     logs.value.push(`${nowTime()} 自定义加速前缀为空：请填一个 http(s):// 开头的前缀，或选「不走加速」`);
@@ -353,10 +361,22 @@ async function download(force = false) {
     });
     progress.value = 100;
   } catch (error) {
-    logs.value.push(`${nowTime()} 下载失败：${String(error)}`);
+    const text = String(error);
+    logs.value.push(`${nowTime()} ${cancelRequested.value ? "下载已取消" : `下载失败：${text}`}`);
   } finally {
     setTimeout(() => { downloading.value = false; }, 300);
     void refreshLocalPkg();
+  }
+}
+
+/** 「取消下载」：kill 下载子进程，半截包由后端清理 */
+async function cancelDownload(): Promise<void> {
+  if (!downloading.value) return;
+  cancelRequested.value = true;
+  try {
+    await call<boolean>("sol_download_cancel");
+  } catch (error) {
+    logs.value.push(`${nowTime()} 取消失败：${String(error)}`);
   }
 }
 
@@ -505,6 +525,7 @@ async function pickDir() {
           @change="saveMirror"
         />
         <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">下载</button>
+        <button v-if="downloading" type="button" id="sol-download-cancel" class="secondary" @click="cancelDownload">取消下载</button>
         <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" title="跳过「已有包复用」，删旧包重新下" @click="redownload">重新下载</button>
         <button
           type="button"

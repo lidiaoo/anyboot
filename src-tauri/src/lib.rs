@@ -4030,6 +4030,7 @@ pub fn run() {
             sol_panel::sol_status_privileged,
             sol_panel::sol_local_package,
             sol_panel::sol_delete_package,
+            sol_panel::sol_download_cancel,
             sol_panel::sol_project_info,
             sol_panel::sol_project_open,
             sol_panel::sol_log_client_error,

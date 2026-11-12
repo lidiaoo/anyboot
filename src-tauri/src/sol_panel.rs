@@ -525,6 +525,11 @@ const SOL_RELEASE_TARGET: &str = if cfg!(target_os = "windows") {
 /// 版本号（不带 v 前缀）：发布 sol 面板时跟着仓库 tag 更新这一行。
 const SOL_RELEASE_VERSION: &str = "0.1.0";
 
+/// 当前活跃的下载子进程（「取消下载」要从别的线程 kill 它）。
+static DOWNLOAD_CHILD: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+/// 取消标志：置位后监视线程负责杀子进程、收尾走「已取消」。
+static DOWNLOAD_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// GitHub 国内镜像加速前缀（用户可选；`{url}` 原样拼在后面）。
 /// 这些站是社区加速服务，可用性随时间变化，列表只求「有几个能用的」，
 /// 拿不准时用户可以选「自定义」自己填前缀。
@@ -1695,7 +1700,7 @@ pub(crate) async fn sol_install_download(
         sol_log(&app, "未能从 HEAD 拿到包大小，进度条按已落盘字节显示".to_string());
     }
 
-    let (child, _is_curl) = match spawn_download_child(&url, &target) {
+    let (mut child, _is_curl) = match spawn_download_child(&url, &target) {
         Ok(pair) => pair,
         Err(message) => {
             push_progress(&app, 0, None, true, false);
@@ -1703,12 +1708,18 @@ pub(crate) async fn sol_install_download(
             return Err(message);
         }
     };
+    // 注册到全局：取消命令从别的线程 kill 它；stderr 先抽出来给监视线程
+    DOWNLOAD_CANCEL.store(false, std::sync::atomic::Ordering::Relaxed);
+    let stderr_pipe = child.stderr.take();
+    if let Ok(mut guard) = DOWNLOAD_CHILD.lock() {
+        *guard = Some(child);
+    }
 
     // 轮询收集：curl 的 stderr 流（百分比）+ 落盘文件大小，推 sol-download-progress
     let app_for_watch = app.clone();
     let target_for_watch = target.clone();
     let progress_handle = std::thread::spawn(move || {
-        watch_download_progress(app_for_watch, child, _is_curl, target_for_watch, total)
+        watch_download_progress(app_for_watch, stderr_pipe, target_for_watch, total)
     });
 
     let output = progress_handle
@@ -1808,6 +1819,23 @@ pub(crate) struct SolLocalPackage {
 }
 
 /// 查询本地是否已有安装包（不下载、不提权）。
+/// 「取消下载」：置取消标志 + kill 活跃的下载子进程（监视线程收尾走「已取消」）。
+/// 没有进行中的下载返回 false（前端可据此提示）。
+#[tauri::command]
+pub(crate) fn sol_download_cancel() -> bool {
+    DOWNLOAD_CANCEL.store(true, std::sync::atomic::Ordering::Relaxed);
+    match DOWNLOAD_CHILD.lock() {
+        Ok(mut guard) => match guard.as_mut() {
+            Some(child) => {
+                let _ = child.kill();
+                true
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
 /// 本地安装包状态（[`sol_local_package`] 与 [`sol_delete_package`] 共用）。
 fn local_package_status(dir: Option<&str>) -> SolLocalPackage {
     let target_dir = resolve_sol_dir_raw(&dir.map(str::to_string));
@@ -2022,15 +2050,14 @@ fn spawn_download_child(url: &str, target: &Path) -> Result<(std::process::Child
 /// 文件大小，推 `sol-download-progress` 事件；进程退出后返回结果。
 fn watch_download_progress(
     app: AppHandle,
-    mut child: std::process::Child,
-    _is_curl: bool,
+    stderr_pipe: Option<std::process::ChildStderr>,
     target: PathBuf,
     total: Option<u64>,
 ) -> DownloadOutput {
     // stderr 读挪进独立线程：reader.read() 是阻塞读，curl 没输出时会挂死整个
     // 轮询循环（子进程退出检测、文件量尺寸全停）——一键下载「卡死」的根因。
     // 线程只管往共享 buffer 里塞字节，主循环照常每 500ms 醒来。
-    let stderr = child.stderr.take();
+    let stderr = stderr_pipe;
     let _reader_handle = stderr.map(|stream| {
         std::thread::spawn(move || {
             let mut reader = BufReader::new(stream);
@@ -2053,25 +2080,38 @@ fn watch_download_progress(
 
     let mut last_bytes: u64 = 0;
     loop {
-        // 1) 子进程还活着吗
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                push_progress(&app, last_bytes, total, true, status.success());
-                if status.success() {
-                    return DownloadOutput { ok: true, message: String::new() };
+        // 1) 子进程还活着吗（child 在全局里，「取消下载」从别的线程 kill 它）
+        let status = {
+            let mut guard = match DOWNLOAD_CHILD.lock() {
+                Ok(guard) => guard,
+                Err(_) => {
+                    return DownloadOutput { ok: false, message: "下载进程状态锁失效".to_string() }
                 }
-                // curl 失败 → 前端体感是「下载中断」；wget 退路在 spawn 阶段已经走过
-                return DownloadOutput {
-                    ok: false,
-                    message: format!(
-                        "下载子进程退出（exit {}）",
-                        status.code().unwrap_or(-1)
-                    ),
-                };
+            };
+            guard.as_mut().and_then(|child| child.try_wait().ok().flatten())
+        };
+        if let Some(status) = status {
+            let cancelled = DOWNLOAD_CANCEL.load(std::sync::atomic::Ordering::Relaxed);
+            push_progress(&app, last_bytes, total, true, status.success() && !cancelled);
+            if status.success() && !cancelled {
+                return DownloadOutput { ok: true, message: String::new() };
             }
-            Ok(None) => {}
-            Err(error) => {
-                return DownloadOutput { ok: false, message: format!("等待下载进程失败：{error}") };
+            // 取消与失败在这里分叉：前端按 cancelled 分别提示「已取消 / 下载中断」
+            return DownloadOutput {
+                ok: false,
+                message: if cancelled {
+                    "下载已取消".to_string()
+                } else {
+                    // curl 失败 → 前端体感是「下载中断」；wget 退路在 spawn 阶段已经走过
+                    format!("下载子进程退出（exit {}）", status.code().unwrap_or(-1))
+                },
+            };
+        }
+        if DOWNLOAD_CANCEL.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Ok(mut guard) = DOWNLOAD_CHILD.lock() {
+                if let Some(child) = guard.as_mut() {
+                    let _ = child.kill();
+                }
             }
         }
 

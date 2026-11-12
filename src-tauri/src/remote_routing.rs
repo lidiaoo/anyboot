@@ -1283,6 +1283,8 @@ pub(crate) fn remote_ui_command_inner(
             ))
             .map(serde_json::Value::String)
         }
+        // 取消下载：远程端同权（kill 下载子进程）
+        "sol_download_cancel" => Ok(serde_json::Value::Bool(sol_panel::sol_download_cancel())),
         // 删除本地安装包（+ md5 旁车）：远程端也要能删（与下载/解压同权）
         "sol_delete_package" => {
             let local = tauri::async_runtime::block_on(sol_panel::sol_delete_package(
