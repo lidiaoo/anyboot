@@ -157,7 +157,7 @@ const ROUTE_LABELS: Record<string, string> = {
 };
 interface ConnectLine { dataK: string; kindLabel: string; address: string; ok: boolean; ms: number; skipped: boolean;
   badge: string; reason: string; macs: string[]; isLan: boolean; url: string;
-  /** 延迟档位（决定 badge 颜色）：ok <80 / warn <300 / bad ≥300 或不通 / skip 未测出 */
+  /** 延迟档位（决定 badge 颜色）：ok <80 / warn <300 / bad ≥300（仅“通”时） / skip 未测出(含失败) */
   tone: "" | "ok" | "warn" | "bad" | "skip"; }
 const connectLines = computed<ConnectLine[]>(() => {
   // 照抄 v0.2.5：连通性行 = 每个「局域网地址」一行(直连) + 每个「配对」一行(远程通道)；
@@ -181,12 +181,14 @@ const connectLines = computed<ConnectLine[]>(() => {
     const skipped = !!st && !st.ok && /未测出|未探测/.test(st.error || "");
     // 延迟档位与「服务器」页同一套阈值（80 / 300）。以前只有 ok/bad 两态，
     // 200ms 和 20ms 一个颜色，看不出通道快慢。
-    const tone: ConnectLine["tone"] = !st ? "" : !st.ok ? (skipped ? "skip" : "bad")
+    // 失败也归「未测出」（灰）——与移动端统一；不再出现"不通"。
+    // "通"仍按延迟分档：ok <80 绿 / warn <300 黄 / bad ≥300 红。
+    const tone: ConnectLine["tone"] = !st ? "" : !st.ok ? "skip"
       : st.ms < 80 ? "ok" : st.ms < 300 ? "warn" : "bad";
     return {
       ok: !!st?.ok, ms: st?.ms ?? 0, skipped, tone,
-      badge: st?.ok ? `${st.ms} ms` : skipped ? "未测出" : (st ? "不通" : ""),
-      reason: !st || st.ok || skipped ? "" : (st.error || "不通"),
+      badge: st?.ok ? `${st.ms} ms` : (st ? "未测出" : ""),
+      reason: !st || st.ok ? "" : (st.error || "未测出"),
     };
   };
   const out: ConnectLine[] = [];
@@ -500,7 +502,7 @@ function onRowClick() {
       <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
         <div class="cq-dev-top">
           <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
-          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
+          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '未测出')))">{{ ln.badge }}</span>
           <button type="button" class="cq-remote-act" title="复制这个地址（含访问令牌）" @click.stop="copyUrl(ln.url, ln.address)">复制</button>
           <button type="button" class="cq-remote-act" title="用系统默认浏览器打开这个地址" @click.stop="openUrl(ln.url)">浏览器打开</button>
         </div>
