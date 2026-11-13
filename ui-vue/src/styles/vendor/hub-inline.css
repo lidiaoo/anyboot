@@ -929,13 +929,14 @@
   }
   /* ============ 弹窗 ============ */
   .overlay {
-    position: fixed; inset: 0; z-index: 40;
+    position: fixed; inset: 0; z-index: 70; /* 高于移动端汉堡(55)/侧栏抽屉(60)，弹窗打开时盖住 */
     background: rgba(2, 6, 23, .6);
     display: grid; place-items: center; padding: 24px;
   }
   html.light .overlay { background: rgba(15, 23, 42, .35); }
   .dialog {
-    width: 480px; max-width: 100%; max-height: calc(100vh - 48px);
+    /* width 用 100%/max-width 而非固定 480：在 .overlay(display:grid) 里固定 width 会溢出窄屏 */
+    width: 100%; max-width: 480px; max-height: calc(100vh - 48px);
     overflow-y: auto;
     /* 滚动条永远占位：内容高度一变就出现/消失滚动条，会让整块左右抖 + 输入框跳（看着像闪） */
     scrollbar-gutter: stable;
@@ -2438,6 +2439,9 @@
 .mobile-nav-mask { display: none; }
 
 @media (max-width: 720px) {
+  /* 弹窗：窄屏减小外边距，弹窗占满可用宽 */
+  .overlay { padding: 12px; }
+  .dialog { max-height: calc(100vh - 24px); }
   /* 侧栏改为固定抽屉：默认滑出屏外，展开时滑入 */
   .shell { position: relative; }
   .side,
