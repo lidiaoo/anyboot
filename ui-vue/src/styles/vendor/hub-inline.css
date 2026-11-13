@@ -2622,3 +2622,7 @@ html.theme-solarized {
   --link: #268bd2; --link-hover: #2aa198;
   color-scheme: light;
 }
+
+/* 关于页：卡片不要被 flex 压缩（原来 .about-wrap 是 flex 列容器，卡片 flex-shrink:1 会被压扁、
+   内容挤在一起且不触发滚动）。改为不收缩 → 超高时溢出 → .about-wrap 的 overflow-y:auto 出滚动条。 */
+.about-wrap > * { flex: 0 0 auto; }
