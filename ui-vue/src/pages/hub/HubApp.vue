@@ -62,8 +62,18 @@ const NAV = [
 type PageId = (typeof NAV)[number]["id"];
 
 
-// 旧版：启动固定 computers（不读 URL 参数、无持久化）
-const currentPage = ref<PageId>("computers");
+// 当前页：持久化到 localStorage（+ URL hash），刷新/重进后停在原页面，不再永远跳回电脑列表。
+const PAGE_IDS = NAV.map((n) => n.id) as readonly string[];
+function readSavedPage(): PageId {
+  try {
+    const fromHash = decodeURIComponent((location.hash || "").replace(/^#\/?/, "")).replace(/^page=/, "");
+    if (PAGE_IDS.includes(fromHash)) return fromHash as PageId;
+    const saved = localStorage.getItem("ab-hub-page") || "";
+    if (PAGE_IDS.includes(saved)) return saved as PageId;
+  } catch { /* 忽略 */ }
+  return "computers";
+}
+const currentPage = ref<PageId>(readSavedPage());
 
 const navCollapsed = ref(false);
 /** 回到主界面（系统引导主窗口）：桌面显示并聚焦主窗；网页端跳转 index.html。 */
@@ -90,6 +100,8 @@ function toggleNav() {
 /** 移动端点导航项：切页并自动收起抽屉 */
 function goto(id: PageId) {
   currentPage.value = id;
+  try { localStorage.setItem("ab-hub-page", id); } catch { /* 忽略 */ }
+  try { if (location.hash !== "#/" + id) history.replaceState(null, "", "#/" + id); } catch { /* 忽略 */ }
   if (isMobile()) navCollapsed.value = true;
 }
 // 旧版 ab-hub-side：记住侧栏收起状态（collapsed/expanded）
@@ -225,6 +237,7 @@ function onHomeMenuAction(act: string) {
   // edit/list/reloadCurrent/reloadAll：切到「电脑列表」页并由它执行真实动作（打开编辑/列表、
   // 重载当前/全部）。**不递增 addSeed**（否则误弹"添加电脑"空表单）。
   currentPage.value = "computers";
+  try { localStorage.setItem("ab-hub-page", "computers"); } catch { /* */ }
   remoteAction.value = { act, n: remoteAction.value.n + 1 };
 }
 
@@ -275,12 +288,14 @@ onMounted(async () => {
     unlisteners.push(
       await listen("hub-focus-update", () => {
         currentPage.value = "about";
+        try { localStorage.setItem("ab-hub-page", "about"); } catch { /* */ }
         void import("@/pages/hub/AboutPage.vue");
       }),
     );
     // 电脑列表「在电脑页打开」→ SPA 内切页（旧版 cqGotoPage showPage('home')，不动 URL）
     const onGotoPage = () => {
       currentPage.value = "home";
+      try { localStorage.setItem("ab-hub-page", "home"); } catch { /* */ }
     };
     window.addEventListener("cq-goto-page", onGotoPage);
     unlisteners.push(() => window.removeEventListener("cq-goto-page", onGotoPage));
