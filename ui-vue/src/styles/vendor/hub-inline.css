@@ -2525,3 +2525,27 @@
   .fb-table { table-layout: fixed; width: 100%; }
   .fb-table th, .fb-table td { padding: 8px 8px; }
 }
+
+/* ============ 移动端：电脑页(HomePage) 给 iframe 尽量全宽（减小边距） ============ */
+@media (max-width: 720px) {
+  .content .page { padding-left: 6px; padding-right: 6px; }
+  .pc-body { padding: 6px 6px 8px; }
+  .pc-frame-host { border-radius: 10px; }
+  /* 电源/刷新悬浮按钮缩小、不压内容 */
+  .pc-fab { right: 10px; bottom: 16px; }
+}
+
+/* 移动端：电脑页 电源/刷新悬浮球缩小、定位到右下角不压内容 */
+@media (max-width: 720px) {
+  .pc-body { position: relative; }
+  .pc-fab { right: 10px; bottom: 12px; gap: 6px; }
+  .pc-fab-chip { padding: 6px 10px; font-size: 12px; }
+  .pc-refresh-fab { left: 10px; bottom: 12px; width: 34px; height: 34px; }
+  .pc-fab-note { display: none; }
+}
+
+/* 移动端：电源球(.pc-fab-ball)也定位到右下角（原来无定位被 flex 挤到右上） */
+@media (max-width: 720px) {
+  .pc-fab-ball { position: absolute; right: 10px; bottom: 12px; z-index: 41; width: 40px; height: 40px; font-size: 17px; }
+  .pc-fab { bottom: 60px; } /* 展开菜单在球上方，不遮球 */
+}

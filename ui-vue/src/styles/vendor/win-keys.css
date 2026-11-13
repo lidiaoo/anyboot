@@ -132,3 +132,9 @@
     padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
     max-width:80vw; word-break:break-all;
   }
+
+/* 移动端：密钥窗按钮文字不换行（固定 height 下换行会挤/截） */
+.btn { white-space: nowrap; }
+@media (max-width: 720px) {
+  .btn { height: auto; min-height: 34px; padding: 7px 13px; }
+}
