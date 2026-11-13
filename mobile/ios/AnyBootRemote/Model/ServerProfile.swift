@@ -1181,6 +1181,45 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         return components.url
     }
 
+    /// 「在浏览器打开」的一个候选（label=通道名, url=完整带 token 地址）
+    struct OpenCandidate: Identifiable {
+        let id = UUID()
+        let label: String
+        let url: URL
+    }
+
+    /// 「在浏览器打开」全部候选，与 PC/Android 同口径：各局域网地址(直连) + 启用的远程配对。
+    /// 按 url 去重。空 = 没有可打开地址。
+    func openCandidates() -> [OpenCandidate] {
+        var out: [OpenCandidate] = []
+        var seen = Set<String>()
+        for i in 0..<addressCount {
+            if let u = url(at: i), seen.insert(u.absoluteString).inserted {
+                out.append(OpenCandidate(label: "直连", url: u))
+            }
+        }
+        for c in routeCandidates() where c.isRemote {
+            let origin = c.origin.trimmedAnyBoot
+            if origin.isEmpty { continue }
+            // origin 已含 scheme(https:// Funnel / http:// 直连)；不能用 url(for:)(它强 http)，
+            // 手动在 origin 上拼 token 造 URL。
+            let base = origin.contains("://") ? origin : "http://\(origin)"
+            var comps = URLComponents(string: base)
+            let secret = c.token.trimmedAnyBoot
+            if !secret.isEmpty {
+                var items = comps?.queryItems ?? []
+                items.append(URLQueryItem(name: "token", value: secret))
+                comps?.queryItems = items
+            }
+            guard let u = comps?.url else { continue }
+            if seen.insert(u.absoluteString).inserted {
+                let label = Self.routeLabel(c.kind)
+                out.append(OpenCandidate(label: label.isEmpty ? "远程" : label, url: u))
+            }
+        }
+        return out
+    }
+
     // MARK: 展示
 
     /// 标签上显示的服务端名

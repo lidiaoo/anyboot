@@ -168,6 +168,9 @@ class ComputerListActivity : ComponentActivity() {
     private var sheetRequest by mutableStateOf<SheetRequest?>(null)
 
     // ---- 系统信息弹层（点系统徽标 / 行菜单「系统信息」打开） ----
+    // 「在浏览器打开」多地址选择弹窗
+    private var openPickList by mutableStateOf<List<ServerProfile.OpenCandidate>>(emptyList())
+    private var openPickOpen by mutableStateOf(false)
     private var sysInfoTarget by mutableStateOf<ServerProfile?>(null)
     private var sysInfoRows by mutableStateOf<List<SysInfoRow>>(emptyList())
     private var sysInfoLoading by mutableStateOf(false)
@@ -353,6 +356,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (moreFailReloadOpen) MoreFailReloadDialog()
                 if (moreDataRefreshOpen) MoreDataRefreshDialog()
                 if (moreBootThemeOpen) MoreBootThemeDialog()
+                if (openPickOpen) OpenPickDialog()
                 sysInfoTarget?.let { target ->
                     SystemInfoDialog(
                         title = target.label(),
@@ -2221,21 +2225,57 @@ class ComputerListActivity : ComponentActivity() {
      * 浏览器侧连不上转发端点，但直连地址仍然有效。
      */
     private fun openInBrowser(profile: ServerProfile) {
-        val host = ServerProfile.normalizeHost(profile.host())
-        if (host.isEmpty()) {
-            toast("这台电脑还没有可用地址")
-            return
+        val cands = profile.openCandidates()
+        when {
+            cands.isEmpty() -> toast("这台电脑还没有可用地址")
+            cands.size == 1 -> openUrlInBrowser(cands[0].url)
+            else -> { // 多地址 → 弹列表让用户选（与 PC 一致）
+                openPickList = cands
+                openPickOpen = true
+            }
         }
-        val url = profile.urlFor(host, "")
-        if (url.isEmpty()) {
-            toast("地址还没就绪")
-            return
-        }
+    }
+
+    private fun openUrlInBrowser(url: String) {
+        if (url.isEmpty()) { toast("地址还没就绪"); return }
         try {
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
         } catch (error: Exception) {
             toast("没有能打开网页的应用")
         }
+    }
+
+    /** 「在浏览器打开」：多地址时让用户选走哪个 */
+    @Composable
+    private fun OpenPickDialog() {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { openPickOpen = false },
+            containerColor = palette.card,
+            title = { Text("选择用哪个地址打开") },
+            text = {
+                Column {
+                    Text("这台电脑有多个可用地址，选一个用系统浏览器打开：", fontSize = 13.sp, color = palette.fgDim)
+                    Spacer(Modifier.height(8.dp))
+                    openPickList.forEach { c ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                                .clickable {
+                                    openPickOpen = false
+                                    openUrlInBrowser(c.url)
+                                }
+                                .padding(vertical = 8.dp),
+                        ) {
+                            Text("${c.label}  ", fontSize = 13.sp, color = palette.fgFaint)
+                            Text(c.url, fontSize = 12.sp, color = palette.fg, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { openPickOpen = false }) { Text("取消") } },
+        )
     }
 
     // ---- 引导项按钮 --------------------------------------------------

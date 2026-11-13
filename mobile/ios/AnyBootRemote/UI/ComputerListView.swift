@@ -60,6 +60,7 @@ struct ComputerListView: View {
     @State private var silentRefreshing = false
     @State private var toasts: [ToastItem] = []
     @State private var probeTask: Task<Void, Never>?
+    @State private var openPickCandidates: [ServerProfile.OpenCandidate] = []
 
     private struct SheetRequest: Identifiable {
         let id = UUID()
@@ -88,6 +89,18 @@ struct ComputerListView: View {
         .overlay { serverListDialog }
         .overlay { failReloadDialog }
         .overlay { transportDialog }
+        .confirmationDialog("选择用哪个地址打开", isPresented: Binding(
+            get: { !openPickCandidates.isEmpty },
+            set: { if !$0 { openPickCandidates = [] } }
+        ), titleVisibility: .visible) {
+            ForEach(openPickCandidates) { c in
+                Button("\(c.label)：\(c.url.absoluteString)") {
+                    openPickCandidates = []
+                    UIApplication.shared.open(c.url)
+                }
+            }
+            Button("取消", role: .cancel) { openPickCandidates = [] }
+        }
         .sheet(item: $editorTarget) { target in
             ComputerEditorView(profile: target.profile) { result in
                 switch result {
@@ -2059,15 +2072,10 @@ struct ComputerListView: View {
     /// 浏览器打开默认走**直连**（用户 2026-10-28）：URL 用档案里的局域网地址 + 令牌，
     /// 跳板机只影响 App 内的连接通道 —— 浏览器侧连不上转发端点，但直连地址仍然有效。
     private func openInBrowser(_ profile: ServerProfile) {
-        guard let host = ServerProfile.normalizeHost(profile.host) else {
-            toast("这台电脑还没有可用地址")
-            return
-        }
-        guard let url = profile.url(for: host, transport: "") else {
-            toast("地址还没就绪")
-            return
-        }
-        UIApplication.shared.open(url)
+        let cands = profile.openCandidates()
+        if cands.isEmpty { toast("这台电脑还没有可用地址"); return }
+        if cands.count == 1 { UIApplication.shared.open(cands[0].url); return }
+        openPickCandidates = cands // 多地址 → 弹选择（confirmationDialog）
     }
 
     private func doDelete(_ id: String) {

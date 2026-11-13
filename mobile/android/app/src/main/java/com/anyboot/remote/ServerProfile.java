@@ -1013,6 +1013,42 @@ final class ServerProfile {
 
     // ------------------------------------------------------------------
     // 远程接入（公网隧道兜底）
+    /** 浏览器打开的一个候选地址（label=通道名，url=完整带 token 的 http 地址） */
+    static final class OpenCandidate {
+        final String label;
+        final String url;
+        OpenCandidate(String label, String url) { this.label = label; this.url = url; }
+    }
+
+    /**
+     * 「在浏览器打开」的全部候选（多地址时让用户选），与 PC browserCandidates 同口径：
+     * 1) 各局域网地址（直连，每个地址各自带 token）；2) 启用的远程配对（隧道/TS/Funnel…）。
+     * 按完整 url 去重。空 = 没有可打开的地址。
+     */
+    List<OpenCandidate> openCandidates() {
+        List<OpenCandidate> out = new ArrayList<>();
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (int i = 0; i < addressCount(); i++) {
+            String u = urlAt(i); // 已带 token、已编码
+            if (text(u).isEmpty() || !seen.add(u)) continue;
+            out.add(new OpenCandidate("直连", u));
+        }
+        for (RouteCandidate c : routeCandidates()) {
+            if (!c.isRemote()) continue; // 局域网已在上面按地址列出；跳板机浏览器连不上，跳过
+            String origin = text(c.origin);
+            if (origin.isEmpty()) continue;
+            // origin 已含 scheme(https:// Funnel / http:// 直连)，直接用，不要再加前缀
+            String base = origin.contains("://") ? origin : ("http://" + origin);
+            StringBuilder u = new StringBuilder(base);
+            if (!text(c.token).isEmpty()) u.append(base.contains("?") ? "&" : "?").append("token=").append(Uri.encode(text(c.token)));
+            String url = u.toString();
+            if (!seen.add(url)) continue;
+            String label = routeLabel(c.kind);
+            out.add(new OpenCandidate(text(label).isEmpty() ? "远程" : label, url));
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------
 
     /** 归一化后的远程地址（scheme://host）；没配返回空串 —— 就是生效配对的地址 */
