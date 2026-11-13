@@ -785,7 +785,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
             <span class="cq-remote-kind" :class="{ 'ok': c.ok === true, 'bad': c.ok === false }">{{ c.label }}</span>
             <span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.address }}</span>
             <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">通</span>
-            <span v-else-if="c.ok === false" style="color:rgb(var(--faint));margin-left:auto;flex:none">未测出</span>
+            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">不通</span>
           </button>
         </div>
         <div class="dialog-foot">
