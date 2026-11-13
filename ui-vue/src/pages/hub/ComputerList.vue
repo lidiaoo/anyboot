@@ -565,9 +565,6 @@ useEscape(viewOpen, () => { viewOpen.value = false });
     <div class="cq-head">
       <div class="cq-head-txt">
         <h1>电脑列表</h1>
-        <p class="cq-sub">
-          远程管理<span class="slash">-</span>电脑 · 选中一行即可发送电源指令或切换引导项
-        </p>
       </div>
       <div class="cq-stats">
         <button type="button" class="cq-stat cq-stat--all" :class="{ 'is-active': filter === 'all' }" @click="filter = 'all'">

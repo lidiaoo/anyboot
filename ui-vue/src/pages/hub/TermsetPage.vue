@@ -127,7 +127,6 @@ function pickDownDir() {
 <template>
   <div class="page-head">
     <h2>终端设置</h2>
-    <span class="sub">保存后对所有终端会话即时生效（含已开窗口）</span>
   </div>
 
   <div class="ts-wrap">

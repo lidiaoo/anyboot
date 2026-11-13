@@ -118,7 +118,6 @@ const isEmpty = () =>
 <template>
   <div class="page-head">
     <h2>会话</h2>
-    <span class="sub">本窗口打开的终端 · 运行中的隧道</span>
   </div>
 
   <div class="session-list scroll-thin" id="sessionList">

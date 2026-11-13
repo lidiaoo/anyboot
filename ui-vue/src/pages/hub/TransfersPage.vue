@@ -136,12 +136,7 @@ function pct(item: TxItem): number {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px">
-    <div>
-      <h2>传输</h2>
-      <span class="sub"
-        >「文件」窗口的 SFTP 实时队列 · 暂停后可从断点继续（应用重启也不丢），放弃会清掉半截文件</span
-      >
-    </div>
+    <h2>传输</h2>
     <span style="flex: 1" />
     <button type="button" id="txPauseAll" class="btn" @click="ctlAll('pause', (t) => t.state === 'running')">
       全部暂停

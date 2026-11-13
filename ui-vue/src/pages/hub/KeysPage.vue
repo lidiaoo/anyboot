@@ -50,37 +50,42 @@ function openKeys() {
 </script>
 
 <template>
-  <div class="act-card">
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.6"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="8" cy="15" r="4" />
-      <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
-    </svg>
-    <p class="t">密钥</p>
-    <p class="s" id="keysPageHint">{{ keysHint }}</p>
-    <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <circle cx="8" cy="15" r="4" />
-        <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
-      </svg>
-      打开密钥管理
-    </button>
+  <div class="hub-page">
+    <div class="page-head"><h2>密钥</h2></div>
+    <div class="hub-page-body">
+      <div class="act-card">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="8" cy="15" r="4" />
+          <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
+        </svg>
+        <p class="t">密钥</p>
+        <p class="s" id="keysPageHint">{{ keysHint }}</p>
+        <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="8" cy="15" r="4" />
+            <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
+          </svg>
+          打开密钥管理
+        </button>
+      </div>
+    </div>
   </div>
 </template>

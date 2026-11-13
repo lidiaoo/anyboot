@@ -221,140 +221,145 @@ function openPage(which: string) {
 </script>
 
 <template>
-  <div class="about-wrap">
-    <!-- 版本卡 -->
-    <div class="about-card about-hero">
-      <span class="about-logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2.5" y="4" width="19" height="13.5" rx="2" />
-          <path d="M8 21h8M12 17.5V21" />
-        </svg>
-      </span>
-      <h2 class="about-title">AnyBoot</h2>
-      <p class="about-ver mono" id="aboutVersion">v{{ version }} · 多系统启动管理器</p>
-      <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
-      <div class="about-hero-actions">
-        <button type="button" id="about-check-update" class="about-pill" :disabled="checking" @click="checkUpdate">
-          <span v-if="checking" class="spin" aria-hidden="true" />
-          {{ checking ? "检查中…" : "检查更新" }}<span v-if="!checking" aria-hidden="true"> ›</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- 更新卡（只在 Tauri 里出现） -->
-    <!-- ── 更新详情（旧版 #update-section，hub.html:4469）── -->
-    <div v-if="inTauri && updateOpen" id="update-section" class="about-card about-update">
-      <div class="update-head" id="update-head">
-        <div class="update-version">
-          <span class="update-k">当前版本</span>
-          <b class="update-v mono" id="update-current">{{ update?.currentVersion || version }}</b>
-        </div>
-        <div class="update-actions" id="update-actions">
-          <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
-            <span v-if="checking" class="spin" aria-hidden="true" />
-            {{ checking ? "检查中…" : "检查更新" }}
-          </button>
-          <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">重试</button>
-        </div>
-      </div>
-      <div class="update-meta" id="update-meta">{{ phaseText }}</div>
-
-      <!-- 发现新版本（旧版 #update-new） -->
-      <div v-if="hasNew" id="update-new" class="update-new">
-        <div class="update-new-head">
-          <strong id="update-new-title">发现新版本 {{ update?.latestVersion }}</strong>
-          <span class="update-k" id="update-new-date">{{ update?.publishedAt }}</span>
-        </div>
-        <pre v-if="update?.notes" id="update-notes" class="update-notes">{{ update.notes }}</pre>
-        <div v-if="update?.total" id="update-progress" class="update-progress">
-          <div class="update-track"><div id="update-fill" class="update-fill" :style="{ width: progress + '%' }" /></div>
-          <div class="update-progress-meta">
-            <span id="update-pct" class="update-pct">{{ progress }}%</span>
-            <span id="update-bytes" class="mono">{{ update?.bytes || "" }}</span>
-            <span id="update-source">{{ update?.source || "" }}</span>
+  <div class="hub-page">
+    <div class="page-head"><h2>关于</h2></div>
+    <div class="hub-page-body">
+      <div class="about-wrap">
+        <!-- 版本卡 -->
+        <div class="about-card about-hero">
+          <span class="about-logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="4" width="19" height="13.5" rx="2" />
+              <path d="M8 21h8M12 17.5V21" />
+            </svg>
+          </span>
+          <h2 class="about-title">AnyBoot</h2>
+          <p class="about-ver mono" id="aboutVersion">v{{ version }} · 多系统启动管理器</p>
+          <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
+          <div class="about-hero-actions">
+            <button type="button" id="about-check-update" class="about-pill" :disabled="checking" @click="checkUpdate">
+              <span v-if="checking" class="spin" aria-hidden="true" />
+              {{ checking ? "检查中…" : "检查更新" }}<span v-if="!checking" aria-hidden="true"> ›</span>
+            </button>
           </div>
         </div>
-        <div class="update-buttons">
-          <button
-            v-if="!downloading"
-            type="button"
-            id="update-download"
-            class="btn primary"
-            @click="startDownload"
-          >
-            下载
-          </button>
-          <button
-            v-if="update?.downloaded"
-            type="button"
-            id="update-install"
-            class="btn primary"
-            @click="installUpdate"
-          >
-            安装并重启
-          </button>
-          <button type="button" id="update-skip" class="btn" @click="skipVersion">跳过这个版本</button>
+
+        <!-- 更新卡（只在 Tauri 里出现） -->
+        <!-- ── 更新详情（旧版 #update-section，hub.html:4469）── -->
+        <div v-if="inTauri && updateOpen" id="update-section" class="about-card about-update">
+          <div class="update-head" id="update-head">
+            <div class="update-version">
+              <span class="update-k">当前版本</span>
+              <b class="update-v mono" id="update-current">{{ update?.currentVersion || version }}</b>
+            </div>
+            <div class="update-actions" id="update-actions">
+              <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
+                <span v-if="checking" class="spin" aria-hidden="true" />
+                {{ checking ? "检查中…" : "检查更新" }}
+              </button>
+              <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">重试</button>
+            </div>
+          </div>
+          <div class="update-meta" id="update-meta">{{ phaseText }}</div>
+
+          <!-- 发现新版本（旧版 #update-new） -->
+          <div v-if="hasNew" id="update-new" class="update-new">
+            <div class="update-new-head">
+              <strong id="update-new-title">发现新版本 {{ update?.latestVersion }}</strong>
+              <span class="update-k" id="update-new-date">{{ update?.publishedAt }}</span>
+            </div>
+            <pre v-if="update?.notes" id="update-notes" class="update-notes">{{ update.notes }}</pre>
+            <div v-if="update?.total" id="update-progress" class="update-progress">
+              <div class="update-track"><div id="update-fill" class="update-fill" :style="{ width: progress + '%' }" /></div>
+              <div class="update-progress-meta">
+                <span id="update-pct" class="update-pct">{{ progress }}%</span>
+                <span id="update-bytes" class="mono">{{ update?.bytes || "" }}</span>
+                <span id="update-source">{{ update?.source || "" }}</span>
+              </div>
+            </div>
+            <div class="update-buttons">
+              <button
+                v-if="!downloading"
+                type="button"
+                id="update-download"
+                class="btn primary"
+                @click="startDownload"
+              >
+                下载
+              </button>
+              <button
+                v-if="update?.downloaded"
+                type="button"
+                id="update-install"
+                class="btn primary"
+                @click="installUpdate"
+              >
+                安装并重启
+              </button>
+              <button type="button" id="update-skip" class="btn" @click="skipVersion">跳过这个版本</button>
+            </div>
+          </div>
+
+          <div v-if="updateError" id="update-error" class="update-error">{{ updateError }}</div>
+
+          <div class="update-opts" id="update-opts">
+            <label class="update-opt">
+              <input id="update-auto-check" v-model="autoCheck" type="checkbox" />
+              <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
+            </label>
+            <label class="update-opt">
+              <span class="update-k">下载源</span>
+              <select id="update-mirror" v-model="mirror">
+                <option value="auto">自动（直连 → 镜像）</option>
+                <option value="direct">只直连 GitHub</option>
+                <option value="ghfast">镜像 ghfast.top</option>
+                <option value="ghproxy">镜像 gh-proxy.com</option>
+              </select>
+            </label>
+          </div>
         </div>
-      </div>
 
-      <div v-if="updateError" id="update-error" class="update-error">{{ updateError }}</div>
+        <!-- 仓库卡 -->
+        <div class="about-card about-repo">
+          <button type="button" class="about-repo-head" id="aboutGitHub" @click="openPage('github')">
+            <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />
+            </svg>
+            <span class="about-repo-text">
+              <b>GitHub · lidiaoo/anyboot</b>
+              <i>开源项目主页</i>
+            </span>
+            <span class="about-star">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
+              </svg>
+              <b id="about-star-inline">{{ stars }}</b>
+            </span>
+            <span class="about-chev" aria-hidden="true">›</span>
+          </button>
+          <div class="about-stats">
+            <span id="about-stat-star">{{ stars }} Star</span>
+            <span id="about-stat-fork">{{ forks }}</span>
+            <span id="about-stat-issue">{{ issues }}</span>
+          </div>
+          <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
+        </div>
 
-      <div class="update-opts" id="update-opts">
-        <label class="update-opt">
-          <input id="update-auto-check" v-model="autoCheck" type="checkbox" />
-          <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
-        </label>
-        <label class="update-opt">
-          <span class="update-k">下载源</span>
-          <select id="update-mirror" v-model="mirror">
-            <option value="auto">自动（直连 → 镜像）</option>
-            <option value="direct">只直连 GitHub</option>
-            <option value="ghfast">镜像 ghfast.top</option>
-            <option value="ghproxy">镜像 gh-proxy.com</option>
-          </select>
-        </label>
+        <!-- 链接卡 -->
+        <div class="about-card about-links">
+          <template v-for="(item, i) in LINK_ITEMS" :key="item.id">
+            <div v-if="i > 0" class="about-divider" aria-hidden="true" />
+            <button type="button" class="about-link" @click="openPage(item.id)">
+              <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="item.icon" />
+              <span>{{ item.label }}</span>
+              <span v-if="item.suffix" class="about-suffix mono">{{ item.suffix }}</span>
+              <span class="about-chev" aria-hidden="true">›</span>
+            </button>
+          </template>
+        </div>
+
+        <p class="about-sign mono">Made with AnyBoot · 2026</p>
       </div>
     </div>
-
-    <!-- 仓库卡 -->
-    <div class="about-card about-repo">
-      <button type="button" class="about-repo-head" id="aboutGitHub" @click="openPage('github')">
-        <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 8l-4 4 4 4M15 8l4 4-4 4" />
-        </svg>
-        <span class="about-repo-text">
-          <b>GitHub · lidiaoo/anyboot</b>
-          <i>开源项目主页</i>
-        </span>
-        <span class="about-star">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M12 3.6l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />
-          </svg>
-          <b id="about-star-inline">{{ stars }}</b>
-        </span>
-        <span class="about-chev" aria-hidden="true">›</span>
-      </button>
-      <div class="about-stats">
-        <span id="about-stat-star">{{ stars }} Star</span>
-        <span id="about-stat-fork">{{ forks }}</span>
-        <span id="about-stat-issue">{{ issues }}</span>
-      </div>
-      <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
-    </div>
-
-    <!-- 链接卡 -->
-    <div class="about-card about-links">
-      <template v-for="(item, i) in LINK_ITEMS" :key="item.id">
-        <div v-if="i > 0" class="about-divider" aria-hidden="true" />
-        <button type="button" class="about-link" @click="openPage(item.id)">
-          <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="item.icon" />
-          <span>{{ item.label }}</span>
-          <span v-if="item.suffix" class="about-suffix mono">{{ item.suffix }}</span>
-          <span class="about-chev" aria-hidden="true">›</span>
-        </button>
-      </template>
-    </div>
-
-    <p class="about-sign mono">Made with AnyBoot · 2026</p>
   </div>
 </template>

@@ -68,44 +68,49 @@ async function openTerminal() {
 </script>
 
 <template>
-  <div class="act-card">
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.6"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="2" y="4" width="20" height="14" rx="2" />
-      <path d="M6 9l3 3-3 3" />
-    </svg>
+  <div class="hub-page">
+    <div class="page-head"><h2>终端</h2></div>
+    <div class="hub-page-body">
+      <div class="act-card">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="2" y="4" width="20" height="14" rx="2" />
+          <path d="M6 9l3 3-3 3" />
+        </svg>
 
-    <!-- 空状态：还没有任何 SSH 服务器 -->
-    <template v-if="!sshServers.length">
-      <p class="t">还没有 SSH 服务器</p>
-      <p class="s" id="termPageHint">终端需要先添加一台 SSH 服务器。到左侧「服务器」页点「添加服务器」配好地址 / 账号 / 密码或密钥后，再回来打开终端。</p>
-      <button type="button" class="btn" @click="goServers">去「服务器」页添加</button>
-    </template>
+        <!-- 空状态：还没有任何 SSH 服务器 -->
+        <template v-if="!sshServers.length">
+          <p class="t">还没有 SSH 服务器</p>
+          <p class="s" id="termPageHint">终端需要先添加一台 SSH 服务器。到左侧「服务器」页点「添加服务器」配好地址 / 账号 / 密码或密钥后，再回来打开终端。</p>
+          <button type="button" class="btn" @click="goServers">去「服务器」页添加</button>
+        </template>
 
-    <!-- 有服务器：选一台 + 打开 -->
-    <template v-else>
-      <p class="t">终端</p>
-      <select
-        class="term-server-select"
-        aria-label="选择要连接的 SSH 服务器"
-        :value="selectedId"
-        @change="selectedId = ($event.target as HTMLSelectElement).value"
-      >
-        <option v-for="s in sshServers" :key="s.id" :value="s.id">
-          {{ s.name || "(未命名)" }} · {{ store.displayAddr(s) }}
-        </option>
-      </select>
-      <p class="s" id="termPageHint">{{ hint }}</p>
-      <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
-        {{ termBtnText }}
-      </button>
-    </template>
+        <!-- 有服务器：选一台 + 打开 -->
+        <template v-else>
+          <p class="t">终端</p>
+          <select
+            class="term-server-select"
+            aria-label="选择要连接的 SSH 服务器"
+            :value="selectedId"
+            @change="selectedId = ($event.target as HTMLSelectElement).value"
+          >
+            <option v-for="s in sshServers" :key="s.id" :value="s.id">
+              {{ s.name || "(未命名)" }} · {{ store.displayAddr(s) }}
+            </option>
+          </select>
+          <p class="s" id="termPageHint">{{ hint }}</p>
+          <button type="button" id="pageTermBtn" class="btn primary" :disabled="!selectedId" @click="openTerminal">
+            {{ termBtnText }}
+          </button>
+        </template>
+      </div>
+    </div>
   </div>
 </template>

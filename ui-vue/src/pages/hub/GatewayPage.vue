@@ -1066,12 +1066,7 @@ function deletePair(id: string) {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-    <div>
-      <h2>远程接入</h2>
-      <span class="sub"
-        >把本机的 AnyBoot 挂上公网隧道或虚拟局域网 —— 配对后的手机 / 其他电脑出门也能访问这台电脑</span
-      >
-    </div>
+    <h2>远程接入</h2>
 
     <!-- 自动刷新三合一（旧版 #gwAuto） -->
     <div class="gw-ar" id="gwAuto" title="自动刷新这一页的状态（单位：秒）">

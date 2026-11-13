@@ -2626,3 +2626,11 @@ html.theme-solarized {
 /* 关于页：卡片不要被 flex 压缩（原来 .about-wrap 是 flex 列容器，卡片 flex-shrink:1 会被压扁、
    内容挤在一起且不触发滚动）。改为不收缩 → 超高时溢出 → .about-wrap 的 overflow-y:auto 出滚动条。 */
 .about-wrap > * { flex: 0 0 auto; }
+
+/* 统一各页顶部标题行字号（电脑列表 h1 与其它页 page-head h2 一致） */
+.cq-head h1, .page-head h2 { font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+
+/* 统一页外壳：每页顶部一个纯标题行 + 内容区（内容区自己滚动） */
+.hub-page { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.hub-page > .page-head { padding: 14px 4px 10px; }
+.hub-page-body { flex: 1; min-height: 0; overflow-y: auto; }
