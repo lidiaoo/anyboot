@@ -77,15 +77,25 @@ async function goMain() {
 }
 
 /** 侧栏收起/展开（旧版 ab-hub-side 持久化） */
+function isMobile() { return typeof window !== "undefined" && window.innerWidth <= 720; }
 function toggleNav() {
   navCollapsed.value = !navCollapsed.value;
-  // 内联 width 会盖过 .side.collapsed{width:60px}：收起时清内联、展开时恢复记忆宽度
-  const el = document.querySelector<HTMLElement>(".side");
-  if (el) el.style.width = navCollapsed.value ? "" : `${sideWidth.value}px`;
+  // 移动端侧栏是抽屉：宽度由 CSS 控制，不能写内联 width（会盖掉抽屉样式）
+  if (!isMobile()) {
+    const el = document.querySelector<HTMLElement>(".side");
+    if (el) el.style.width = navCollapsed.value ? "" : `${sideWidth.value}px`;
+  }
   try { localStorage.setItem("ab-hub-side", navCollapsed.value ? "collapsed" : "expanded"); } catch { /* 忽略 */ }
+}
+/** 移动端点导航项：切页并自动收起抽屉 */
+function goto(id: PageId) {
+  currentPage.value = id;
+  if (isMobile()) navCollapsed.value = true;
 }
 // 旧版 ab-hub-side：记住侧栏收起状态（collapsed/expanded）
 try { navCollapsed.value = localStorage.getItem("ab-hub-side") === "collapsed"; } catch { /* 忽略 */ }
+// 移动端首屏默认收起侧栏（抽屉关着，露出内容）——窄屏不该一进来就被侧栏盖住
+try { if (typeof window !== "undefined" && window.innerWidth <= 720) navCollapsed.value = true; } catch { /* 忽略 */ }
 
 /**
  * 亮暗主题。
@@ -343,7 +353,7 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
           :class="{ active: currentPage === item.id }"
           :title="item.label"
           :data-page="item.id"
-          @click="currentPage = item.id"
+          @click="goto(item.id)"
         >
           <svg
             viewBox="0 0 24 24"
@@ -390,6 +400,18 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
       @pointerup="endDrag"
     />
 
+    <!-- 移动端：浮动汉堡按钮（打开侧栏抽屉）+ 遮罩 -->
+    <button
+      type="button"
+      class="mobile-menu-btn"
+      aria-label="打开导航菜单"
+      @click="toggleNav"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18M3 12h18M3 18h18" />
+      </svg>
+    </button>
+    <div class="mobile-nav-mask" :class="{ 'is-open': !navCollapsed }" @click="toggleNav" />
     <div class="content">
       <!-- id 必须与旧版一致：hub-inline.css 里有 `#page-files` / `#page-gateway`
            这样的作用域选择器（如 `html.light #page-files { --fb-blue: ... }`），

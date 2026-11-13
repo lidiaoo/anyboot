@@ -650,8 +650,8 @@ function pct(task: XferTask): number {
         <tr>
           <th>名称</th>
           <th style="width: 90px">大小</th>
-          <th style="width: 120px">权限</th>
-          <th style="width: 130px">修改时间</th>
+          <th class="col-perms" style="width: 120px">权限</th>
+          <th class="col-time" style="width: 130px">修改时间</th>
           <th style="width: 64px; text-align: right">操作</th>
         </tr>
       </thead>
@@ -666,8 +666,8 @@ function pct(task: XferTask): number {
         >
           <td><span class="ico">{{ entry.is_dir ? "📁" : "📄" }}</span>{{ entry.name }}</td>
           <td class="mono">{{ entry.is_dir ? "—" : fmtSize(entry.size) }}</td>
-          <td class="mono">{{ entry.perms || "—" }}</td>
-          <td class="mono">{{ fmtTime(entry.mtime) }}</td>
+          <td class="mono col-perms">{{ entry.perms || "—" }}</td>
+          <td class="mono col-time">{{ fmtTime(entry.mtime) }}</td>
           <td style="text-align: right">
             <button type="button" class="rowdl" :title="'操作'" :aria-label="entry.name + ' 操作'" @click.stop="openRowMenu(entry, $event)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>

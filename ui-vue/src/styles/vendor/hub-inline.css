@@ -2432,3 +2432,86 @@
 }
 .btn.primary .spin { border-color: rgb(255 255 255 / .35); border-top-color:#fff; }
 @keyframes ab-spin { to { transform: rotate(360deg); } }
+
+/* ============ 移动端适配：Hub 侧栏抽屉化（≤720px） ============ */
+.mobile-menu-btn { display: none; }
+.mobile-nav-mask { display: none; }
+
+@media (max-width: 720px) {
+  /* 侧栏改为固定抽屉：默认滑出屏外，展开时滑入 */
+  .shell { position: relative; }
+  .side,
+  .side.collapsed {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    z-index: 60;
+    width: min(82vw, 300px) !important;
+    max-width: 300px;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 0 0 40px rgb(0 0 0 / .28);
+  }
+  /* 展开态（nav-collapsed 默认即“展开”语义）→ 抽屉滑入 */
+  .shell:not(.nav-collapsed) .side,
+  .shell:not(.nav-collapsed) .side.collapsed {
+    transform: translateX(0);
+  }
+  /* 收起态：侧栏内容仍按桌面展开布局（不压成 60px 图标条） */
+  .side.collapsed .side-head { flex-direction: row; gap: 10px; padding: 12px 14px; }
+  .side.collapsed .side-name { display: inline; }
+  .side-split { display: none !important; }
+
+  /* 浮动汉堡按钮：常驻内容左上 */
+  .mobile-menu-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: fixed; top: 10px; left: 10px; z-index: 55;
+    width: 40px; height: 40px; padding: 0;
+    border-radius: 10px;
+    background: rgb(var(--panel)); color: rgb(var(--fg));
+    border: 1px solid rgb(var(--line));
+    box-shadow: 0 2px 10px rgb(0 0 0 / .12);
+    cursor: pointer;
+  }
+  .mobile-menu-btn svg { width: 20px; height: 20px; }
+  /* 抽屉展开时汉堡右移出侧栏区域，避免被盖 */
+  .shell:not(.nav-collapsed) .mobile-menu-btn { left: calc(min(82vw, 300px) - 48px); }
+
+  /* 遮罩 */
+  .mobile-nav-mask.is-open {
+    display: block; position: fixed; inset: 0; z-index: 50;
+    background: rgb(0 0 0 / .38);
+  }
+
+  /* 内容区：让出顶部给汉堡按钮，避免标题被压 */
+  .content { padding-top: 52px; }
+  .content .page { padding-left: 12px; padding-right: 12px; }
+
+  /* 底部状态栏：窄屏折行，避免文字竖排 */
+  footer { flex-wrap: wrap; gap: 4px 8px; font-size: 11px; }
+  footer .sep { display: none; }
+}
+
+/* ============ 移动端：服务器页两栏改单列 ============ */
+@media (max-width: 720px) {
+  .cols { flex-direction: column; }
+  .cols > aside {
+    width: auto; min-width: 0; flex: none;
+    border-right: 0; border-bottom: 1px solid rgb(var(--line));
+    max-height: 46vh;
+  }
+  .cols > .detail, .cols > section, .cols > div:not(.aside-head) { min-width: 0; }
+  .toolbar { flex-wrap: wrap; gap: 8px; }
+  .toolbar-right { margin-left: 0; width: 100%; justify-content: space-between; }
+}
+
+/* ============ 移动端：终端设置行不把标题压成竖排 ============ */
+.ts-row > div:first-child { flex: 1 1 auto; min-width: 0; }
+.ts-row .ts-num { flex: 0 0 auto; }
+@media (max-width: 720px) {
+  .ts-wrap { max-width: none; padding: 12px; }
+  /* 带输入框/按钮的行：标题独占一行，控件放下方，避免标题被挤竖排 */
+  .ts-row:has(.ts-num) { flex-wrap: wrap; row-gap: 6px; }
+  .ts-row:has(.ts-num) > div:first-child { flex: 1 1 100%; }
+  .ts-row:has(.ts-num) .ts-num { flex: 1 1 auto; }
+}

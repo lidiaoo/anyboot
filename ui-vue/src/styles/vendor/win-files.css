@@ -255,3 +255,16 @@
     padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
     max-width:80vw; word-break:break-all;
   }
+
+/* ============ 移动端：文件独立窗适配（≤720px） ============ */
+@media (max-width: 720px) {
+  /* 表格：去掉固定最小宽，隐藏「权限/修改时间」两列（窄屏放不下 → 靠行菜单查看） */
+  table { min-width: 0 !important; }
+  table .col-perms, table .col-time { display: none; }
+  th[style], td[style] { width: auto !important; }
+  /* 路径栏允许换行，避免横向溢出 */
+  .pathbar { flex-wrap: wrap; row-gap: 6px; }
+  .crumbs { flex: 1 1 100%; order: -1; }
+  /* 顶部栏收紧 */
+  header { gap: 6px; }
+}
