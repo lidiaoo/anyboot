@@ -2549,3 +2549,11 @@
   .pc-fab-ball { position: absolute; right: 10px; bottom: 12px; z-index: 41; width: 40px; height: 40px; font-size: 17px; }
   .pc-fab { bottom: 60px; } /* 展开菜单在球上方，不遮球 */
 }
+
+/* 电脑列表卡片标题行：名称不因挤压竖排（"本机"被拆两行）。
+   让 .cq-dev-name 可换行、名称按内容不收缩；空间不足时徽章换到下一行，名称保持整行。 */
+.cq-dev-name { flex-wrap: wrap; }
+.cq-dev-name .nm { flex: none; }
+@media (max-width: 720px) {
+  .cq-dev-name { flex-wrap: wrap; row-gap: 4px; }
+}
