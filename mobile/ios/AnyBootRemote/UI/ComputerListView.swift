@@ -455,6 +455,7 @@ struct ComputerListView: View {
     private struct PairRowView: Identifiable {
         let id: String
         let channel: String
+        var kind: String = ServerProfile.routeTunnel
         let addr: String
         let url: String
         let lane: String
@@ -607,6 +608,7 @@ struct ComputerListView: View {
                 rows.append(PairRowView(
                     id: pair.id,
                     channel: ServerProfile.routeLabel(pair.routeKind),
+                    kind: pair.routeKind,
                     addr: addrText,
                     url: openUrl,
                     lane: pair.routeKind == ServerProfile.routeFunnel ? "Funnel" : "",
@@ -916,14 +918,11 @@ struct ComputerListView: View {
             // 样式 3（用户 2026-11-01）：上行「状态 + 跳板机 + 本机端点」流式排，
             // 放不下的掉到下一行；下行地址独占整行横排全宽；失败原因垫底
             FlowLayout {
+                kindBadge(ServerProfile.routeJump, "跳板机")
                 Text(stateText)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(inUse || hit?.ok == true ? ABColor.ok
                                      : ABColor.fgFaint)
-                Text("跳板机")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(ABColor.fgDim)
-                    .lineLimit(1)
                 // 本机转发端点：只在这台机上有效，浏览器开不了，所以不给「复制 / 打开」
                 if let endpoint = hit?.target, !endpoint.isEmpty, endpoint != host {
                     Text(endpoint)
@@ -961,13 +960,10 @@ struct ComputerListView: View {
         }
         return VStack(alignment: .leading, spacing: ABMetric.px(2)) {
             FlowLayout {
+                kindBadge(ServerProfile.routeLan, "直连")
                 Text(probeStateText(hit))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.bad)
-                Text("直连")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(ABColor.fgDim)
-                    .lineLimit(1)
                 if let url = row.profile.url(for: addr, transport: "") {
                     Button("复制") {
                         ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
@@ -975,7 +971,7 @@ struct ComputerListView: View {
                     .buttonStyle(.plain)
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
-                    Button("打开") {
+                    Button("浏览器打开") {
                         UIApplication.shared.open(url)
                     }
                     .buttonStyle(.plain)
@@ -1064,15 +1060,12 @@ struct ComputerListView: View {
                     // 放不下的掉到下一行；下行地址独占整行横排全宽
                     VStack(alignment: .leading, spacing: ABMetric.px(2)) {
                         FlowLayout {
+                            if !pair.channel.isEmpty {
+                                kindBadge(pair.kind, pair.channel)
+                            }
                             Text(pair.state)
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(pairStateColor(pair))
-                            if !pair.channel.isEmpty {
-                                Text(pair.channel)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundColor(ABColor.fgDim)
-                                    .lineLimit(1)
-                            }
                             if !pair.lane.isEmpty {
                                 Text(pair.lane)
                                     .font(.system(size: 10))
@@ -1090,7 +1083,7 @@ struct ComputerListView: View {
                                 .buttonStyle(.plain)
                                 .font(.system(size: 10))
                                 .foregroundColor(ABColor.fgFaint)
-                                Button("打开") {
+                                Button("浏览器打开") {
                                     if let url = URL(string: pair.url) {
                                         UIApplication.shared.open(url)
                                     } else {
@@ -1133,6 +1126,26 @@ struct ComputerListView: View {
             }
             .padding(.top, ABMetric.px(7))
         }
+    }
+
+    /// 通道名徽章：与 PC .cq-remote-kind 同款配色
+    private func kindBadge(_ kind: String, _ text: String) -> some View {
+        let (fg, bg, bd): (Color, Color, Color) = {
+            switch kind {
+            case ServerProfile.routeTunnel: return (Color(hex: 0xE0A10A), Color(hex: 0xE0A10A).opacity(0.10), Color(hex: 0xE0A10A).opacity(0.45))
+            case ServerProfile.routeTS:     return (Color(hex: 0x2B88F0), Color(hex: 0x2B88F0).opacity(0.10), Color(hex: 0x2B88F0).opacity(0.45))
+            case ServerProfile.routeFunnel: return (Color(hex: 0xA78BFA), Color(hex: 0xA78BFA).opacity(0.12), Color(hex: 0xA78BFA).opacity(0.45))
+            case ServerProfile.routeTSNet:  return (Color(hex: 0x34C3A4), Color(hex: 0x34C3A4).opacity(0.10), Color(hex: 0x34C3A4).opacity(0.45))
+            default:                        return (ABColor.fgDim, ABColor.fgFaint.opacity(0.10), ABColor.fgFaint.opacity(0.30))
+            }
+        }()
+        return Text(text)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundColor(fg)
+            .lineLimit(1)
+            .padding(.horizontal, ABMetric.px(5)).padding(.vertical, ABMetric.px(1))
+            .background(RoundedRectangle(cornerRadius: 5).fill(bg))
+            .overlay(RoundedRectangle(cornerRadius: 5).stroke(bd, lineWidth: 1))
     }
 
     private func pairStateColor(_ pair: PairRowView) -> Color {

@@ -1460,6 +1460,11 @@ class ComputerListActivity : ComponentActivity() {
                                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
+                                // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
+                                // TS Funnel / 内置 Funnel）—— 顺序对齐 PC：通道名在前、状态在后
+                                if (pair.channel.isNotEmpty()) {
+                                    KindBadge(pair.kind.ifEmpty { ServerProfile.ROUTE_TUNNEL }, pair.channel)
+                                }
                                 Text(
                                     pair.state,
                                     fontSize = 10.sp,
@@ -1473,17 +1478,6 @@ class ComputerListActivity : ComponentActivity() {
                                         else -> palette.fgFaint
                                     },
                                 )
-                                // 通道徽章：与连接优先级表同名的通道（隧道 / TS 直连 /
-                                // TS Funnel / 内置 Funnel）—— 一眼分清这条配对归属谁
-                                if (pair.channel.isNotEmpty()) {
-                                    Text(
-                                        pair.channel,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = palette.fgDim,
-                                        maxLines = 1,
-                                    )
-                                }
                                 if (pair.lane.isNotEmpty()) {
                                     Text(
                                         pair.lane,
@@ -1510,7 +1504,7 @@ class ComputerListActivity : ComponentActivity() {
                                         },
                                     )
                                     Text(
-                                        "打开",
+                                        "浏览器打开",
                                         fontSize = 10.sp,
                                         color = palette.fgFaint,
                                         modifier = Modifier.clickable {
@@ -1711,6 +1705,31 @@ class ComputerListActivity : ComponentActivity() {
      * 上行「探测短状态 + 直连 + MAC…」FlowRow 自动换行（MAC 可能多个，太宽的超出的掉到下一行）；
      * 下行地址独占整行横排全宽（超长格内横向滑动）；失败原因垫底换行铺全。
      */
+    /** 通道名徽章：与 PC 端 .cq-remote-kind 同款（同配色/圆角/边框/底色） */
+    @Composable
+    private fun KindBadge(kind: String, text: String) {
+        val palette = LocalPalette.current
+        // 与 PC hub-inline.css 的 [data-k] 配色一一对应
+        val (fg, bg, bd) = when (kind) {
+            ServerProfile.ROUTE_TUNNEL -> Triple(Color(0xFFE0A10A), Color(0x1AE0A10A), Color(0x73E0A10A))
+            ServerProfile.ROUTE_TS -> Triple(Color(0xFF2B88F0), Color(0x1A2B88F0), Color(0x732B88F0))
+            ServerProfile.ROUTE_FUNNEL -> Triple(Color(0xFFA78BFA), Color(0x1FA78BFA), Color(0x73A78BFA))
+            ServerProfile.ROUTE_TSNET -> Triple(Color(0xFF34C3A4), Color(0x1A34C3A4), Color(0x7334C3A4))
+            else -> Triple(palette.fgDim, palette.card, palette.line)
+        }
+        Text(
+            text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = fg,
+            maxLines = 1,
+            modifier = Modifier
+                .background(bg, RoundedCornerShape(5.dp))
+                .border(1.dp, bd, RoundedCornerShape(5.dp))
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+    }
+
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
     private fun DirectAddrRow(row: CqRow, index: Int) {
@@ -1729,18 +1748,13 @@ class ComputerListActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // 顺序对齐 PC：通道名 → 探测状态 → 复制 → 浏览器打开
+                KindBadge(ServerProfile.ROUTE_LAN, "直连")
                 Text(
                     probeStateText(hit),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = probeColor(palette, hit),
-                )
-                Text(
-                    "直连",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = palette.fgDim,
-                    maxLines = 1,
                 )
                 if (url.isNotEmpty()) {
                     Text(
@@ -1753,7 +1767,7 @@ class ComputerListActivity : ComponentActivity() {
                         },
                     )
                     Text(
-                        "打开",
+                        "浏览器打开",
                         fontSize = 10.sp,
                         color = palette.fgFaint,
                         modifier = Modifier.clickable {
@@ -1853,6 +1867,8 @@ class ComputerListActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // 顺序对齐 PC：通道名(跳板机) → 状态 → 端点
+                KindBadge(ServerProfile.ROUTE_JUMP, "跳板机")
                 Text(
                     stateText,
                     fontSize = 10.sp,
@@ -1861,13 +1877,6 @@ class ComputerListActivity : ComponentActivity() {
                         inUse -> rttColor(palette, msOf(stateText))
                         else -> probeColor(palette, hit)
                     },
-                )
-                Text(
-                    "跳板机",
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = palette.fgDim,
-                    maxLines = 1,
                 )
                 // 本机转发端点：只在这台手机上有效，浏览器开不了，所以不给「复制 / 打开」
                 val endpoint = ServerProfile.text(hit?.target)
@@ -3324,6 +3333,7 @@ class ComputerListActivity : ComponentActivity() {
                         id = pair.id,
                         block = RemotePair.blockLabel(pair.kind),
                         channel = ServerProfile.routeLabel(pair.routeKind()),
+                        kind = pair.routeKind(),
                         addr = origin
                             .removePrefix("https://").removePrefix("http://"),
                         url = openUrl,
@@ -4801,6 +4811,8 @@ class ComputerListActivity : ComponentActivity() {
         val block: String,
         /** 通道名（与连接优先级表同名：隧道 / TS 直连 / TS Funnel / 内置 Funnel） */
         val channel: String,
+        /** 通道类型（lan/jump/tunnel/ts/funnel/tsnet）—— 徽章配色用 */
+        val kind: String,
         val addr: String,
         /** 浏览器打开 / 复制用的完整地址（带这条配对自己的 ab_token；空 = 没法开） */
         val url: String,
