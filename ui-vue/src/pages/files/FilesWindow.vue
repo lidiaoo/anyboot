@@ -193,6 +193,13 @@ function toggleTheme() {
 }
 
 function openHub() {
+  // 统一「回 hub」：桌面走 hub_open_window 唤/建 hub 窗口；web 端无此命令，改为跳回 hub 页（带 token）。
+  if (!isTauri()) {
+    void import("@/api/http").then(({ getAuthToken }) => {
+      window.location.href = "/hub.html?token=" + encodeURIComponent(getAuthToken());
+    });
+    return;
+  }
   void call("hub_open_window", {}).catch(() => {});
 }
 
