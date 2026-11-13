@@ -185,7 +185,6 @@ final class ComputerTab: ObservableObject, Identifiable {
             addressIndex = index
             status = .loading
             // Android advanceAddress 1496
-            activeToast("这个地址不通，换一个地址重试：\(address)")
             loadCurrentAddress()
             return true
         }
@@ -205,7 +204,6 @@ final class ComputerTab: ObservableObject, Identifiable {
         started = true
         status = .loading
         // Android connectJump 1526
-        activeToast("局域网不通，改走跳板机 → \(binding.address)")
         connectThroughTunnel(binding.address)
         return true
     }
@@ -222,7 +220,6 @@ final class ComputerTab: ObservableObject, Identifiable {
         status = .loading
         effectiveAddress = ""
         // Android connectRemote 1567
-        activeToast("局域网不通，改走\(ServerProfile.routeLabel(winner.kind))…")
         let secret = winner.token.trimmingCharacters(in: .whitespaces)
         var raw = winner.origin
         if !secret.isEmpty {

@@ -1579,7 +1579,6 @@ class MainActivity : ComponentActivity() {
             chipTick++
             if (profile.id == activeId) {
                 loading = true
-                toast("这个地址不通，换一个地址重试：$address")
             }
             loadCurrentAddress(tab)
             return true
@@ -1609,7 +1608,6 @@ class MainActivity : ComponentActivity() {
         if (profile.id == activeId) {
             errorInfo = null
             loading = true
-            toast("局域网不通，改走跳板机 → " + binding[1])
         }
         connectThroughTunnel(tab, binding[1])
         return true
@@ -1650,7 +1648,6 @@ class MainActivity : ComponentActivity() {
         if (profile.id == activeId) {
             errorInfo = null
             loading = true
-            toast("局域网不通，改走" + ServerProfile.routeLabel(winner.kind) + "…")
         }
         tab.effectiveAddress = ""
         tab.view?.loadUrl(ServerProfile.withGuestTheme(this, profile.remoteUrlFor(winner.origin, transport)))
