@@ -259,9 +259,14 @@
 /* ============ 移动端：文件独立窗适配（≤720px） ============ */
 @media (max-width: 720px) {
   /* 表格：去掉固定最小宽，隐藏「权限/修改时间」两列（窄屏放不下 → 靠行菜单查看） */
-  table { min-width: 0 !important; }
+  table { min-width: 0 !important; width: 100% !important; table-layout: fixed; }
   table .col-perms, table .col-time { display: none; }
   th[style], td[style] { width: auto !important; }
+  /* 名称列自动宽并省略号，大小/操作窄固定，整体不溢出 */
+  table th:first-child, table td:first-child { width: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  table th:nth-child(2), table td:nth-child(2) { width: 72px; }
+  table th:last-child, table td:last-child { width: 48px; }
+  th, td { padding: 8px 8px; }
   /* 路径栏允许换行，避免横向溢出 */
   .pathbar { flex-wrap: wrap; row-gap: 6px; }
   .crumbs { flex: 1 1 100%; order: -1; }

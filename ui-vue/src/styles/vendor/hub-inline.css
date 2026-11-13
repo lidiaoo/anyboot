@@ -2515,3 +2515,13 @@
   .ts-row:has(.ts-num) > div:first-child { flex: 1 1 100%; }
   .ts-row:has(.ts-num) .ts-num { flex: 1 1 auto; }
 }
+
+/* ============ 移动端：Hub「文件」tab(FilesPage .fb-*) 工具栏不溢出 ============ */
+@media (max-width: 720px) {
+  .fb-topbar { flex-wrap: wrap; row-gap: 8px; padding: 10px 12px; }
+  .fb-select { max-width: 100%; flex: 1 1 100%; order: -1; }
+  .fb-pathbar { flex-wrap: wrap; row-gap: 6px; }
+  /* 文件表格：复用 fixed 布局防溢出 */
+  .fb-table { table-layout: fixed; width: 100%; }
+  .fb-table th, .fb-table td { padding: 8px 8px; }
+}
