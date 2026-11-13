@@ -533,7 +533,7 @@
   .side {
     width: 248px; flex: none;
     border-right: 1px solid rgb(var(--line));
-    background: rgb(var(--card) / .5);
+    background: rgb(var(--card)); /* 不透明（原 .5 太透，用户反馈） */
     display: flex; flex-direction: column; min-height: 0;
     transition: width .18s ease;
     overflow: hidden;
