@@ -1186,6 +1186,8 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         let id = UUID()
         let label: String
         let url: URL
+        let kind: String    // 通道类型，供 UI 查探测连通性
+        let origin: String  // 对应地址/origin（与 ProbeEngine.Hit.origin 对齐）
     }
 
     /// 「在浏览器打开」全部候选，与 PC/Android 同口径：各局域网地址(直连) + 启用的远程配对。
@@ -1195,7 +1197,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         var seen = Set<String>()
         for i in 0..<addressCount {
             if let u = url(at: i), seen.insert(u.absoluteString).inserted {
-                out.append(OpenCandidate(label: "直连", url: u))
+                out.append(OpenCandidate(label: "直连", url: u, kind: Self.routeLan, origin: hostAt(i)))
             }
         }
         for c in routeCandidates() where c.isRemote {
@@ -1214,7 +1216,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
             guard let u = comps?.url else { continue }
             if seen.insert(u.absoluteString).inserted {
                 let label = Self.routeLabel(c.kind)
-                out.append(OpenCandidate(label: label.isEmpty ? "远程" : label, url: u))
+                out.append(OpenCandidate(label: label.isEmpty ? "远程" : label, url: u, kind: c.kind, origin: origin))
             }
         }
         return out

@@ -1017,7 +1017,11 @@ final class ServerProfile {
     static final class OpenCandidate {
         final String label;
         final String url;
-        OpenCandidate(String label, String url) { this.label = label; this.url = url; }
+        final String kind;    // 通道类型（lan/tunnel/ts/funnel/tsnet…），供 UI 查探测连通性
+        final String origin;  // 该候选对应的地址/origin（与 ProbeEngine.Hit.origin 对齐）
+        OpenCandidate(String label, String url, String kind, String origin) {
+            this.label = label; this.url = url; this.kind = kind; this.origin = origin;
+        }
     }
 
     /**
@@ -1031,7 +1035,7 @@ final class ServerProfile {
         for (int i = 0; i < addressCount(); i++) {
             String u = urlAt(i); // 已带 token、已编码
             if (text(u).isEmpty() || !seen.add(u)) continue;
-            out.add(new OpenCandidate("直连", u));
+            out.add(new OpenCandidate("直连", u, "lan", hostAt(i)));
         }
         for (RouteCandidate c : routeCandidates()) {
             if (!c.isRemote()) continue; // 局域网已在上面按地址列出；跳板机浏览器连不上，跳过
@@ -1044,7 +1048,7 @@ final class ServerProfile {
             String url = u.toString();
             if (!seen.add(url)) continue;
             String label = routeLabel(c.kind);
-            out.add(new OpenCandidate(text(label).isEmpty() ? "远程" : label, url));
+            out.add(new OpenCandidate(text(label).isEmpty() ? "远程" : label, url, text(c.kind), origin));
         }
         return out;
     }

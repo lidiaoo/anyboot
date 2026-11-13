@@ -61,6 +61,7 @@ struct ComputerListView: View {
     @State private var toasts: [ToastItem] = []
     @State private var probeTask: Task<Void, Never>?
     @State private var openPickCandidates: [ServerProfile.OpenCandidate] = []
+    @State private var openPickProfileId = ""
 
     private struct SheetRequest: Identifiable {
         let id = UUID()
@@ -89,18 +90,7 @@ struct ComputerListView: View {
         .overlay { serverListDialog }
         .overlay { failReloadDialog }
         .overlay { transportDialog }
-        .confirmationDialog("选择用哪个地址打开", isPresented: Binding(
-            get: { !openPickCandidates.isEmpty },
-            set: { if !$0 { openPickCandidates = [] } }
-        ), titleVisibility: .visible) {
-            ForEach(openPickCandidates) { c in
-                Button("\(c.label)：\(c.url.absoluteString)") {
-                    openPickCandidates = []
-                    UIApplication.shared.open(c.url)
-                }
-            }
-            Button("取消", role: .cancel) { openPickCandidates = [] }
-        }
+        .overlay { openPickDialog }
         .sheet(item: $editorTarget) { target in
             ComputerEditorView(profile: target.profile) { result in
                 switch result {
@@ -2075,7 +2065,8 @@ struct ComputerListView: View {
         let cands = profile.openCandidates()
         if cands.isEmpty { toast("这台电脑还没有可用地址"); return }
         if cands.count == 1 { UIApplication.shared.open(cands[0].url); return }
-        openPickCandidates = cands // 多地址 → 弹选择（confirmationDialog）
+        openPickProfileId = profile.id
+        openPickCandidates = cands // 多地址 → 弹选择（自定义卡片，带连通性+可滚动）
     }
 
     private func doDelete(_ id: String) {
@@ -2480,6 +2471,46 @@ struct ComputerListView: View {
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
                     ABButton(title: "取消", kind: .ghost, compact: true) { transportOpen = false }
+                }
+            }
+        }
+    }
+
+    /// 「在浏览器打开」多地址选择：每条带连通性、列表可滚动（对齐 PC/Android）
+    private var openPickDialog: some View {
+        ABDialogHost(isPresented: !openPickCandidates.isEmpty,
+                     onDismiss: { openPickCandidates = [] }) {
+            ABDialogCard("选择打开使用的连接") {
+                let hits = boots[openPickProfileId]?.hits ?? []
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(openPickCandidates) { c in
+                            let hit = hits.first { h in
+                                h.kind == c.kind && (ServerProfile.normalizeHost(h.origin) == ServerProfile.normalizeHost(c.origin) || h.origin == c.origin)
+                            }
+                            Button {
+                                openPickCandidates = []
+                                UIApplication.shared.open(c.url)
+                            } label: {
+                                HStack(spacing: ABMetric.px(6)) {
+                                    Text(c.label).font(.system(size: 13)).foregroundColor(ABColor.fgFaint)
+                                    Text(c.url.absoluteString).font(.system(size: 12)).foregroundColor(ABColor.fg)
+                                        .lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 0)
+                                    Text(probeStateText(hit)).font(.system(size: 11, weight: .semibold))
+                                        .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.bad)
+                                }
+                                .padding(.vertical, ABMetric.px(8))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: ABMetric.px(320))
+                HStack(spacing: ABMetric.px(8)) {
+                    Spacer(minLength: 0)
+                    ABButton(title: "取消", kind: .ghost, compact: true) { openPickCandidates = [] }
                 }
             }
         }

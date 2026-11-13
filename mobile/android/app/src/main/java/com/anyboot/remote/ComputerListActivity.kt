@@ -171,6 +171,7 @@ class ComputerListActivity : ComponentActivity() {
     // 「在浏览器打开」多地址选择弹窗
     private var openPickList by mutableStateOf<List<ServerProfile.OpenCandidate>>(emptyList())
     private var openPickOpen by mutableStateOf(false)
+    private var openPickProfileId by mutableStateOf("")
     private var sysInfoTarget by mutableStateOf<ServerProfile?>(null)
     private var sysInfoRows by mutableStateOf<List<SysInfoRow>>(emptyList())
     private var sysInfoLoading by mutableStateOf(false)
@@ -2231,6 +2232,7 @@ class ComputerListActivity : ComponentActivity() {
             cands.size == 1 -> openUrlInBrowser(cands[0].url)
             else -> { // 多地址 → 弹列表让用户选（与 PC 一致）
                 openPickList = cands
+                openPickProfileId = profile.id
                 openPickOpen = true
             }
         }
@@ -2254,21 +2256,37 @@ class ComputerListActivity : ComponentActivity() {
             containerColor = palette.card,
             title = { Text("选择用哪个地址打开") },
             text = {
+                val hits = boots[openPickProfileId]?.hits ?: emptyList()
                 Column {
                     Text("这台电脑有多个可用地址，选一个用系统浏览器打开：", fontSize = 13.sp, color = palette.fgDim)
                     Spacer(Modifier.height(8.dp))
-                    openPickList.forEach { c ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                                .clickable {
-                                    openPickOpen = false
-                                    openUrlInBrowser(c.url)
-                                }
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text("${c.label}  ", fontSize = 13.sp, color = palette.fgFaint)
-                            Text(c.url, fontSize = 12.sp, color = palette.fg, modifier = Modifier.weight(1f))
+                    // 地址可能很多 → 可滚动（限高，鼠标滚轮/拖动都能滚）
+                    Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                        openPickList.forEach { c ->
+                            // 按 kind + origin 查探测结果，附带连通性（与卡片同口径）
+                            val hit = hits.firstOrNull {
+                                it.kind == c.kind &&
+                                    (ServerProfile.normalizeHost(it.origin) == ServerProfile.normalizeHost(c.origin) ||
+                                        it.origin == c.origin)
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable {
+                                        openPickOpen = false
+                                        openUrlInBrowser(c.url)
+                                    }
+                                    .padding(vertical = 8.dp),
+                            ) {
+                                Text("${c.label}", fontSize = 13.sp, color = palette.fgFaint)
+                                Text(c.url, fontSize = 12.sp, color = palette.fg, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                                Text(
+                                    probeStateText(hit),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = probeColor(palette, hit),
+                                )
+                            }
                         }
                     }
                 }
