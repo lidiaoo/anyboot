@@ -643,13 +643,13 @@ struct ComputerListView: View {
     }
 
     /// 一条探测结果的**短**状态文案（样式 3，用户 2026-11-01）：
-    /// 通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通）；不通 = 短词。
+    /// 通 = 延迟；被赢家抢跑 / 串行没轮到 / 失败 一律「未测出」(不再显示"不通")。
     /// 完整失败原因走 [probeReason]，垫在地址行下面。
     private func probeStateText(_ hit: ProbeEngine.Hit?) -> String {
         guard let hit else { return "未探测" }
         if hit.ok { return "通 \(hit.ms)ms" }
         if hit.error.contains("未测出") || hit.error.contains("未探测") { return "未测出" }
-        return "不通"
+        return "未测出"
     }
 
     /// 完整失败原因（样式 3：地址行下面的小字，换行铺全）；空 = 不垫
@@ -916,7 +916,7 @@ struct ComputerListView: View {
                 Text(stateText)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(inUse || hit?.ok == true ? ABColor.ok
-                                     : (hit == nil ? ABColor.fgFaint : ABColor.bad))
+                                     : ABColor.fgFaint)
                 Text("跳板机")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(ABColor.fgDim)
@@ -960,7 +960,7 @@ struct ComputerListView: View {
             FlowLayout {
                 Text(probeStateText(hit))
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(hit == nil ? ABColor.fgFaint : (hit?.ok == true ? ABColor.ok : ABColor.bad))
+                    .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.fgFaint)
                 Text("直连")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(ABColor.fgDim)
@@ -1136,7 +1136,7 @@ struct ComputerListView: View {
         if !pair.enabled { return ABColor.fgFaint }
         if pair.state.hasPrefix("使用中") { return ABColor.accent }
         if pair.ok { return ABColor.ok }
-        if pair.state == "不通" { return ABColor.bad }
+        if pair.state == "未测出" { return ABColor.fgFaint }
         return ABColor.fgFaint
     }
 

@@ -1464,7 +1464,7 @@ class ComputerListActivity : ComponentActivity() {
                                         // 「使用中」也按延迟分档：颜色表达快慢，身份由文案说
                                         pair.state.startsWith("使用中") -> rttColor(palette, msOf(pair.state))
                                         pair.ok -> rttColor(palette, msOf(pair.state))
-                                        pair.state == "不通" -> palette.bad
+                                        pair.state == "未测出" -> palette.bad
                                         else -> palette.fgFaint
                                     },
                                 )
@@ -4883,14 +4883,14 @@ class ComputerListActivity : ComponentActivity() {
 
     /**
      * 一条探测结果的**短**状态文案（样式 3，用户 2026-11-01）：
-     * 通 = 延迟；被赢家抢跑 / 串行没轮到 = 未测出（不是不通）；不通 = 短词。
+     * 通 = 延迟；被赢家抢跑 / 串行没轮到 / 失败 一律「未测出」(不再显示"不通")。
      * 完整失败原因走 [probeReason]，垫在地址行下面。
      */
     private fun probeStateText(hit: ProbeEngine.Hit?): String = when {
         hit == null -> "未探测"
         hit.ok -> "通 " + hit.ms + "ms"
         hit.error.contains("未测出") || hit.error.contains("未探测") -> "未测出"
-        else -> "不通"
+        else -> "未测出"
     }
 
     /** 从「通 12ms / 使用中 12ms」这类文案里摘延迟；摘不到返回 -1。 */
@@ -4908,10 +4908,10 @@ class ComputerListActivity : ComponentActivity() {
         else -> palette.bad
     }
 
-    /** 探测结果文字的颜色：没结果灰、未测出灰、不通红、通 → 按延迟分档。 */
+    /** 探测结果文字的颜色：没结果灰、未测出(含失败)灰、通 → 按延迟分档。 */
     private fun probeColor(palette: Palette, hit: ProbeEngine.Hit?): Color = when {
         hit == null -> palette.fgFaint
-        !hit.ok -> if (hit.error.contains("未测出") || hit.error.contains("未探测")) palette.fgFaint else palette.bad
+        !hit.ok -> palette.fgFaint  // 失败也归「未测出」：统一灰，不再用红
         else -> rttColor(palette, hit.ms)
     }
 
