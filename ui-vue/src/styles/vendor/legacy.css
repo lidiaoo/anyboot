@@ -5562,3 +5562,38 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 /* rEFInd 通道 chip 横滑容器：隐藏滚动条（同 .tabs，避免预演/电脑页露出灰条） */
 .la-index { scrollbar-width: none; }
 .la-index::-webkit-scrollbar { display: none; }
+
+/* ============ 额外配色（与 hub-inline 的 html.theme-* 对应，供 hub 页里的 legacy 部分 + boot 应用跟随）============ */
+[data-theme="nord"] {
+  color-scheme: dark;
+  --bg-rgb: 46, 52, 64; --panel: #3b4252; --border: #4c566a; --border-strong: #5e6980;
+  --text: #eceff4; --text-dim: #d8dee9; --text-faint: #a9b4c6; --text-fainter: #8f9cb3;
+  --input-bg: #434c5e; --btn-secondary: #4c566a; --btn-secondary-hover: #5e6980; --btn-secondary-text: #eceff4;
+  --ok: #a3be8c; --ok-border: #8faf7a; --ok-bg: #34424a; --warn: #ebcb8b;
+  --link: #88c0d0; --link-hover: #8fbcbb;
+  --port-border: #5e6980; --port-bg: #3b4252; --port-strong: #88c0d0; --port-text: #d8dee9;
+  --pending-border: #5e6980; --pending-bg: #3b4252; --pending-text: #ebcb8b;
+  --danger: #bf616a; --danger-text: #fff; --text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+[data-theme="dracula"] {
+  color-scheme: dark;
+  --bg-rgb: 40, 42, 54; --panel: #323444; --border: #44475a; --border-strong: #6272a4;
+  --text: #f8f8f2; --text-dim: #c8cad6; --text-faint: #82859c; --text-fainter: #6272a4;
+  --input-bg: #44475a; --btn-secondary: #44475a; --btn-secondary-hover: #565a72; --btn-secondary-text: #f8f8f2;
+  --ok: #50fa7b; --ok-border: #50fa7b; --ok-bg: #2b3a34; --warn: #f1fa8c;
+  --link: #8be9fd; --link-hover: #bd93f9;
+  --port-border: #565a72; --port-bg: #323444; --port-strong: #bd93f9; --port-text: #f8f8f2;
+  --pending-border: #565a72; --pending-bg: #323444; --pending-text: #f1fa8c;
+  --danger: #ff5555; --danger-text: #fff; --text-shadow: 0 1px 2px rgba(0,0,0,.5);
+}
+[data-theme="solarized"] {
+  color-scheme: light;
+  --bg-rgb: 253, 246, 227; --panel: #ffffff; --border: #ded8c5; --border-strong: #c8c2af;
+  --text: #073642; --text-dim: #586e75; --text-faint: #6f8288; --text-fainter: #93a1a1;
+  --input-bg: #fdf6e3; --btn-secondary: #eee8d5; --btn-secondary-hover: #e3dcc7; --btn-secondary-text: #073642;
+  --ok: #859900; --ok-border: #859900; --ok-bg: #eef2df; --warn: #b58900;
+  --link: #268bd2; --link-hover: #2aa198;
+  --port-border: #d9cba8; --port-bg: #fdf4ea; --port-strong: #b58900; --port-text: #586e75;
+  --pending-border: #e6cf94; --pending-bg: #fdf8e8; --pending-text: #7a5a1c;
+  --danger: #dc322f; --danger-text: #fff; --text-shadow: 0 1px 2px rgba(255,255,255,.9);
+}

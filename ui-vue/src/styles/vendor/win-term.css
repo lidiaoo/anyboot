@@ -138,3 +138,12 @@
     background:rgb(var(--elevate)); border:1px solid rgb(var(--linestrong)); border-radius:9px;
     padding:10px 16px; font-size:13px; box-shadow:0 16px 40px -8px rgba(0,0,0,.65); transition:opacity .2s;
   }
+
+/* 移动端：终端头部不怕挤——标题可省略，右侧「远程管理/主题/字号」按钮不被压掉 */
+@media (max-width: 720px) {
+  header { flex-wrap: nowrap; gap: 4px; }
+  header h1 { min-width: 0; }
+  header .tools { flex: none; }
+  header .tools .toolbtn { padding: 0 4px; }
+  header .tools .toolbtn span:not(.a):not(.b) { display: none; } /* 只留图标，省宽（保留 A A 字号） */
+}

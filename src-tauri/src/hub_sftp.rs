@@ -1114,6 +1114,8 @@ fn finish_transfer(
 pub fn hub_focus_window(app: AppHandle, label: String) -> Result<(), String> {
     match app.get_webview_window(&label) {
         Some(window) => {
+            // 先进前置：最小化/被遮挡时 show+set_focus 不够，先 unminimize 还原再聚焦
+            let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
             Ok(())

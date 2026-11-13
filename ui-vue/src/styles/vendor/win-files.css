@@ -273,3 +273,12 @@
   /* 顶部栏收紧 */
   header { gap: 6px; }
 }
+
+/* 移动端：文件头右侧「远程管理/主题」不被挤掉 */
+@media (max-width: 720px) {
+  header { flex-wrap: nowrap; gap: 4px; }
+  header h1 { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .tools { flex: none; margin-left: auto; }
+  header .tools .toolbtn { padding: 0 5px; }
+  header .tools .toolbtn span:not(.a):not(.b) { display: none; }
+}

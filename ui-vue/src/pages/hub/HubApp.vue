@@ -116,23 +116,27 @@ try { if (typeof window !== "undefined" && window.innerWidth <= 720) navCollapse
  * 亮色靠 `[data-theme="light"]` 覆盖。所以这里要显式写 light。
  * 旧版默认亮色（不跟随系统），只在用户点过「主题」后才变。
  */
-const dark = ref(false);
-try {
-  const saved = localStorage.getItem("anyboot.theme");
-  dark.value = saved === "dark";
-} catch {
-  /* 吃默认 */
+// 多配色主题：dark / light / nord / dracula / solarized（后三套参考开源配色）
+const THEME_LIST = [
+  { id: "light", label: "亮色" },
+  { id: "dark", label: "暗色" },
+  { id: "nord", label: "Nord" },
+  { id: "dracula", label: "Dracula" },
+  { id: "solarized", label: "Solarized" },
+] as const;
+type ThemeId = (typeof THEME_LIST)[number]["id"];
+function isDarkTheme(id: string): boolean {
+  return id === "dark" || id === "nord" || id === "dracula";
 }
-applyThemeClass(dark.value);
+const themeId = ref<ThemeId>("light");
+try {
+  const saved = (localStorage.getItem("anyboot.theme") || "light") as ThemeId;
+  if (THEME_LIST.some((x) => x.id === saved)) themeId.value = saved;
+} catch { /* 默认亮色 */ }
+const dark = computed(() => isDarkTheme(themeId.value));
 
 /**
- * `--ui-alpha`：body 背景的不透明度乘数。
- *
- * `legacy.css:129` 是 `background: rgba(var(--bg-rgb), var(--ui-alpha, 1))`，
- * 而这个变量**CSS 里从未定义** —— 旧版由 `app.js:2062` 按设置里的
- * 「不透明度」百分比在运行时 `setProperty`。
- * 不补这一步，`var(--ui-alpha, 1)` 会落到兜底值，且主题切换时背景不跟随。
- * 这里读同名的 localStorage 镜像（`anyboot.ui-alpha`），没有就按 100%。
+ * `--ui-alpha`：body 背景不透明度乘数（旧版 app.js 运行时写入，此处补上）。
  */
 function applyUiAlpha() {
   let alpha = 1;
@@ -142,48 +146,46 @@ function applyUiAlpha() {
       const value = Number.parseFloat(raw);
       if (Number.isFinite(value) && value >= 0 && value <= 1) alpha = value;
     }
-  } catch {
-    /* 吃默认 */
-  }
+  } catch { /* 吃默认 */ }
   document.documentElement.style.setProperty("--ui-alpha", String(alpha));
 }
 applyUiAlpha();
 
 /**
- * 主题落点：**两个都要设**。
- *
- * · `legacy.css`（原 styles.css）用 `[data-theme="light"]` 属性
- * · `hub-inline.css`（原 hub.html 内联样式）用 `html.light` / `html.dark` 类
- *
- * 只设一个就会出现「变量切了、背景没切」——这正是主窗黑屏之外我踩的第二个坑。
+ * 主题落点：**都设**。
+ * · legacy.css 用 `[data-theme="<id>"]`（boot 侧 + 额外配色）
+ * · hub-inline.css 用 `html.dark` / `html.light`（基础两态）+ `html.theme-<id>`（额外配色三元组）
  */
-function applyThemeClass(isDark: boolean) {
+function applyThemeClass(id: ThemeId) {
   const html = document.documentElement;
-  html.setAttribute("data-theme", isDark ? "dark" : "light");
-  html.classList.toggle("light", !isDark);
-  html.classList.toggle("dark", isDark);
-  // 旧 hub.html 无动态强调色（固定靛蓝 --accent: 99 102 241 三元组）；
-  // 不能调 applyAccent —— 它写 hex，会让 hub CSS 的 rgb(var(--accent)) 失效。
-}
-
-function toggleTheme() {
-  dark.value = !dark.value;
-  applyThemeClass(dark.value);
-  // 旧版：落盘 set_theme（后端持久化 + 广播 theme-changed，独立窗跟随）
-  void import("@/api/tauri").then(({ call }) =>
-    call("set_theme", { theme: dark.value ? "dark" : "light" }).catch(() => {}),
-  );
+  html.setAttribute("data-theme", id);
+  html.classList.remove("light", "dark", "theme-nord", "theme-dracula", "theme-solarized");
+  if (isDarkTheme(id)) html.classList.add("dark"); else html.classList.add("light");
+  if (id === "nord" || id === "dracula" || id === "solarized") html.classList.add("theme-" + id);
+  // 同步写入首帧防闪镜像键（resolved 归并为 light/dark）
   try {
-    // 旧版镜像键：theme-resolved + accent 四项（首帧防闪读）
-    localStorage.setItem("anyboot.theme-resolved", dark.value ? "dark" : "light");
-    const style = document.documentElement.style;
-    for (const name of ["--accent", "--accent-hover", "--accent-link", "--accent-link-hover"]) {
-      const value = style.getPropertyValue(name);
-      if (value) localStorage.setItem(`anyboot.${name.slice(2)}`, value.trim());
-    }
-  } catch {
-    /* 忽略 */
+    localStorage.setItem("anyboot.theme-resolved", isDarkTheme(id) ? "dark" : "light");
+  } catch { /* 忽略 */ }
+  const style = document.documentElement.style;
+  for (const name of ["--accent", "--accent-hover", "--accent-link", "--accent-link-hover"]) {
+    const value = style.getPropertyValue(name);
+    if (value) { try { localStorage.setItem(`anyboot.${name.slice(2)}`, value.trim()); } catch { /* */ } }
   }
+}
+applyThemeClass(themeId.value);
+
+/** 点击主题按钮：循环切换下一套配色 */
+function toggleTheme() {
+  const idx = THEME_LIST.findIndex((x) => x.id === themeId.value);
+  const next = THEME_LIST[(idx + 1) % THEME_LIST.length].id;
+  themeId.value = next;
+  applyThemeClass(next);
+  try { localStorage.setItem("anyboot.theme", next); } catch { /* 忽略 */ }
+  // 后端只认 light/dark：额外配色按亮暗归一并下发（独立窗/boot 侧跟随基础明暗）
+  void import("@/api/tauri").then(({ call }) =>
+    call("set_theme", { theme: isDarkTheme(next) ? "dark" : "light" }).catch(() => {}),
+  );
+  try { toast.show("主题：" + (THEME_LIST.find((x) => x.id === next)?.label ?? next)); } catch { /* 忽略 */ }
 }
 
 /* 侧栏拖拽调宽（旧版 `#sideSplit` 的行为） */
@@ -279,9 +281,10 @@ onMounted(async () => {
       await listen<{ theme?: string }>("theme-changed", (event) => {
         const theme = event.payload?.theme;
         if (!theme) return;
-        const isDark = theme !== "light";
-        applyThemeClass(isDark);
-        dark.value = isDark;
+        // 本地选了额外配色（nord/dracula/solarized）时，不被后端的 light/dark 广播覆盖
+        if (themeId.value === "nord" || themeId.value === "dracula" || themeId.value === "solarized") return;
+        themeId.value = theme === "light" ? "light" : "dark";
+        applyThemeClass(themeId.value);
       }),
     );
     // hub 聚焦且有待看更新 → 切到「关于」页并展开更新区（旧版 gotoTip）

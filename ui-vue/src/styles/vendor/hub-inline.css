@@ -2561,3 +2561,64 @@
 @media (max-width: 720px) {
   .cq-dev-name { flex-wrap: wrap; row-gap: 4px; }
 }
+
+/* 电脑列表统计标签改造为可点击筛选（合并原 .cq-seg；加「全部」） */
+.cq-stat { cursor: pointer; font: inherit; color: rgb(var(--fg)); transition: border-color .12s, background .12s; }
+.cq-stat:hover { border-color: rgb(var(--line-strong)); }
+.cq-stat.is-active { border-color: rgb(var(--accent)); background: rgb(var(--accent) / .10); box-shadow: 0 0 0 1px rgb(var(--accent) / .25) inset; }
+.cq-stat.is-active i { color: rgb(var(--accent)); }
+.cq-stat--all b { color: rgb(var(--fg)); }
+.cq-stat--all.is-active { background: rgb(var(--accent)); }
+.cq-stat--all.is-active i, .cq-stat--all.is-active b { color: #fff; }
+
+/* ============ 额外配色主题（参考开源：Nord / Dracula / Solarized Light） ============
+   覆盖 hub 三元组变量；对应 boot 侧(legacy.css)另有 [data-theme=...] 的 hex 覆盖。
+   由 HubApp 切换：html.classList.add('theme-xxx') + html.dataset.theme='xxx'。 */
+html.theme-nord {
+  --base: 46 52 64;        /* #2e3440 */
+  --card: 59 66 82;        /* #3b4252 */
+  --elevate: 67 76 94;     /* #434c5e */
+  --line: 76 86 106;       /* #4c566a */
+  --line-strong: 94 105 128;
+  --fg: 236 239 244;       /* #eceff4 */
+  --fg-dim: 216 222 233;   /* #d8dee9 */
+  --fg-faint: 143 156 179;
+  --ok: 163 190 140;       /* #a3be8c */
+  --warn: 235 203 139;     /* #ebcb8b */
+  --bad: 191 97 106;       /* #bf616a */
+  --accent: 136 192 208;   /* #88c0d0 冰蓝 */
+  --link: #88c0d0; --link-hover: #8fbcbb;
+  color-scheme: dark;
+}
+html.theme-dracula {
+  --base: 40 42 54;        /* #282a36 */
+  --card: 50 52 68;        /* #323444 */
+  --elevate: 68 71 90;     /* #44475a */
+  --line: 68 71 90;
+  --line-strong: 98 102 128;
+  --fg: 248 248 242;       /* #f8f8f2 */
+  --fg-dim: 200 202 214;
+  --fg-faint: 130 133 156;
+  --ok: 80 250 123;        /* #50fa7b */
+  --warn: 241 250 140;     /* #f1fa8c */
+  --bad: 255 85 85;        /* #ff5555 */
+  --accent: 189 147 249;   /* #bd93f9 紫 */
+  --link: #8be9fd; --link-hover: #bd93f9;
+  color-scheme: dark;
+}
+html.theme-solarized {
+  --base: 253 246 227;     /* #fdf6e3 */
+  --card: 255 255 255;
+  --elevate: 238 232 213;  /* #eee8d5 */
+  --line: 222 216 197;
+  --line-strong: 200 194 175;
+  --fg: 7 54 66;           /* #073642 */
+  --fg-dim: 88 110 117;    /* #586e75 */
+  --fg-faint: 147 161 161; /* #93a1a1 */
+  --ok: 133 153 0;         /* #859900 */
+  --warn: 181 137 0;       /* #b58900 */
+  --bad: 220 50 47;        /* #dc322f */
+  --accent: 38 139 210;    /* #268bd2 */
+  --link: #268bd2; --link-hover: #2aa198;
+  color-scheme: light;
+}

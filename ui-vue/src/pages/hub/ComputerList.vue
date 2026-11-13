@@ -570,9 +570,18 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         </p>
       </div>
       <div class="cq-stats">
-        <div class="cq-stat cq-stat--on"><i>在线</i><b id="cqStOnline">{{ stats.online }}</b></div>
-        <div class="cq-stat cq-stat--off"><i>离线</i><b id="cqStOffline">{{ stats.offline }}</b></div>
-        <div class="cq-stat cq-stat--pend"><i>待生效</i><b id="cqStPending">{{ stats.pending }}</b></div>
+        <button type="button" class="cq-stat cq-stat--all" :class="{ 'is-active': filter === 'all' }" @click="filter = 'all'">
+          <i>全部</i><b id="cqStAll">{{ stats.all }}</b>
+        </button>
+        <button type="button" class="cq-stat cq-stat--on" :class="{ 'is-active': filter === 'online' }" @click="filter = 'online'">
+          <i>在线</i><b id="cqStOnline">{{ stats.online }}</b>
+        </button>
+        <button type="button" class="cq-stat cq-stat--off" :class="{ 'is-active': filter === 'offline' }" @click="filter = 'offline'">
+          <i>离线</i><b id="cqStOffline">{{ stats.offline }}</b>
+        </button>
+        <button type="button" class="cq-stat cq-stat--pend" :class="{ 'is-active': filter === 'pending' }" @click="filter = 'pending'">
+          <i>待生效</i><b id="cqStPending">{{ stats.pending }}</b>
+        </button>
       </div>
     </div>
 
@@ -593,22 +602,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           autocomplete="off"
         />
       </div>
-      <div class="cq-seg" id="cqSeg" role="tablist" aria-label="状态筛选">
-        <button
-          v-for="f in [
-            { id: 'all', label: '全部', n: stats.all },
-            { id: 'online', label: '在线', n: stats.online },
-            { id: 'offline', label: '离线', n: stats.offline },
-            { id: 'pending', label: '待生效', n: stats.pending },
-          ]"
-          :key="f.id"
-          role="tab"
-          :aria-selected="filter === f.id"
-          @click="filter = f.id as typeof filter"
-        >
-          {{ f.label }} <span class="n" :id="`cqN${f.id.charAt(0).toUpperCase()}${f.id.slice(1)}`">{{ f.n }}</span>
-        </button>
-      </div>
+
       <span class="cq-spacer" />
       <button type="button" id="cqHelpToggle" class="link-btn cq-help-btn" :aria-expanded="helpOpen" @click="helpOpen = !helpOpen">
         操作说明
