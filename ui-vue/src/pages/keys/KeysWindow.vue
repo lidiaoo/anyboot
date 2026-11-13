@@ -1,8 +1,9 @@
 <script setup lang="ts">
 const toast = useToastStore();
+import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
 import { useEscape } from "@/composables/useEscape";
 import { computed, onMounted, ref , onUnmounted } from "vue";
-import { call, isTauri } from "@/api/tauri";
+import { call } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
 /**
@@ -220,16 +221,6 @@ async function confirmDelete() {
   await run("删除密钥", () => call("hub_key_delete", { id: delTarget.value }), "已删除");
 }
 
-function openHub() {
-  // 统一「回 hub」：桌面走 hub_open_window 唤/建 hub 窗口；web 端无此命令，改为跳回 hub 页（带 token）。
-  if (!isTauri()) {
-    void import("@/api/http").then(({ getAuthToken }) => {
-      window.location.href = "/hub.html?token=" + encodeURIComponent(getAuthToken());
-    });
-    return;
-  }
-  void call("hub_open_window", {}).catch(() => {});
-}
 </script>
 
 <template>
@@ -243,14 +234,7 @@ function openHub() {
     <h1>密钥管理</h1>
     <span class="count mono" id="count">{{ keys.length }} 把</span>
     <div class="tools">
-      <button type="button" class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="7" rx="2" />
-          <rect x="2" y="14" width="20" height="7" rx="2" />
-          <path d="M6 6.5h.01M6 17.5h.01" />
-        </svg>
-        远程管理
-      </button>
+      <WindowNavMenu class="win-nav-menu" />
       <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />

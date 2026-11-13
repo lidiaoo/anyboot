@@ -252,12 +252,6 @@ const contentLabel = computed(
   () => NAV.find((item) => item.id === currentPage.value)?.label ?? "",
 );
 
-/** 底部状态栏时钟（旧版 `#clock`，每 1s 更新 HH:MM:SS） */
-const clock = ref("--:--:--");
-let clockTimer: number | null = null;
-function tickClock() {
-  clock.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-}
 let beatTimer: number | null = null;
 /** 页面心跳（旧版 hub_page_ping，每 3 秒告诉后端 hub 页还活着） */
 function beat() {
@@ -265,9 +259,6 @@ function beat() {
 }
 
 onMounted(() => {
-  tickClock();
-  clockTimer = window.setInterval(tickClock, 1000);
-
   beat();
   beatTimer = window.setInterval(beat, 3000);
 });
@@ -305,15 +296,8 @@ onMounted(async () => {
   } catch { /* 非 Tauri 环境 */ }
 });
 onUnmounted(() => {
-  if (clockTimer !== null) window.clearInterval(clockTimer);
   if (beatTimer !== null) window.clearInterval(beatTimer);
 });
-
-/** 状态栏文案（旧版 `#footText` / `#footCount`） */
-const footText = computed(() =>
-  servers.servers.length ? "终端 / 文件 / 密钥均在独立窗口" : "未连接任何服务器",
-);
-const footCount = computed(() => `${servers.servers.length} 台服务器`);
 </script>
 
 <template>
@@ -463,13 +447,5 @@ const footCount = computed(() => `${servers.servers.length} 台服务器`);
   -->
   <Teleport to="body">
     <div v-if="toast.text" id="toast" :class="{ bad: toast.bad }" role="status">{{ toast.text }}</div>
-  </Teleport>
-  <Teleport to="body">
-    <footer>
-      <span id="footText">{{ footText }}</span>
-      <span class="sep">·</span>
-      <span id="footCount">{{ footCount }}</span>
-      <span class="clock" id="clock">{{ clock }}</span>
-    </footer>
   </Teleport>
 </template>

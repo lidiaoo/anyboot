@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call, isTauri } from "@/api/tauri";
 
@@ -192,16 +193,6 @@ function toggleTheme() {
   }
 }
 
-function openHub() {
-  // 统一「回 hub」：桌面走 hub_open_window 唤/建 hub 窗口；web 端无此命令，改为跳回 hub 页（带 token）。
-  if (!isTauri()) {
-    void import("@/api/http").then(({ getAuthToken }) => {
-      window.location.href = "/hub.html?token=" + encodeURIComponent(getAuthToken());
-    });
-    return;
-  }
-  void call("hub_open_window", {}).catch(() => {});
-}
 
 const sshServers = computed(() => servers.value.filter((s) => s.protocol === "ssh"));
 const currentServer = computed(() => sshServers.value.find((s) => s.id === serverId.value));
@@ -580,14 +571,7 @@ function pct(task: XferTask): number {
       <span id="connText">{{ errorText ? "连接失败" : loading ? "读取中…" : "已连接" }}</span>
     </span>
     <div class="tools">
-      <button type="button" class="toolbtn" id="hubBtn" aria-label="打开远程管理" title="打开远程管理" @click="openHub">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="3" width="20" height="7" rx="2" />
-          <rect x="2" y="14" width="20" height="7" rx="2" />
-          <path d="M6 6.5h.01M6 17.5h.01" />
-        </svg>
-        远程管理
-      </button>
+      <WindowNavMenu class="win-nav-menu" />
       <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
@@ -710,7 +694,6 @@ function pct(task: XferTask): number {
   <footer>
     <span id="footCount">{{ entries.length }} 项</span>
     <span aria-hidden="true">·</span><span>SFTP 复用 SSH 会话</span>
-    <span id="footClock" class="clock">{{ clockText }}</span>
   </footer>
 
   <!-- 行操作菜单（旧版 #rowMenu） -->
