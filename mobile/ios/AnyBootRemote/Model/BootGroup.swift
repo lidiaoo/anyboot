@@ -70,14 +70,15 @@ struct BootInfo {
     /// 一址一跳板机：卡片按它回答「用的是这个地址的那台跳板机」
     var winnerAddr: String = ""
 
-    static func offline(_ addr: String, _ error: String) -> BootInfo {
+    static func offline(_ addr: String, _ error: String, hits: [ProbeEngine.Hit] = []) -> BootInfo {
         let note = "电脑离线，无法读取引导项"
         return BootInfo(
             ok: false, online: false, addr: addr, error: error,
             refind: BootGroup(kind: BootKind.refind, title: "rEFInd", available: false,
                               current: "", next: "", saved: "", note: note, options: []),
             grub: BootGroup(kind: BootKind.grub, title: "GRUB", available: false,
-                            current: "", next: "", saved: "", note: note, options: []))
+                            current: "", next: "", saved: "", note: note, options: []),
+            hits: hits)
     }
 }
 
@@ -639,7 +640,7 @@ enum BootService {
         }
         guard choice.alive else {
             setCachedEndpoint(profile.id, nil)
-            return .offline(choice.displayAddr, "")
+            return .offline(choice.displayAddr, "", hits: choice.hits)
         }
         setCachedEndpoint(profile.id, choice)
 

@@ -3565,7 +3565,7 @@ class ComputerListActivity : ComponentActivity() {
             val threshold = offlineRetryCount()
             if (fails < threshold) {
                 // 未达阈值：仍算活着，沿用上一份数据（卡片不会闪烁成离线）
-                return boots[profile.id] ?: offlineInfo(cached.displayAddr(), "")
+                return boots[profile.id] ?: offlineInfo(cached.displayAddr(), "", cached.hits)
             }
             // 达到阈值 → 才真正判离线，清缓存走完整探测
             lastGoodEndpoint.remove(profile.id)
@@ -3581,10 +3581,10 @@ class ComputerListActivity : ComponentActivity() {
             val threshold = offlineRetryCount()
             if (fails < threshold) {
                 // 完整探测也还没到阈值 → 沿用上一份数据
-                return boots[profile.id] ?: offlineInfo(choice.displayAddr(), "")
+                return boots[profile.id] ?: offlineInfo(choice.displayAddr(), "", choice.hits)
             }
             lastGoodEndpoint.remove(profile.id)
-            return offlineInfo(choice.displayAddr(), "")
+            return offlineInfo(choice.displayAddr(), "", choice.hits)
         }
         // 成功 → 清零
         consecutiveFailures.remove(profile.id)
@@ -3663,10 +3663,11 @@ class ComputerListActivity : ComponentActivity() {
         ServerRepository.persist(this@ComputerListActivity, servers)
     }
 
-    private fun offlineInfo(endpoint: String, error: String): BootInfo {
+    private fun offlineInfo(endpoint: String, error: String, hits: List<ProbeEngine.Hit> = emptyList()): BootInfo {
         val note = "电脑离线，无法读取引导项"
         return BootInfo(
             ok = false,
+            hits = hits,
             online = false,
             addr = endpoint,
             error = error,
