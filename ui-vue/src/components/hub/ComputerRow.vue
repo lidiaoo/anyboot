@@ -6,6 +6,7 @@ import type { RemoteProfile } from "@/stores/remote";
 import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
+import BootList from "@/components/boot/BootList.vue";
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -62,7 +63,7 @@ const emit = defineEmits<{
 
 const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
-const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null>(null);
+const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean; useBootList?: boolean } | null>(null);
 const ui = useUiStateStore();
 /** 本机：引导器数据以「系统引导页」同源快照为准（linuxGrub/refindSim/channel.menuPreview），转换规则与 BootList 一致。 */
 function localEntries(kind: string): { entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null {
@@ -108,9 +109,8 @@ function localEntries(kind: string): { entries: EntryData[]; active: string; gro
 function openPicker(kind: string) {
   // 本机：直接用「系统引导页」同源快照，与其数量/条目一致；OC/rEFInd 平铺(flat)不折叠。
   if (isLocal.value) {
-    const le = localEntries(kind);
-    if (!le || !le.entries.length) return;
-    picker.value = { kind, title: localTitle(kind), entries: le.entries, active: le.active, groupTitles: le.groupTitles, flat: le.flat };
+    // 本机：直接复用「系统引导页」同一个 BootList 组件渲染，保证与其完全一致（内容/样式/置顶）。
+    picker.value = { kind, title: localTitle(kind), entries: [], active: "", groupTitles: {}, flat: true, useBootList: true };
     return;
   }
   // 非本机：用 props.info（remote_boot_info 结果）。转换规则与「本机/系统页」一致：
@@ -204,6 +204,7 @@ const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直
 
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
+function loaderIdOf(kind: string): string { return kind.startsWith("channel:") ? kind.slice(8) : kind; }
 function localTitle(kind: string): string {
   if (kind === "refind") return "rEFInd"; if (kind === "refindplus") return "RefindPlus"; if (kind === "grub") return "GRUB";
   const id = kind.startsWith("channel:") ? kind.slice(8) : kind;
@@ -632,7 +633,13 @@ function onRowClick() {
       <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="`${picker.title} · 选择启动项`">
         <div class="cq-picker-head">{{ picker.title }} · 选择下次启动</div>
         <div class="cq-picker-list">
+          <BootList
+            v-if="picker.useBootList"
+            :loader="loaderIdOf(picker.kind)"
+            @select="chooseBoot"
+          />
           <GrubList
+            v-else
             :entries="picker.entries"
             :active-selector="picker.active"
             :group-titles="picker.groupTitles"
