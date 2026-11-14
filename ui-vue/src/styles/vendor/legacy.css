@@ -5597,3 +5597,17 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   --pending-border: #e6cf94; --pending-bg: #fdf8e8; --pending-text: #7a5a1c;
   --danger: #dc322f; --danger-text: #fff; --text-shadow: 0 1px 2px rgba(255,255,255,.9);
 }
+
+/* 「下次启动」标签：置顶浮动项（pinned）旁的明示徽标 */
+.grub-entry-pin {
+  flex: none;
+  font-size: 10px; line-height: 1.4; font-weight: 600;
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / .14);
+  border: 1px solid rgb(var(--accent) / .35);
+  border-radius: 5px;
+  padding: 0 5px;
+  margin-right: 6px;
+  white-space: nowrap;
+  align-self: center;
+}

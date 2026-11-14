@@ -1795,6 +1795,13 @@ struct ComputerListView: View {
                 } label: {
                     HStack(spacing: ABMetric.px(8)) {
                         bootDot(option.kind)
+                        if row.pinned {
+                            Text("下次启动")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(ABColor.accent)
+                                .padding(.horizontal, ABMetric.px(5)).padding(.vertical, ABMetric.px(1))
+                                .background(RoundedRectangle(cornerRadius: 5).fill(ABColor.accent.opacity(0.14)))
+                        }
                         Text(row.text)
                             .font(.system(size: 14))
                             .foregroundColor(selected ? ABColor.accent : ABColor.fg)

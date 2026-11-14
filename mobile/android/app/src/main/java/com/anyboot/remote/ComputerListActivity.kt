@@ -3161,6 +3161,18 @@ class ComputerListActivity : ComponentActivity() {
                                     BootDot(option.kind)
                                     Spacer(Modifier.width(8.dp))
                                 }
+                                if (row.pinned) {
+                                    Text(
+                                        "下次启动",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = palette.accent,
+                                        modifier = Modifier
+                                            .background(palette.accent.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
+                                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                }
                                 Text(
                                     row.label,
                                     fontSize = 14.sp,
@@ -4350,7 +4362,7 @@ class ComputerListActivity : ComponentActivity() {
         val names = group.grubGroupNames
         val rows = mutableListOf<GrubRow>()
 
-        fun push(option: BootOption, top: Boolean, prefix: String, counts: Map<String, Int>, emitted: MutableSet<String>) {
+        fun push(option: BootOption, top: Boolean, prefix: String, counts: Map<String, Int>, emitted: MutableSet<String>, pinned: Boolean = false) {
             val label = grubRowLabel(format, option)
             val parts = mutableListOf<String>()
             if (format == "raw") {
@@ -4375,13 +4387,13 @@ class ComputerListActivity : ComponentActivity() {
             // 渲染层 GRUB 行不再另画 BootDot（用户定案：保留这个、删另一个）
             val icon = grubOsIcon(prefix + option.grubName)
             val arrow = if (top) "" else "↳ "
-            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false))
+            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false, pinned))
         }
 
         // 置顶当前选中项（组内子项补「组名 › 」前缀）
         options.firstOrNull { it.value == group.current }?.let { pinned ->
             val prefix = names[pinned.grubSubmenuId]?.takeIf { it.isNotBlank() }?.let { "$it › " } ?: ""
-            push(pinned, top = true, prefix = prefix, counts = emptyMap(), emitted = mutableSetOf())
+            push(pinned, top = true, prefix = prefix, counts = emptyMap(), emitted = mutableSetOf(), pinned = true)
         }
 
         // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带）
@@ -4870,7 +4882,7 @@ class ComputerListActivity : ComponentActivity() {
     )
 
     /** 一行展示项：[option] 为 null 时是组头（不可点），否则是可选项 + 拼好的文字 */
-    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean)
+    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false)
 
     private data class BootInfo(
         val ok: Boolean,

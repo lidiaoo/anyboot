@@ -88,6 +88,7 @@ struct GrubRow: Identifiable {
     var option: BootOption?
     var text: String
     var isGroup: Bool
+    var pinned: Bool = false
 
     var id: String {
         // 组内子项可能共用同一 value（rEFInd 折叠内核全部 value=父条目 title），
@@ -439,7 +440,7 @@ enum GrubFormat {
         var rows: [GrubRow] = []
 
         func push(_ option: BootOption, top: Bool, prefix: String,
-                  counts: [String: Int], emitted: inout Set<String>) {
+                  counts: [String: Int], emitted: inout Set<String>, pinned: Bool = false) {
             let label = rowLabel(format, option)
             var parts: [String] = []
             if format == "raw" {
@@ -466,7 +467,7 @@ enum GrubFormat {
             let icon = osIcon(prefix + option.grubName)
             let arrow = top ? "" : "↳ "
             rows.append(GrubRow(option: option, text: "\(arrow)\(icon)\(prefix)\(label)\(suffix)",
-                                isGroup: false))
+                                isGroup: false, pinned: pinned))
         }
 
         // 置顶当前选中项（组内子项补「组名 › 」前缀）
@@ -477,7 +478,7 @@ enum GrubFormat {
                 prefix = "\(name) › "
             }
             var emitted = Set<String>()
-            push(pinned, top: true, prefix: prefix, counts: [:], emitted: &emitted)
+            push(pinned, top: true, prefix: prefix, counts: [:], emitted: &emitted, pinned: true)
         }
 
         // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带）
