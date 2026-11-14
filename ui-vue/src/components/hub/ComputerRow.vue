@@ -6,6 +6,7 @@ import type { RemoteProfile } from "@/stores/remote";
 import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
+import { useSettingsStore } from "@/stores/settings";
 import BootList from "@/components/boot/BootList.vue";
 
 /**
@@ -65,6 +66,8 @@ const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
 const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean; useBootList?: boolean } | null>(null);
 const ui = useUiStateStore();
+const appSettings = useSettingsStore();
+const pickerFmt = ref<string>("");  // 空=跟随电脑(用 settings)
 /** 本机：引导器数据以「系统引导页」同源快照为准（linuxGrub/refindSim/channel.menuPreview），转换规则与 BootList 一致。 */
 function localEntries(kind: string): { entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null {
   if (kind === "grub") {
@@ -107,6 +110,7 @@ function localEntries(kind: string): { entries: EntryData[]; active: string; gro
   return null;
 }
 async function openPicker(kind: string) {
+  pickerFmt.value = "";  // 每次打开默认「跟随电脑」
   // 本机：直接复用「系统引导页」同一个 BootList 组件；先拉一次最新 uiState，确保与本机系统页同源同步。
   if (isLocal.value) {
     try { await (ui as any).pollOnce?.(); } catch { /* 忽略 */ }
@@ -204,6 +208,14 @@ const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直
 
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
+const fmtChoices = [
+  { v: "", label: "跟随电脑" },
+  { v: "minimal", label: "极简" },
+  { v: "simple", label: "简易" },
+  { v: "medium", label: "中等" },
+  { v: "raw", label: "原始" },
+  { v: "detailed", label: "复杂" },
+];
 function loaderIdOf(kind: string): string { return kind.startsWith("channel:") ? kind.slice(8) : kind; }
 function localTitle(kind: string): string {
   if (kind === "refind") return "rEFInd"; if (kind === "refindplus") return "RefindPlus"; if (kind === "grub") return "GRUB";
@@ -632,6 +644,14 @@ function onRowClick() {
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
       <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="`${picker.title} · 选择启动项`">
         <div class="cq-picker-head">{{ picker.title }} · 选择下次启动</div>
+        <div v-if="picker.kind === 'grub' || picker.kind === 'channel:grub'" class="cq-picker-fmt">
+          <span class="cq-picker-fmt-label">条目文字格式</span>
+          <div class="cq-picker-fmt-chips">
+            <button v-for="c in fmtChoices" :key="c.v" type="button"
+              :class="['cq-fmt-chip', { 'is-on': pickerFmt === c.v }]"
+              @click="pickerFmt = c.v">{{ c.label }}</button>
+          </div>
+        </div>
         <div class="cq-picker-list">
           <BootList
             v-if="picker.useBootList"
@@ -640,6 +660,7 @@ function onRowClick() {
           />
           <GrubList
             v-else
+            :format="pickerFmt || appSettings.grubListFormat"
             :entries="picker.entries"
             :active-selector="picker.active"
             :group-titles="picker.groupTitles"

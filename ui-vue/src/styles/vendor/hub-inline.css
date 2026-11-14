@@ -2634,3 +2634,13 @@ html.theme-solarized {
 .hub-page { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .hub-page > .page-head { padding: 14px 4px 10px; }
 .hub-page-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* 电脑列表引导项下拉：条目文字格式 chips（对齐移动端） */
+.cq-picker-fmt { padding: 2px 2px 8px; }
+.cq-picker-fmt-label { font-size: 11px; color: rgb(var(--fg-faint)); display: block; margin-bottom: 6px; }
+.cq-picker-fmt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cq-fmt-chip {
+  font-size: 12px; line-height: 1.4; padding: 3px 10px; border-radius: 13px;
+  border: 1px solid rgb(var(--line)); background: transparent; color: rgb(var(--fg-dim)); cursor: pointer;
+}
+.cq-fmt-chip.is-on { background: rgb(var(--accent)); border-color: rgb(var(--accent)); color: #fff; }
