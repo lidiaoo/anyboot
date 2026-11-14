@@ -1841,13 +1841,13 @@ struct ComputerListView: View {
                             DrawnIcon.check(ABColor.accent, size: ABMetric.px(16))
                         }
                     }
-                    .padding(.horizontal, ABMetric.px(11))
-                    .padding(.vertical, ABMetric.px(12))
+                    .padding(.horizontal, ABMetric.px(9))
+                    .padding(.vertical, ABMetric.px(6))
                     .frame(maxWidth: .infinity)
                     .background(
-                        RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(selected ? ABColor.accent.opacity(0.14) : .clear))
-                    .padding(.bottom, ABMetric.px(4))
+                    .padding(.bottom, ABMetric.px(2))
                 }
                 .buttonStyle(.plain)
             }
@@ -2303,13 +2303,13 @@ struct ComputerListView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, ABMetric.px(11))
-        .padding(.vertical, ABMetric.px(10))
+        .padding(.horizontal, ABMetric.px(9))
+        .padding(.vertical, ABMetric.px(6))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
-                .fill(ABColor.elevate.opacity(0.5)))
-        .padding(.bottom, ABMetric.px(6))
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(row.isDefault ? ABColor.accent.opacity(0.14) : .clear))
+        .padding(.bottom, ABMetric.px(2))
         // 与 PC 一致：点整行切换（不单设「设为默认」按钮）
         .contentShape(Rectangle())
         .onTapGesture {
