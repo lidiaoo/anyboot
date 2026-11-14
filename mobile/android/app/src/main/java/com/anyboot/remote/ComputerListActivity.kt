@@ -3130,7 +3130,8 @@ class ComputerListActivity : ComponentActivity() {
                         // rEFInd / RefindPlus 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：
                         // 只有 label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
                         val rows = if (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS) {
-                            refindDisplayRows(group)
+                            // parseRefind 已把 options 组装成显示行（组头「▾ 图标 名(N项)」/子项「↳ strip后内核」）→ 直接 map
+                            group.options.map { GrubRow(if (it.value.isBlank()) null else it, it.label, it.header) }
                         } else {
                             grubDisplayRows(group)
                         }
@@ -4170,7 +4171,7 @@ class ComputerListActivity : ComponentActivity() {
                     if (optStr(child, "source").trim() != "kernel") continue
                     val ctitle = optStr(child, "title").trim()
                     if (ctitle.isEmpty()) continue
-                    kernels.add(ctitle.substringBefore(":").trim().ifEmpty { ctitle })
+                    kernels.add(grubStripKernel(ctitle.substringBefore(":").trim().ifEmpty { ctitle }))
                 }
             }
             if (kernels.isNotEmpty()) {
@@ -4386,8 +4387,9 @@ class ComputerListActivity : ComponentActivity() {
                 val txt = if (fixed.startsWith("▾")) fixed else "▾ ${grubOsIcon(fixed)}$fixed"
                 rows.add(GrubRow(null, txt, true))
             } else {
-                // 顶层/子项 label 纯文本（渲染层加 BootDot；子项靠 child 缩进）
-                rows.add(GrubRow(o, o.label.trim(), false, child = inGroup))
+                // 顶层项用原名；子项(内核)去 vmlinuz-/linux- 前缀，与 PC rowLabel 一致
+                val txt = if (inGroup) grubStripKernel(o.label.trim()) else o.label.trim()
+                rows.add(GrubRow(o, txt, false, child = inGroup))
             }
         }
         return rows

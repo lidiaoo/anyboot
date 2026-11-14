@@ -187,9 +187,10 @@ enum BootParser {
                 guard src == "kernel" else { return nil }
                 let ctitle = (child["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
                 guard !ctitle.isEmpty else { return nil }
-                let cname = ctitle.components(separatedBy: ":").first?
+                let cname0 = ctitle.components(separatedBy: ":").first?
                     .trimmingCharacters(in: .whitespaces) ?? ctitle
-                return cname.isEmpty ? ctitle : cname
+                let cname = GrubFormat.stripKernel(cname0.isEmpty ? ctitle : cname0)
+                return cname
             }
             if !kernelNames.isEmpty {
                 // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
@@ -402,9 +403,9 @@ enum GrubFormat {
     }
 
     static func stripKernel(_ name: String) -> String {
-        var value = name
+        var value = name.trimmingCharacters(in: .whitespaces)
         if value.hasPrefix("vmlinuz-") { value.removeFirst("vmlinuz-".count) }
-        else if value.hasPrefix("linux-") { value.removeFirst("linux-".count) }
+        if value.hasPrefix("linux-") { value.removeFirst("linux-".count) }
         return value
     }
 
@@ -450,8 +451,9 @@ enum GrubFormat {
                 let txt = fixed.hasPrefix("▾") ? fixed : ("▾ " + osIcon(fixed) + fixed)
                 rows.append(GrubRow(option: nil, text: txt, isGroup: true))
             } else {
-                // 顶层项/子项：label 纯文本（渲染层加 bootDot；子项靠 child 缩进标识）
-                rows.append(GrubRow(option: o, text: o.label, isGroup: false, child: inGroup))
+                // 顶层项 label 用原名；子项(内核)去 vmlinuz-/linux- 前缀，与 PC rowLabel(minimal/simple) 一致
+                let txt = inGroup ? stripKernel(o.label) : o.label
+                rows.append(GrubRow(option: o, text: txt, isGroup: false, child: inGroup))
             }
         }
         return rows

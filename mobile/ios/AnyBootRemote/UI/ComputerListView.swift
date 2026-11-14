@@ -1804,8 +1804,9 @@ struct ComputerListView: View {
                 .padding(.bottom, ABMetric.px(6))
         }
 
+        // rEFInd: parseRefind 已把 options 组装成显示行（组头「▾ 图标 名(N项)」/子项「↳ 内核」）→ 直接 map。
         let rows: [GrubRow] = (kind == Kind.refind)
-            ? GrubFormat.refindRows(group)
+            ? group.options.map { GrubRow(option: $0.value.isEmpty ? nil : $0, text: $0.label, isGroup: $0.header) }
             : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
 
         ForEach(rows) { row in
