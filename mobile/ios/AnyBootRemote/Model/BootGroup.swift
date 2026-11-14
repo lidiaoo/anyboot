@@ -466,8 +466,8 @@ enum GrubFormat {
             } else {
                 // 子项：value 非空且属于某组(value=父title)，用 ↳ + 图标；顶层项原样
                 let isChild = !o.value.isEmpty && opts.contains { $0.header && $0.label.contains(o.value) }
-                let icon = osIcon(o.label)
-                let text = isChild ? "↳ " + icon + o.label : icon + o.label
+                // 图标由渲染层 bootDot 提供，这里不再叠加 osIcon（避免双图标）；子项带 ↳ 前缀
+                let text = isChild ? "↳ " + o.label : o.label
                 rows.append(GrubRow(option: o, text: text, isGroup: false, child: isChild, trailing: o.tag))
                 i += 1
             }

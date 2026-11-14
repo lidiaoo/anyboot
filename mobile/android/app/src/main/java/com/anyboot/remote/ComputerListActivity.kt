@@ -3130,24 +3130,27 @@ class ComputerListActivity : ComponentActivity() {
                         // rEFInd / RefindPlus 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：
                         // 只有 label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
                         val rows = if (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS) {
-                            // parseRefind 已把 options 组装成显示行（组头「▾ 图标 名(N项)」/子项「↳ strip后内核」）→ 直接 map
-                            group.options.map { GrubRow(if (it.value.isBlank()) null else it, it.label, it.header) }
+                            refindSheetRows(group)
                         } else {
                             grubDisplayRows(group)
                         }
                         rows.forEach { row ->
                             // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 托盘同构
                             if (row.isHeader) {
-                                Text(
-                                    row.label,
-                                    fontSize = 11.sp,
-                                    color = palette.fgFaint,
-                                    modifier = Modifier.padding(top = 7.dp, bottom = 2.dp, start = 2.dp),
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 3.dp, start = 2.dp, end = 11.dp),
+                                ) {
+                                    Text(row.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.fgDim,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    if (row.trailing.isNotEmpty()) {
+                                        Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint)
+                                    }
+                                }
                                 return@forEach
                             }
                             val option = row.option ?: return@forEach
-                            val selected = option.value == group.current
+                            val selected = !row.child && option.value.isNotBlank() && option.value == group.current
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
@@ -3167,6 +3170,10 @@ class ComputerListActivity : ComponentActivity() {
                                 // GRUB 行的 label 已按条目名自带平台图标，另画 BootDot
                                 // 会一行两个（用户定案：保留 label 里的、删这个）；
                                 // rEFInd/RefindPlus 行的 label 裸，图标只能靠这里补
+                                if (row.child) {
+                                    Box(Modifier.width(2.dp).height(18.dp).background(palette.fgFaint.copy(alpha = 0.25f)))
+                                    Spacer(Modifier.width(6.dp))
+                                }
                                 if (request.kind != KIND_GRUB) {
                                     BootDot(option.kind)
                                     Spacer(Modifier.width(8.dp))
@@ -3191,6 +3198,10 @@ class ComputerListActivity : ComponentActivity() {
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
+                                if (row.trailing.isNotEmpty()) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
+                                }
                                 if (selected) {
                                     Spacer(Modifier.width(8.dp))
                                     CheckIcon(tint = palette.accent, size = 16.dp)
@@ -4163,25 +4174,24 @@ class ComputerListActivity : ComponentActivity() {
             //  顶层条目 → refind_sim_switch），label 显示「父条目 › 内核名」可辨认。
             // 只展开「折叠的内核」子项（source=kernel：ext4 分区里被 fold 的内核）。
             // macOS 诊断项 / refind_linux.conf 变体等不算「可选内核」，不展开。
+            // 与 PC simRows 一致：展开**全部** children（默认项/refind_linux.conf/macOS 诊断/折叠内核），带来源标签。
             val children = item.optJSONArray("children")
-            val kernels = mutableListOf<String>()
+            val childRows = mutableListOf<Pair<String, String>>()  // (内核名, 来源tag)
             if (children != null) {
                 for (ci in 0 until children.length()) {
                     val child = children.optJSONObject(ci) ?: continue
-                    if (optStr(child, "source").trim() != "kernel") continue
+                    val src = optStr(child, "source").trim()
                     val ctitle = optStr(child, "title").trim()
                     if (ctitle.isEmpty()) continue
-                    kernels.add(grubStripKernel(ctitle.substringBefore(":").trim().ifEmpty { ctitle }))
+                    val cname0 = ctitle.substringBefore(":").trim().ifEmpty { ctitle }
+                    val cname = grubStripKernel(cname0)
+                    childRows.add(cname to childSourceLabel(src))
                 }
             }
-            if (kernels.isNotEmpty()) {
-                // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
-                options.add(
-                    BootOption(value = "", label = "▾ ${grubOsIcon(title)}$title（${kernels.size} 项）", kind = kind, header = true),
-                )
-                for (cname in kernels) {
-                    options.add(BootOption(value = title, label = "↳ $cname", kind = kind))
-                }
+            if (childRows.isNotEmpty()) {
+                // 父条目作组头（不可选）；子项 label 纯内核名，来源标签走 tag 字段（渲染右对齐）
+                options.add(BootOption(value = "", label = "▾ ${grubOsIcon(title)}$title", kind = kind, header = true))
+                for ((cname, tag) in childRows) options.add(BootOption(value = title, label = cname, kind = kind, tag = tag))
             } else {
                 options.add(BootOption(value = title, label = title, kind = kind))
             }
@@ -4365,31 +4375,29 @@ class ComputerListActivity : ComponentActivity() {
      * * 子项「↳ 」缩进；顶层与各组各有一套折叠状态（非原始格式折叠同名变体）；
      * * 原始/复杂在行尾附内核名（或「转交引导」/class）。
      */
-    /**
-     * rEFInd / RefindPlus 下拉行：后端口径 = 顶层项 + 若干组头（header=true）+ 组内子项。
-     * 与 PC 一致：组头「▾ 图标 组名」、子项「↳ 图标 名」加缩进；组头前的顶层项平铺。
-     * 当前项(current/lastBoot)置顶由 options.firstOrNull value==current 命中（无则无置顶，两端口径一致）。
-     */
-    private fun refindDisplayRows(group: BootGroup): List<GrubRow> {
-        val options = group.options
-        if (options.isEmpty()) return emptyList()
+
+    private fun childSourceLabel(source: String): String = when (source) {
+        "default" -> "默认项"; "options" -> "refind_linux.conf"; "kernel" -> "折叠内核"
+        "macos" -> "macOS 诊断"; "stanza" -> "submenuentry"; else -> ""
+    }
+
+    /** rEFInd/RefindPlus 弹窗行（对齐 PC 小屏）：组头「▾ 图标 名」+右「N 项」；子项「↳ 名」+右来源 tag；顶层项原样。 */
+    private fun refindSheetRows(group: BootGroup): List<GrubRow> {
+        val opts = group.options
         val rows = mutableListOf<GrubRow>()
-        // 置顶当前项（如后端给了 current/lastBoot 命中）
-        options.firstOrNull { it.value.isNotBlank() && it.value == group.current }?.let { pinned ->
-            rows.add(GrubRow(pinned, pinned.label.trim(), false, pinned = true))
-        }
-        var inGroup = false
-        for (o in options) {
+        var i = 0
+        while (i < opts.size) {
+            val o = opts[i]
             if (o.header) {
-                inGroup = true
-                // header 渲染只画 Text(label)，故自带「▾ 图标 名（N 项）」
-                val fixed = o.label.trim().replace("个内核", "项")
-                val txt = if (fixed.startsWith("▾")) fixed else "▾ ${grubOsIcon(fixed)}$fixed"
-                rows.add(GrubRow(null, txt, true))
+                var j = i + 1; var cnt = 0
+                while (j < opts.size && !opts[j].header) { cnt++; j++ }
+                rows.add(GrubRow(null, o.label, true, trailing = "$cnt 项"))
+                i++
             } else {
-                // 顶层项用原名；子项(内核)去 vmlinuz-/linux- 前缀，与 PC rowLabel 一致
-                val txt = if (inGroup) grubStripKernel(o.label.trim()) else o.label.trim()
-                rows.add(GrubRow(o, txt, false, child = inGroup))
+                val isChild = o.value.isNotBlank() && opts.any { it.header && it.label.contains(o.value) }
+                val text = if (isChild) "↳ ${o.label}" else o.label
+                rows.add(GrubRow(o, text, false, child = isChild, trailing = o.tag))
+                i++
             }
         }
         return rows
@@ -4891,6 +4899,8 @@ class ComputerListActivity : ComponentActivity() {
         val kind: String,
         /** 组头行（value 恒空、不可选）：rEFInd 同一分区的「父条目（N 个内核）」 */
         val header: Boolean = false,
+        /** 行右侧来源标签（rEFInd 子项：默认项/折叠内核/macOS 诊断…） */
+        val tag: String = "",
         // —— GRUB 渲染原料（rEFInd 恒为空/默认）——
         val grubName: String = "",
         val grubKernels: List<String> = emptyList(),
@@ -4922,7 +4932,7 @@ class ComputerListActivity : ComponentActivity() {
     )
 
     /** 一行展示项：[option] 为 null 时是组头（不可点），否则是可选项 + 拼好的文字 */
-    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false, val child: Boolean = false)
+    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false, val child: Boolean = false, val trailing: String = "")
 
     private data class BootInfo(
         val ok: Boolean,
