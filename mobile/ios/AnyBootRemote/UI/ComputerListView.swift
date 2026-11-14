@@ -2253,6 +2253,12 @@ struct ComputerListView: View {
                             .foregroundColor(ABColor.fgFaint)
                     }
                 }
+                // PC 同款：类型标签 + 来源标签
+                Text(kindLabel(row.kind) + " · " + sourceLabel(row.source))
+                    .font(.system(size: 10.5))
+                    .foregroundColor(ABColor.fgFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(pathText)
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
@@ -2669,4 +2675,11 @@ final class BootFormatStore: ObservableObject {
     private init() {
         value = UserDefaults.standard.string(forKey: BootService.formatKey) ?? ""
     }
+}
+
+private func kindLabel(_ k: String) -> String {
+    switch k { case "macos": return "macOS"; case "windows": return "Windows"; case "generic": return "泛型"; case "linux": return "Linux"; case "tool": return "工具项"; default: return "未知" }
+}
+private func sourceLabel(_ s: String) -> String {
+    switch s { case "bootorder": return "OC 私有 OCBtOrder"; case "bless": return "bless 扫描"; case "preboot": return "APFS Preboot"; case "protocol": return "协议驱动"; default: return "OC 私有 OCBtOrder" }
 }

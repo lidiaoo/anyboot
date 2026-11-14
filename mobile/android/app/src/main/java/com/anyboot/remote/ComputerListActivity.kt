@@ -2965,6 +2965,16 @@ class ComputerListActivity : ComponentActivity() {
                         Text("辅助", fontSize = 10.sp, color = palette.fgFaint)
                     }
                 }
+                // PC 同款：类型标签 + 来源标签（如「macOS · OC 私有 OCBtOrder」「泛型 · bless 扫描」）
+                val kindLabel = when (row.kind) { "macos"->"macOS"; "windows"->"Windows"; "generic"->"泛型"; "linux"->"Linux"; "tool"->"工具项"; else->"未知" }
+                val sourceLabel = when (row.source) { "bootorder"->"OC 私有 OCBtOrder"; "bless"->"bless 扫描"; "preboot"->"APFS Preboot"; "protocol"->"协议驱动"; else->"OC 私有 OCBtOrder" }
+                Text(
+                    "$kindLabel · $sourceLabel",
+                    fontSize = 10.5.sp,
+                    color = palette.fgFaint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 val pathText =
                     if (row.volume.isNotEmpty() && row.volume != "—") "${row.volume} · ${row.path}" else row.path
                 Text(

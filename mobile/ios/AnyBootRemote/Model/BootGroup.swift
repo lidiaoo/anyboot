@@ -192,7 +192,7 @@ enum BootParser {
             }
             if !kernelNames.isEmpty {
                 // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
-                options.append(BootOption(value: "", label: "▸ \(osIcon(title))\(title)（\(kernelNames.count) 项）",
+                options.append(BootOption(value: "", label: "▸ \(GrubFormat.osIcon(title))\(title)（\(kernelNames.count) 项）",
                                           kind: kind, header: true))
                 for cname in kernelNames {
                     options.append(BootOption(value: title, label: "↳ \(cname)", kind: kind))
