@@ -1292,10 +1292,12 @@ pub(crate) fn switch_channel_and_update_with_title(
                 None => _message,
             };
             record_action(app, label, true, &message);
-            // 写回 AppState.message 再 publish，确保前端显示的是这条（refresh_channels
-            // 内部已 publish 过旧 message）。
+            // 顶部 #status 只显示「下次启动：…」类；其它回执（如 OC「已是默认项，没有改动」的幂等提示）
+            // 不写 state.message —— 否则顶部提示常驻不消失（用户反馈）。这类回执照样进 record_action，
+            // 前端底部 status-bar 会临时显示、可收起/自动消失。
+            let top_message = if message.starts_with("下次启动：") { message.clone() } else { String::new() };
             if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() {
-                state.message = message.clone();
+                state.message = top_message;
                 state.error = None;
             }
             publish_ui(app);

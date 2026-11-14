@@ -62,41 +62,55 @@ const emit = defineEmits<{
 
 const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
-const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string> } | null>(null);
+const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null>(null);
 const ui = useUiStateStore();
-/** 本机（local）时，引导器数据以系统引导页同源快照为准（避免 remote_boot_info 的折叠/换源口径差）。返回 GrubList 的 entries + 当前项 + 组标题。 */
-function localEntries(kind: string): { entries: EntryData[]; current: string; groupTitles: Record<string, string> } | null {
+/** 本机：引导器数据以「系统引导页」同源快照为准（linuxGrub/refindSim/channel.menuPreview），转换规则与 BootList 一致。 */
+function localEntries(kind: string): { entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null {
   if (kind === "grub") {
-    const src = (ui as any).linuxGrub ?? null;
-    const list = (src?.entries ?? []) as { selector?: string; name?: string; submenu?: string; class?: string; kernels?: string[]; variants?: number; chainloader?: boolean }[];
+    const src: any = (ui as any).linuxGrub ?? null;
+    const list = (src?.entries ?? []) as any[];
     const groupTitles: Record<string, string> = {};
-    for (const g of (src?.groups ?? []) as { id?: string; name?: string }[]) if (g.id) groupTitles[g.id] = g.name ?? "";
+    for (const g of (src?.groups ?? []) as any[]) if (g.id) groupTitles[g.id] = g.name ?? "";
     const entries: EntryData[] = list.map((e) => ({ selector: e.selector, name: e.name, class: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenu: e.submenu } as EntryData));
-    return { entries, current: String(src?.nextEntry ?? src?.savedEntry ?? ""), groupTitles };
+    return { entries, active: String(src?.nextEntry || src?.savedEntry || ""), groupTitles, flat: false };
   }
   if (kind === "refind" || kind === "refindplus") {
     const sim: any = kind === "refind" ? (ui as any).refindSim : (ui as any).refindplusSim;
-    const list = (sim?.entries ?? []) as { title?: string; lastBoot?: boolean }[];
-    const entries: EntryData[] = list.filter((e) => !(e as any).hidden).map((e) => ({ selector: String(e.title ?? ""), name: String(e.title ?? "") } as EntryData));
-    const cur = list.find((e) => e.lastBoot)?.title ?? "";
-    return { entries, current: String(cur), groupTitles: {} };
+    const list = (sim?.entries ?? []) as any[];
+    const entries: EntryData[] = list.filter((e) => !e.hidden).map((e) => ({ selector: String(e.title ?? ""), name: String(e.title ?? "") } as EntryData));
+    const active = String(list.find((e) => e.lastBoot)?.title ?? "");
+    return { entries, active, groupTitles: {}, flat: true };
   }
   if (kind.startsWith("channel:")) {
     const id = kind.slice("channel:".length);
     const ch = ((ui as any).channels ?? []).find((c: any) => c.id === id);
-    const preview = (ch?.menuPreview?.entries ?? []) as { spec?: string; title?: string; class?: string; default?: boolean }[];
-    const entries: EntryData[] = preview.map((r) => ({ selector: String(r.spec ?? r.title ?? ""), name: String(r.title ?? ""), class: r.class } as EntryData));
-    const cur = preview.find((r) => r.default)?.title ?? "";
-    return { entries, current: String(cur), groupTitles: {} };
+    const preview = (ch?.menuPreview?.entries ?? []) as any[];
+    const orderSrc = ch?.menuPreview?.orderSource ?? "";
+    // 与 BootList.channelEntries 一致：可选中(spec 非空)在前、其余在后（保持各自原序）
+    const ordered = [...preview.filter((r) => r.spec), ...preview.filter((r) => !r.spec)];
+    const entries: EntryData[] = ordered.map((row) => ({
+      selector: String(row.spec || row.title || ""),
+      name: String(row.title || ""),
+      class: row.kind,
+      readonly: !row.spec,
+      tags: [String(row.kind || ""), orderSrc === "private" ? "OC 私有 OCBtOrder" : (orderSrc ? "固件 BootOrder" : "")].filter(Boolean),
+      sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : (row.path || undefined),
+      note: row.note || undefined,
+    } as EntryData));
+    // 当前默认：default 行 或 currentDefault 命中
+    const cur = String(ch?.currentDefault || "");
+    const hit = ordered.find((r) => r.default === true || (cur && (cur === (r.spec || r.title) || cur.indexOf(String(r.title || "")) >= 0)));
+    const active = String(hit ? (hit.spec || hit.title || "") : "");
+    return { entries, active, groupTitles: {}, flat: true };
   }
   return null;
 }
 function openPicker(kind: string) {
-  // 本机：直接用「系统引导页」同源快照（linuxGrub / refindSim / channel.menuPreview），保证与其数量/条目一致。
+  // 本机：直接用「系统引导页」同源快照，与其数量/条目一致；OC/rEFInd 平铺(flat)不折叠。
   if (isLocal.value) {
     const le = localEntries(kind);
     if (!le || !le.entries.length) return;
-    picker.value = { kind, title: localTitle(kind), entries: le.entries, active: le.current, groupTitles: le.groupTitles };
+    picker.value = { kind, title: localTitle(kind), entries: le.entries, active: le.active, groupTitles: le.groupTitles, flat: le.flat };
     return;
   }
   // refind / refindplus / grub 是固定组；其余 kind 到 channels 里找（kind = channel:<id>）
@@ -137,6 +151,7 @@ function openPicker(kind: string) {
     entries,
     active: String((group as { current?: string })?.current ?? ""),
     groupTitles,
+    flat: kind.startsWith("channel:"),
   };
 }
 function chooseBoot(value: string) {
@@ -183,9 +198,9 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
   if (isLocal.value) {
     const le = localEntries(kind);
     if (!le || !le.entries.length) return { label: "未检测到", none: true, dot: "" };
-    let hit = le.entries.find((e) => String(e.selector) === le.current);
-    if (!hit) hit = le.entries.find((e) => (e.name && le.current && e.name.indexOf(le.current) >= 0) || (e.selector && le.current && String(e.selector).indexOf(le.current) >= 0));
-    return { label: hit ? String(hit.name) : (le.current || "未选择"), none: le.entries.length === 0, dot: (hit as any)?.class || "" };
+    let hit = le.entries.find((e) => String(e.selector) === le.active);
+    if (!hit) hit = le.entries.find((e) => le.active && e.name && String(e.name).indexOf(le.active) >= 0);
+    return { label: hit ? String(hit.name) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
   }
   const group = kind === "refind" || kind === "refindplus" || kind === "grub" ? props.info?.[kind] : undefined;
   if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
@@ -606,6 +621,7 @@ function onRowClick() {
             :entries="picker.entries"
             :active-selector="picker.active"
             :group-titles="picker.groupTitles"
+            :show-groups="!picker.flat"
             @select="chooseBoot"
           />
         </div>
