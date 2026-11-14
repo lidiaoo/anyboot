@@ -1678,14 +1678,13 @@ struct ComputerListView: View {
                 return request.kind == Kind.refind ? info?.refind : info?.grub
             }()
 
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .center) {
                 Color.black.opacity(0.42)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { sheet = nil }
 
                 VStack(spacing: 0) {
-                    sheetHandle
                     // 标题行
                     HStack(spacing: 0) {
                         Text(help ? "操作说明"
@@ -1739,17 +1738,25 @@ struct ComputerListView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, ABMetric.px(18))
                     }
-                    .frame(maxHeight: ABMetric.px(460))
-                    Spacer(minLength: ABMetric.px(12))
+                    .frame(maxHeight: UIScreen.main.bounds.height * 0.55)
+                    // 底部「取消」整宽按钮（与 PC 弹窗一致）
+                    Button {
+                        sheet = nil
+                    } label: {
+                        Text("取消")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ABColor.fg)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, ABMetric.px(12))
+                            .background(Rectangle().fill(ABColor.elevate.opacity(0.5)))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .frame(maxWidth: .infinity)
+                .frame(width: UIScreen.main.bounds.width - 24)
                 .background(
-                    UnevenRoundedRectangle(topLeadingRadius: ABMetric.px(20),
-                                           bottomLeadingRadius: 0,
-                                           bottomTrailingRadius: 0,
-                                           topTrailingRadius: ABMetric.px(20),
-                                           style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(ABColor.card))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .transition(.opacity)
         }

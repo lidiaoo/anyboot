@@ -43,6 +43,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,6 +56,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -3035,30 +3039,20 @@ class ComputerListActivity : ComponentActivity() {
         }
         val channel = if (request.kind == KIND_CHANNEL) request.channel else null
 
-        ModalBottomSheet(
+        // 居中卡片弹窗（与 PC 网页端一致：宽=屏宽-24、四角圆角14、内容滚动、底部「取消」）
+        Dialog(
             onDismissRequest = { sheetRequest = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = palette.card,
-            dragHandle = {
-                Box(
-                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        Modifier
-                            .width(36.dp)
-                            .height(4.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(palette.lineStrong),
-                    )
-                }
-            },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = 12.dp),
+                    .padding(horizontal = 12.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(palette.card)
+                    .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 4.dp),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -3221,6 +3215,15 @@ class ComputerListActivity : ComponentActivity() {
                             lineHeight = 22.sp,
                         )
                     }
+                }
+                // 底部「取消」整宽按钮（与 PC 弹窗一致）
+                Button(
+                    onClick = { sheetRequest = null },
+                    shape = RoundedCornerShape(0.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = palette.elevate.copy(alpha = 0.5f), contentColor = palette.fg),
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                ) {
+                    Text("取消", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
