@@ -18,6 +18,8 @@ struct BootOption: Hashable, Identifiable {
     var kind: String = "linux"   // win / mac / linux / auto
     /** 组头行（value 恒空、不可选）：rEFInd 同一分区的「父条目（N 个内核）」 */
     var header: Bool = false
+    /// 行右侧小标签（rEFInd 子项来源：默认项/折叠内核/macOS 诊断…）
+    var tag: String = ""
 
     // ---- GRUB 专用 ----
     var grubName: String = ""
@@ -90,6 +92,8 @@ struct GrubRow: Identifiable {
     var isGroup: Bool
     var pinned: Bool = false
     var child: Bool = false
+    /// 行右侧灰字标签（组头=「N 项」；子项=来源 tag）
+    var trailing: String = ""
 
     var id: String {
         // 组内子项可能共用同一 value（rEFInd 折叠内核全部 value=父条目 title），
@@ -182,22 +186,22 @@ enum BootParser {
             // → refind_sim_switch），label 显示「父条目 › 内核名」。
             // 只展开「折叠的内核」子项（source=kernel）；macOS 诊断项等不展开。
             let children = item["children"] as? [[String: Any]] ?? []
-            let kernelNames: [String] = children.compactMap { child in
+            // 与 PC simRows 一致：展开**全部** children（含 默认项/refind_linux.conf/macOS 诊断/折叠内核），带右侧来源标签。
+            let childRows: [(String, String)] = children.compactMap { child in
                 let src = (child["source"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-                guard src == "kernel" else { return nil }
                 let ctitle = (child["title"] as? String ?? "").trimmingCharacters(in: .whitespaces)
                 guard !ctitle.isEmpty else { return nil }
                 let cname0 = ctitle.components(separatedBy: ":").first?
                     .trimmingCharacters(in: .whitespaces) ?? ctitle
                 let cname = GrubFormat.stripKernel(cname0.isEmpty ? ctitle : cname0)
-                return cname
+                let tag = GrubFormat.childSourceLabel(src)
+                return (cname, tag)
             }
-            if !kernelNames.isEmpty {
-                // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
-                options.append(BootOption(value: "", label: "▾ \(GrubFormat.osIcon(title))\(title)（\(kernelNames.count) 项）",
-                                          kind: kind, header: true))
-                for cname in kernelNames {
-                    options.append(BootOption(value: title, label: "↳ \(cname)", kind: kind))
+            if !childRows.isEmpty {
+                // 父条目作组头（不可选）+ 组内子项（label 仅内核名，来源标签走 tag 字段，渲染时右对齐）
+                options.append(BootOption(value: "", label: "▾ \(GrubFormat.osIcon(title))\(title)", kind: kind, header: true))
+                for (cname, tag) in childRows {
+                    options.append(BootOption(value: title, label: cname, kind: kind, tag: tag))
                 }
             } else {
                 options.append(BootOption(value: title, label: title, kind: kind))
@@ -402,6 +406,16 @@ enum GrubFormat {
         return ""
     }
 
+    static func childSourceLabel(_ source: String) -> String {
+        switch source {
+        case "default": return "默认项"
+        case "options": return "refind_linux.conf"
+        case "kernel": return "折叠内核"
+        case "macos": return "macOS 诊断"
+        case "stanza": return "submenuentry"
+        default: return ""
+        }
+    }
     static func stripKernel(_ name: String) -> String {
         var value = name.trimmingCharacters(in: .whitespaces)
         if value.hasPrefix("vmlinuz-") { value.removeFirst("vmlinuz-".count) }
@@ -435,6 +449,32 @@ enum GrubFormat {
 
     /// 拼出选择面板里的展示行 —— 与 PC 托盘「GRUB 启动项」逐条对齐
     /// rEFInd/RefindPlus 下拉行：顶层项 + 组头(header) + 组内子项(↳)，与 PC 一致。
+    /// rEFInd 弹窗行（对齐 PC 小屏）：组头「▾ 图标 名」+右侧「N 项」；子项「↳ 图标 名」+右侧来源 tag；顶层项原样。
+    static func refindSheetRows(_ group: BootGroup) -> [GrubRow] {
+        var rows: [GrubRow] = []
+        let opts = group.options
+        var i = 0
+        while i < opts.count {
+            let o = opts[i]
+            if o.header {
+                // 数其后连续子项
+                var j = i + 1
+                var cnt = 0
+                while j < opts.count && !opts[j].header { cnt += 1; j += 1 }
+                rows.append(GrubRow(option: nil, text: o.label, isGroup: true, trailing: "\(cnt) 项"))
+                i += 1
+            } else {
+                // 子项：value 非空且属于某组(value=父title)，用 ↳ + 图标；顶层项原样
+                let isChild = !o.value.isEmpty && opts.contains { $0.header && $0.label.contains(o.value) }
+                let icon = osIcon(o.label)
+                let text = isChild ? "↳ " + icon + o.label : icon + o.label
+                rows.append(GrubRow(option: o, text: text, isGroup: false, child: isChild, trailing: o.tag))
+                i += 1
+            }
+        }
+        return rows
+    }
+
     static func refindRows(_ group: BootGroup) -> [GrubRow] {
         var rows: [GrubRow] = []
         let options = group.options

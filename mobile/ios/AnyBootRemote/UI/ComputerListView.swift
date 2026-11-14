@@ -1804,27 +1804,36 @@ struct ComputerListView: View {
                 .padding(.bottom, ABMetric.px(6))
         }
 
-        // rEFInd: parseRefind 已把 options 组装成显示行（组头「▾ 图标 名(N项)」/子项「↳ 内核」）→ 直接 map。
         let rows: [GrubRow] = (kind == Kind.refind)
-            ? group.options.map { GrubRow(option: $0.value.isEmpty ? nil : $0, text: $0.label, isGroup: $0.header) }
+            ? GrubFormat.refindSheetRows(group)
             : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
 
         ForEach(rows) { row in
             if row.isGroup {
-                Text(row.text)
-                    .font(.system(size: 11))
-                    .foregroundColor(ABColor.fgFaint)
-                    .padding(.top, ABMetric.px(7))
-                    .padding(.bottom, ABMetric.px(2))
-                    .padding(.leading, ABMetric.px(2))
+                HStack(spacing: ABMetric.px(6)) {
+                    Text(row.text)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(ABColor.fgDim)
+                    Spacer(minLength: 0)
+                    if !row.trailing.isEmpty {
+                        Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
+                    }
+                }
+                .padding(.top, ABMetric.px(8))
+                .padding(.bottom, ABMetric.px(3))
+                .padding(.leading, ABMetric.px(2))
             } else if let option = row.option {
-                let selected = option.value == group.current
+                // 子项(同 value=父title)不逐个高亮/打勾；只有顶层"当前项"高亮（对齐 PC：子项不高亮）
+                let selected = !row.child && !option.value.isEmpty && option.value == group.current
                 Button {
                     sheet = nil
                     switchBoot(profile, kind: kind, value: option.value, verb: "切换")
                 } label: {
                     HStack(spacing: ABMetric.px(8)) {
-                        if row.child { Spacer().frame(width: ABMetric.px(14)) }
+                        if row.child {
+                            Rectangle().fill(ABColor.fgFaint.opacity(0.25)).frame(width: ABMetric.px(2))
+                                .padding(.leading, ABMetric.px(6))
+                        }
                         bootDot(option.kind)
                         if row.pinned {
                             Text("下次启动")
@@ -1839,6 +1848,9 @@ struct ComputerListView: View {
                             .lineLimit(2)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        if !row.trailing.isEmpty {
+                            Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint).lineLimit(1)
+                        }
                         if selected {
                             DrawnIcon.check(ABColor.accent, size: ABMetric.px(16))
                         }
