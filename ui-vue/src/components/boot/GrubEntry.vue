@@ -92,9 +92,10 @@ const osIcon = computed(() => {
 });
 
 const displayName = computed(() => {
-  // 置顶子项不再拼「组名 › 」前缀：这是代码拼的箭头，grub.cfg 原文里没有；
-  // 列表自带的组头（▸ 组名 N 项）+ 缩进已能表明归属（用户：删掉 grub 自己拼的箭头）。
-  const prefix = "";
+  // 置顶（回显）项拼「一级 › 二级」前缀（照旧版 grub 回显）；其余行不拼（归属靠组头+缩进）。
+  const prefix = props.pinned && props.groupTitle && props.groupTitle.trim()
+    ? props.groupTitle.trim() + " › "
+    : "";
   // 缩进靠 CSS（.is-child / .depth-N），这里只用箭头补强「这是组里的项」
   const baseText = props.group
     ? props.entry.name
