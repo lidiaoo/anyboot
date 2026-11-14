@@ -106,10 +106,10 @@ function localEntries(kind: string): { entries: EntryData[]; active: string; gro
   }
   return null;
 }
-function openPicker(kind: string) {
-  // 本机：直接用「系统引导页」同源快照，与其数量/条目一致；OC/rEFInd 平铺(flat)不折叠。
+async function openPicker(kind: string) {
+  // 本机：直接复用「系统引导页」同一个 BootList 组件；先拉一次最新 uiState，确保与本机系统页同源同步。
   if (isLocal.value) {
-    // 本机：直接复用「系统引导页」同一个 BootList 组件渲染，保证与其完全一致（内容/样式/置顶）。
+    try { await (ui as any).pollOnce?.(); } catch { /* 忽略 */ }
     picker.value = { kind, title: localTitle(kind), entries: [], active: "", groupTitles: {}, flat: true, useBootList: true };
     return;
   }
