@@ -4167,10 +4167,10 @@ class ComputerListActivity : ComponentActivity() {
             if (kernels.isNotEmpty()) {
                 // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
                 options.add(
-                    BootOption(value = "", label = "$title（${kernels.size} 个内核）", kind = kind, header = true),
+                    BootOption(value = "", label = "▸ ${grubOsIcon(title)}$title（${kernels.size} 项）", kind = kind, header = true),
                 )
                 for (cname in kernels) {
-                    options.add(BootOption(value = title, label = cname, kind = kind))
+                    options.add(BootOption(value = title, label = "↳ $cname", kind = kind))
                 }
             } else {
                 options.add(BootOption(value = title, label = title, kind = kind))
