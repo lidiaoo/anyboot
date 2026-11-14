@@ -158,7 +158,7 @@ function onClick() {
   >
     <template v-if="entry.tags?.length || entry.sub || entry.note">
       <span class="grub-entry-body">
-        <span v-if="pinned" class="grub-entry-pin">下次启动</span><span class="grub-entry-name">{{ displayName }}</span>
+        <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">下次启动</span>{{ displayName }}</span>
         <span v-if="entry.tags?.length" class="grub-entry-tags">
           <small v-for="(tg, i) in entry.tags" :key="i" class="grub-entry-tag">{{ tg }}</small>
         </span>
@@ -167,7 +167,7 @@ function onClick() {
       </span>
     </template>
     <template v-else>
-      <span v-if="pinned" class="grub-entry-pin">下次启动</span><span class="grub-entry-name">{{ displayName }}</span>
+      <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">下次启动</span>{{ displayName }}</span>
       <small v-if="tagText" :class="group ? 'grub-entry-count' : 'grub-entry-tag'">
         {{ tagText }}
       </small>

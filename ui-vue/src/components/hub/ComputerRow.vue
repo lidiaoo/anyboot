@@ -61,7 +61,7 @@ const emit = defineEmits<{
 
 const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
-const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string } | null>(null);
+const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string> } | null>(null);
 function openPicker(kind: string) {
   // refind / refindplus / grub 是固定组；其余 kind 到 channels 里找（kind = channel:<id>）
   const group = kind === "refind" ? props.info?.refind : kind === "refindplus" ? props.info?.refindplus
@@ -74,9 +74,18 @@ function openPicker(kind: string) {
   // 的平铺项保持普通行。渲染出的「▸ 组名（N 项）+ 缩进子项」与主菜单完全一致。
   const entries: EntryData[] = [];
   let groupLabel = "";
+  const groupTitles: Record<string, string> = {};
+  const currentValue = String((group as { current?: string })?.current ?? "");
   for (const o of opts) {
+    // 后端把「当前选中项(置顶回显)」作为第一条、且 label 已拼「组名 › 二级」。
+    // 这里**跳过它** —— 否则前端 GrubList 会再渲染一份置顶副本(activeEntry) + 这份原位行 → 重复。
+    if (!o.header && groupLabel === "" && currentValue && String(o.value ?? "") === currentValue) {
+      continue;
+    }
     if (o.header) {
-      groupLabel = String(o.label ?? "");
+      // 组头 label 形如「▸ Arch Linux 的高级选项（6 项）」——取纯组名做 submenu 键与显示
+      groupLabel = String(o.label ?? "").replace(/^[▾▸\s]+/, "").replace(/（\d+\s*项[^）]*）\s*$/, "").trim();
+      if (groupLabel) groupTitles[groupLabel] = groupLabel;
       continue;
     }
     const value = String(o.value ?? "");
@@ -91,6 +100,7 @@ function openPicker(kind: string) {
     title: (group as { title?: string })?.title ?? kind,
     entries,
     active: String((group as { current?: string })?.current ?? ""),
+    groupTitles,
   };
 }
 function chooseBoot(value: string) {
@@ -547,6 +557,7 @@ function onRowClick() {
           <GrubList
             :entries="picker.entries"
             :active-selector="picker.active"
+            :group-titles="picker.groupTitles"
             @select="chooseBoot"
           />
         </div>

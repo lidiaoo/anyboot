@@ -281,7 +281,7 @@ const selectedLoaderState = computed(
             type="button"
             class="lg-item grub-entry is-pinned active"
             @click="adv.setSelection(selected!.loader as any, selected!.selector)"
-          ><span class="grub-entry-pin">下次启动</span><span class="grub-entry-name">{{ selectedEntry.name }}</span></button>
+          ><span class="grub-entry-name"><span class="grub-entry-pin">下次启动</span>{{ selectedEntry.name }}</span></button>
           <template v-for="g in results" :key="g.loader.id">
             <div v-if="g.entries.length" class="lg-group">{{ g.loader.name }} · {{ g.entries.length }} 项</div>
             <button
