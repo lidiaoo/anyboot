@@ -3130,8 +3130,7 @@ class ComputerListActivity : ComponentActivity() {
                         // rEFInd / RefindPlus 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：
                         // 只有 label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
                         val rows = if (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS) {
-                            // 组头行 isHeader=true → 渲染成小标题（与 GRUB/PC 同款层级）
-                            group.options.map { GrubRow(it, it.label, it.header) }
+                            refindDisplayRows(group)
                         } else {
                             grubDisplayRows(group)
                         }
@@ -3162,7 +3161,7 @@ class ComputerListActivity : ComponentActivity() {
                                         sheetRequest = null
                                         switchBoot(rid, request.kind, option.value, "切换")
                                     }
-                                    .padding(horizontal = 11.dp, vertical = 12.dp),
+                                    .padding(start = if (row.child) 26.dp else 11.dp, end = 11.dp, top = 12.dp, bottom = 12.dp),
                             ) {
                                 // GRUB 行的 label 已按条目名自带平台图标，另画 BootDot
                                 // 会一行两个（用户定案：保留 label 里的、删这个）；
@@ -4365,6 +4364,35 @@ class ComputerListActivity : ComponentActivity() {
      * * 子项「↳ 」缩进；顶层与各组各有一套折叠状态（非原始格式折叠同名变体）；
      * * 原始/复杂在行尾附内核名（或「转交引导」/class）。
      */
+    /**
+     * rEFInd / RefindPlus 下拉行：后端口径 = 顶层项 + 若干组头（header=true）+ 组内子项。
+     * 与 PC 一致：组头「▾ 图标 组名」、子项「↳ 图标 名」加缩进；组头前的顶层项平铺。
+     * 当前项(current/lastBoot)置顶由 options.firstOrNull value==current 命中（无则无置顶，两端口径一致）。
+     */
+    private fun refindDisplayRows(group: BootGroup): List<GrubRow> {
+        val options = group.options
+        if (options.isEmpty()) return emptyList()
+        val rows = mutableListOf<GrubRow>()
+        // 置顶当前项（如后端给了 current/lastBoot 命中）
+        options.firstOrNull { it.value.isNotBlank() && it.value == group.current }?.let { pinned ->
+            rows.add(GrubRow(pinned, pinned.label.trim(), false, pinned = true))
+        }
+        var inGroup = false
+        for (o in options) {
+            if (o.header) {
+                inGroup = true
+                // header 渲染只画 Text(label)，故自带「▾ 图标 名（N 项）」
+                val fixed = o.label.trim().replace("个内核", "项")
+                val txt = if (fixed.startsWith("▾")) fixed else "▾ ${grubOsIcon(fixed)}$fixed"
+                rows.add(GrubRow(null, txt, true))
+            } else {
+                // 顶层/子项 label 纯文本（渲染层加 BootDot；子项靠 child 缩进）
+                rows.add(GrubRow(o, o.label.trim(), false, child = inGroup))
+            }
+        }
+        return rows
+    }
+
     private fun grubDisplayRows(group: BootGroup): List<GrubRow> {
         val options = group.options
         if (options.isEmpty()) return emptyList()
@@ -4892,7 +4920,7 @@ class ComputerListActivity : ComponentActivity() {
     )
 
     /** 一行展示项：[option] 为 null 时是组头（不可点），否则是可选项 + 拼好的文字 */
-    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false)
+    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false, val child: Boolean = false)
 
     private data class BootInfo(
         val ok: Boolean,

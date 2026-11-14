@@ -89,6 +89,7 @@ struct GrubRow: Identifiable {
     var text: String
     var isGroup: Bool
     var pinned: Bool = false
+    var child: Bool = false
 
     var id: String {
         // 组内子项可能共用同一 value（rEFInd 折叠内核全部 value=父条目 title），
@@ -432,6 +433,30 @@ enum GrubFormat {
     }
 
     /// 拼出选择面板里的展示行 —— 与 PC 托盘「GRUB 启动项」逐条对齐
+    /// rEFInd/RefindPlus 下拉行：顶层项 + 组头(header) + 组内子项(↳)，与 PC 一致。
+    static func refindRows(_ group: BootGroup) -> [GrubRow] {
+        var rows: [GrubRow] = []
+        let options = group.options
+        // 置顶副本（渲染层会加 bootDot，label 保持纯文本；child/顶层标识交给渲染层）
+        if let pinned = options.first(where: { !$0.value.isEmpty && $0.value == group.current }) {
+            rows.append(GrubRow(option: pinned, text: pinned.label, isGroup: false, pinned: true))
+        }
+        var inGroup = false
+        for o in options {
+            if o.header {
+                inGroup = true
+                // 组头渲染只画 Text(label)，故 label 需带「▾ 图标 名（N 项）」；若后端 label 已带 ▾/图标则不重复。
+                let fixed = o.label.replacingOccurrences(of: "个内核", with: "项")
+                let txt = fixed.hasPrefix("▾") ? fixed : ("▾ " + osIcon(fixed) + fixed)
+                rows.append(GrubRow(option: nil, text: txt, isGroup: true))
+            } else {
+                // 顶层项/子项：label 纯文本（渲染层加 bootDot；子项靠 child 缩进标识）
+                rows.append(GrubRow(option: o, text: o.label, isGroup: false, child: inGroup))
+            }
+        }
+        return rows
+    }
+
     static func displayRows(_ group: BootGroup, selectedFormat: String) -> [GrubRow] {
         let options = group.options
         if options.isEmpty { return [] }

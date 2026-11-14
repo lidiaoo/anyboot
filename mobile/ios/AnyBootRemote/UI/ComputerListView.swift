@@ -1804,8 +1804,8 @@ struct ComputerListView: View {
                 .padding(.bottom, ABMetric.px(6))
         }
 
-        let rows: [GrubRow] = kind == Kind.refind
-            ? group.options.map { GrubRow(option: $0, text: $0.label, isGroup: $0.header) }
+        let rows: [GrubRow] = (kind == Kind.refind)
+            ? GrubFormat.refindRows(group)
             : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
 
         ForEach(rows) { row in
@@ -1823,6 +1823,7 @@ struct ComputerListView: View {
                     switchBoot(profile, kind: kind, value: option.value, verb: "切换")
                 } label: {
                     HStack(spacing: ABMetric.px(8)) {
+                        if row.child { Spacer().frame(width: ABMetric.px(14)) }
                         bootDot(option.kind)
                         if row.pinned {
                             Text("下次启动")
