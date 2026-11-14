@@ -2302,22 +2302,6 @@ struct ComputerListView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !row.isDefault && !row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
-                Button {
-                    sheet = nil
-                    switchPreviewAction(profile, channel: channel, row: row)
-                } label: {
-                    Text("设为默认 ⤴")
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, ABMetric.px(10))
-                        .padding(.vertical, ABMetric.px(7))
-                        .background(
-                            RoundedRectangle(cornerRadius: ABMetric.px(9), style: .continuous)
-                                .fill(ABColor.accent))
-                }
-                .buttonStyle(.plain)
-            }
         }
         .padding(.horizontal, ABMetric.px(11))
         .padding(.vertical, ABMetric.px(10))
@@ -2326,6 +2310,14 @@ struct ComputerListView: View {
             RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
                 .fill(ABColor.elevate.opacity(0.5)))
         .padding(.bottom, ABMetric.px(6))
+        // 与 PC 一致：点整行切换（不单设「设为默认」按钮）
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !row.isDefault && !row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
+                sheet = nil
+                switchPreviewAction(profile, channel: channel, row: row)
+            }
+        }
     }
 
     /// OC 预演行「设为默认 ⤴」的动作（busy 键与通道切换共用，按钮据此转圈）
