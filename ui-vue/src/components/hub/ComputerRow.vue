@@ -5,6 +5,7 @@ import type { EntryData } from "@/components/boot/types";
 import type { RemoteProfile } from "@/stores/remote";
 import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
+import { useUiStateStore } from "@/stores/uiState";
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -62,7 +63,42 @@ const emit = defineEmits<{
 const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
 const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string> } | null>(null);
+const ui = useUiStateStore();
+/** 本机（local）时，引导器数据以系统引导页同源快照为准（避免 remote_boot_info 的折叠/换源口径差）。返回 GrubList 的 entries + 当前项 + 组标题。 */
+function localEntries(kind: string): { entries: EntryData[]; current: string; groupTitles: Record<string, string> } | null {
+  if (kind === "grub") {
+    const src = (ui as any).linuxGrub ?? null;
+    const list = (src?.entries ?? []) as { selector?: string; name?: string; submenu?: string; class?: string; kernels?: string[]; variants?: number; chainloader?: boolean }[];
+    const groupTitles: Record<string, string> = {};
+    for (const g of (src?.groups ?? []) as { id?: string; name?: string }[]) if (g.id) groupTitles[g.id] = g.name ?? "";
+    const entries: EntryData[] = list.map((e) => ({ selector: e.selector, name: e.name, class: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenu: e.submenu } as EntryData));
+    return { entries, current: String(src?.nextEntry ?? src?.savedEntry ?? ""), groupTitles };
+  }
+  if (kind === "refind" || kind === "refindplus") {
+    const sim: any = kind === "refind" ? (ui as any).refindSim : (ui as any).refindplusSim;
+    const list = (sim?.entries ?? []) as { title?: string; lastBoot?: boolean }[];
+    const entries: EntryData[] = list.filter((e) => !(e as any).hidden).map((e) => ({ selector: String(e.title ?? ""), name: String(e.title ?? "") } as EntryData));
+    const cur = list.find((e) => e.lastBoot)?.title ?? "";
+    return { entries, current: String(cur), groupTitles: {} };
+  }
+  if (kind.startsWith("channel:")) {
+    const id = kind.slice("channel:".length);
+    const ch = ((ui as any).channels ?? []).find((c: any) => c.id === id);
+    const preview = (ch?.menuPreview?.entries ?? []) as { spec?: string; title?: string; class?: string; default?: boolean }[];
+    const entries: EntryData[] = preview.map((r) => ({ selector: String(r.spec ?? r.title ?? ""), name: String(r.title ?? ""), class: r.class } as EntryData));
+    const cur = preview.find((r) => r.default)?.title ?? "";
+    return { entries, current: String(cur), groupTitles: {} };
+  }
+  return null;
+}
 function openPicker(kind: string) {
+  // 本机：直接用「系统引导页」同源快照（linuxGrub / refindSim / channel.menuPreview），保证与其数量/条目一致。
+  if (isLocal.value) {
+    const le = localEntries(kind);
+    if (!le || !le.entries.length) return;
+    picker.value = { kind, title: localTitle(kind), entries: le.entries, active: le.current, groupTitles: le.groupTitles };
+    return;
+  }
   // refind / refindplus / grub 是固定组；其余 kind 到 channels 里找（kind = channel:<id>）
   const group = kind === "refind" ? props.info?.refind : kind === "refindplus" ? props.info?.refindplus
     : kind === "grub" ? props.info?.grub
@@ -138,7 +174,19 @@ const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直
 
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
+function localTitle(kind: string): string {
+  if (kind === "refind") return "rEFInd"; if (kind === "refindplus") return "RefindPlus"; if (kind === "grub") return "GRUB";
+  const id = kind.startsWith("channel:") ? kind.slice(8) : kind;
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
 function bootState(kind: string): { label: string; none: boolean; dot: string } {
+  if (isLocal.value) {
+    const le = localEntries(kind);
+    if (!le || !le.entries.length) return { label: "未检测到", none: true, dot: "" };
+    let hit = le.entries.find((e) => String(e.selector) === le.current);
+    if (!hit) hit = le.entries.find((e) => (e.name && le.current && e.name.indexOf(le.current) >= 0) || (e.selector && le.current && String(e.selector).indexOf(le.current) >= 0));
+    return { label: hit ? String(hit.name) : (le.current || "未选择"), none: le.entries.length === 0, dot: (hit as any)?.class || "" };
+  }
   const group = kind === "refind" || kind === "refindplus" || kind === "grub" ? props.info?.[kind] : undefined;
   if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
   if (!group.available) return { label: "未检测到", none: true, dot: "" };
