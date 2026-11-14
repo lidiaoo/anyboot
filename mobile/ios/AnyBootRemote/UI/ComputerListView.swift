@@ -51,6 +51,7 @@ struct ComputerListView: View {
     @State private var filter: Filter = .all
     @State private var selectedId = ""
     @State private var sheet: SheetRequest?
+    @State private var debugSheetFired = false
     @State private var editorTarget: ComputerEditorTarget?
     @State private var deleteTarget: ServerProfile?
     /// ⋮ →「电脑列表」弹的责任端清单（对齐 Android `MoreServerListDialog`）
@@ -122,6 +123,34 @@ struct ComputerListView: View {
         }
         .onChange(of: store.servers.count) { _, _ in
             if boots.isEmpty { refreshAll() }
+        }
+        // [调试] 自动展开指定引导器下拉（截图验证用）：启动前 UserDefaults 设 ab_debug_sheet=rEFInd|GRUB|OpenCore
+        .onChange(of: boots.count) { _, _ in maybeAutoSheet() }
+        .onAppear { maybeAutoSheet() }
+    }
+
+    /// [调试] 仅用于自动化截图：读到 ab_debug_sheet 且本机 boot 已就绪时，自动弹对应引导器下拉
+    private func maybeAutoSheet() {
+        guard !debugSheetFired else { return }
+        let want = (UserDefaults.standard.string(forKey: "ab_debug_sheet") ?? "").trimmingCharacters(in: .whitespaces)
+        guard !want.isEmpty else { return }
+        // 找本机(127.0.0.1)或 activeId 对应的 profile
+        // 优先 127.0.0.1 本机（调试截图目标）
+        guard let prof = store.servers.first(where: { $0.host.contains("127.0.0.1") || $0.addresses.contains(where: { $0.contains("127.0.0.1") }) })
+                ?? store.servers.first(where: { $0.id == selectedId })
+                ?? store.servers.first(where: { $0.id == store.activeId })
+        else { return }
+        guard boots[prof.id] != nil else { return }  // 等 boot 数据到
+        debugSheetFired = true
+        let k = want.lowercased()
+        if k.contains("refind") {
+            sheet = SheetRequest(rid: prof.id, kind: Kind.refind)
+        } else if k == "grub" {
+            sheet = SheetRequest(rid: prof.id, kind: Kind.grub)
+        } else if k.contains("opencore") {
+            if let ch = boots[prof.id]?.channels.first(where: { $0.id == "opencore" }) {
+                sheet = SheetRequest(rid: prof.id, kind: Kind.channel, channel: ch)
+            }
         }
     }
 

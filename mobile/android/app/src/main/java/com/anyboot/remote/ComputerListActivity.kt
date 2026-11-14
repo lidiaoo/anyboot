@@ -4177,7 +4177,7 @@ class ComputerListActivity : ComponentActivity() {
             if (kernels.isNotEmpty()) {
                 // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
                 options.add(
-                    BootOption(value = "", label = "▸ ${grubOsIcon(title)}$title（${kernels.size} 项）", kind = kind, header = true),
+                    BootOption(value = "", label = "▾ ${grubOsIcon(title)}$title（${kernels.size} 项）", kind = kind, header = true),
                 )
                 for (cname in kernels) {
                     options.add(BootOption(value = title, label = "↳ $cname", kind = kind))
@@ -4429,7 +4429,7 @@ class ComputerListActivity : ComponentActivity() {
             if (!emittedGroups.add(submenuId)) return@forEach
             val title = names[submenuId]?.takeIf { it.isNotBlank() } ?: submenuId
             val count = children.count { it.grubSubmenuId == submenuId }
-            rows.add(GrubRow(null, "▸ ${grubOsIcon(title)}$title（$count 项$location）", true))
+            rows.add(GrubRow(null, "▾ ${grubOsIcon(title)}$title（$count 项$location）", true))
             val groupChildren = children.filter { it.grubSubmenuId == submenuId }
             val counts = grubCollapse(format, groupChildren)
             val emitted = mutableSetOf<String>()

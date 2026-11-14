@@ -192,7 +192,7 @@ enum BootParser {
             }
             if !kernelNames.isEmpty {
                 // 与 PC 端一致：父条目作组头（不可选），子项只显示内核名
-                options.append(BootOption(value: "", label: "▸ \(GrubFormat.osIcon(title))\(title)（\(kernelNames.count) 项）",
+                options.append(BootOption(value: "", label: "▾ \(GrubFormat.osIcon(title))\(title)（\(kernelNames.count) 项）",
                                           kind: kind, header: true))
                 for cname in kernelNames {
                     options.append(BootOption(value: title, label: "↳ \(cname)", kind: kind))
@@ -507,7 +507,7 @@ enum GrubFormat {
             let title = rawTitle.trimmingCharacters(in: .whitespaces).isEmpty ? submenuId : rawTitle
             let groupChildren = children.filter { $0.grubSubmenuId == submenuId }
             rows.append(GrubRow(option: nil,
-                                text: "▸ \(osIcon(title))\(title)（\(groupChildren.count) 项\(location)）",
+                                text: "▾ \(osIcon(title))\(title)（\(groupChildren.count) 项\(location)）",
                                 isGroup: true))
             let counts = collapse(format, groupChildren)
             var emitted = Set<String>()
