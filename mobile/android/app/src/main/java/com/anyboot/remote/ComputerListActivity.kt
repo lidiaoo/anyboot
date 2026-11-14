@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -3039,15 +3040,20 @@ class ComputerListActivity : ComponentActivity() {
         }
         val channel = if (request.kind == KIND_CHANNEL) request.channel else null
 
-        // 居中卡片弹窗（与 PC 网页端一致：宽=屏宽-24、四角圆角14、内容滚动、底部「取消」）
-        Dialog(
-            onDismissRequest = { sheetRequest = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false),
+        // 居中卡片弹窗（与 PC 网页端一致：宽=屏宽-24、四角圆角14、内容滚动、底部「取消」）。
+        // 用自定义 overlay（Box scrim + 居中卡片），不用 Compose Dialog——本项目里 Dialog 会出现点不开的问题。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.42f))
+                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { sheetRequest = null },
+            contentAlignment = Alignment.Center,
         ) {
             Column(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp)
+                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
                     .clip(RoundedCornerShape(14.dp))
                     .background(palette.card)
                     .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
