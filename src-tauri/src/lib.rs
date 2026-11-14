@@ -6804,9 +6804,8 @@ mod core_tests {
         let view = next_boot_grub_view(entries, groups, Some("l1"), "minimal");
         let nodes = grub_menu_nodes(&view, false);
         let labels: Vec<String> = nodes.iter().map(|node| node.label.clone()).collect();
-        // 置顶当前项在最前：不再补「组名 › 」前缀（与主窗同一规则 —— 归属由
-        // 组头 + 缩进表达），系统图标保留
-        assert_eq!(labels[0], "🐧 cachyos", "labels={labels:?}");
+        // 置顶当前项在最前：回显拼接「组名 › 子项」（对齐旧版 grub 回显），系统图标保留
+        assert_eq!(labels[0], "🐧 Linux › cachyos", "labels={labels:?}");
         // 顶层 Windows 原位照常出行（原始顺序）
         assert_eq!(labels[1], "🪟 Windows 11", "labels={labels:?}");
         // 组头带图标与条目数（极简格式不带 ESP 位置）

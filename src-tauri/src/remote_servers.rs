@@ -4539,9 +4539,15 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let group_titles = grub_submenu_titles(value);
     let mut options: Vec<BootOption> = Vec::new();
 
-    // 置顶当前选中项（不拼「组名 › 」前缀 —— 与主窗/托盘同一规则：归属由组头+缩进表达）
+    // 置顶当前选中项（回显带「组名 › 」前缀 —— 与旧版 grub 回显一致：二级菜单拼接「一级 › 二级」）
     if let Some(pinned) = entries.iter().find(|entry| entry.selector == active) {
-        let prefix = "";
+        let prefix = pinned
+            .submenu
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .and_then(|id| group_titles.get(id))
+            .map(|name| format!("{name} › "))
+            .unwrap_or_default();
         push_grub_option(
             &mut options,
             format,
@@ -6369,14 +6375,14 @@ mod tests {
             ]
         });
         let group = grub_from_json(&value, "simple");
-        // 置顶行在最前（不再拼「组名 › 」前缀 —— 箭头由前端 GrubList 自带）
+        // 置顶行在最前（回显带「组名 › 子项」前缀，对齐旧版）
         assert_eq!(group.options[0].value, "g>1");
         assert!(
             group.options[0].label.contains("cachyos-fallback"),
             "{}",
             group.options[0].label
         );
-        assert!(!group.options[0].label.contains("› "), "{}", group.options[0].label);
+        assert!(group.options[0].label.contains("Advanced options for CachyOS › "), "{}", group.options[0].label);
         // 顶层条目照常在原位出现（置顶行之外它还在）
         assert_eq!(group.options[1].value, "0");
         // 组头带计数与 ESP 位置（simple 档带，极简/原始不带）
