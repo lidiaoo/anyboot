@@ -1345,7 +1345,7 @@ class ComputerListActivity : ComponentActivity() {
                     shape,
                 )
                 // 点卡片空白处 = 选中这台（卡片内的按钮各自消费点击，不会误触）
-                .clickable { selectComputer(row.profile.id) }
+                .clickable { android.util.Log.d("BootBtn", "卡片被点击(选中) id=${row.profile.id}"); selectComputer(row.profile.id) }
                 .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 13.dp),
         ) {
             // 名称 + 当前徽标 + 分组 chip + ⋮
@@ -2378,8 +2378,10 @@ class ComputerListActivity : ComponentActivity() {
                     if (usable) Modifier.border(1.dp, borderColor, shape)
                     else Modifier.dashedBorder(borderColor, 11.dp, 1.dp)
                 )
-                .clickable(enabled = usable) {
+                .clickable(enabled = true) {
+                    android.util.Log.d("BootBtn", "GRUB/rEFInd 按钮被点击 kind=$kind usable=$usable")
                     when {
+                        !usable -> toast("探测/操作进行中，稍候再点")
                         group.options.isEmpty() -> toast("该设备没有可选的 $title 启动项")
                         row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
                         else -> sheetRequest = SheetRequest(row.profile.id, kind)
@@ -2515,8 +2517,9 @@ class ComputerListActivity : ComponentActivity() {
                     if (usable) Modifier.border(1.dp, borderColor, shape)
                     else Modifier.dashedBorder(borderColor, 11.dp, 1.dp)
                 )
-                .clickable(enabled = usable) {
+                .clickable(enabled = true) {
                     when {
+                        !usable -> toast("探测/操作进行中，稍候再点")
                         actionCount == 0 ->
                             toast("该设备没有可用的 ${channel.label} 动作")
                         row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
@@ -3056,9 +3059,7 @@ class ComputerListActivity : ComponentActivity() {
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
                     .clip(RoundedCornerShape(14.dp))
                     .background(palette.card)
-                    .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.62f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 4.dp),
+                    .height(LocalConfiguration.current.screenHeightDp.dp * 0.62f),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -3106,6 +3107,7 @@ class ComputerListActivity : ComponentActivity() {
                 Column(
                     Modifier
                         .fillMaxWidth()
+                        .weight(1f)
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = 18.dp),
                 ) {
