@@ -113,27 +113,42 @@ function openPicker(kind: string) {
     picker.value = { kind, title: localTitle(kind), entries: le.entries, active: le.active, groupTitles: le.groupTitles, flat: le.flat };
     return;
   }
-  // refind / refindplus / grub 是固定组；其余 kind 到 channels 里找（kind = channel:<id>）
-  const group = kind === "refind" ? props.info?.refind : kind === "refindplus" ? props.info?.refindplus
-    : kind === "grub" ? props.info?.grub
-    : (props.info?.channels ?? []).find((c) => c.kind === kind);
-  const opts = ((group as { options?: { value?: string; label?: string; header?: boolean; class?: string }[] })?.options ?? []);
-  if (!opts.some((o) => !o.header && (o.value ?? "").trim() !== "")) return; // 没有可选项就别弹
-  // **直接复用主菜单（系统引导页）rEFInd 同款的 GrubList**：把后端 options 转成
-  // GrubList 的行 —— header 行是组（submenu），其后的内核子项挂到该组下；组头之前
-  // 的平铺项保持普通行。渲染出的「▸ 组名（N 项）+ 缩进子项」与主菜单完全一致。
+  // 非本机：用 props.info（remote_boot_info 结果）。转换规则与「本机/系统页」一致：
+  const info: any = props.info;
+  //  - OC/rEFInd 平铺(flat)不折叠，含 fixed 行(如 Reset NVRAM)、保留 class 标签、推导 active 置顶；
+  //  - GRUB 仍是组结构（组头 + 子项），保留组折叠。
+  const group = kind === "refind" ? info?.refind : kind === "refindplus" ? info?.refindplus
+    : kind === "grub" ? info?.grub
+    : (info?.channels ?? []).find((c: any) => c.kind === kind);
+  const opts = ((group as { options?: { value?: string; label?: string; header?: boolean; class?: string; fixed?: boolean }[] })?.options ?? []);
+  const currentValue = String((group as { current?: string })?.current ?? "");
+  const flatKind = kind === "refind" || kind === "refindplus" || kind.startsWith("channel:");
+  if (flatKind) {
+    // 平铺：逐条转，保留 fixed（不可切）与 class 标签；value 空的 fixed 行用 label 作 selector。
+    const CLASS_LABEL: Record<string,string> = { mac:"macOS", win:"Windows", auto:"泛型", tool:"工具项", linux:"Linux", generic:"泛型" };
+    const entries: EntryData[] = [];
+    let activeSel = "";
+    for (const o of opts) {
+      if (o.header) continue;
+      const value = String(o.value ?? "");
+      const label = String(o.label ?? value);
+      const sel = value || label;
+      const isFixed = Boolean(o.fixed) || !value;
+      entries.push({ selector: sel, name: label, class: o.class, readonly: isFixed, tags: o.class ? [CLASS_LABEL[String(o.class)] || String(o.class)] : undefined } as EntryData);
+      if (!activeSel && (value === currentValue || label === currentValue)) activeSel = sel;
+    }
+    if (!entries.length) return;
+    picker.value = { kind, title: (group as { title?: string })?.title ?? kind, entries, active: activeSel, groupTitles: {}, flat: true };
+    return;
+  }
+  // GRUB（组结构）：原逻辑 —— 跳过置顶回显项，组头+子项。
+  if (!opts.some((o) => !o.header && (o.value ?? "").trim() !== "")) return;
   const entries: EntryData[] = [];
   let groupLabel = "";
   const groupTitles: Record<string, string> = {};
-  const currentValue = String((group as { current?: string })?.current ?? "");
   for (const o of opts) {
-    // 后端把「当前选中项(置顶回显)」作为第一条、且 label 已拼「组名 › 二级」。
-    // 这里**跳过它** —— 否则前端 GrubList 会再渲染一份置顶副本(activeEntry) + 这份原位行 → 重复。
-    if (!o.header && groupLabel === "" && currentValue && String(o.value ?? "") === currentValue) {
-      continue;
-    }
+    if (!o.header && groupLabel === "" && currentValue && String(o.value ?? "") === currentValue) continue;
     if (o.header) {
-      // 组头 label 形如「▸ Arch Linux 的高级选项（6 项）」——取纯组名做 submenu 键与显示
       groupLabel = String(o.label ?? "").replace(/^[▾▸\s]+/, "").replace(/（\d+\s*项[^）]*）\s*$/, "").trim();
       if (groupLabel) groupTitles[groupLabel] = groupLabel;
       continue;
@@ -380,7 +395,7 @@ function osIcon(kind: string, name: string): string {
 }
 
 function channelOf(kind: string) {
-  return (props.info?.channels ?? []).find((c) => c.kind === kind);
+  return (props.info?.channels ?? []).find((c: any) => c.kind === kind);
 }
 /** 通道列回显：current 是归一后的切换值域（opencore-default:… 裸 spec），直接渲染
  *  会把 spec 原串印出来。照主界面（系统引导页）的口径——显示**命中的条目名**：
