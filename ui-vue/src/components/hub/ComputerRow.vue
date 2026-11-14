@@ -130,7 +130,7 @@ async function openPicker(kind: string) {
       const src: any = (ui as any).linuxGrub ?? null;
       for (const g of (src?.groups ?? []) as any[]) if (g.id) groupTitles[g.id] = g.name ?? "";
       entries = ((src?.entries ?? []) as any[]).map((e) => ({ selector: e.selector, name: e.name, class: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenu: e.submenu } as EntryData));
-      active = String(src?.nextEntry || src?.savedEntry || "");
+      active = String(src?.nextEntry || src?.savedEntry || "").trim();
       flat = false;
     } else if (isRefindKind) {
       const sim: any = kind === "refind" ? (ui as any).refindSim : (ui as any).refindplusSim;
@@ -138,7 +138,7 @@ async function openPicker(kind: string) {
       // active = lastBoot 的 title（sim 原始 entries 里的 lastBoot；simRows 不保留该标记）
       const raw = (sim?.entries ?? []) as any[];
       const lb = raw.find((e) => e.lastBoot)?.title;
-      active = String(lb ?? "");
+      active = String(lb ?? "").trim();
       flat = false;  // rEFInd 有「组头+子项」层级
     } else if (isChannelKind) {
       const id = kind.slice("channel:".length);
@@ -157,7 +157,7 @@ async function openPicker(kind: string) {
       } as EntryData));
       const cur = String(ch?.currentDefault || "");
       const hit = ordered.find((r) => r.default === true || (cur && (cur === (r.spec || r.title) || cur.indexOf(String(r.title || "")) >= 0)));
-      active = String(hit ? (hit.spec || hit.title || "") : "");
+      active = String(hit ? (hit.spec || hit.title || "") : "").trim();
       flat = true;  // OC 平铺
     }
   } else {
@@ -168,24 +168,24 @@ async function openPicker(kind: string) {
     title = (group as { title?: string })?.title ?? title;
     const opts = ((group as { options?: any[] })?.options ?? []) as any[];
     const currentValue = String((group as { current?: string })?.current ?? "");
-    if (isGrubKind) {
+    // GRUB 和 rEFInd/RefindPlus 的 remote options 都带组结构（header=组头，其后为子项）→ 同一处理，保层级。
+    if (isGrubKind || isRefindKind) {
       // 组结构：header=组名，子项 submenu=组名
       let groupLabel = "";
       for (const o of opts) {
-        if (!o.header && groupLabel === "" && currentValue && String(o.value ?? "") === currentValue) continue;
         if (o.header) {
-          groupLabel = String(o.label ?? "").replace(/^[▾▸\s]+/, "").replace(/（\d+\s*项[^）]*）\s*$/, "").trim();
+          groupLabel = String(o.label ?? "").replace(/^[▾▸\s]+/, "").replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "").trim();
           if (groupLabel) groupTitles[groupLabel] = groupLabel;
           continue;
         }
-        const value = String(o.value ?? "");
+        const value = String(o.value ?? "").trim();
         if (!value) continue;
-        const row: EntryData = { selector: value, name: String(o.label ?? value) };
+        const row: EntryData = { selector: value, name: String(o.label ?? value).trim() };
         if (o.class) row.class = String(o.class);
         if (groupLabel) row.submenu = groupLabel;
         entries.push(row);
       }
-      active = currentValue;
+      active = currentValue.trim();
       flat = false;
     } else {
       // rEFInd / OC：平铺，保留 fixed/tags

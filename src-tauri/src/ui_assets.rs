@@ -9,7 +9,7 @@
 /// (相对路径, Content-Type, 文件正文)
 pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/WindowNavMenu-QJHsSnIM.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/WindowNavMenu-QJHsSnIM.css")),
-    ("assets/chunks/AboutPage-BnNP-vS-.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-BnNP-vS-.js")),
+    ("assets/chunks/AboutPage-DZY4aWqW.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/AboutPage-DZY4aWqW.js")),
     ("assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-C8X5Oy6O.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/LoaderIcon.vue_vue_type_script_setup_true_lang-C8X5Oy6O.js")),
     ("assets/chunks/ThemeA-DxoQHzoq.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeA-DxoQHzoq.js")),
     ("assets/chunks/ThemeB-DtEnI0Da.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/ThemeB-DtEnI0Da.js")),
@@ -25,7 +25,6 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/chunks/tauri-DBxa9-oc.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/tauri-DBxa9-oc.js")),
     ("assets/chunks/toast-B-OHr4gj.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/toast-B-OHr4gj.js")),
     ("assets/chunks/useEscape-D7y4RqK2.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/chunks/useEscape-D7y4RqK2.js")),
-    ("assets/hub-CQZ8-d8R.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-CQZ8-d8R.js")),
     ("assets/hub-D8Q1vm25.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-D8Q1vm25.css")),
     ("assets/hub-backup-CNkRCUIa.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-CNkRCUIa.js")),
     ("assets/hub-backup-DnIuWeWO.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-backup-DnIuWeWO.css")),
@@ -35,6 +34,7 @@ pub(crate) const UI_ASSETS: &[(&str, &str, &str)] = &[
     ("assets/hub-keys-BwuqJAzH.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-keys-BwuqJAzH.css")),
     ("assets/hub-term-fyvri2e8.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term-fyvri2e8.css")),
     ("assets/hub-term-hfgEAxl_.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-term-hfgEAxl_.js")),
+    ("assets/hub-wWvOXm9X.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/hub-wWvOXm9X.js")),
     ("assets/index-BS9kKVPv.js", "text/javascript; charset=utf-8", include_str!("../../ui-vue/dist/assets/index-BS9kKVPv.js")),
     ("assets/index-C0z5uLoR.css", "text/css; charset=utf-8", include_str!("../../ui-vue/dist/assets/index-C0z5uLoR.css")),
     ("hub-backup.html", "text/html; charset=utf-8", include_str!("../../ui-vue/dist/hub-backup.html")),
