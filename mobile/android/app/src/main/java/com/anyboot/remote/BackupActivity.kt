@@ -1093,7 +1093,7 @@ private fun ImportPreviewOverlay(
             ) {
                 // 来源行
                 Card {
-                    Text(stringResource(R.string.and_fromPlatform, platformName(summary.optString("platform", ""))),
+                    Text(stringResource(R.string.and_fromPlatform, platformName(LocalContext.current, summary.optString("platform", ""))),
                         fontSize = 13.sp, fontWeight = FontWeight.Medium, color = palette.fg)
                     Text(
                         BackupManager.isoNow().let { now ->
@@ -1231,8 +1231,8 @@ private fun ImportPreviewOverlay(
     if (confirmOverwrite) {
         AlertDialog(
             onDismissRequest = { confirmOverwrite = false },
-            title = { Text("覆盖导入") },
-            text = { Text("本机所选分类的现有数据将被备份内容替换。") },
+            title = { Text(stringResource(R.string.and_overwriteImport)) },
+            text = { Text(stringResource(R.string.and_overwriteImportDesc)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmOverwrite = false
@@ -1241,10 +1241,10 @@ private fun ImportPreviewOverlay(
                         importing = false
                         onReport(report)
                     }
-                }) { Text("覆盖导入", color = LocalPalette.current.bad) }
+                }) { Text(stringResource(R.string.and_overwriteImport), color = LocalPalette.current.bad) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmOverwrite = false }) { Text("取消") }
+                TextButton(onClick = { confirmOverwrite = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1260,17 +1260,17 @@ private fun runImport(context: android.content.Context, envelope: org.json.JSONO
             android.os.Handler(android.os.Looper.getMainLooper()).post { onDone(report) }
         } catch (error: Exception) {
             android.os.Handler(android.os.Looper.getMainLooper()).post {
-                toast(context, "导入失败：" + (error.message ?: "未知错误"))
+                toast(context, context.getString(R.string.and_importFailMsg, error.message ?: context.getString(R.string.gw_unknownErr)))
             }
         }
     }, "anyboot-apply").start()
 }
 
-private fun platformName(raw: String): String = when (raw) {
+private fun platformName(ctx: android.content.Context, raw: String): String = when (raw) {
     "ios" -> "iOS"
     "android" -> "Android"
-    "desktop", "macos", "windows", "linux" -> "桌面端"
-    else -> if (raw.isEmpty()) "未知设备" else raw
+    "desktop", "macos", "windows", "linux" -> ctx.getString(R.string.and_desktopPlatform)
+    else -> if (raw.isEmpty()) ctx.getString(R.string.and_unknownDevice) else raw
 }
 
 // ==================================================================
@@ -1283,7 +1283,7 @@ private fun ReportOverlay(report: BackupManager.Report, onClose: () -> Unit) {
     val allFailed = report.totalFailed()
     val anyImported = report.totalAdded() + report.totalUpdated() > 0
     val (icon, color, title) = when {
-        allFailed == 0 -> Triple("✓", palette.ok, "导入完成")
+        allFailed == 0 -> Triple("✓", palette.ok, stringResource(R.string.and_importDone))
         anyImported -> Triple("⚠", palette.warn, "导入完成（有失败项）")
         else -> Triple("✕", palette.bad, "导入失败")
     }
@@ -1316,22 +1316,22 @@ private fun ReportOverlay(report: BackupManager.Report, onClose: () -> Unit) {
             ).forEach { (cat, row) ->
                 if (row != null) {
                     val parts = mutableListOf<String>()
-                    if (row.optInt("added") > 0) parts.add("新增 ${row.optInt("added")}")
-                    if (row.optInt("updated") > 0) parts.add("覆盖 ${row.optInt("updated")}")
-                    if (row.optInt("skipped") > 0) parts.add("跳过 ${row.optInt("skipped")}")
+                    if (row.optInt("added") > 0) parts.add(stringResource(R.string.and_addedCount, row.optInt("added")))
+                    if (row.optInt("updated") > 0) parts.add(stringResource(R.string.and_overwrittenCount, row.optInt("updated")))
+                    if (row.optInt("skipped") > 0) parts.add(stringResource(R.string.and_skippedCount, row.optInt("skipped")))
                     if (parts.isNotEmpty()) {
                         lines.add("${BackupManager.labelOf(cat)}：${parts.joinToString(" · ")}")
                     }
                 }
             }
-            if (allFailed > 0) lines.add("失败 $allFailed 项")
+            if (allFailed > 0) lines.add(stringResource(R.string.and_nFailsParen, allFailed))
             Text(
-                if (lines.isEmpty()) "没有可导入的内容" else lines.joinToString("\n"),
+                if (lines.isEmpty()) stringResource(R.string.and_noImportableContent) else lines.joinToString("\n"),
                 fontSize = 13.sp, color = palette.fgDim,
                 modifier = Modifier.padding(top = 8.dp),
             )
             if (allFailed > 0) {
-                Text("失败不影响已导入的部分", fontSize = 11.sp, color = palette.fgFaint,
+                Text(stringResource(R.string.and_failNotAffectImported), fontSize = 11.sp, color = palette.fgFaint,
                     modifier = Modifier.padding(top = 4.dp))
                 Column(
                     Modifier
@@ -1355,7 +1355,7 @@ private fun ReportOverlay(report: BackupManager.Report, onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.weight(1f))
-            PrimaryButton(if (anyImported) "完成" else "返回", enabled = true, onClick = onClose)
+            PrimaryButton(if (anyImported) stringResource(R.string.and_doneBtn) else stringResource(R.string.and_back), enabled = true, onClick = onClose)
         }
     }
 }

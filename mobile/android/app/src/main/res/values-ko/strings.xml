@@ -2012,6 +2012,10 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_setDefaultDone">기본으로 설정(OC 메뉴의 Ctrl+Enter와 동일)</string>
     <string name="and_backupCorrupt">백업 파일 손상</string>
     <string name="and_opFailRaw">%1$s 실패: %2$s</string>
+    <string name="and_overwriteImport">덮어쓰기 가져오기</string>
+    <string name="and_overwriteImportDesc">선택 범주의 기존 데이터가 백업 내용으로 대체됩니다.</string>
+    <string name="and_importFailMsg">가져오기 실패: %1$s</string>
+    <string name="and_doneBtn">완료</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

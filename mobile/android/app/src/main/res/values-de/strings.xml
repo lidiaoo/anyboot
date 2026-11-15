@@ -2012,6 +2012,10 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_setDefaultDone">Als Standard gesetzt (wie Strg+Enter im OC-Menü)</string>
     <string name="and_backupCorrupt">Sicherungsdatei beschädigt</string>
     <string name="and_opFailRaw">%1$s fehlgeschlagen: %2$s</string>
+    <string name="and_overwriteImport">Überschreibend importieren</string>
+    <string name="and_overwriteImportDesc">Bestehende Daten der gewählten Kategorien werden durch die Sicherung ersetzt.</string>
+    <string name="and_importFailMsg">Import fehlgeschlagen: %1$s</string>
+    <string name="and_doneBtn">Fertig</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

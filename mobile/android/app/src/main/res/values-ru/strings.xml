@@ -2012,6 +2012,10 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_setDefaultDone">Сделано по умолчанию (как Ctrl+Enter в меню OC)</string>
     <string name="and_backupCorrupt">Файл копии повреждён</string>
     <string name="and_opFailRaw">%1$s: ошибка %2$s</string>
+    <string name="and_overwriteImport">Импорт с перезаписью</string>
+    <string name="and_overwriteImportDesc">Существующие данные выбранных категорий будут заменены копией.</string>
+    <string name="and_importFailMsg">Ошибка импорта: %1$s</string>
+    <string name="and_doneBtn">Готово</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

@@ -2012,6 +2012,10 @@ Telnet：実験的端末のみ。</string>
     <string name="and_setDefaultDone">既定に設定（OC メニューの Ctrl+Enter と同じ）</string>
     <string name="and_backupCorrupt">バックアップファイルが破損</string>
     <string name="and_opFailRaw">%1$s 失敗：%2$s</string>
+    <string name="and_overwriteImport">上書き取り込み</string>
+    <string name="and_overwriteImportDesc">選択カテゴリの既存データがバックアップ内容に置き換えられます。</string>
+    <string name="and_importFailMsg">取り込み失敗：%1$s</string>
+    <string name="and_doneBtn">完了</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

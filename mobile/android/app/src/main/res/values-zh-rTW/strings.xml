@@ -2012,6 +2012,10 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_setDefaultDone">已設為預設（等價 OC 選單裡的 Ctrl+Enter）</string>
     <string name="and_backupCorrupt">備份檔案已損壞</string>
     <string name="and_opFailRaw">%1$s失敗：%2$s</string>
+    <string name="and_overwriteImport">覆蓋匯入</string>
+    <string name="and_overwriteImportDesc">本機所選分類的現有資料將被備份內容替換。</string>
+    <string name="and_importFailMsg">匯入失敗：%1$s</string>
+    <string name="and_doneBtn">完成</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

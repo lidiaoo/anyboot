@@ -2012,6 +2012,10 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_setDefaultDone">Establecido como predeterminado (igual que Ctrl+Enter en el menú OC)</string>
     <string name="and_backupCorrupt">Archivo de copia dañado</string>
     <string name="and_opFailRaw">%1$s falló: %2$s</string>
+    <string name="and_overwriteImport">Importar sobrescribiendo</string>
+    <string name="and_overwriteImportDesc">Los datos existentes de las categorías se reemplazarán por el backup.</string>
+    <string name="and_importFailMsg">Error de importación: %1$s</string>
+    <string name="and_doneBtn">Hecho</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

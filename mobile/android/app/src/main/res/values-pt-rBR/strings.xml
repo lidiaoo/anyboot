@@ -2012,6 +2012,10 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_setDefaultDone">Definido como padrão (igual a Ctrl+Enter no menu OC)</string>
     <string name="and_backupCorrupt">Arquivo de backup corrompido</string>
     <string name="and_opFailRaw">%1$s falhou: %2$s</string>
+    <string name="and_overwriteImport">Importar sobrescrevendo</string>
+    <string name="and_overwriteImportDesc">Dados existentes das categorias selecionadas serão substituídos pelo backup.</string>
+    <string name="and_importFailMsg">Falha na importação: %1$s</string>
+    <string name="and_doneBtn">Concluído</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>
