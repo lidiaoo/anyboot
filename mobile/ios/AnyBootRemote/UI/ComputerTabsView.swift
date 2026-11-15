@@ -575,11 +575,7 @@ struct ComputerTabsView: View {
                         Text(L("and.powerCheck"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
-                        Text("① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；\n"
-                             + "② 用的是**有线网卡**的 MAC —— 绝大多数无线网卡不支持关机唤醒；\n"
-                             + "③ MAC 填在「编辑服务端」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；\n"
-                             + "④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；\n"
-                             + "⑤ 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）。")
+                        Text(L("and.powerCheckNote2"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
