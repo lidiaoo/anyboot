@@ -105,10 +105,7 @@ pub(crate) fn plan_routes(
         };
         if macs.is_empty() {
             // 包体是标准魔术包，没有 MAC 就没有包体 —— 所有动作都必须配 MAC
-            problems.push(format!(
-                "「{}」这条路由没配 MAC，标准魔术包发不出去（在「编辑」里给地址行加上 MAC）",
-                if route.target.is_empty() { "自动广播".to_string() } else { route.target.clone() }
-            ));
+            problems.push(crate::t!(crate::i18n::current(),"「{}」这条路由没配 MAC，标准魔术包发不出去（在「编辑」里给地址行加上 MAC）","「{}」這條路由沒設 MAC，標準魔術封包發不出去（在「編輯」裡給位址列加上 MAC）","“{}” route has no MAC; standard magic packet can't be sent (add a MAC to the address row in Edit)","「{}」のルートに MAC 未設定。標準マジックパケット送信不可（「編集」でアドレス行に MAC 追加）","‘{}’ 라우트에 MAC 미설정. 표준 매직 패킷 전송 불가(‘편집’에서 주소 행에 MAC 추가)","Route „{}“ ohne MAC; Standard-Magic-Packet nicht sendbar (MAC in „Bearbeiten“ an der Adresszeile ergänzen)","Маршрут «{}» без MAC; стандартный magic packet не отправить (добавьте MAC в «Изменить»)","Rota “{}” sem MAC; magic packet padrão não envia (adicione MAC na linha em Editar)","Ruta «{}» sin MAC; magic packet estándar no se envía (añade MAC en Editar)").replace("{}", &(if route.target.is_empty() { crate::t!(crate::i18n::current(),"自动广播","自動廣播","Auto broadcast","自動ブロードキャスト","자동 브로드캐스트","Auto-Broadcast","Авто-broadcast","Broadcast automático","Broadcast automático").to_string() } else { route.target.clone() })));
             continue;
         }
         let mut targets = if route.target.is_empty() {
@@ -179,10 +176,10 @@ pub(crate) fn send_plan(
         } else {
             plan.problems.join("；")
         };
-        return Err(format!("没有可发的电源包：{detail}"));
+        return Err(crate::t!(crate::i18n::current(),"没有可发的电源包：{}","沒有可發的電源封包：{}","No power packet to send: {}","送信できる電源パケットなし：{}","보낼 전원 패킷 없음: {}","Kein Energiepaket zu senden: {}","Нечего отправлять: {}","Nenhum pacote de energia para enviar: {}","Ningún paquete de energía para enviar: {}").replace("{}", &detail));
     }
     let (sent, where_from) = match jump {
-        None => (send_local(&plan.deliveries)?, "本机".to_string()),
+        None => (send_local(&plan.deliveries)?, crate::t!(crate::i18n::current(),"本机","本機","This machine","このマシン","이 기기","Dieser Rechner","Этот компьютер","Esta máquina","Este equipo").to_string()),
         Some(jump) => {
             // 重试次数取各路由里的最大值：没发出去就重连跳板机再打一轮。
             // 每次尝试都新起一个 ssh 进程 = 重新连接跳板机。
@@ -215,9 +212,7 @@ pub(crate) fn send_plan(
         }
     };
     if sent == 0 {
-        return Err(format!(
-            "{where_from}一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，或者广播地址填错了"
-        ));
+        return Err(crate::t!(crate::i18n::current(),"{where_from}一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，或者广播地址填错了","{where_from}一個封包都沒發出去：可能在隔離網路、防火牆攔了 UDP 廣播，或者廣播位址填錯了","{where_from} sent no packet: possibly an isolated network, firewall blocking UDP broadcast, or a wrong broadcast address","{where_from} は 1 パケットも送信されず：隔離ネットワーク、ファイアウォールの UDP 遮断、またはブロードキャストアドレス誤り","{where_from} 1개도 전송 안 됨: 격리 네트워크, 방화벽 UDP 차단, 또는 브로드캐스트 주소 오류","{where_from} sendete kein Paket: isoliertes Netz, Firewall blockiert UDP oder falsche Broadcast-Adresse","{where_from} не отправил ни пакета: изолированная сеть, брандмауэр блокирует UDP или неверный адрес","{where_from} não enviou pacote: rede isolada, firewall bloqueando UDP ou endereço errado","{where_from} no envió ningún paquete: red aislada, firewall bloqueando UDP o dirección incorrecta").replace("{where_from}", &where_from));
     }
     Ok((sent, where_from))
 }
@@ -328,10 +323,7 @@ fn send_via_jump(
     let notool_tag = format!("{POWER_TAG}-NOTOOL");
     let ok_tag = format!("{POWER_TAG}-OK");
     if stdout.contains(&notool_tag) {
-        return Err(format!(
-            "跳板机 {} 上没有 python3 —— 装一个（apt install python3）或换台跳板机",
-            jump.host
-        ));
+        return Err(crate::t!(crate::i18n::current(),"跳板机 {} 上没有 python3 —— 装一个（apt install python3）或换台跳板机","跳板機 {} 上沒有 python3 —— 裝一個（apt install python3）或換台跳板機","Jump host {} lacks python3 — install it (apt install python3) or use another jump host","踏み台 {} に python3 がありません — 導入（apt install python3）か別の踏み台に","점프 호스트 {}에 python3 없음 — 설치(apt install python3) 또는 다른 점프 호스트","Sprungserver {} hat kein python3 – installieren (apt install python3) oder anderen","На узле {} нет python3 — установите (apt install python3) или другой узел","O jump host {} não tem python3 — instale (apt install python3) ou outro","El host de salto {} no tiene python3 — instala (apt install python3) u otro").replace("{}", &jump.host));
     }
     let sent = stdout
         .split_whitespace()
