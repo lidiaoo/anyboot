@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "Añadidas {n} transferencias";
 "and.cutPrefix" = "Cortado: ";
 "and.copyPrefix" = "Copiado: ";
+"and.failNotAffectImported" = "Los fallos no afectan a la parte importada";
+"and.addedCount" = "Añadir {x}";
+"and.overwrittenCount" = "Sobrescribir {x}";
+"and.skippedCount" = "Omitir {x}";
+"and.catSeg" = "{c}: {s}";
+"and.noImportableContent" = "Nada que importar";
+"and.nFailsParen" = "{n} fallos";
+"and.remoteAddrInvalid" = "Dirección remota no válida";
+"and.snapshotNoGrub" = "Sin grub en la instantánea";
+"and.errConfirmLine1" = "· El «control remoto» de AnyBoot está activo y el móvil y el PC en la misma LAN";
+"and.errConfirmLine2" = "· Dirección es IP y puerto del PC (p. ej. 192.168.0.120:12300)";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

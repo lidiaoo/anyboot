@@ -1998,6 +1998,17 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_addedNTransfers">Adicionadas %1$d transferências</string>
     <string name="and_cutPrefix">Recortado: </string>
     <string name="and_copyPrefix">Copiado: </string>
+    <string name="and_failNotAffectImported">Falhas não afetam a parte importada</string>
+    <string name="and_addedCount">Adicionar %1$s</string>
+    <string name="and_overwrittenCount">Sobrescrever %1$s</string>
+    <string name="and_skippedCount">Pular %1$s</string>
+    <string name="and_catSeg">%1$s: %2$s</string>
+    <string name="and_noImportableContent">Nada para importar</string>
+    <string name="and_nFailsParen">%1$d falhas</string>
+    <string name="and_remoteAddrInvalid">Endereço remoto inválido</string>
+    <string name="and_snapshotNoGrub">Sem grub no snapshot</string>
+    <string name="and_errConfirmLine1">· O “controle remoto” do AnyBoot está ativo e o celular e o PC na mesma LAN</string>
+    <string name="and_errConfirmLine2">· Endereço é IP e porta do PC (ex. 192.168.0.120:12300)</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

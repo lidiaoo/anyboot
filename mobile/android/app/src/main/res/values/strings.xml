@@ -1998,6 +1998,17 @@ Telnet：只有实验性终端。</string>
     <string name="and_addedNTransfers">已加入 %1$d 个传输任务</string>
     <string name="and_cutPrefix">已剪切：</string>
     <string name="and_copyPrefix">已复制：</string>
+    <string name="and_failNotAffectImported">失败不影响已导入的部分</string>
+    <string name="and_addedCount">新增 %1$s</string>
+    <string name="and_overwrittenCount">覆盖 %1$s</string>
+    <string name="and_skippedCount">跳过 %1$s</string>
+    <string name="and_catSeg">%1$s：%2$s</string>
+    <string name="and_noImportableContent">没有可导入的内容</string>
+    <string name="and_nFailsParen">失败 %1$d 项</string>
+    <string name="and_remoteAddrInvalid">远程地址不合法</string>
+    <string name="and_snapshotNoGrub">快照里没有 grub</string>
+    <string name="and_errConfirmLine1">· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网</string>
+    <string name="and_errConfirmLine2">· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

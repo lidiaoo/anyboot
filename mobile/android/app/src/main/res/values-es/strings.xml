@@ -1998,6 +1998,17 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_addedNTransfers">Añadidas %1$d transferencias</string>
     <string name="and_cutPrefix">Cortado: </string>
     <string name="and_copyPrefix">Copiado: </string>
+    <string name="and_failNotAffectImported">Los fallos no afectan a la parte importada</string>
+    <string name="and_addedCount">Añadir %1$s</string>
+    <string name="and_overwrittenCount">Sobrescribir %1$s</string>
+    <string name="and_skippedCount">Omitir %1$s</string>
+    <string name="and_catSeg">%1$s: %2$s</string>
+    <string name="and_noImportableContent">Nada que importar</string>
+    <string name="and_nFailsParen">%1$d fallos</string>
+    <string name="and_remoteAddrInvalid">Dirección remota no válida</string>
+    <string name="and_snapshotNoGrub">Sin grub en la instantánea</string>
+    <string name="and_errConfirmLine1">· El «control remoto» de AnyBoot está activo y el móvil y el PC en la misma LAN</string>
+    <string name="and_errConfirmLine2">· Dirección es IP y puerto del PC (p. ej. 192.168.0.120:12300)</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

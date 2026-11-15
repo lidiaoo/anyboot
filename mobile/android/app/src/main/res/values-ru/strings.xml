@@ -1998,6 +1998,17 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_addedNTransfers">Добавлено задач: %1$d</string>
     <string name="and_cutPrefix">Вырезано: </string>
     <string name="and_copyPrefix">Скопировано: </string>
+    <string name="and_failNotAffectImported">Ошибки не влияют на импортированную часть</string>
+    <string name="and_addedCount">Добавлено %1$s</string>
+    <string name="and_overwrittenCount">Перезаписать %1$s</string>
+    <string name="and_skippedCount">Пропустить %1$s</string>
+    <string name="and_catSeg">%1$s: %2$s</string>
+    <string name="and_noImportableContent">Нечего импортировать</string>
+    <string name="and_nFailsParen">Сбоев: %1$d</string>
+    <string name="and_remoteAddrInvalid">Неверный удалённый адрес</string>
+    <string name="and_snapshotNoGrub">В снимке нет grub</string>
+    <string name="and_errConfirmLine1">· На ПК включено «удалённое управление», телефон и ПК в одной LAN</string>
+    <string name="and_errConfirmLine2">· Адрес — IP и порт ПК (напр. 192.168.0.120:12300)</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

@@ -76,15 +76,15 @@ final class ComputerTab: ObservableObject, Identifiable {
 
     /// 失败面板的明细：服务端/地址头 + 描述 + 多地址清单 + 「请确认」两条
     private func composeErrorDetail(_ description: String) -> String {
-        var detail = "服务端：\(profile.label)\n地址：\(addressSummary())\n\n\(description)"
+        var detail = L("and.errDetailServer", profile.label) + "\n" + L("and.errDetailAddr", addressSummary()) + "\n\n\(description)"
         let count = profile.addressCount
         if count > 1 {
             let list = (0..<count).map { "  " + profile.hostAt($0) }.joined(separator: "\n")
-            detail += "\n\n这台电脑的 \(count) 个地址都试过了：\n\(list)"
+            detail += "\n\n" + L("and.errDetailAllTried", count) + "\n\(list)"
         }
-        detail += "\n\n请确认：\n"
-            + "· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网\n"
-            + "· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）"
+        detail += "\n\n" + L("and.errDetailConfirm") + "\n"
+            + L("and.errConfirmLine1") + "\n"
+            + L("and.errConfirmLine2")
         return detail
     }
 
@@ -228,7 +228,7 @@ final class ComputerTab: ObservableObject, Identifiable {
         }
         guard let url = URL(string: raw) else {
             status = .failed
-            errorDetail = composeErrorDetail("远程地址不合法")
+            errorDetail = composeErrorDetail(L("and.remoteAddrInvalid"))
             return false
         }
         box.load(url)

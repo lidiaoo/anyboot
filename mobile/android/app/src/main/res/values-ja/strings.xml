@@ -1998,6 +1998,17 @@ Telnet：実験的端末のみ。</string>
     <string name="and_addedNTransfers">%1$d 件の転送を追加</string>
     <string name="and_cutPrefix">切り取り：</string>
     <string name="and_copyPrefix">コピー：</string>
+    <string name="and_failNotAffectImported">失敗しても取り込み済み部分には影響しません</string>
+    <string name="and_addedCount">追加 %1$s</string>
+    <string name="and_overwrittenCount">上書き %1$s</string>
+    <string name="and_skippedCount">スキップ %1$s</string>
+    <string name="and_catSeg">%1$s：%2$s</string>
+    <string name="and_noImportableContent">取り込める内容がありません</string>
+    <string name="and_nFailsParen">%1$d 件失敗</string>
+    <string name="and_remoteAddrInvalid">リモートアドレスが不正</string>
+    <string name="and_snapshotNoGrub">スナップショットに grub なし</string>
+    <string name="and_errConfirmLine1">· PC の AnyBoot「リモート制御」が有効、スマホと PC が同じ LAN</string>
+    <string name="and_errConfirmLine2">· アドレスは PC の IP とポート（例 192.168.0.120:12300）</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

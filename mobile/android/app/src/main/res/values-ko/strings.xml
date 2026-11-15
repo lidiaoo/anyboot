@@ -1998,6 +1998,17 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_addedNTransfers">%1$d개 전송 작업 추가</string>
     <string name="and_cutPrefix">잘라냄: </string>
     <string name="and_copyPrefix">복사됨: </string>
+    <string name="and_failNotAffectImported">실패해도 가져온 부분에는 영향 없음</string>
+    <string name="and_addedCount">추가 %1$s</string>
+    <string name="and_overwrittenCount">덮어쓰기 %1$s</string>
+    <string name="and_skippedCount">건너뛰기 %1$s</string>
+    <string name="and_catSeg">%1$s: %2$s</string>
+    <string name="and_noImportableContent">가져올 내용 없음</string>
+    <string name="and_nFailsParen">%1$d개 실패</string>
+    <string name="and_remoteAddrInvalid">원격 주소 오류</string>
+    <string name="and_snapshotNoGrub">스냅샷에 grub 없음</string>
+    <string name="and_errConfirmLine1">· PC의 AnyBoot ‘원격 제어’가 켜져 있고 휴대폰과 PC가 같은 LAN</string>
+    <string name="and_errConfirmLine2">· 주소는 PC의 IP와 포트(예 192.168.0.120:12300)</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

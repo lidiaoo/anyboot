@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "{n} 件の転送を追加";
 "and.cutPrefix" = "切り取り：";
 "and.copyPrefix" = "コピー：";
+"and.failNotAffectImported" = "失敗しても取り込み済み部分には影響しません";
+"and.addedCount" = "追加 {x}";
+"and.overwrittenCount" = "上書き {x}";
+"and.skippedCount" = "スキップ {x}";
+"and.catSeg" = "{c}：{s}";
+"and.noImportableContent" = "取り込める内容がありません";
+"and.nFailsParen" = "{n} 件失敗";
+"and.remoteAddrInvalid" = "リモートアドレスが不正";
+"and.snapshotNoGrub" = "スナップショットに grub なし";
+"and.errConfirmLine1" = "· PC の AnyBoot「リモート制御」が有効、スマホと PC が同じ LAN";
+"and.errConfirmLine2" = "· アドレスは PC の IP とポート（例 192.168.0.120:12300）";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

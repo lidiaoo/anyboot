@@ -1998,6 +1998,17 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_addedNTransfers">已加入 %1$d 個傳輸任務</string>
     <string name="and_cutPrefix">已剪下：</string>
     <string name="and_copyPrefix">已複製：</string>
+    <string name="and_failNotAffectImported">失敗不影響已匯入的部分</string>
+    <string name="and_addedCount">新增 %1$s</string>
+    <string name="and_overwrittenCount">覆蓋 %1$s</string>
+    <string name="and_skippedCount">略過 %1$s</string>
+    <string name="and_catSeg">%1$s：%2$s</string>
+    <string name="and_noImportableContent">沒有可匯入的內容</string>
+    <string name="and_nFailsParen">失敗 %1$d 項</string>
+    <string name="and_remoteAddrInvalid">遠端位址不合法</string>
+    <string name="and_snapshotNoGrub">快照裡沒有 grub</string>
+    <string name="and_errConfirmLine1">· 電腦上 AnyBoot 的「遠端控制」已開啟，手機和電腦在同一區域網路</string>
+    <string name="and_errConfirmLine2">· 位址填的是電腦上的 IP 和埠（例如 192.168.0.120:12300）</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

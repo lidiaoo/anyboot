@@ -513,7 +513,7 @@ struct BackupImportReport: View {
                 .padding(.top, ABMetric.px(8))
                 .padding(.horizontal, ABMetric.px(24))
             if !report.isEmpty {
-                Text("失败不影响已导入的部分")
+                Text(L("and.failNotAffectImported"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                     .padding(.top, ABMetric.px(4))
@@ -544,16 +544,16 @@ struct BackupImportReport: View {
         var parts: [String] = []
         for r in report.categories {
             var seg: [String] = []
-            if r.added > 0 { seg.append("新增 \(r.added)") }
-            if r.updated > 0 { seg.append("覆盖 \(r.updated)") }
-            if r.skipped > 0 { seg.append("跳过 \(r.skipped)") }
-            if !seg.isEmpty { parts.append("\(r.category.label)：\(seg.joined(separator: " · "))") }
+            if r.added > 0 { seg.append(L("and.addedCount", r.added)) }
+            if r.updated > 0 { seg.append(L("and.overwrittenCount", r.updated)) }
+            if r.skipped > 0 { seg.append(L("and.skippedCount", r.skipped)) }
+            if !seg.isEmpty { parts.append(L("and.catSeg", r.category.label, seg.joined(separator: " · "))) }
         }
-        if parts.isEmpty { parts = ["没有可导入的内容"] }
+        if parts.isEmpty { parts = [L("and.noImportableContent")] }
         var text = Text(parts.joined(separator: "\n"))
         let fails = report.totalFailed
         if fails > 0 {
-            text = text + Text("\n失败 \(fails) 项")
+            text = text + Text("\n" + L("and.nFailsParen", fails))
         }
         return text
     }

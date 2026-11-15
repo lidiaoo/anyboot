@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "已加入 {n} 个传输任务";
 "and.cutPrefix" = "已剪切：";
 "and.copyPrefix" = "已复制：";
+"and.failNotAffectImported" = "失败不影响已导入的部分";
+"and.addedCount" = "新增 {x}";
+"and.overwrittenCount" = "覆盖 {x}";
+"and.skippedCount" = "跳过 {x}";
+"and.catSeg" = "{c}：{s}";
+"and.noImportableContent" = "没有可导入的内容";
+"and.nFailsParen" = "失败 {n} 项";
+"and.remoteAddrInvalid" = "远程地址不合法";
+"and.snapshotNoGrub" = "快照里没有 grub";
+"and.errConfirmLine1" = "· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网";
+"and.errConfirmLine2" = "· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

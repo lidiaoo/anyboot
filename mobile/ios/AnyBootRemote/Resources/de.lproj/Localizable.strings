@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "{n} Übertragungsaufgaben hinzugefügt";
 "and.cutPrefix" = "Ausgeschnitten: ";
 "and.copyPrefix" = "Kopiert: ";
+"and.failNotAffectImported" = "Fehler beeinflussen den importierten Teil nicht";
+"and.addedCount" = "Neu {x}";
+"and.overwrittenCount" = "Überschreiben {x}";
+"and.skippedCount" = "Überspringen {x}";
+"and.catSeg" = "{c}: {s}";
+"and.noImportableContent" = "Nichts zu importieren";
+"and.nFailsParen" = "{n} fehlgeschlagen";
+"and.remoteAddrInvalid" = "Ungültige Remote-Adresse";
+"and.snapshotNoGrub" = "Kein grub im Snapshot";
+"and.errConfirmLine1" = "· AnyBoot „Fernsteuerung“ am PC an, Handy und PC im selben LAN";
+"and.errConfirmLine2" = "· Adresse ist IP und Port des PCs (z. B. 192.168.0.120:12300)";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

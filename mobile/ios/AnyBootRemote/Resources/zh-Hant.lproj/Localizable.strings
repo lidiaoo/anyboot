@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "已加入 {n} 個傳輸任務";
 "and.cutPrefix" = "已剪下：";
 "and.copyPrefix" = "已複製：";
+"and.failNotAffectImported" = "失敗不影響已匯入的部分";
+"and.addedCount" = "新增 {x}";
+"and.overwrittenCount" = "覆蓋 {x}";
+"and.skippedCount" = "略過 {x}";
+"and.catSeg" = "{c}：{s}";
+"and.noImportableContent" = "沒有可匯入的內容";
+"and.nFailsParen" = "失敗 {n} 項";
+"and.remoteAddrInvalid" = "遠端位址不合法";
+"and.snapshotNoGrub" = "快照裡沒有 grub";
+"and.errConfirmLine1" = "· 電腦上 AnyBoot 的「遠端控制」已開啟，手機和電腦在同一區域網路";
+"and.errConfirmLine2" = "· 位址填的是電腦上的 IP 和埠（例如 192.168.0.120:12300）";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

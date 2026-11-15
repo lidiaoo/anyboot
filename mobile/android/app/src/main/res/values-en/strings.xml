@@ -1998,6 +1998,17 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_addedNTransfers">Added %1$d transfer tasks</string>
     <string name="and_cutPrefix">Cut: </string>
     <string name="and_copyPrefix">Copied: </string>
+    <string name="and_failNotAffectImported">Failures don\'t affect the imported part</string>
+    <string name="and_addedCount">Add %1$s</string>
+    <string name="and_overwrittenCount">Overwrite %1$s</string>
+    <string name="and_skippedCount">Skip %1$s</string>
+    <string name="and_catSeg">%1$s: %2$s</string>
+    <string name="and_noImportableContent">Nothing to import</string>
+    <string name="and_nFailsParen">%1$d failed</string>
+    <string name="and_remoteAddrInvalid">Invalid remote address</string>
+    <string name="and_snapshotNoGrub">No grub in snapshot</string>
+    <string name="and_errConfirmLine1">· AnyBoot\'s “remote control” is on, and the phone and computer are on the same LAN</string>
+    <string name="and_errConfirmLine2">· The address is the computer\'s IP and port (e.g. 192.168.0.120:12300)</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

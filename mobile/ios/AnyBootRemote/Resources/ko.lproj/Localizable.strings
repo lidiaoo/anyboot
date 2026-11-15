@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "{n}개 전송 작업 추가";
 "and.cutPrefix" = "잘라냄: ";
 "and.copyPrefix" = "복사됨: ";
+"and.failNotAffectImported" = "실패해도 가져온 부분에는 영향 없음";
+"and.addedCount" = "추가 {x}";
+"and.overwrittenCount" = "덮어쓰기 {x}";
+"and.skippedCount" = "건너뛰기 {x}";
+"and.catSeg" = "{c}: {s}";
+"and.noImportableContent" = "가져올 내용 없음";
+"and.nFailsParen" = "{n}개 실패";
+"and.remoteAddrInvalid" = "원격 주소 오류";
+"and.snapshotNoGrub" = "스냅샷에 grub 없음";
+"and.errConfirmLine1" = "· PC의 AnyBoot ‘원격 제어’가 켜져 있고 휴대폰과 PC가 같은 LAN";
+"and.errConfirmLine2" = "· 주소는 PC의 IP와 포트(예 192.168.0.120:12300)";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

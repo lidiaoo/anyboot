@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "Added {n} transfer tasks";
 "and.cutPrefix" = "Cut: ";
 "and.copyPrefix" = "Copied: ";
+"and.failNotAffectImported" = "Failures don't affect the imported part";
+"and.addedCount" = "Add {x}";
+"and.overwrittenCount" = "Overwrite {x}";
+"and.skippedCount" = "Skip {x}";
+"and.catSeg" = "{c}: {s}";
+"and.noImportableContent" = "Nothing to import";
+"and.nFailsParen" = "{n} failed";
+"and.remoteAddrInvalid" = "Invalid remote address";
+"and.snapshotNoGrub" = "No grub in snapshot";
+"and.errConfirmLine1" = "· AnyBoot's “remote control” is on, and the phone and computer are on the same LAN";
+"and.errConfirmLine2" = "· The address is the computer's IP and port (e.g. 192.168.0.120:12300)";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

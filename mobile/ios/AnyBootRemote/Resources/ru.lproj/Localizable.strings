@@ -1961,6 +1961,17 @@
 "and.addedNTransfers" = "Добавлено задач: {n}";
 "and.cutPrefix" = "Вырезано: ";
 "and.copyPrefix" = "Скопировано: ";
+"and.failNotAffectImported" = "Ошибки не влияют на импортированную часть";
+"and.addedCount" = "Добавлено {x}";
+"and.overwrittenCount" = "Перезаписать {x}";
+"and.skippedCount" = "Пропустить {x}";
+"and.catSeg" = "{c}: {s}";
+"and.noImportableContent" = "Нечего импортировать";
+"and.nFailsParen" = "Сбоев: {n}";
+"and.remoteAddrInvalid" = "Неверный удалённый адрес";
+"and.snapshotNoGrub" = "В снимке нет grub";
+"and.errConfirmLine1" = "· На ПК включено «удалённое управление», телефон и ПК в одной LAN";
+"and.errConfirmLine2" = "· Адрес — IP и порт ПК (напр. 192.168.0.120:12300)";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

@@ -826,10 +826,10 @@ enum BootService {
         if let grub = grubSource {
             grubGroup = BootParser.parseGrub(grub)
         } else {
-            errors.append("快照里没有 grub")
+            errors.append(L("and.snapshotNoGrub"))
             grubGroup = BootGroup(kind: BootKind.grub, title: "GRUB", available: false,
                                   current: "", next: "", saved: "",
-                                  note: "快照里没有 grub", options: [])
+                                  note: L("and.snapshotNoGrub"), options: [])
         }
 
         let channelGroups: [ChannelGroup]
