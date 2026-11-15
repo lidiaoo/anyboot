@@ -2419,10 +2419,6 @@ class ComputerListActivity : ComponentActivity() {
                     // GRUB 同源图标（grub_os_icon 按名字识别的产物），rEFInd/RefindPlus 也用它
                     Text(iconOverride, fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
-                } else if (dot.isNotEmpty() && kind != KIND_GRUB) {
-                    // 兜底：GRUB 数据缺失时走 kind→platformEmoji 旧映射
-                    Text(platformEmoji(dot), fontSize = 12.5.sp)
-                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     valueLabel,
@@ -2551,10 +2547,6 @@ class ComputerListActivity : ComponentActivity() {
                     // GRUB 同源图标（grub_os_icon 按名字识别的产物）
                     Text(iconOverride, fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
-                } else if (dot.isNotEmpty()) {
-                    // 兜底：GRUB 数据缺失时走 kind→platformEmoji 旧映射
-                    Text(platformEmoji(dot), fontSize = 12.5.sp)
-                    Spacer(Modifier.width(7.dp))
                 }
                 Text(
                     valueLabel,
@@ -2579,36 +2571,7 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
-    /** 后端 icon 值（linux/windows/macos/menu）→ 圆点色（win 蓝 / mac 灰 / linux 橙 / menu 空心） */
-    private fun iconKind(icon: String): String = when (icon) {
-        "windows" -> "win"
-        "macos" -> "mac"
-        "linux" -> "linux"
-        else -> "auto"
-    }
 
-    /** 启动项前面的分类小圆点：win 蓝 / mac 灰 / linux 橙 / auto 空心环 */
-    @Composable
-    /** 平台 emoji 图标（与 PC 端 osIcon / 后端 grub_os_icon 同一映射；圆点弃用） */
-    private fun platformEmoji(kind: String): String {
-        val k = kind.lowercase()
-        return when {
-            k.contains("win") || k.contains("microsoft") -> "🪟 "
-            k.contains("mac") || k.contains("apple") -> "🍎 "
-            k.contains("linux") || k.contains("cachyos") || k.contains("ubuntu")
-                || k.contains("fedora") || k.contains("mint") || k.contains("manjaro")
-                || k.contains("arch") -> "🐧 "
-            else -> ""
-        }
-    }
-
-    // 2026-11-11 编译修复：上一条提交把分类点改成 emoji 后，@Composable 注解
-    // 落在了 platformEmoji 头上（KDoc 插在中间），BootDot 反而没标 —— 调 Text
-    // 直接编译失败。这里给 BootDot 补回注解。
-    @Composable
-    private fun BootDot(kind: String) {
-        Text(platformEmoji(kind), fontSize = 13.sp)
-    }
 
     // ---- 电源按钮 ----------------------------------------------------
 
