@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
+import { t } from "@/i18n";
 import { onMounted, onUnmounted, ref } from "vue";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
@@ -127,7 +128,7 @@ function loadScript(src: string): Promise<void> {
     const el = document.createElement("script");
     el.src = src;
     el.onload = () => resolve();
-    el.onerror = () => reject(new Error(`加载失败: ${src}`));
+    el.onerror = () => reject(new Error(t("termWin.loadFail", { src })));
     document.head.appendChild(el);
   });
 }
@@ -198,7 +199,7 @@ async function createSession(id: string, title: string): Promise<Session | null>
   const settings = readTermSettings();
   const TermCtor = (window as unknown as { Terminal?: new (o: unknown) => XTermLike }).Terminal;
   if (!TermCtor) {
-    errorText.value = "xterm.js 没加载成功";
+    errorText.value = t("termWin.xtermFail");
     return null;
   }
   const term = new TermCtor({
@@ -358,7 +359,7 @@ onMounted(async () => {
       // 不立刻 dispose（否则错误一闪没、只剩空白/「已连接」）。
       if (code !== 0) {
         try { session.term.write("\r\n\x1b[1;31m[连接已结束] SSH 退出码 " + code + " —— 目标机可能连不上或认证失败。\x1b[0m\r\n"); } catch { /* ignore */ }
-        if (activeId.value === session.id) { connText.value = "连接已断开"; connOk.value = false; }
+        if (activeId.value === session.id) { connText.value = t("termWin.disconnected"); connOk.value = false; }
         return; // 保留标签，用户可手动关
       }
       session.term.dispose();
@@ -375,7 +376,7 @@ onMounted(async () => {
   unlisteners.push(
     await listen("ab-term-settings-changed", () => {
       applyTermSettings();
-      toast.show("终端设置已应用");
+      toast.show(t("termWin.settingsApplied"));
     }),
   );
 
@@ -427,14 +428,14 @@ async function openServer(server: string | Record<string, unknown>) {
   // 同一台服务器已有活会话 → 直接切过去，不重复开（旧版去重）
   const existed = sessions.value.find((s) => s.serverId === sid);
   if (existed) { selectTab(existed.id); return; }
-  connText.value = "连接中…";
+  connText.value = t("termWin.connecting");
   connOk.value = false;
   try {
     const result = await call<{ id: string; title?: string }>(
       isTauri() ? "hub_term_open" : "hub_term_open_web",
       { server: serverObj ?? sid },
     );
-    const session = await createSession(result.id, result.title || "终端");
+    const session = await createSession(result.id, result.title || t("nav.terminal"));
     if (session) {
       session.serverId = sid;
       const cols = (session.term as unknown as { cols?: number }).cols ?? 80;
@@ -445,10 +446,10 @@ async function openServer(server: string | Record<string, unknown>) {
     // open 已返回 → 把攒着的数据写进去
     flushPending(session);
     if (!isTauri()) startWebPoll();
-    connText.value = "已连接";
+    connText.value = t("termWin.connected");
     connOk.value = true;
   } catch (error) {
-    connText.value = "连接失败";
+    connText.value = t("termWin.connectFail");
     connOk.value = false;
     errorText.value = String(error);
   }
@@ -495,7 +496,7 @@ function startWebPoll() {
             webReadFails.delete(s.id);
             webDead.add(s.id);
             try { s.term.write("\r\n\x1b[1;31m[连接已结束] SSH 会话已断开 —— 目标机可能连不上或认证失败。\x1b[0m\r\n"); } catch { /* ignore */ }
-            if (activeId.value === s.id) { connText.value = "连接已断开"; connOk.value = false; }
+            if (activeId.value === s.id) { connText.value = t("termWin.disconnected"); connOk.value = false; }
           }
         }
       }
@@ -517,7 +518,7 @@ function selectTab(id: string) {
 }
 
 async function closeSession(id: string) {
-  showToast("已关闭会话");
+  showToast(t("termWin.closedSession"));
   try {
     await call("hub_term_close", { sessionId: id });
   } catch {
@@ -539,27 +540,27 @@ async function closeSession(id: string) {
         <path d="M6 9l3 3-3 3" />
       </svg>
     </span>
-    <h1 id="title">终端</h1>
+    <h1 id="title">{{ $t("nav.terminal") }}</h1>
     <span id="connPill" class="pill" :class="connOk ? 'ok' : 'bad'" :hidden="connText === '—'">
       <span class="dot" />
       <span id="connText">{{ connText }}</span>
     </span>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('termWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        主题
+        {{ $t("termWin.theme") }}
       </button>
-      <button type="button" class="toolbtn" id="fontBtn" aria-label="调整字号" title="切换字号" @click="cycleFont">
+      <button type="button" class="toolbtn" id="fontBtn" :aria-label="$t('termWin.fontAria')" :title="$t('termWin.fontTitle')" @click="cycleFont">
         <span class="a">A</span><span class="b">A</span>
       </button>
     </div>
   </header>
 
-  <div class="tabbar" id="tabbar" role="tablist" aria-label="终端会话">
+  <div class="tabbar" id="tabbar" role="tablist" :aria-label="$t('termWin.tabbarAria')">
     <button
       v-for="session in sessions"
       :key="session.id"
@@ -571,7 +572,7 @@ async function closeSession(id: string) {
       {{ session.title }}
       <span class="x" @click.stop="closeSession(session.id)">×</span>
     </button>
-    <button type="button" class="tabbar-add" aria-label="新建会话" @click="pickOpen = true">＋</button>
+    <button type="button" class="tabbar-add" :aria-label="$t('termWin.newSession')" @click="pickOpen = true">＋</button>
   </div>
 
   <div class="term-wrap">
@@ -583,7 +584,7 @@ async function closeSession(id: string) {
         <path d="M6 9l3 3-3 3" />
         <path d="M12 15h6" />
       </svg>
-      <div>还没有会话 —— 点上方 <b>＋</b> 选择一台服务器</div>
+      <div>{{ $t("termWin.noSession") }}</div>
     </div>
   </div>
 
@@ -591,22 +592,22 @@ async function closeSession(id: string) {
     <span><span class="dot" id="footDot" /><span id="footHost">{{ footHost }}</span></span>
     <span aria-hidden="true">·</span><span>xterm-256color</span>
     <span aria-hidden="true">·</span><span id="footSize">{{ footSize }}</span>
-    <span class="lat"><span class="dot" />延迟 <span id="footLat">—</span></span>
+    <span class="lat"><span class="dot" />{{ $t("termWin.latency") }} <span id="footLat">—</span></span>
   </footer>
 
   <!-- 服务器选择弹层（旧版 #pick） -->
   <div v-if="pickOpen" id="pick" class="modal" @click.self="pickOpen = false">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
       <div class="modal-head">
-        <h3 id="pickTitle">选择要连接的服务器</h3>
-        <button type="button" id="pickClose" aria-label="关闭" @click="pickOpen = false">
+        <h3 id="pickTitle">{{ $t("termWin.pickTitle") }}</h3>
+        <button type="button" id="pickClose" :aria-label="$t('common.close')" @click="pickOpen = false">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
       <div class="server-list" id="pickList">
-        <p v-if="!servers.length" class="hint">还没有 SSH 服务器 —— 到「服务器」页添加一台</p>
+        <p v-if="!servers.length" class="hint">{{ $t("termWin.noSsh") }}</p>
         <button
           v-for="s in servers"
           :key="s.id"
