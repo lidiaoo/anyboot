@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">Ошибка канала push</string>
     <string name="cl_footerNote">Команды питания сразу (без подтверждения) · пробуждение работает и offline (magic packet) · изменения загрузки — после перезагрузки</string>
     <string name="topbar_sidebar">Боковая панель</string>
+    <string name="and_noProfileEdit">На странице компьютера нет текущего — ⋮ карточки тоже редактирует</string>
+    <string name="and_selectCardReload">Сначала нажмите карточку, чтобы выбрать компьютер для перезагрузки</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

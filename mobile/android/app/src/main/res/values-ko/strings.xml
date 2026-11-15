@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">푸시 채널 오류</string>
     <string name="cl_footerNote">전원 작업 즉시 실행(확인 없음) · 깨우기는 오프라인에서도 가능(매직 패킷) · 부팅 항목 변경은 재부팅 후 적용</string>
     <string name="topbar_sidebar">사이드바</string>
+    <string name="and_noProfileEdit">컴퓨터 페이지에 현재 컴퓨터가 없습니다 — 카드 오른쪽 ⋮로도 편집</string>
+    <string name="and_selectCardReload">먼저 카드를 탭해 다시 로드할 컴퓨터를 선택</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

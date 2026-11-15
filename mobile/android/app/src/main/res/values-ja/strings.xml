@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">プッシュチャネルのエラー</string>
     <string name="cl_footerNote">電源操作は即実行（確認なし）· スリープ解除はオフラインでも可（マジックパケット）· 起動項目の変更は再起動後に有効</string>
     <string name="topbar_sidebar">サイドバー</string>
+    <string name="and_noProfileEdit">電腦ページに現在の PC がありません — カード右の ⋮ からも編集可</string>
+    <string name="and_selectCardReload">先にカードをタップして再読み込みする PC を選択</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

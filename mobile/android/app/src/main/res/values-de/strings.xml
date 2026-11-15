@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">Push-Kanal-Fehler</string>
     <string name="cl_footerNote">Energiebefehle sofort (keine Bestätigung) · Aufwecken auch offline (Magic Packet) · Startänderungen nach Neustart</string>
     <string name="topbar_sidebar">Seitenleiste</string>
+    <string name="and_noProfileEdit">Kein aktueller Computer auf der Computerseite – das ⋮ der Karte kann auch bearbeiten</string>
+    <string name="and_selectCardReload">Zuerst eine Karte antippen, um den neu zu ladenden Computer zu wählen</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

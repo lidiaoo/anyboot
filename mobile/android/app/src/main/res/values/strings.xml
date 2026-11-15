@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">推送通道出错</string>
     <string name="cl_footerNote">电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启后生效</string>
     <string name="topbar_sidebar">侧边栏</string>
+    <string name="and_noProfileEdit">电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑</string>
+    <string name="and_selectCardReload">先点一下卡片选中要重载的电脑</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

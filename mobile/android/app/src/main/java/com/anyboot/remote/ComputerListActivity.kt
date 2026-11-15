@@ -513,7 +513,7 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(text = { Text(stringResource(R.string.and_editCurrent)) }, onClick = {
                     open = false
                     val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
-                    if (profile == null) toast("电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑")
+                    if (profile == null) toast(getString(R.string.and_noProfileEdit))
                     else openEdit(profile)
                 })
                 DropdownMenuItem(text = { Text(stringResource(R.string.nav_computerList)) }, onClick = {
@@ -524,14 +524,14 @@ class ComputerListActivity : ComponentActivity() {
                     open = false
                     val id = selectedId.ifEmpty { ServerStore.activeId(this@ComputerListActivity) }
                     val profile = ServerStore.find(servers.toList(), id)
-                    if (profile == null) toast("先点一下卡片选中要重载的电脑")
+                    if (profile == null) toast(getString(R.string.and_selectCardReload))
                     else reloadBoot(profile)
                 })
                 DropdownMenuItem(text = { Text(stringResource(R.string.menu_reloadAll)) }, onClick = {
                     open = false; refreshAll()
                 })
                 DropdownMenuItem(
-                    text = { Text(if (moreConnectAll) "✓ 启动时连接全部服务端" else "启动时连接全部服务端") },
+                    text = { Text((if (moreConnectAll) "✓ " else "") + stringResource(R.string.menu_connectAll)) },
                     onClick = {
                         open = false
                         moreConnectAll = !moreConnectAll
@@ -570,15 +570,15 @@ class ComputerListActivity : ComponentActivity() {
                 // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 拖出来的顺序（默认）；
                 // 自定义模式下切走再切回来，原顺序还在（sortIndex 不清）
                 DropdownMenuItem(
-                    text = { Text(if (moreSortMode == "custom") "✓ 排序：自定义（▴▾ 调整）" else "排序：自定义（▴▾ 调整）") },
+                    text = { Text((if (moreSortMode == "custom") "✓ " else "") + stringResource(R.string.menu_orderCustom)) },
                     onClick = { open = false; setSortMode("custom") },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (moreSortMode == "name") "✓ 排序：按名称" else "排序：按名称") },
+                    text = { Text((if (moreSortMode == "name") "✓ " else "") + stringResource(R.string.menu_orderName)) },
                     onClick = { open = false; setSortMode("name") },
                 )
                 DropdownMenuItem(
-                    text = { Text(if (moreSortMode == "recent") "✓ 排序：最近连接" else "排序：最近连接") },
+                    text = { Text((if (moreSortMode == "recent") "✓ " else "") + stringResource(R.string.menu_orderRecent)) },
                     onClick = { open = false; setSortMode("recent") },
                 )
             }

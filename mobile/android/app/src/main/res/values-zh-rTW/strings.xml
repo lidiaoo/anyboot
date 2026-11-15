@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">推送通道出錯</string>
     <string name="cl_footerNote">電源操作立即執行（不再確認）· 喚醒離線也能發（魔術封包）· 引導項變更在下次重新啟動後生效</string>
     <string name="topbar_sidebar">側邊欄</string>
+    <string name="and_noProfileEdit">電腦頁還沒有目前電腦 —— 卡片右側 ⋮ 也能直接編輯</string>
+    <string name="and_selectCardReload">先點一下卡片選中要重載的電腦</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

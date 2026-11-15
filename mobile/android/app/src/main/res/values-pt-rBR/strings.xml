@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">Erro no canal de push</string>
     <string name="cl_footerNote">Ações de energia imediatas (sem confirmação) · acordar funciona offline também (magic packet) · mudanças de boot após reiniciar</string>
     <string name="topbar_sidebar">Barra lateral</string>
+    <string name="and_noProfileEdit">Sem computador atual na página — o ⋮ do cartão também edita</string>
+    <string name="and_selectCardReload">Toque um cartão primeiro para selecionar o computador</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

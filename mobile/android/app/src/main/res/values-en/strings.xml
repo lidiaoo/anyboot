@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">Push channel error</string>
     <string name="cl_footerNote">Power actions run immediately (no confirmation) · wake works offline too (magic packet) · boot changes take effect after reboot</string>
     <string name="topbar_sidebar">Sidebar</string>
+    <string name="and_noProfileEdit">No current computer on the computer page — the card\'s ⋮ can also edit directly</string>
+    <string name="and_selectCardReload">Tap a card first to select the computer to reload</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

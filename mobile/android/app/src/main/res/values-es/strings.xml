@@ -1148,6 +1148,8 @@
     <string name="ts_pushError">Error del canal push</string>
     <string name="cl_footerNote">Acciones de energía inmediatas (sin confirmación) · despertar funciona sin conexión (magic packet) · cambios de arranque tras reiniciar</string>
     <string name="topbar_sidebar">Barra lateral</string>
+    <string name="and_noProfileEdit">No hay equipo actual en la página: el ⋮ de la tarjeta también edita</string>
+    <string name="and_selectCardReload">Toca una tarjeta primero para seleccionar el equipo</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
