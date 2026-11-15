@@ -554,31 +554,21 @@ struct ComputerTabsView: View {
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("· 睡眠 = 挂起到内存：几乎立刻能醒，但网络服务全停 —— 这个标签会显示离线、页面打不开，这是预期的。叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；\n"
-                             + "· 关机：电脑立刻关机，网页服务随之中断 —— 之后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；\n"
-                             + "· 重启：电脑立刻重启，网页会话断开 —— 重启完成后心跳会自动恢复在线；\n"
-                             + "· 唤醒：发魔术包让电脑开机，需配好 MAC 并在主板开启网络唤醒。")
+                        Text(L("and.powerNotes"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(L("and.powerHowExec"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
-                        Text("给这台电脑配了「局域网电源路由」的动作，会往路由里的**广播地址:端口**发一个 UDP 包，"
-                             + "由目标机上装着的 **sol** 按端口执行 —— 这样机器睡着、网页服务没起来也能操作。"
-                             + "没装 sol，包发得出去但没人执行。\n"
-                             + "没配路由的动作走老路：唤醒发标准 WOL（魔术包），重启/关机/睡眠调电脑端的网页接口。")
+                        Text(L("and.powerExecNote"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(L("and.powerWakeFrom"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
-                        Text("· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；\n"
-                             + "· 配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；\n"
-                             + "· 都没有 → 手机自己往局域网广播（手机必须和电脑同一网段）；\n"
-                             + "· 只有「远程接入」可用（出门经公网隧道） → 唤醒发不出去："
-                             + "魔术包是局域网 UDP 广播，走不了隧道。重启/关机/睡眠调电脑网页接口，隧道照常可用。")
+                        Text(L("and.powerWakeFromNote"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
