@@ -36,7 +36,7 @@ final class SyncEngine {
     /// 立即同步（S1 L6）。返回 nil = 成功；非 nil = 失败原因。
     @discardableResult
     func syncNow() async -> String? {
-        guard !running else { return "正在同步，请稍后" }
+        guard !running else { return L("and.syncingWait") }
         guard store.config.isConfigured else { return L("and.cfgFirst") }
         running = true
         store.setStatus(.running)
@@ -68,7 +68,7 @@ final class SyncEngine {
         switch await client.testConnection() {
         case .success: return .ok
         case .failure(.notFound): return .directoryMissing
-        case .failure(let e): return .failed(e.errorDescription ?? "连接失败")
+        case .failure(let e): return .failed(e.errorDescription ?? L("and.syncConnectFail"))
         }
     }
 
@@ -129,7 +129,7 @@ final class SyncEngine {
         case .success(let data):
             remoteRaw = data
         case .failure(let e):
-            return .fail(e.errorDescription ?? "拉取失败")
+            return .fail(e.errorDescription ?? L("and.pullFail"))
         }
 
         var remoteRev = store.rev
@@ -140,13 +140,13 @@ final class SyncEngine {
             do {
                 if backup.peekEncryption(raw: raw) != nil {
                     let password = KeyVault.load(account: store.config.encryptPasswordRef)
-                    if password.isEmpty { return .fail("云端备份已加密，请先在本机配置同步口令") }
+                    if password.isEmpty { return .fail(L("and.cloudEncryptedNeedPwd")) }
                     envelope = try backup.decrypt(raw: raw, password: password)
                 } else {
                     envelope = try backup.parse(raw: raw)
                 }
             } catch {
-                return .fail((error as? BackupError)?.errorDescription ?? "云端文件无法解析")
+                return .fail((error as? BackupError)?.errorDescription ?? L("and.cloudParseFail"))
             }
             // merge（只合配置里的分类）
             let merged = merge(from: envelope, categories: cats)
@@ -157,13 +157,13 @@ final class SyncEngine {
         // ---- push ----
         let password = store.config.encrypt ? KeyVault.load(account: store.config.encryptPasswordRef) : nil
         if store.config.encrypt && (password ?? "").isEmpty {
-            return .fail("已开启同步加密但未设置口令")
+            return .fail(L("and.syncEncryptNoPwd"))
         }
         let payload: Data
         do {
             payload = try backup.serialize(try collectedEnvelope(remoteRev + 1), password: password)
         } catch {
-            return .fail("组包失败：\((error as NSError).localizedDescription)")
+            return .fail(L("and.packFail", (error as NSError).localizedDescription))
         }
         switch await client.upload(payload, ifMatchETag: store.etag.isEmpty ? nil : store.etag) {
         case .success(let newEtag):
@@ -173,7 +173,7 @@ final class SyncEngine {
             // 云端被其他设备更新过：再拉一轮合并后重推一次（一轮即可，防活锁）
             return await resolveConflictAndPush(client: client, categories: cats)
         case .failure(let e):
-            return .fail(e.errorDescription ?? "上传失败")
+            return .fail(e.errorDescription ?? L("and.uploadFail"))
         }
     }
 

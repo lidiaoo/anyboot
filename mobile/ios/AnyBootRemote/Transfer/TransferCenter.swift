@@ -543,7 +543,7 @@ final class TransferCenter: ObservableObject {
                 // 远端变了：断点跟它已经对不上，追加只会拼出「看着完整、内容错位」的文件
                 try? FileManager.default.removeItem(atPath: targetPath)
                 already = 0
-                note = "（服务器上的文件变过，已改为重新下载）"
+                note = L("and.noteRemoteChanged")
                 // 基线跟着换成新文件，否则这次重下再被暂停、再继续时还会拿旧值比一次
                 await center.applyBaseline(id: taskId, total: remoteTotal,
                                            remoteSize: remoteTotal, remoteMTime: remoteMTime)
@@ -552,7 +552,7 @@ final class TransferCenter: ObservableObject {
                 // 兜底（远端大小/mtime 没拿到时走这条）
                 try? FileManager.default.removeItem(atPath: targetPath)
                 already = 0
-                note = "（断点比远端文件还长，已改为重新下载）"
+                note = L("and.noteResumeLonger")
             }
 
             let handle = try openLocalForWrite(atPath: targetPath, offset: already)
@@ -628,7 +628,7 @@ final class TransferCenter: ObservableObject {
                     withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(atPath: localPath)
                 guard let source else {
-                    throw TransferError.message("找不到本地文件")
+                    throw TransferError.message(L("and.noLocalFile"))
                 }
                 try copyIntoContainer(from: source, to: localPath)
             }

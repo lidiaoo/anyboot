@@ -385,20 +385,20 @@ final class SshSessionManager {
         // 服务器拒绝开 direct-tcpip 通道：禁转发或目标连不上，OpenSSH 不细分，照实说
         if let clientError = error as? SSHClientError,
            case .channelCreationFailed = clientError {
-            return "服务器拒绝了转发请求：可能禁用了端口转发（sshd 的 AllowTcpForwarding），也可能连不上目标"
+            return L("and.forwardRefused")
         }
         let text = String(describing: error)
         let lowered = text.lowercased()
         if lowered.contains("administratively") || lowered.contains("prohibited")
             || lowered.contains("permission") {
-            return "服务器禁用了端口转发，请检查 sshd 的 AllowTcpForwarding 设置"
+            return L("and.tcpForwardDisabled")
         }
         if lowered.contains("refused") {
-            return "目标端口没有服务在听，或地址配错"
+            return L("and.targetPortNoService")
         }
         if lowered.contains("timeout") || lowered.contains("timed out")
             || text.contains("超时") || text.contains("无响应") {
-            return "目标无响应，可能地址不通或被防火墙拦截"
+            return L("and.targetNoResponse")
         }
         return text.isEmpty ? "未知错误" : text
     }
@@ -413,7 +413,7 @@ final class SshSessionManager {
                 throw SshError.message(L("and.timeoutNoResponse", Int(seconds)))
             }
             guard let first = try await group.next() else {
-                throw SshError.message("操作未返回（timeout）")
+                throw SshError.message(L("and.opNoReturn"))
             }
             group.cancelAll()
             return first
@@ -597,10 +597,10 @@ final class SshSessionManager {
                         // 通道断开：正常结束
                     }
                     done.close()
-                    onClosed("连接已关闭")
+                    onClosed(L("and.connClosed"))
                 }
                 // 闭包正常返回 = 会话结束；若闸门还没开，说明通道一开就关了
-                ready.fail(SshError.message("终端通道刚建立就关闭了（服务器可能不允许分配 PTY）"))
+                ready.fail(SshError.message(L("and.ptyClosed")))
             } catch {
                 ready.fail(error)
                 // 闸门已放行过（会话中途出错）→ 走「会话结束」这条路，别让界面卡死
@@ -660,7 +660,7 @@ final class SshSessionManager {
         var errorDescription: String? {
             switch self {
             case .backoff(let seconds):
-                return "连接失败过，\(seconds) 秒后再试（自动退避）"
+                return L("and.retryBackoff", seconds)
             case .hostKey(let text):
                 return text
             case .message(let text):
