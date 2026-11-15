@@ -8,6 +8,7 @@ import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
+import { t } from "@/i18n";
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -21,7 +22,7 @@ import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
  *     .cq-col-st           状态
  *     .cq-col-more         更多
  *   .cq-row-boots         引导项区（wrap 一行）
- *     .cq-col-boot[data-label="rEFInd 启动项"]
+ *     .cq-col-boot[data-label="rEFInd 启动项（i18n: hub.boot.col）"]
  *     .cq-col-boot[data-label="RefindPlus 启动项"]   与 rEFInd 并列的独立通道
  *     .cq-col-boot[data-label="GRUB 启动项"]
  *     .cq-col-boot.cq-col-boot--ch[…]   三通道（检测到才有）
@@ -97,7 +98,7 @@ function localEntries(kind: string): { entries: EntryData[]; active: string; gro
       name: String(row.title || ""),
       class: row.kind,
       readonly: !row.spec,
-      tags: [String(row.kind || ""), orderSrc === "private" ? "OC 私有 OCBtOrder" : (orderSrc ? "固件 BootOrder" : "")].filter(Boolean),
+      tags: [String(row.kind || ""), orderSrc === "private" ? t("hub.oc.private") : (orderSrc ? t("hub.oc.firmware") : "")].filter(Boolean),
       sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : (row.path || undefined),
       note: row.note || undefined,
     } as EntryData));
@@ -126,7 +127,7 @@ async function openPicker(kind: string) {
   const isGrubKind = kind === "grub";
   const isRefindKind = kind === "refind" || kind === "refindplus";
   const isChannelKind = kind.startsWith("channel:");
-  const CLASS_LABEL: Record<string, string> = { mac: "macOS", win: "Windows", auto: "泛型", tool: "工具项", linux: "Linux", generic: "泛型" };
+  const CLASS_LABEL: Record<string, string> = { mac: "macOS", win: "Windows", auto: "hub.class.generic", tool: "hub.class.tool", linux: "Linux", generic: "hub.class.generic" };
 
   // ── 1) 取数并归一化为 PickerSource（本机：uiState；非本机：remote_boot_info）──
   let src: PickerSource | null = null;
@@ -179,7 +180,7 @@ async function openPicker(kind: string) {
           label: String(row.title || ""),
           cls: row.kind,
           fixed: !row.spec,
-          tag: [String(CLASS_LABEL[row.kind] || row.kind || ""), orderSrc === "private" ? "OC 私有 OCBtOrder" : orderSrc ? "固件 BootOrder" : ""].filter(Boolean).join(" · "),
+          tag: [t(CLASS_LABEL[row.kind] || "") || String(row.kind || ""), orderSrc === "private" ? t("hub.oc.private") : orderSrc ? t("hub.oc.firmware") : ""].filter(Boolean).join(" · "),
           sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : row.path || undefined,
           note: row.note || undefined,
         })),
@@ -307,9 +308,9 @@ const stateClass = computed(() => {
   return online.value ? "cq-st--on" : "cq-st--off";
 });
 const statusLabel = computed(() => {
-  if (loading.value) return "读取中…";
-  if (online.value === null) return "未探测";
-  return online.value ? "在线" : "离线";
+  if (loading.value) return t("hub.state.reading");
+  if (online.value === null) return t("hub.state.unprobed");
+  return online.value ? t("hub.state.online") : t("hub.state.offline");
 });
 
 /** 系统徽标 */
@@ -323,17 +324,17 @@ const osBadge = computed(() => {
 });
 
 /** 连接标注（旧版 cq-chip-grp / cq-chip-remote） */
-const connLabel = computed(() => (isLocal.value ? "本机" : online.value ? "直连" : "未连接"));
+const connLabel = computed(() => (isLocal.value ? t("hub.conn.local") : online.value ? t("hub.conn.direct") : t("hub.conn.disconnected")));
 
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
 const fmtChoices = [
-  { v: "", label: "跟随电脑" },
-  { v: "minimal", label: "极简" },
-  { v: "simple", label: "简易" },
-  { v: "medium", label: "中等" },
-  { v: "raw", label: "原始" },
-  { v: "detailed", label: "复杂" },
+  { v: "", label: "hub.picker.fmt.follow" },
+  { v: "minimal", label: "hub.picker.fmt.minimal" },
+  { v: "simple", label: "hub.picker.fmt.simple" },
+  { v: "medium", label: "hub.picker.fmt.medium" },
+  { v: "raw", label: "hub.picker.fmt.raw" },
+  { v: "detailed", label: "hub.picker.fmt.detailed" },
 ];
 function localTitle(kind: string): string {
   if (kind === "refind") return "rEFInd"; if (kind === "refindplus") return "RefindPlus"; if (kind === "grub") return "GRUB";
@@ -354,16 +355,16 @@ function grubEntriesFromJson(src: any): { entries: EntryData[]; active: string; 
 function bootState(kind: string): { label: string; none: boolean; dot: string } {
   if (isLocal.value) {
     const le = localEntries(kind);
-    if (!le || !le.entries.length) return { label: "未检测到", none: true, dot: "" };
+    if (!le || !le.entries.length) return { label: t("hub.state.notDetected"), none: true, dot: "" };
     let hit = le.entries.find((e) => String(e.selector) === le.active);
     if (!hit) hit = le.entries.find((e) => le.active && e.name && String(e.name).indexOf(le.active) >= 0);
     const gl = hit?.submenu ? (le.groupTitles?.[String(hit.submenu)] ?? "") : "";
-    return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
+    return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || t("hub.state.notSelected")), none: false, dot: (hit as any)?.class || "" };
   }
   const group = kind === "refind" || kind === "refindplus" || kind === "grub" ? props.info?.[kind] : undefined;
-  if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
-  if (!group.available) return { label: "未检测到", none: true, dot: "" };
-  if (!online.value) return { label: "离线不可改", none: true, dot: "" };
+  if (!group) return { label: online.value === null || loading.value ? t("hub.state.reading") : t("hub.state.notDetected"), none: true, dot: "" };
+  if (!group.available) return { label: t("hub.state.notDetected"), none: true, dot: "" };
+  if (!online.value) return { label: t("hub.state.offlineReadonly"), none: true, dot: "" };
   // 统一化：对端原始 JSON 透传（group.raw）→ 与本机**同一套规则**（回显一字不差）：
   // GRUB = 「组名 › 完整名」（groupTitles）；rEFInd/RefindPlus 的 lastBoot 在父条目上
   // → 直接显示父条目名（trim 尾空格），与各端页面字面一致。
@@ -374,10 +375,10 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
       let hit = le.entries.find((e) => String(e.selector) === le.active);
       if (!hit) hit = le.entries.find((e) => le.active && e.name && String(e.name).indexOf(le.active) >= 0);
       const gl = hit?.submenu ? (le.groupTitles?.[String(hit.submenu)] ?? "") : "";
-      return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
+      return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || t("hub.state.notSelected")), none: false, dot: (hit as any)?.class || "" };
     }
     const lastBoot = String(((rawJson?.entries ?? []) as any[]).find((e) => e.lastBoot)?.title ?? "").trim();
-    return { label: lastBoot || "未选择", none: false, dot: "" };
+    return { label: lastBoot || t("hub.state.notSelected"), none: false, dot: "" };
   }
   const options = (group as { options?: { value?: string; label?: string; class?: string; header?: boolean }[] }).options || [];
   const current = String(group.current || "");
@@ -403,7 +404,7 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
     }
   }
   return {
-    label: hit ? echoLabel(gl, String(hit.label ?? current ?? "")) : (current || "未选择"),
+    label: hit ? echoLabel(gl, String(hit.label ?? current ?? "")) : (current || t("hub.state.notSelected")),
     none: options.length === 0,
     dot: hit?.class || "",
   };
@@ -412,8 +413,8 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
  *  配对级 show_probe 控制——被隐藏的不展示，探测/连接照常。 */
 // 通道徽章文案（照抄 v0.2.5 ROUTE_LABELS）
 const ROUTE_LABELS: Record<string, string> = {
-  lan: "直连", jump: "跳板机", tunnel: "Cloudflare 隧道",
-  ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
+  lan: "hub.route.lan", jump: "hub.route.jump", tunnel: "hub.route.tunnel",
+  ts: "hub.route.ts", funnel: "hub.route.funnel", tsnet: "hub.route.tsnet",
 };
 interface ConnectLine { dataK: string; kindLabel: string; address: string; ok: boolean; ms: number; skipped: boolean;
   badge: string; reason: string; macs: string[]; isLan: boolean; url: string;
@@ -447,8 +448,8 @@ const connectLines = computed<ConnectLine[]>(() => {
       : st.ms < 80 ? "ok" : st.ms < 300 ? "warn" : "bad";
     return {
       ok: !!st?.ok, ms: st?.ms ?? 0, skipped, tone,
-      badge: st?.ok ? `${st.ms} ms` : (st ? "不通" : ""),
-      reason: !st || st.ok ? "" : (st.error || "不通"),
+      badge: st?.ok ? `${st.ms} ms` : (st ? t("hub.conn.fail") : ""),
+      reason: !st || st.ok ? "" : (st.error || t("hub.conn.fail")),
     };
   };
   const out: ConnectLine[] = [];
@@ -468,7 +469,7 @@ const connectLines = computed<ConnectLine[]>(() => {
     const kind = p.kind === "cloudflare" ? "tunnel" : p.kind === "tsnet" ? "tsnet" : (p.kind === "ts" ? (lane === "funnel" ? "funnel" : "ts") : (p.kind || "tunnel"));
     if (disabled.has(kind) || hidden.has(kind) || p.show_probe === false) continue;
     const b = badgeOf(probeByKey.get(`${kind}\u0000${p.addr}`) || (p.id ? probeByKey.get(`${kind}\u0000${p.id}`) : undefined));
-    out.push({ dataK: kind, kindLabel: ROUTE_LABELS[kind] ?? (p.kind || "远程"), address: String(p.addr), ok: b.ok, ms: b.ms,
+    out.push({ dataK: kind, kindLabel: ROUTE_LABELS[kind] ? t(ROUTE_LABELS[kind]) : (p.kind || t("hub.route.remote")), address: String(p.addr), ok: b.ok, ms: b.ms,
       skipped: b.skipped, badge: b.badge, reason: b.reason, macs: [], isLan: false, tone: b.tone,
       url: `http://${p.addr}/?token=${encodeURIComponent(p.token ? String(p.token) : rowTok)}` });
   }
@@ -502,22 +503,22 @@ function fallbackCopy(text: string): boolean {
 }
 function copyUrl(url: string, addr: string) {
   const ok = copyToClipboard(url);
-  toast.show(ok ? ("已复制 " + addr) : ("复制失败，请手动复制：" + url), ok ? "ok" : "bad");
+  toast.show(ok ? t("hub.toast.copied", { addr }) : t("hub.toast.copyFail", { url }), ok ? "ok" : "bad");
 }
 async function openUrl(url: string) {
   const { isTauri } = await import("@/api/tauri");
   if (!isTauri()) {
     // 网页/移动端：新标签（popup 可能被拦，提示一下）
     const w = window.open(url, "_blank");
-    if (!w) toast.show("浏览器拦截了弹窗，请允许后重试", "bad");
+    if (!w) toast.show(t("hub.toast.popupBlocked"), "bad");
     return;
   }
   const { call } = await import("@/api/tauri");
   try {
     await call("remote_open_page", { url });
-    toast.show("已在系统浏览器打开");
+    toast.show(t("hub.toast.opened"));
   } catch (e) {
-    toast.show("打开浏览器失败：" + e, "bad");
+    toast.show(t("hub.toast.openFail", { msg: String(e) }), "bad");
   }
 }
 
@@ -528,10 +529,10 @@ function bootUsable(kind: "refind" | "refindplus" | "grub") {
 
 /** 电源键定义（图标 + 标签 + 提示，对齐旧版 CQ_POWER） */
 const POWER = [
-  { act: "wake", label: "唤醒", hint: isLocal.value ? "本机无需唤醒" : "魔术包", icon: "power" },
-  { act: "sleep", label: "睡眠", hint: isLocal.value ? "挂起到内存" : "挂起到内存", icon: "moon" },
-  { act: "reboot", label: "重启", hint: isLocal.value ? "" : "HTTP", icon: "refresh" },
-  { act: "shutdown", label: "关机", hint: isLocal.value ? "" : "HTTP", icon: "shutdown" },
+  { act: "wake", label: "hub.power.wake", hint: isLocal.value ? "hub.power.localNoWake" : "hub.power.magic", icon: "power" },
+  { act: "sleep", label: "hub.power.sleep", hint: "hub.power.hibernate", icon: "moon" },
+  { act: "reboot", label: "hub.power.restart", hint: isLocal.value ? "" : "HTTP", icon: "refresh" },
+  { act: "shutdown", label: "hub.power.shutdown", hint: isLocal.value ? "" : "HTTP", icon: "shutdown" },
 ] as const;
 
 /** 电源图标（对齐旧版 CQ_POWER 的 svg） */
@@ -548,9 +549,9 @@ const powerHints = computed(() =>
     hint:
       spec.act === "wake" && !isLocal.value
         ? online.value
-          ? "魔术包"
-          : "未配 MAC"
-        : spec.hint,
+          ? t("hub.power.magic")
+          : t("hub.power.noMac")
+        : (spec.hint ? t(spec.hint) : spec.hint),
   })),
 );
 
@@ -568,9 +569,9 @@ function channelOf(kind: string) {
  *  按 value 精确命中，再按标题互相包含兜底；都不中才原样显示。 */
 function channelEcho(kind: string): { label: string; dot: string } {
   const ch = channelOf(kind);
-  if (!ch || !ch.available) return { label: "未检测到", dot: "" };
+  if (!ch || !ch.available) return { label: t("hub.state.notDetected"), dot: "" };
   const opts = ((ch.options ?? []) as { value?: string; label?: string; header?: boolean; class?: string }[]);
-  if (!opts.length) return { label: "未选择", dot: "" };
+  if (!opts.length) return { label: t("hub.state.notSelected"), dot: "" };
   const cur = String(ch.current || "");
   const hit =
     opts.filter((o) => !o.header && o.value === cur)[0] ||
@@ -579,7 +580,7 @@ function channelEcho(kind: string): { label: string; dot: string } {
       const text = String(o.label || "").trim();
       return !!text && (text === cur || text.indexOf(cur) >= 0 || cur.indexOf(text) >= 0);
     })[0];
-  return { label: hit?.label || cur || "未选择", dot: hit?.class || "" };
+  return { label: hit?.label || cur || t("hub.state.notSelected"), dot: hit?.class || "" };
 }
 /** 通道 kind → 显示名（channel:opencore → OpenCore） */
 function channelTitle(kind: string): string {
@@ -607,7 +608,7 @@ function onRowClick() {
           <template v-if="!isLocal">
             <button
               type="button"
-              title="上移一位（自定义排序）"
+              :title="$t('hub.col.moveUp')"
               :disabled="orderIndex <= 0"
               @click.stop="emit('move', { id: row.id, delta: -1 })"
             >
@@ -615,7 +616,7 @@ function onRowClick() {
             </button>
             <button
               type="button"
-              title="下移一位（自定义排序）"
+              :title="$t('hub.col.moveDown')"
               :disabled="orderIndex >= orderTotal - 1"
               @click.stop="emit('move', { id: row.id, delta: 1 })"
             >
@@ -640,16 +641,16 @@ function onRowClick() {
                 type="button"
                 class="os-badge"
                 :data-os="osBadge.kind"
-                title="查看系统信息"
+                :title="$t('hub.col.sysinfo')"
                 @click.stop="emit('sysInfo', row.id)"
               >
                 {{ osBadge.text }}
               </button>
-              <span v-if="selected" class="cq-chip-cur">当前</span>
+              <span v-if="selected" class="cq-chip-cur">{{ $t("hub.state.current") }}</span>
               <span
                 class="cq-chip-grp"
                 :class="{ 'cq-chip-remote': false }"
-                :title="connLabel === '直连' ? '局域网直连' : '当前没探通 —— 目标机可能离线'"
+                :title="connLabel === $t('hub.conn.direct') ? $t('hub.conn.lanDirect') : $t('hub.conn.notReachable')"
               >
                 {{ connLabel }}
               </span>
@@ -673,8 +674,8 @@ function onRowClick() {
         <button
           type="button"
           class="cq-more"
-          title="更多操作"
-          aria-label="更多操作"
+          :title="$t('hub.col.more')"
+          :aria-label="$t('hub.col.more')"
           @click.stop="emit('more', row.id)"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -688,7 +689,7 @@ function onRowClick() {
 
     <!-- 引导项区 -->
     <div class="cq-row-boots">
-      <div class="cq-col cq-col-boot" role="cell" data-label="rEFInd 启动项">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'rEFInd' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refind').none }">
           <button
             type="button"
@@ -702,7 +703,7 @@ function onRowClick() {
         </div>
       </div>
       <!-- RefindPlus 列：与 rEFInd 完全同构的独立组（kind=refindplus），同一套卡片风格 -->
-      <div class="cq-col cq-col-boot" role="cell" data-label="RefindPlus 启动项">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'RefindPlus' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refindplus').none }">
           <button
             type="button"
@@ -715,7 +716,7 @@ function onRowClick() {
           </button>
         </div>
       </div>
-      <div class="cq-col cq-col-boot" role="cell" data-label="GRUB 启动项">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'GRUB' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('grub').none }">
           <button
             type="button"
@@ -735,7 +736,7 @@ function onRowClick() {
         :key="kind"
         class="cq-col cq-col-boot cq-col-boot--ch"
         role="cell"
-        :data-label="`${channelTitle(kind)} 启动项`"
+        :data-label="$t('hub.boot.col', { name: channelTitle(kind) })"
       >
         <div class="cq-boot" :class="{ 'cq-boot--none': !channelOf(kind)?.available }">
           <button
@@ -756,9 +757,9 @@ function onRowClick() {
       <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
         <div class="cq-dev-top">
           <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
-          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? '最近一次探测通过' : (ln.skipped ? '这条通道没轮到探测' : ('最近一次探测失败：' + (ln.reason || '不通')))">{{ ln.badge }}</span>
-          <button type="button" class="cq-remote-act" title="复制这个地址（含访问令牌）" @click.stop="copyUrl(ln.url, ln.address)">复制</button>
-          <button type="button" class="cq-remote-act" title="用系统默认浏览器打开这个地址" @click.stop="openUrl(ln.url)">浏览器打开</button>
+          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? $t('hub.probe.passed') : (ln.skipped ? $t('hub.probe.skipped') : $t('hub.probe.failed', { reason: ln.reason || $t('hub.conn.fail') }))">{{ ln.badge }}</span>
+          <button type="button" class="cq-remote-act" :title="$t('hub.conn.copyTitle')" @click.stop="copyUrl(ln.url, ln.address)">{{ $t("common.copy") }}</button>
+          <button type="button" class="cq-remote-act" :title="$t('hub.conn.openTitle')" @click.stop="openUrl(ln.url)">{{ $t("hub.conn.openBrowser") }}</button>
         </div>
         <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
         <div v-if="ln.macs && ln.macs.length" class="cq-dev-macrow">
@@ -777,17 +778,17 @@ function onRowClick() {
             :key="spec.act"
             type="button"
             class="cq-pwr-btn"
-            :title="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
-            :aria-label="spec.hint ? `${spec.label} · ${spec.hint}` : spec.label"
+            :title="spec.hint ? `${$t(spec.label)} · ${$t(spec.hint)}` : $t(spec.label)"
+            :aria-label="spec.hint ? `${$t(spec.label)} · ${$t(spec.hint)}` : $t(spec.label)"
             @click.stop="emit('power', { serverId: row.id, action: spec.act })"
           >
             <span class="lbl">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
                    v-html="POWER_ICONS[spec.act]" />
-              {{ spec.label }}
+              {{ $t(spec.label) }}
             </span>
-            <span class="hint">{{ spec.hint }}</span>
+            <span class="hint">{{ $t(spec.hint) }}</span>
           </button>
         </div>
       </div>
@@ -795,10 +796,10 @@ function onRowClick() {
 
     <!-- 启动项选择器：点启动项列弹出该引导器的可选条目，选中带 value 切换下次启动 -->
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
-      <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="`${picker.title} · 选择启动项`">
-        <div class="cq-picker-head">{{ picker.title }} · 选择下次启动</div>
+      <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="$t('hub.picker.ariaTitle', { title: picker.title })">
+        <div class="cq-picker-head">{{ $t("hub.picker.title", { loader: picker.title }) }}</div>
         <div v-if="picker" class="cq-picker-fmt">
-          <span class="cq-picker-fmt-label">条目文字格式</span>
+          <span class="cq-picker-fmt-label">{{ $t("hub.picker.fmtTitle") }}</span>
           <div class="cq-picker-fmt-chips">
             <button v-for="c in fmtChoices" :key="c.v" type="button"
               :class="['cq-fmt-chip', { 'is-on': pickerFmt === c.v }]"
@@ -815,7 +816,7 @@ function onRowClick() {
             @select="chooseBoot"
           />
         </div>
-        <button type="button" class="cq-picker-cancel" @click="picker = null">取消</button>
+        <button type="button" class="cq-picker-cancel" @click="picker = null">{{ $t("common.cancel") }}</button>
       </div>
     </div>
   </div>

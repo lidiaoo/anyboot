@@ -112,6 +112,7 @@ hub: {
     notConnected: "Desconectado",
     online: "Online",
     offline: "Offline",
+    unprobed: "Não sondado",
   },
   picker: {
     title: "{loader} · Escolher próxima inicialização",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} itens",
     readonlyHint: "Este item não pode ser iniciado diretamente (OC/firmware)",
     footer: "Entra em vigor na próxima reinicialização",
+    ariaTitle: "{title} · Escolher entrada",
+    fmtTitle: "Formato do texto",
   },
   child: {
     default: "Padrão",
@@ -141,6 +144,13 @@ hub: {
     fail: "Inacessível",
     openBrowser: "Abrir no navegador",
     probeTimeout: "Sondagem expirou (>2000ms)",
+    local: "Local",
+    direct: "Direto",
+    disconnected: "Desconectado",
+    lanDirect: "LAN direto",
+    notReachable: "Inacessível agora — o destino pode estar offline",
+    copyTitle: "Copiar este endereço (com token)",
+    openTitle: "Abrir este endereço no navegador padrão",
   },
   power: {
     wake: "Acordar",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "Desligar",
     localNoWake: "Não é necessário localmente",
     hibernate: "Suspender para a RAM",
+    magic: "Magic packet",
+    noMac: "Sem MAC",
   },
   pending: {
     modified: "Entrada de inicialização alterada — após reiniciar",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "Escolha uma aba acima para ver a página do computador",
     reload: "Recarregar atual",
   },
+  class: {
+    generic: "Genérico",
+    tool: "Ferramenta",
+  },
+  oc: {
+    private: "OCBtOrder privado do OC",
+    firmware: "BootOrder do firmware",
+  },
   route: {
+    tunnel: "Túnel Cloudflare",
+    ts: "Tailscale direto",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (integrado)",
     lan: "Direto",
     jump: "Jump host",
     remote: "Remoto",
     builtin: "Integrado",
+  },
+  toast: {
+    copied: "Copiado {addr}",
+    copyFail: "Falha ao copiar, copie manualmente: {url}",
+    popupBlocked: "O navegador bloqueou o pop-up — permita e tente novamente",
+    opened: "Aberto no navegador",
+    openFail: "Falha ao abrir o navegador: {msg}",
+  },
+  col: {
+    moveUp: "Mover para cima (ordem)",
+    moveDown: "Mover para baixo (ordem)",
+    sysinfo: "Ver informações do sistema",
+    more: "Mais ações",
+  },
+  probe: {
+    passed: "Última sondagem passou",
+    skipped: "Este canal não foi sondado",
+    failed: "Última sondagem falhou: {reason}",
   },
 },
 error: {

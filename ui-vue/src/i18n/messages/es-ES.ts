@@ -112,6 +112,7 @@ hub: {
     notConnected: "Desconectado",
     online: "En línea",
     offline: "Sin conexión",
+    unprobed: "Sin sondear",
   },
   picker: {
     title: "{loader} · Elegir próximo arranque",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} elementos",
     readonlyHint: "Este elemento no se puede iniciar directamente (OC/firmware)",
     footer: "Se aplica en el próximo reinicio",
+    ariaTitle: "{title} · Elegir entrada de arranque",
+    fmtTitle: "Formato de texto",
   },
   child: {
     default: "Predeterminado",
@@ -141,6 +144,13 @@ hub: {
     fail: "Inaccesible",
     openBrowser: "Abrir en el navegador",
     probeTimeout: "Sondeo agotado (>2000ms)",
+    local: "Local",
+    direct: "Directo",
+    disconnected: "Desconectado",
+    lanDirect: "LAN directo",
+    notReachable: "No accesible ahora — el destino puede estar sin conexión",
+    copyTitle: "Copiar esta dirección (con token)",
+    openTitle: "Abrir esta dirección en el navegador predeterminado",
   },
   power: {
     wake: "Despertar",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "Apagar",
     localNoWake: "No es necesario en local",
     hibernate: "Suspender a la RAM",
+    magic: "Magic packet",
+    noMac: "Sin MAC",
   },
   pending: {
     modified: "Entrada de arranque modificada — tras reiniciar",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "Elige una pestaña arriba para ver la página del equipo",
     reload: "Recargar actual",
   },
+  class: {
+    generic: "Genérico",
+    tool: "Herramienta",
+  },
+  oc: {
+    private: "OCBtOrder privado de OC",
+    firmware: "BootOrder del firmware",
+  },
   route: {
+    tunnel: "Túnel de Cloudflare",
+    ts: "Tailscale directo",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (integrado)",
     lan: "Directo",
     jump: "Host de salto",
     remote: "Remoto",
     builtin: "Integrado",
+  },
+  toast: {
+    copied: "Copiado {addr}",
+    copyFail: "Error al copiar, copia manualmente: {url}",
+    popupBlocked: "El navegador bloqueó la ventana — permítela y reinténtalo",
+    opened: "Abierto en el navegador",
+    openFail: "Error al abrir el navegador: {msg}",
+  },
+  col: {
+    moveUp: "Subir (orden personalizado)",
+    moveDown: "Bajar (orden personalizado)",
+    sysinfo: "Ver información del sistema",
+    more: "Más acciones",
+  },
+  probe: {
+    passed: "Último sondeo correcto",
+    skipped: "Este canal no se sondeó",
+    failed: "Último sondeo falló: {reason}",
   },
 },
 error: {

@@ -112,6 +112,7 @@ hub: {
     notConnected: "Nicht verbunden",
     online: "Online",
     offline: "Offline",
+    unprobed: "Nicht geprüft",
   },
   picker: {
     title: "{loader} · Nächsten Start wählen",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} Einträge",
     readonlyHint: "Dieser Eintrag kann nicht direkt gestartet werden (OC/Firmware)",
     footer: "Wird beim nächsten Neustart wirksam",
+    ariaTitle: "{title} · Starteintrag wählen",
+    fmtTitle: "Textformat der Einträge",
   },
   child: {
     default: "Standard",
@@ -141,6 +144,13 @@ hub: {
     fail: "Nicht erreichbar",
     openBrowser: "Im Browser öffnen",
     probeTimeout: "Prüfung abgelaufen (>2000ms)",
+    local: "Lokal",
+    direct: "Direkt",
+    disconnected: "Nicht verbunden",
+    lanDirect: "LAN direkt",
+    notReachable: "Derzeit nicht erreichbar – Ziel evtl. offline",
+    copyTitle: "Diese Adresse kopieren (mit Token)",
+    openTitle: "Diese Adresse im Standardbrowser öffnen",
   },
   power: {
     wake: "Aufwecken",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "Herunterfahren",
     localNoWake: "Lokal nicht nötig",
     hibernate: "In den RAM suspendieren",
+    magic: "Magic Packet",
+    noMac: "Keine MAC",
   },
   pending: {
     modified: "Starteintrag geändert – wirkt nach Neustart",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "Tab oben wählen, um die Seite des Computers zu sehen",
     reload: "Aktuellen Computer neu laden",
   },
+  class: {
+    generic: "Generisch",
+    tool: "Werkzeug",
+  },
+  oc: {
+    private: "OC-eigenes OCBtOrder",
+    firmware: "Firmware-BootOrder",
+  },
   route: {
+    tunnel: "Cloudflare-Tunnel",
+    ts: "Tailscale direkt",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (integriert)",
     lan: "Direkt",
     jump: "Sprungserver",
     remote: "Remote",
     builtin: "Integriert",
+  },
+  toast: {
+    copied: "{addr} kopiert",
+    copyFail: "Kopieren fehlgeschlagen, manuell kopieren: {url}",
+    popupBlocked: "Der Browser hat das Pop-up blockiert – bitte erlauben",
+    opened: "Im Browser geöffnet",
+    openFail: "Browser konnte nicht geöffnet werden: {msg}",
+  },
+  col: {
+    moveUp: "Nach oben (benutzerdef.)",
+    moveDown: "Nach unten (benutzerdef.)",
+    sysinfo: "Systeminfo anzeigen",
+    more: "Weitere Aktionen",
+  },
+  probe: {
+    passed: "Letzte Prüfung erfolgreich",
+    skipped: "Dieser Kanal wurde nicht geprüft",
+    failed: "Letzte Prüfung fehlgeschlagen: {reason}",
   },
 },
 error: {

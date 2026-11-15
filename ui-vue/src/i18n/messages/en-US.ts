@@ -112,6 +112,7 @@ hub: {
     notConnected: "Disconnected",
     online: "Online",
     offline: "Offline",
+    unprobed: "Not probed",
   },
   picker: {
     title: "{loader} · Select next boot",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} items",
     readonlyHint: "This entry can't be started directly (handled by OC/firmware)",
     footer: "Takes effect on next reboot",
+    ariaTitle: "{title} · Select boot entry",
+    fmtTitle: "Entry text format",
   },
   child: {
     default: "Default",
@@ -141,6 +144,13 @@ hub: {
     fail: "Unreachable",
     openBrowser: "Open in browser",
     probeTimeout: "Probe timed out (>2000ms)",
+    local: "Local",
+    direct: "Direct",
+    disconnected: "Disconnected",
+    lanDirect: "LAN direct",
+    notReachable: "Not reachable now — the target may be offline",
+    copyTitle: "Copy this address (with token)",
+    openTitle: "Open this address in your default browser",
   },
   power: {
     wake: "Wake",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "Shut down",
     localNoWake: "Not needed locally",
     hibernate: "Suspend to RAM",
+    magic: "Magic packet",
+    noMac: "No MAC",
   },
   pending: {
     modified: "Boot entry changed — takes effect after reboot",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "Pick a tab above to view that computer's page",
     reload: "Reload current",
   },
+  class: {
+    generic: "Generic",
+    tool: "Tool",
+  },
+  oc: {
+    private: "OC private OCBtOrder",
+    firmware: "Firmware BootOrder",
+  },
   route: {
+    tunnel: "Cloudflare tunnel",
+    ts: "Tailscale direct",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (built-in)",
     lan: "Direct",
     jump: "Jump host",
     remote: "Remote",
     builtin: "Built-in",
+  },
+  toast: {
+    copied: "Copied {addr}",
+    copyFail: "Copy failed, copy manually: {url}",
+    popupBlocked: "The browser blocked the pop-up — allow it and retry",
+    opened: "Opened in your browser",
+    openFail: "Failed to open browser: {msg}",
+  },
+  col: {
+    moveUp: "Move up (custom order)",
+    moveDown: "Move down (custom order)",
+    sysinfo: "View system info",
+    more: "More actions",
+  },
+  probe: {
+    passed: "Last probe passed",
+    skipped: "This channel wasn't probed",
+    failed: "Last probe failed: {reason}",
   },
 },
 error: {

@@ -112,6 +112,7 @@ hub: {
     notConnected: "Не подключено",
     online: "В сети",
     offline: "Не в сети",
+    unprobed: "Не проверено",
   },
   picker: {
     title: "{loader} · Выбор следующей загрузки",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} элем.",
     readonlyHint: "Этот пункт нельзя запустить напрямую (OC/прошивка)",
     footer: "Вступит в силу при следующей перезагрузке",
+    ariaTitle: "{title} · Выбор записи загрузки",
+    fmtTitle: "Формат текста записей",
   },
   child: {
     default: "По умолчанию",
@@ -141,6 +144,13 @@ hub: {
     fail: "Недоступен",
     openBrowser: "Открыть в браузере",
     probeTimeout: "Тайм-аут проверки (>2000ms)",
+    local: "Локальный",
+    direct: "Напрямую",
+    disconnected: "Не подключено",
+    lanDirect: "Напрямую в LAN",
+    notReachable: "Сейчас недоступен — возможно, цель offline",
+    copyTitle: "Копировать адрес (с токеном)",
+    openTitle: "Открыть адрес в браузере по умолчанию",
   },
   power: {
     wake: "Разбудить",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "Выключить",
     localNoWake: "Локально не требуется",
     hibernate: "Приостановить в ОЗУ",
+    magic: "Magic packet",
+    noMac: "Нет MAC",
   },
   pending: {
     modified: "Запись загрузки изменена — после перезагрузки",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "Выберите вкладку выше, чтобы открыть страницу компьютера",
     reload: "Перезагрузить текущий",
   },
+  class: {
+    generic: "Универсальный",
+    tool: "Инструмент",
+  },
+  oc: {
+    private: "Приватный OCBtOrder OC",
+    firmware: "BootOrder прошивки",
+  },
   route: {
+    tunnel: "Туннель Cloudflare",
+    ts: "Tailscale напрямую",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (встроенный)",
     lan: "Напрямую",
     jump: "Промежуточный узел",
     remote: "Удалённо",
     builtin: "Встроенный",
+  },
+  toast: {
+    copied: "Скопировано: {addr}",
+    copyFail: "Не удалось скопировать, скопируйте вручную: {url}",
+    popupBlocked: "Браузер заблокировал всплывающее окно — разрешите и повторите",
+    opened: "Открыто в браузере",
+    openFail: "Не удалось открыть браузер: {msg}",
+  },
+  col: {
+    moveUp: "Вверх (порядок вручную)",
+    moveDown: "Вниз (порядок вручную)",
+    sysinfo: "Показать системную информацию",
+    more: "Ещё действия",
+  },
+  probe: {
+    passed: "Последняя проверка успешна",
+    skipped: "Этот канал не проверялся",
+    failed: "Последняя проверка не удалась: {reason}",
   },
 },
 error: {

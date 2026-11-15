@@ -112,6 +112,7 @@ hub: {
     notConnected: "연결 안 됨",
     online: "온라인",
     offline: "오프라인",
+    unprobed: "미감지",
   },
   picker: {
     title: "{loader} · 다음 부팅 선택",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n}개",
     readonlyHint: "이 항목은 직접 시작할 수 없습니다 (OC/펌웨어 처리)",
     footer: "선택하면 다음 재부팅 시 적용됩니다",
+    ariaTitle: "{title} · 부팅 항목 선택",
+    fmtTitle: "항목 텍스트 형식",
   },
   child: {
     default: "기본",
@@ -141,6 +144,13 @@ hub: {
     fail: "연결 안 됨",
     openBrowser: "브라우저에서 열기",
     probeTimeout: "감지 시간 초과 (>2000ms)",
+    local: "로컬",
+    direct: "직접",
+    disconnected: "연결 안 됨",
+    lanDirect: "LAN 직접 연결",
+    notReachable: "현재 연결 불가 — 대상이 오프라인일 수 있음",
+    copyTitle: "이 주소 복사 (토큰 포함)",
+    openTitle: "기본 브라우저로 이 주소 열기",
   },
   power: {
     wake: "깨우기",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "종료",
     localNoWake: "로컬은 불필요",
     hibernate: "메모리로 절전",
+    magic: "매직 패킷",
+    noMac: "MAC 없음",
   },
   pending: {
     modified: "부팅 항목이 변경되었습니다 (재부팅 후 적용)",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "위 탭을 선택해 해당 컴퓨터 화면 보기",
     reload: "현재 컴퓨터 새로 고침",
   },
+  class: {
+    generic: "일반",
+    tool: "도구",
+  },
+  oc: {
+    private: "OC 전용 OCBtOrder",
+    firmware: "펌웨어 BootOrder",
+  },
   route: {
+    tunnel: "Cloudflare 터널",
+    ts: "Tailscale 직접",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel (내장)",
     lan: "직접 연결",
     jump: "점프 호스트",
     remote: "원격",
     builtin: "내장",
+  },
+  toast: {
+    copied: "{addr} 복사됨",
+    copyFail: "복사 실패, 직접 복사하세요: {url}",
+    popupBlocked: "브라우저가 팝업을 차단했습니다. 허용 후 다시 시도하세요",
+    opened: "브라우저에서 열었습니다",
+    openFail: "브라우저 열기 실패: {msg}",
+  },
+  col: {
+    moveUp: "위로 이동 (사용자 지정 정렬)",
+    moveDown: "아래로 이동 (사용자 지정 정렬)",
+    sysinfo: "시스템 정보 보기",
+    more: "추가 작업",
+  },
+  probe: {
+    passed: "마지막 감지 성공",
+    skipped: "이 채널은 감지되지 않음",
+    failed: "마지막 감지 실패: {reason}",
   },
 },
 error: {

@@ -112,6 +112,7 @@ hub: {
     notConnected: "未连接",
     online: "在线",
     offline: "离线",
+    unprobed: "未探测",
   },
   picker: {
     title: "{loader} · 选择下次启动",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} 项",
     readonlyHint: "这一项不能直接启动（由 OC/固件接管）",
     footer: "选择后将在下次重启时生效",
+    ariaTitle: "{title} · 选择启动项",
+    fmtTitle: "条目文字格式",
   },
   child: {
     default: "默认项",
@@ -141,6 +144,13 @@ hub: {
     fail: "不通",
     openBrowser: "浏览器打开",
     probeTimeout: "探测超时 (>2000ms)",
+    local: "本机",
+    direct: "直连",
+    disconnected: "未连接",
+    lanDirect: "局域网直连",
+    notReachable: "当前没探通 —— 目标机可能离线",
+    copyTitle: "复制这个地址（含访问令牌）",
+    openTitle: "用系统默认浏览器打开这个地址",
   },
   power: {
     wake: "唤醒",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "关机",
     localNoWake: "本机无需唤醒",
     hibernate: "挂起到内存",
+    magic: "魔术包",
+    noMac: "未配 MAC",
   },
   pending: {
     modified: "引导项已修改，重启后生效",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "选择上方标签查看对应电脑的页面",
     reload: "重载当前电脑",
   },
+  class: {
+    generic: "泛型",
+    tool: "工具项",
+  },
+  oc: {
+    private: "OC 私有 OCBtOrder",
+    firmware: "固件 BootOrder",
+  },
   route: {
+    tunnel: "Cloudflare 隧道",
+    ts: "Tailscale 直连",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel（内建）",
     lan: "直连",
     jump: "跳板机",
     remote: "远程",
     builtin: "内置",
+  },
+  toast: {
+    copied: "已复制 {addr}",
+    copyFail: "复制失败，请手动复制：{url}",
+    popupBlocked: "浏览器拦截了弹窗，请允许后重试",
+    opened: "已在系统浏览器打开",
+    openFail: "打开浏览器失败：{msg}",
+  },
+  col: {
+    moveUp: "上移一位（自定义排序）",
+    moveDown: "下移一位（自定义排序）",
+    sysinfo: "查看系统信息",
+    more: "更多操作",
+  },
+  probe: {
+    passed: "最近一次探测通过",
+    skipped: "这条通道没轮到探测",
+    failed: "最近一次探测失败：{reason}",
   },
 },
 error: {

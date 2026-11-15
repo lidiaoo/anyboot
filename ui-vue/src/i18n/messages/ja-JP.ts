@@ -112,6 +112,7 @@ hub: {
     notConnected: "未接続",
     online: "オンライン",
     offline: "オフライン",
+    unprobed: "未検出",
   },
   picker: {
     title: "{loader} · 次回起動を選択",
@@ -128,6 +129,8 @@ hub: {
     groupItems: "{n} 件",
     readonlyHint: "この項目は直接起動できません（OC/ファームウェアが処理）",
     footer: "選択後、次回再起動時に反映されます",
+    ariaTitle: "{title} · 起動項目を選択",
+    fmtTitle: "項目テキスト形式",
   },
   child: {
     default: "デフォルト",
@@ -141,6 +144,13 @@ hub: {
     fail: "接続不可",
     openBrowser: "ブラウザで開く",
     probeTimeout: "検出タイムアウト (>2000ms)",
+    local: "ローカル",
+    direct: "直接",
+    disconnected: "未接続",
+    lanDirect: "LAN 直接接続",
+    notReachable: "現在接続できません — 相手がオフラインの可能性",
+    copyTitle: "このアドレスをコピー（トークン含む）",
+    openTitle: "既定のブラウザでこのアドレスを開く",
   },
   power: {
     wake: "スリープ解除",
@@ -149,6 +159,8 @@ hub: {
     shutdown: "シャットダウン",
     localNoWake: "ローカルは不要",
     hibernate: "メモリにサスペンド",
+    magic: "マジックパケット",
+    noMac: "MAC 未設定",
   },
   pending: {
     modified: "起動項目を変更しました（再起動後に反映）",
@@ -160,11 +172,41 @@ hub: {
     emptyHint: "上のタブを選択して各コンピューターの画面を表示",
     reload: "現在のコンピューターを再読込",
   },
+  class: {
+    generic: "汎用",
+    tool: "ツール",
+  },
+  oc: {
+    private: "OC 専用 OCBtOrder",
+    firmware: "ファームウェア BootOrder",
+  },
   route: {
+    tunnel: "Cloudflare トンネル",
+    ts: "Tailscale 直接",
+    funnel: "Tailscale Funnel",
+    tsnet: "Tailscale Funnel（内蔵）",
     lan: "直接接続",
     jump: "踏み台",
     remote: "リモート",
     builtin: "内蔵",
+  },
+  toast: {
+    copied: "{addr} をコピーしました",
+    copyFail: "コピー失敗。手動でコピーしてください：{url}",
+    popupBlocked: "ブラウザがポップアップをブロックしました。許可して再試行してください",
+    opened: "既定のブラウザで開きました",
+    openFail: "ブラウザを開けませんでした：{msg}",
+  },
+  col: {
+    moveUp: "上へ移動（カスタム順）",
+    moveDown: "下へ移動（カスタム順）",
+    sysinfo: "システム情報を表示",
+    more: "その他の操作",
+  },
+  probe: {
+    passed: "最新の検出は成功",
+    skipped: "この経路は未検出",
+    failed: "最新の検出に失敗：{reason}",
   },
 },
 error: {
