@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -42,6 +43,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -2693,6 +2697,7 @@ class ComputerListActivity : ComponentActivity() {
      * 点了具体档位就固定用手机自己的选择并记住（anyboot_ui/grubListFormat）。
      */
     @Composable
+    @OptIn(ExperimentalLayoutApi::class)
     private fun grubFormatChips(group: BootGroup) {
         val palette = LocalPalette.current
         val effective = grubEffectiveFormat(group)
@@ -2711,19 +2716,18 @@ class ComputerListActivity : ComponentActivity() {
                 color = palette.fgFaint,
             )
             Spacer(Modifier.height(6.dp))
-            Row(
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
             ) {
                 choices.forEach { (value, name) ->
                     val selected = grubFmt == value
                     Text(
                         name,
-                        fontSize = 11.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                         color = if (selected) Color.White else palette.fgDim,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(13.dp))
                             .background(
                                 if (selected) palette.accent else palette.elevate
                             )
@@ -2855,29 +2859,33 @@ class ComputerListActivity : ComponentActivity() {
         val channelAllRows = if (channelGroup != null) grubDisplayRows(channelGroup) else emptyList()
         val channelPinned = channelAllRows.firstOrNull { it.pinned }
         val channelRows = channelAllRows.filter { !it.pinned }
-        // 居中卡片弹窗（与 PC 网页端一致：宽=屏宽-24、四角圆角14、内容滚动、底部「取消」）。
-        // 用自定义 overlay（Box scrim + 居中卡片），不用 Compose Dialog——本项目里 Dialog 会出现点不开的问题。
+
+        // 居中卡片弹窗：1:1 对齐 PC 网页端 .cq-picker——
+        //   宽 min(420px,86vw)、maxH 70vh、圆角 12、边框 1px、阴影 0 12 40 black/.3、scrim black/.28；
+        //   head 12/14 · 13px · 600 · 底边框；列表 padding 6、行 6/9 圆角 6 透明底；
+        //   组头左 3px 色条+背景+名字 700 粗；子项缩进 26px+左 1px 竖线@12px；
+        //   置顶绿底+左 2px 色条；chips 胶囊圆角 13；取消透明底+边框 margin/padding 8。
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.42f))
+                .background(Color.Black.copy(alpha = 0.28f))
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { sheetRequest = null },
             contentAlignment = Alignment.Center,
         ) {
+            val screenW = LocalConfiguration.current.screenWidthDp.dp
+            val cardW = minOf(420.dp, screenW * 0.86f)
             Column(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(palette.card)
-                    .height(LocalConfiguration.current.screenHeightDp.dp * 0.62f),
+                    .width(cardW)
+                    .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.70f)
+                    .shadow(12.dp, RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.dp, palette.line, RoundedCornerShape(12.dp))
+                    .background(palette.card),
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 18.dp, end = 8.dp, bottom = 10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
                     Text(
                         when {
@@ -2887,8 +2895,8 @@ class ComputerListActivity : ComponentActivity() {
                             request.kind == KIND_REFINDPLUS -> "RefindPlus 启动项"
                             else -> "GRUB 启动项"
                         },
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
                         color = palette.fg,
                         maxLines = 1,
                     )
@@ -2906,156 +2914,219 @@ class ComputerListActivity : ComponentActivity() {
                     }
                     Box(
                         Modifier
-                            .size(30.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(palette.elevate)
                             .clickable { sheetRequest = null },
                         contentAlignment = Alignment.Center,
                     ) {
-                        CloseIcon(tint = palette.fgDim, size = 14.dp)
+                        CloseIcon(tint = palette.fgDim, size = 13.dp)
                     }
                 }
+                // head 底边框（.cq-picker-head 的 border-bottom）
+                Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line))
 
                 // —— 固定区：格式 chips + 悬浮置顶（滚动不动，对齐 PC sticky）——
                 if (group != null) {
                     grubFormatChips(group)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                 }
                 if (grubPinned != null) PinnedBootRowFixed(grubPinned, palette)
                 if (refindPinned != null) PinnedBootRowFixed(refindPinned, palette)
                 if (channelPinned != null) PinnedBootRowFixed(channelPinned, palette)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 18.dp),
-                ) {
-                    if (help) {
-                        HELP_LINES.forEach { line ->
-                            Row(Modifier.padding(vertical = 4.dp)) {
-                                Text("·", fontSize = 12.5.sp, color = palette.fgDim)
-                                Spacer(Modifier.width(6.dp))
-                                Text(line, fontSize = 12.5.sp, color = palette.fgDim, lineHeight = 22.sp)
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Text("电源操作不会弹出确认框", fontSize = 11.sp, color = palette.fgFaint)
-                    } else if (group != null && group.options.isNotEmpty() && profile != null) {
-                        val rid = profile
-                        val rows = when {
-                            request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS -> refindRows
-                            request.kind == KIND_CHANNEL -> channelRows
-                            else -> grubRows
-                        }
-                        rows.forEach { row ->
-                            // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 托盘同构
-                            if (row.isHeader) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 3.dp, start = 2.dp, end = 11.dp),
-                                ) {
-                                    Text(row.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = palette.fgDim,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                    if (row.trailing.isNotEmpty()) {
-                                        Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint)
-                                    }
+                // 列表区：滚动 + 右缘 4dp 自绘滚动条（对齐 web 滚动条视觉）
+                BoxWithConstraints(Modifier.weight(1f)) {
+                    val scrollState = rememberScrollState()
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(scrollState)
+                            .padding(6.dp),
+                    ) {
+                        if (help) {
+                            HELP_LINES.forEach { line ->
+                                Row(Modifier.padding(vertical = 4.dp)) {
+                                    Text("·", fontSize = 12.sp, color = palette.fgDim)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(line, fontSize = 12.5.sp, color = palette.fgDim, lineHeight = 22.sp)
                                 }
-                                return@forEach
                             }
-                            val option = row.option ?: return@forEach
-                            val selected = !row.child && option.value.isNotBlank() && option.value == group.current
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 4.dp)
-                                    .clip(RoundedCornerShape(11.dp))
-                                    .background(
-                                        if (selected) palette.accent.copy(alpha = 0.14f)
-                                        else Color.Transparent
-                                    )
-                                    .clickable {
-                                        if (option.value.isBlank()) {
-                                            toast("这一项不能直接启动（由 OC/固件接管）")
-                                        } else {
-                                            sheetRequest = null
-                                            switchBoot(rid, request.kind, option.value, "切换")
-                                        }
-                                    }
-                                    .padding(start = if (row.child) 26.dp else 11.dp, end = 11.dp, top = 7.dp, bottom = 7.dp),
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (row.child) {
-                                            Box(Modifier.width(2.dp).height(16.dp).background(palette.fgFaint.copy(alpha = 0.25f)))
-                                            Spacer(Modifier.width(6.dp))
-                                        }
-                                        if (row.pinned) {
-                                            Text(
-                                                "下次启动",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = palette.accent,
-                                                modifier = Modifier
-                                                    .background(palette.accent.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
-                                                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                        }
+                            Spacer(Modifier.height(8.dp))
+                            Text("电源操作不会弹出确认框", fontSize = 11.sp, color = palette.fgFaint)
+                        } else if (group != null && group.options.isNotEmpty() && profile != null) {
+                            val rid = profile
+                            val rows = when {
+                                request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS -> refindRows
+                                request.kind == KIND_CHANNEL -> channelRows
+                                else -> grubRows
+                            }
+                            rows.forEachIndexed { _, row ->
+                                // 组头：左 3px 色条（btn 色）+ input-bg 背景 + 名字 link 色 700 粗 + margin-top 4
+                                if (row.isHeader) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(palette.elevate)
+                                            .drawBehind {
+                                                drawRect(palette.elevate)
+                                                drawRect(
+                                                    palette.accent,
+                                                    topLeft = Offset(0f, 0f),
+                                                    size = Size(3.dp.toPx(), size.height),
+                                                )
+                                            }
+                                            .padding(start = 6.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                                    ) {
                                         Text(
                                             row.label,
-                                            fontSize = 14.sp,
-                                            color = if (selected) palette.accent else palette.fg,
-                                            maxLines = 2,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = palette.accent,
+                                            maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f),
                                         )
                                         if (row.trailing.isNotEmpty()) {
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
-                                        }
-                                        if (selected) {
-                                            Spacer(Modifier.width(8.dp))
-                                            CheckIcon(tint = palette.accent, size = 16.dp)
+                                            Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint)
                                         }
                                     }
-                                    // 统一 GRUB 行样式：OC 等引导器的说明内容（卷·路径 / 备注）作为行下小字
-                                    if (row.sub.isNotEmpty()) {
-                                        Text(row.sub, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    return@forEachIndexed
+                                }
+                                // 子项：缩进 26px + 左 1px 竖线（PC: inset 12px 0 0 -11px → 竖线距行左 12px）
+                                val isChild = row.child
+                                Box(Modifier.fillMaxWidth()) {
+                                    if (isChild) {
+                                        Box(
+                                            Modifier
+                                                .offset(x = 12.dp)
+                                                .width(1.dp)
+                                                .height(20.dp)
+                                                .background(palette.lineStrong)
+                                                .align(Alignment.CenterStart),
+                                        )
                                     }
-                                    if (row.note.isNotEmpty()) {
-                                        Text(row.note, fontSize = 10.5.sp, color = palette.fgFaint, lineHeight = 17.sp)
+                                    val option = row.option
+                                    val selected = !row.child && option != null &&
+                                        option.value.isNotBlank() && option.value == group.current
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable(
+                                                indication = null,
+                                                interactionSource = remember { MutableInteractionSource() },
+                                            ) {
+                                                val opt = row.option ?: return@clickable
+                                                if (opt.value.isBlank()) {
+                                                    toast("这一项不能直接启动（由 OC/固件接管）")
+                                                } else {
+                                                    sheetRequest = null
+                                                    switchBoot(rid, request.kind, opt.value, "切换")
+                                                }
+                                            }
+                                            .padding(
+                                                start = if (isChild) 26.dp else 9.dp,
+                                                end = 9.dp,
+                                                top = 6.dp,
+                                                bottom = 6.dp,
+                                            ),
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (row.pinned) {
+                                                    Text(
+                                                        "下次启动",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = palette.ok,
+                                                        modifier = Modifier
+                                                            .background(palette.ok.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
+                                                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                                                    )
+                                                    Spacer(Modifier.width(6.dp))
+                                                }
+                                                Text(
+                                                    row.label,
+                                                    fontSize = 13.sp,
+                                                    color = if (selected) palette.accent else palette.fg,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                if (row.trailing.isNotEmpty()) {
+                                                    Spacer(Modifier.width(6.dp))
+                                                    Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
+                                                }
+                                                if (selected) {
+                                                    Spacer(Modifier.width(8.dp))
+                                                    CheckIcon(tint = palette.ok, size = 16.dp)
+                                                }
+                                            }
+                                            if (row.sub.isNotEmpty()) {
+                                                Text(row.sub, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                            if (row.note.isNotEmpty()) {
+                                                Text(row.note, fontSize = 10.5.sp, color = palette.fgFaint, lineHeight = 17.sp)
+                                            }
+                                        }
                                     }
                                 }
                             }
+                            Spacer(Modifier.height(8.dp))
+                            Text("选择后将在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
+                        } else {
+                            Text(
+                                when {
+                                    channel != null -> channel.error.ifEmpty { "没有可执行的动作" }
+                                    else -> group?.note?.ifEmpty { "没有可选的启动项" } ?: "没有可选的启动项"
+                                },
+                                fontSize = 12.5.sp,
+                                color = palette.fgDim,
+                                lineHeight = 22.sp,
+                            )
                         }
-                        Spacer(Modifier.height(8.dp))
-                        Text("选择后将在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
-                    } else {
-                        Text(
-                            when {
-                                channel != null -> channel.error.ifEmpty { "没有可执行的动作" }
-                                else -> group?.note?.ifEmpty { "没有可选的启动项" } ?: "没有可选的启动项"
-                            },
-                            fontSize = 12.5.sp,
-                            color = palette.fgDim,
-                            lineHeight = 22.sp,
+                    }
+                    // 滚动条：右缘 4dp 细条，随滚动定位（对齐 web 滚动条视觉）
+                    val vh = constraints.maxHeight.toFloat()
+                    val maxScroll = scrollState.maxValue.toFloat()
+                    if (maxScroll > 0f) {
+                        val barH = maxOf(40f, vh * vh / (vh + maxScroll))
+                        val travel = vh - barH
+                        val y = (scrollState.value / maxScroll) * travel
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .offset(y = with(LocalDensity.current) { y.toDp() })
+                                .height(with(LocalDensity.current) { barH.toDp() })
+                                .width(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(palette.fgFaint.copy(alpha = 0.35f)),
                         )
                     }
                 }
-                // 底部「取消」整宽按钮（与 PC 弹窗一致）
+                // 取消：透明底 + 1px line 边框 + 圆角 8 + margin/padding 8 · 12px（.cq-picker-cancel）
                 Button(
                     onClick = { sheetRequest = null },
-                    shape = RoundedCornerShape(0.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = palette.elevate.copy(alpha = 0.5f), contentColor = palette.fg),
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        contentColor = palette.fg,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp)
+                        .border(1.dp, palette.line, RoundedCornerShape(8.dp)),
                 ) {
-                    Text("取消", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text("取消", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
     }
+
 
     // ------------------------------------------------------------------
     // 过滤
@@ -4245,22 +4316,27 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 悬浮置顶行（固定在弹窗列表上方，滚动不动；对齐 PC sticky 置顶副本） */
     @Composable
+    /** 悬浮置顶行：1:1 对齐 PC `.grub-entry.is-pinned`——
+     *  绿底（ok-bg 混 panel）、左 2px ok 色条、「下次启动」徽标、绿勾。 */
     private fun PinnedBootRowFixed(row: GrubRow, palette: Palette) {
+        val okBg = palette.ok.copy(alpha = 0.12f)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(6.dp))
-                .background(palette.accent.copy(alpha = 0.14f))
+                .background(palette.card)
+                .background(okBg)
+                .drawBehind { drawRect(palette.ok, topLeft = Offset(0f, 0f), size = Size(2.dp.toPx(), size.height)) }
                 .padding(horizontal = 9.dp, vertical = 7.dp),
         ) {
             Text(
                 "下次启动",
                 fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = palette.accent,
+                color = palette.ok,
                 modifier = Modifier
-                    .background(palette.accent.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
+                    .background(palette.ok.copy(alpha = 0.16f), RoundedCornerShape(5.dp))
                     .padding(horizontal = 5.dp, vertical = 1.dp),
             )
             Spacer(Modifier.width(6.dp))
@@ -4268,12 +4344,12 @@ class ComputerListActivity : ComponentActivity() {
                 row.label,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = palette.accent,
+                color = palette.ok,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            CheckIcon(tint = palette.accent, size = 16.dp)
+            CheckIcon(tint = palette.ok, size = 16.dp)
         }
         Spacer(Modifier.height(6.dp))
     }
