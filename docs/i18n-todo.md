@@ -13,6 +13,7 @@
 - **M1 = PC 可切换**：T0–T2 + P0–P2（PC 主链路中英可切，lint 生效）
 - **M2 = 三端可切换**：M1 + A0–A3 + I0–I3
 - **M3 = 全量收口**：P3–P6 + A4–A5 + I4–I5 + R0–R4，lint 对三端零残留
+- **M4 = Tier 1 多语言（8 语言）**：L0 + L1.1–L1.7 + L2 + L3（在 M3 之后或并行，取决于翻译资源到位时间）
 
 ---
 
@@ -167,6 +168,50 @@
 
 ---
 
+## 五之二、多语言批次：Tier 1 第二批（8 个语言包）
+
+> 依据：`docs/i18n-语言清单.md` §11。Tier 0 = `zh-CN`/`en-US`（P0/A0/I0 里已含）。
+> **Tier 1 新增 8 个**：`zh-TW`（含 `zh-HK` 复用）、`ja-JP`、`ko-KR`、`de-DE`、`ru-RU`、`pt-BR`、`es-ES`。
+> 原则：**先定术语表再翻译**；每次只加一个语言、走完"文件→切换→截屏→lint"闭环再下一个，避免 8 个语言半成品。
+
+### L0 语言包前置（一次做，所有语言共用）
+- [ ] **L0.1** 术语表 `docs/i18n-glossary.tsv`：固定 30 个高频术语的统一译法
+      （boot entry / ESP / NVRAM / next boot / pending / undo / loader 名 / 在线离线 / 探测 / 令牌…），
+      品牌词列入"不翻译"列（GRUB/rEFInd/RefindPlus/OpenCore/systemd-boot/Clover/ESP/NVRAM/APFS/OCBtOrder）
+- [ ] **L0.2** 语言清单与回退链落到代码常量（`SUPPORTED_LOCALES` + `FALLBACK_CHAIN`）：
+      `zh-HK → zh-TW → zh-CN → en-US`；`pt-PT → pt-BR → en-US`；其余 `→ en-US`
+- [ ] **L0.3** PC：`ui-vue/src/i18n/messages/{locale}.ts` 按语言一文件；英文/es/pt 用**同一 key 树**，缺失即 lint 报错
+- [ ] **L0.4** Android：`values-<locale>/strings.xml`（`values-zh-rTW`、`values-ja`、`values-ko`、`values-de`、`values-ru`、`values-pt-rBR`、`values-es`）
+- [ ] **L0.5** iOS：`Localizable.xcstrings` 内新增 8 个语言（Source Language = zh-Hans）
+- [ ] **L0.6** 伪本地化（pseudo-locale）开关：`en-XA`（PC/Android/iOS），用来自查"是否有文案没走 t()"
+      —— 开 en-XA 后全站应显示带重音的乱码，出现正常中文=漏翻（比人工看高效）
+
+### L1 每语言（8 份，逐语言勾选；每份含 PC+Android+iOS 三端）
+> 每语言固定 6 步：①术语对齐 → ②PC 译文文件 → ③Android 资源 → ④iOS xcstrings → ⑤三端切换回归+截屏 → ⑥lint 清零。
+> 建议顺序：`zh-TW` → `ja-JP` → `ko-KR` → `de-DE` → `ru-RU` → `pt-BR` → `es-ES`（`zh-HK` 复用 zh-TW，仅补差异词）
+
+- [ ] **L1.1 zh-TW / zh-HK（繁体）** —— 注意：**不是简转繁**，「设置→設定、网络→網路、默认→預設、撤销→復原/取消」
+      ①术语(用繁体版) ②PC `messages/zh-TW.ts` ③`values-zh-rTW` ④xcstrings(zh-Hant) ⑤回归 ⑥lint
+      （`zh-HK` 差异词单独一份 `zh-HK.ts`，回退到 zh-TW）
+- [ ] **L1.2 ja-JP** —— ①术语 ②PC ③`values-ja` ④xcstrings(ja) ⑤回归 ⑥lint
+- [ ] **L1.3 ko-KR** —— ①术语 ②PC ③`values-ko` ④xcstrings(ko) ⑤回归 ⑥lint
+- [ ] **L1.4 de-DE** —— ①术语 ②PC ③`values-de` ④xcstrings(de) ⑤回归 ⑥lint（**德语长词**：按钮/chips 溢出重点查）
+- [ ] **L1.5 ru-RU** —— ①术语 ②PC ③`values-ru` ④xcstrings(ru) ⑤回归 ⑥lint（西里尔字体栈确认）
+- [ ] **L1.6 pt-BR** —— ①术语 ②PC ③`values-pt-rBR` ④xcstrings(pt-BR) ⑤回归 ⑥lint（不混用 pt-PT 词）
+- [ ] **L1.7 es-ES** —— ①术语 ②PC ③`values-es` ④xcstrings(es) ⑤回归 ⑥lint（拉美词另开 `es-419`，本轮不做）
+
+### L2 多语言矩阵验收
+- [ ] **L2.1** 语言选择 UI 列出 9 项（含 zh-HK），显示各语言**本族名**（繁體中文 / 日本語 / 한국어 / Deutsch / Русский / Português (Brasil) / Español），不显示英文名
+- [ ] **L2.2** 每种语言各截 3 张关键页（电脑列表 / 引导器弹窗 / 设置），共 27 张；检查溢出与截断
+- [ ] **L2.3** 切换后：主窗 / 托盘菜单 / 通知窗 / 远程 iframe（`abLang`）四处语言一致
+- [ ] **L2.4** 回退验证：故意删 `zh-TW` 某 key → 应回落 `zh-CN`（不是显示 key 原文）
+- [ ] **L2.5** 语言持久化：切换 → 重启 → 保持；系统语言变化时的"跟随系统"行为正确
+- [ ] **L2.6** `scripts/i18n-check.mjs` 覆盖 9 语言：三端 key 集合一致、无空译文、无残留 zh-CN 文案
+
+### L3 发布
+- [ ] **L3.1** 发版说明列出支持语言；`docs/README` 增加语言切换用法
+- [ ] **L3.2** 后续语言（Tier 2）以 issue 登记，按社区反馈排期，不预做
+
 ## 六、依赖关系与并行
 
 ```
@@ -180,6 +225,8 @@ R0 ─> R1/R2/R3/R4 （R3 需在 A3/I3 前完成后端 Accept-Language）
 - **PC 与移动端可完全并行**（不同 skill）。
 - **R3 必须早于 A3/I3**（否则端到端验证没有本地化的后端 message）。
 - **P5.2 / A4.2 / I4.2 的英文排版复核**建议在同一轮做（统一截图规范：手机宽度 + 桌面宽度各一组）。
+- **L0 必须在第一个 Tier 1 语言开始前完成**（术语表是 8 份翻译的共同前提）；
+  `L1.x` 之间**可并行**（不同语言互不依赖），但**同一语言必须三端一起收口**（PC/Android/iOS 同步发）。
 
 ---
 
@@ -193,6 +240,10 @@ R0 ─> R1/R2/R3/R4 （R3 需在 A3/I3 前完成后端 Accept-Language）
 | 后端文案遗留中文 | 远程视角仍中文 | R3 前置；A3/I3 带 Accept-Language；P0.7 带 abLang |
 | 托盘菜单语言不跟随 | 主窗英文/托盘中文 | R1 + `set_language` 触发重建；P0.5 验收项 |
 | 语言切换后缓存旧页面 | 需刷新 | PC 响应式即时；iframe 追加 abLang 并强制重载 |
+| 8 语言无人审校 → 机翻痕迹 | 体验差 | 先出术语表；每语言找社区母语校对（GitHub issue 征志愿者） |
+| 繁体简转繁产生错词 | 用词不对 | L1.1 明确"不简转繁"，按繁体术语表重译 |
+| 德语/俄语长词撑破 UI | 破版 | L1.4/L1.5 单独跑长词截图；必要时缩短译法或允许换行 |
+| `zh-HK`/`pt-PT`/`es-419` 变体蔓延 | 维护成本 | 只做清单里 Tier1 明确项；`zh-HK` 复用 `zh-TW`、`es-419` 不入本轮 |
 
 ---
 
