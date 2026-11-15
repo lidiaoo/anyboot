@@ -1444,6 +1444,7 @@ boot: {
 },
 cl: {
   pickConn: "Choose the connection to open",
+  footerNote: "Power actions run immediately (no confirmation) · wake works offline too (magic packet) · boot changes take effect after reboot",
 },
 srv: {
   delConfirm: "Delete “{name}”? This can't be undone.",

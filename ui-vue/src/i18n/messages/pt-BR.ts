@@ -1444,6 +1444,7 @@ boot: {
 },
 cl: {
   pickConn: "Escolha a conexão para abrir",
+  footerNote: "Ações de energia imediatas (sem confirmação) · acordar funciona offline também (magic packet) · mudanças de boot após reiniciar",
 },
 srv: {
   delConfirm: "Excluir “{name}”? Não pode ser desfeito.",

@@ -1444,6 +1444,7 @@ boot: {
 },
 cl: {
   pickConn: "Zu öffnende Verbindung wählen",
+  footerNote: "Energiebefehle sofort (keine Bestätigung) · Aufwecken auch offline (Magic Packet) · Startänderungen nach Neustart",
 },
 srv: {
   delConfirm: "„{name}“ löschen? Nicht umkehrbar.",

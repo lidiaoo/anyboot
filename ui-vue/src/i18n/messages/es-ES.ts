@@ -1444,6 +1444,7 @@ boot: {
 },
 cl: {
   pickConn: "Elige la conexión para abrir",
+  footerNote: "Acciones de energía inmediatas (sin confirmación) · despertar funciona sin conexión (magic packet) · cambios de arranque tras reiniciar",
 },
 srv: {
   delConfirm: "¿Eliminar «{name}»? No se puede deshacer.",

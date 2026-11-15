@@ -352,7 +352,7 @@ function openPage(which: string) {
             <div v-if="i > 0" class="about-divider" aria-hidden="true" />
             <button type="button" class="about-link" @click="openPage(item.id)">
               <svg class="about-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="item.icon" />
-              <span>{{ item.label }}</span>
+              <span>{{ $t(item.label) }}</span>
               <span v-if="item.suffix" class="about-suffix mono">{{ item.suffix }}</span>
               <span class="about-chev" aria-hidden="true">›</span>
             </button>

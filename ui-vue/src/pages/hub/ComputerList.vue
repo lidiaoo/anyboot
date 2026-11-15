@@ -815,7 +815,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
     />
 
     <div class="cq-foot">
-      电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启时生效
+      {{ $t("cl.footerNote") }}
     </div>
   </div>
 </template>

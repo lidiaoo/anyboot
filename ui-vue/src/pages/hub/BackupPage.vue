@@ -602,7 +602,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                   :class="{ 'is-on': syncPeriod === opt.v }"
                   @click="syncPeriod = opt.v"
                 >
-                  {{ opt.label }}
+                  {{ $t(opt.label) }}
                 </button>
               </div>
             </div>
@@ -710,7 +710,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               </thead>
               <tbody id="prevRows">
                 <tr v-for="row in previewRows" :key="row.label">
-                  <td>{{ row.label }}</td>
+                  <td>{{ $t(row.label) }}</td>
                   <td class="bk-num" style="text-align: right">{{ row.inBackup }}</td>
                   <td class="bk-num" style="text-align: right">{{ row.local }}</td>
                   <td>
