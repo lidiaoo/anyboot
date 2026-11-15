@@ -77,7 +77,7 @@ struct ServerModuleView: View {
 
     private var topBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "☰", description: "侧边栏") { ABNavigator.shared.openDrawer() }
+            ABBarIcon(text: "☰", description: L("topbar.sidebar")) { ABNavigator.shared.openDrawer() }
 
             Text(title)
                 .font(.system(size: 20, weight: .bold))
@@ -115,8 +115,8 @@ struct ServerModuleView: View {
             .overlay(alignment: .topTrailing) {
                 if moreOpen {
                     VStack(alignment: .leading, spacing: 0) {
-                        menuItem("会话（进行中 / 历史）") { store.page = .sessions }
-                        menuItem("传输管理") { store.page = .transfers }
+                        menuItem(L("and.menuSessions")) { store.page = .sessions }
+                        menuItem(L("and.menuTransfers")) { store.page = .transfers }
                         menuItem(L("nav.termSettings")) { store.terminalSettingsOpen = true }
                     }
                     .frame(width: ABMetric.px(190))
@@ -152,7 +152,7 @@ struct ServerModuleView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(store.page == .servers ? "添加服务器" : "添加密钥")
+                .accessibilityLabel(store.page == .servers ? L("and.addServerTitle") : L("and.addKey"))
                 .padding(.leading, ABMetric.px(8))
                 .overlay(alignment: .topTrailing) {
                     if fabMenuOpen {

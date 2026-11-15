@@ -16,12 +16,12 @@ enum WebDavError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .badURL: return "服务器地址不合法"
-        case .unauthorized: return "401 用户名或密码错误"
-        case .notFound: return "404 远端目录不存在"
-        case .conflict: return "云端已被其他设备更新，请重试"
-        case .serverError(let code): return "服务器无响应（\(code)），请稍后重试"
-        case .quota: return "WebDAV 空间不足"
+        case .badURL: return L("and.webdavBadURL")
+        case .unauthorized: return L("and.webdav401")
+        case .notFound: return L("and.webdav404")
+        case .conflict: return L("and.webdavConflict")
+        case .serverError(let code): return L("and.webdavServerError", code)
+        case .quota: return L("and.webdavQuota")
         case .network(let reason): return L("and.connFailMsg", reason)
         }
     }

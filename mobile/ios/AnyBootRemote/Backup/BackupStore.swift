@@ -27,9 +27,9 @@ enum BackupError: LocalizedError {
         switch self {
         case .tooLarge: return L("and.tooBig")
         case .badFormat: return L("and.invalidFile")
-        case .fromNewerVersion: return "备份来自更新版本，请先升级 App"
-        case .decryptFailed: return "口令错误或文件已损坏"
-        case .emptyPassword: return "请输入备份口令"
+        case .fromNewerVersion: return L("and.backupNewer")
+        case .decryptFailed: return L("and.pwdWrongOrCorrupt")
+        case .emptyPassword: return L("and.enterBackupPwd")
         }
     }
 }
@@ -269,7 +269,7 @@ final class BackupStore {
             var list: [ServerProfile] = []
             for (index, item) in payload.items.enumerated() {
                 guard var profile = server(from: item) else {
-                    report.failed.append("第 \(index + 1) 台电脑：档案字段不合法")
+                    report.failed.append(L("and.backupFieldInvalid", index + 1))
                     continue
                 }
                 touch(&profile)
@@ -313,7 +313,7 @@ final class BackupStore {
             if !profile.jumpServerId.isEmpty { refs.insert(profile.jumpServerId) }
             for (_, id) in profile.jumps where !id.isEmpty { refs.insert(id) }
             if refs.contains(where: { !jumpIds.contains($0) }) {
-                report.missingRefs.append("「\(profile.displayName)」的跳板机待配置")
+                report.missingRefs.append(L("and.jumpUnconfigured", profile.displayName))
             }
         }
         return report
@@ -334,7 +334,7 @@ final class BackupStore {
             var list: [JumpServer] = []
             for (index, item) in payload.items.enumerated() {
                 guard var jump = jump(from: item) else {
-                    report.failed.append("第 \(index + 1) 台服务器：档案字段不合法")
+                    report.failed.append(L("and.serverFieldInvalid", index + 1))
                     continue
                 }
                 restoreJumpSecrets(&jump, secrets: currentSecrets)
