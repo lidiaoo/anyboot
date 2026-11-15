@@ -171,7 +171,7 @@ struct ComputerListView: View {
                         .font(.system(size: 16.5, weight: .bold))
                         .foregroundColor(ABColor.fg)
                         .lineLimit(1)
-                    Text("远程管理 - 电脑 · 点卡片即可发电源指令或切引导项")
+                    Text(L("__MISS__"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                         .lineLimit(1)
@@ -328,10 +328,10 @@ struct ComputerListView: View {
                 let rows = allRows
                 let online = rows.filter { $0.state == Reach.online }.count
                 let pending = rows.filter { grubPending($0.grub) }.count
-                statChip(L("hub.list.all")), rows.count, filter == .all, false) { filter = .all }
-                statChip(L("hub.list.online")), online, filter == .online, false) { filter = .online }
-                statChip(L("hub.list.offline")), rows.count - online, filter == .offline, false) { filter = .offline }
-                statChip(L("hub.list.pending")), pending, filter == .pending, true) { filter = .pending }
+                statChip(L("hub.list.all"), rows.count, filter == .all, false) { filter = .all }
+                statChip(L("hub.list.online"), online, filter == .online, false) { filter = .online }
+                statChip(L("hub.list.offline"), rows.count - online, filter == .offline, false) { filter = .offline }
+                statChip(L("hub.list.pending"), pending, filter == .pending, true) { filter = .pending }
             }
             .padding(.top, ABMetric.px(9))
         }
@@ -382,7 +382,7 @@ struct ComputerListView: View {
                 .padding(.top, ABMetric.px(12))
                 .padding(.bottom, ABMetric.px(24))
                 // 列表末尾说明（HostList 799-810）
-                Text("电源指令通过魔术包发送，无需目标机在线\n引导项变更在下次重启时生效")
+                Text(L("__MISS__"))
                     .font(.system(size: 11))
                     .lineSpacing(ABMetric.px(7))
                     .foregroundColor(ABColor.fgFaint)
@@ -651,7 +651,7 @@ struct ComputerListView: View {
 
         return CqRow(
             profile: profile,
-            name: profile.displayName.isEmpty ? "(未命名)" : profile.displayName,
+            name: profile.displayName.isEmpty ? L("server.untitled") : profile.displayName,
             pairs: rows,
             tunnelNote: tunnelShareNote(profile),
             ip: displayAddress(profile),
@@ -746,7 +746,7 @@ struct ComputerListView: View {
     }
 
     private func displayAddress(_ profile: ServerProfile) -> String {
-        guard let value = ServerProfile.normalizeHost(profile.host) else { return "(未填地址)" }
+        guard let value = ServerProfile.normalizeHost(profile.host) else { return L("__MISS__") }
         return stripDefaultPort(value)
     }
 
@@ -947,7 +947,7 @@ struct ComputerListView: View {
             // 样式 3（用户 2026-11-01）：上行「状态 + 跳板机 + 本机端点」流式排，
             // 放不下的掉到下一行；下行地址独占整行横排全宽；失败原因垫底
             FlowLayout {
-                kindBadge(ServerProfile.routeJump, "跳板机")
+                kindBadge(ServerProfile.routeJump, L("remote.jumpLabel"))
                 Text(stateText)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(inUse || hit?.ok == true ? ABColor.ok
@@ -989,7 +989,7 @@ struct ComputerListView: View {
         }
         return VStack(alignment: .leading, spacing: ABMetric.px(2)) {
             FlowLayout {
-                kindBadge(ServerProfile.routeLan, "直连")
+                kindBadge(ServerProfile.routeLan, L("hub.conn.lan"))
                 Text(probeStateText(hit))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.bad)
@@ -1251,7 +1251,7 @@ struct ComputerListView: View {
             if previewRows.isEmpty {
                 if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
                 else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
-                else { valueLabel = "没有可用动作" }
+                else { valueLabel = L("__MISS__") }
             } else if let defaultRow = previewRows.first(where: { $0.isDefault && !$0.spec.isEmpty }) {
                 valueLabel = defaultRow.title
                 dotKind = defaultRow.kind
@@ -1384,7 +1384,7 @@ struct ComputerListView: View {
                     .trimmingCharacters(in: .whitespaces)
                 dotKind = hit.option?.kind ?? "linux"
             } else {
-                valueLabel = group.current.isEmpty ? "未设置" : group.current
+                valueLabel = group.current.isEmpty ? L("hub.state.notSet") : group.current
                 dotKind = "linux"
             }
         }
@@ -1566,7 +1566,7 @@ struct ComputerListView: View {
                                              remoteActive: row.connRemote))
             powerButton(row, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionSleep,
-                                             fallback: "挂起到内存",
+                                             fallback: L("hub.power.hibernate"),
                                              remoteActive: row.connRemote))
             powerButton(row, action: PowerRoute.actionReboot, label: L("hub.power.restart"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionReboot,
@@ -1766,7 +1766,7 @@ struct ComputerListView: View {
                             } else {
                                 Text(group?.note.isEmpty == false ? group!.note
                                      : (request.channel?.error.isEmpty == false
-                                        ? request.channel!.error : "没有可选的启动项"))
+                                        ? request.channel!.error : L("and.noBootOption")))
                                     .font(.system(size: 12.5))
                                     .lineSpacing(ABMetric.px(9))
                                     .foregroundColor(ABColor.fgDim)
@@ -1939,7 +1939,7 @@ struct ComputerListView: View {
             }
         }
         if channel.entries.isEmpty && previewRows.isEmpty {
-            Text(channel.error.isEmpty ? "没有可执行的动作" : channel.error)
+            Text(channel.error.isEmpty ? L("and.noActionAvailable") : channel.error)
                 .font(.system(size: 12.5))
                 .foregroundColor(ABColor.fgDim)
         } else {
