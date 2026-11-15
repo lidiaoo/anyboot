@@ -1936,6 +1936,12 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_noteServerBigger">(archivo del servidor mayor de lo esperado; volver a subir)</string>
     <string name="and_uploadedToP">Subido a %1$s%2$d</string>
     <string name="and_channelWord">Canal</string>
+    <string name="and_helpPower1">Despertar: magic packet estándar (UDP 9). Suspender/reiniciar/apagar por el canal «ruta de energía» de cada equipo: broadcast LAN o API AnyBoot</string>
+    <string name="and_helpPower2">Las cuatro teclas de energía funcionan siempre, sin gris por online/offline; apagar/reiniciar se ejecutan sin confirmación: guarda tu trabajo</string>
+    <string name="and_helpPower3">Las entradas (rEFInd / GRUB) se aplican al reiniciar; «Deshacer» restaura</string>
+    <string name="and_helpPower4">Las tarjetas systemd-boot / OpenCore / Clover también al reiniciar; con ⤴ requiere escritura NVRAM</string>
+    <string name="and_helpPower5">No se pueden leer entradas con el equipo sin conexión</string>
+    <string name="and_helpPower6">«No detectado» = este equipo no tiene el gestor de arranque correspondiente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), no es un fallo de lectura</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

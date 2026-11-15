@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "（伺服器上的檔案比預期大，已改為重新上傳）";
 "and.uploadedToP" = "已上傳到 {x}{n}";
 "and.channelWord" = "通道";
+"and.helpPower1" = "喚醒：發標準魔術封包（UDP 9）。睡眠 / 重新啟動 / 關機按每台電腦「電源路由」裡配的通道發送，可以是區域網路廣播封包，也可以走它自己的 AnyBoot 介面";
+"and.helpPower2" = "四個電源鍵任何時候都能按，不會因為線上/離線變灰；關機與重新啟動立即執行，不會二次確認，請先儲存工作";
+"and.helpPower3" = "引導項（rEFInd / GRUB）在下次重新啟動時生效，可點「撤銷」恢復成原來那項";
+"and.helpPower4" = "systemd-boot / OpenCore / Clover 的動作卡同樣在下次重新啟動時生效；帶 ⤴ 的必經 NVRAM 寫";
+"and.helpPower5" = "電腦離線時讀不到引導項";
+"and.helpPower6" = "顯示「未檢測到」= 這台電腦沒部署對應的引導管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是讀取失敗";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

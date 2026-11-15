@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "(файл на сервере больше ожидаемого; повторная загрузка)";
 "and.uploadedToP" = "Загружено в {x}{n}";
 "and.channelWord" = "Канал";
+"and.helpPower1" = "Пробуждение: стандартный magic packet (UDP 9). Сон/перезагрузка/выключение — через «маршрут питания» каждого ПК (LAN-broadcast или API AnyBoot)";
+"and.helpPower2" = "Четыре кнопки питания работают всегда, не гаснут по online/offline; выключение/перезагрузка сразу без подтверждения — сохраните работу";
+"and.helpPower3" = "Записи загрузки (rEFInd / GRUB) — при следующей перезагрузке; «Отменить» вернёт прежнюю";
+"and.helpPower4" = "Карточки systemd-boot / OpenCore / Clover тоже при следующей перезагрузке; с ⤴ требуется запись NVRAM";
+"and.helpPower5" = "Записи загрузки недоступны, пока компьютер offline";
+"and.helpPower6" = "«Не обнаружено» = на ПК нет соответствующего менеджера загрузки (rEFInd / GRUB / OpenCore / Clover / systemd-boot), а не ошибка чтения";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

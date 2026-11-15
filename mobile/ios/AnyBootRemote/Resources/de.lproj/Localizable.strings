@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "(Serverdatei größer als erwartet; auf Neu-Upload)";
 "and.uploadedToP" = "Hochgeladen nach {x}{n}";
 "and.channelWord" = "Kanal";
+"and.helpPower1" = "Aufwecken: Standard-Magic-Packet (UDP 9). Ruhezustand/Neustart/Herunterfahren über den „Energieroute“-Kanal jedes PCs – LAN-Broadcast oder AnyBoot-API";
+"and.helpPower2" = "Die vier Energietasten funktionieren immer, nie durch Online/Offline ausgegraut; Herunterfahren/Neustart sofort ohne Bestätigung – zuerst speichern";
+"and.helpPower3" = "Starteinträge (rEFInd / GRUB) gelten beim nächsten Neustart; „Rückgängig“ stellt wieder her";
+"and.helpPower4" = "systemd-boot / OpenCore / Clover-Aktionskarten gelten auch beim nächsten Neustart; mit ⤴ ist ein NVRAM-Schreibvorgang nötig";
+"and.helpPower5" = "Starteinträge nicht lesbar, wenn der Computer offline ist";
+"and.helpPower6" = "„Nicht erkannt“ = kein passender Bootmanager installiert (rEFInd / GRUB / OpenCore / Clover / systemd-boot), kein Lesefehler";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

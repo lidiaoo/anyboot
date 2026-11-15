@@ -1936,6 +1936,12 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_noteServerBigger">(arquivo no servidor maior que o esperado; reenviar)</string>
     <string name="and_uploadedToP">Enviado para %1$s%2$d</string>
     <string name="and_channelWord">Canal</string>
+    <string name="and_helpPower1">Acordar: magic packet padrão (UDP 9). Suspender/reiniciar/desligar via canal “rota de energia” de cada PC — broadcast LAN ou API AnyBoot</string>
+    <string name="and_helpPower2">As quatro teclas de energia funcionam sempre, sem cinza por online/offline; desligar/reiniciar executam sem confirmação — salve o trabalho</string>
+    <string name="and_helpPower3">Entradas (rEFInd / GRUB) valem no próximo reinício; “Desfazer” restaura</string>
+    <string name="and_helpPower4">Os cartões systemd-boot / OpenCore / Clover também valem no próximo reinício; com ⤴ exige gravação NVRAM</string>
+    <string name="and_helpPower5">Não é possível ler entradas com o computador offline</string>
+    <string name="and_helpPower6">“Não detectado” = este PC não tem o gerenciador de boot correspondente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), não é falha de leitura</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

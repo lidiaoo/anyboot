@@ -1936,6 +1936,12 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_noteServerBigger">(server file larger than expected; switched to re-upload)</string>
     <string name="and_uploadedToP">Uploaded to %1$s%2$d</string>
     <string name="and_channelWord">Channel</string>
+    <string name="and_helpPower1">Wake: standard magic packet (UDP 9). Sleep / restart / shutdown go via each computer\'s “power route” channel — a LAN broadcast packet or its own AnyBoot API</string>
+    <string name="and_helpPower2">The four power keys always work, never greyed out by online/offline; shutdown and restart run immediately with no confirmation — save your work first</string>
+    <string name="and_helpPower3">Boot entries (rEFInd / GRUB) apply on next reboot; tap “Undo” to restore the original</string>
+    <string name="and_helpPower4">systemd-boot / OpenCore / Clover action cards also apply on next reboot; those with ⤴ require an NVRAM write</string>
+    <string name="and_helpPower5">Boot entries can\'t be read while the computer is offline</string>
+    <string name="and_helpPower6">“Not detected” = this computer has no matching boot manager deployed (rEFInd / GRUB / OpenCore / Clover / systemd-boot), not a read failure</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

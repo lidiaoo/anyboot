@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "(server file larger than expected; switched to re-upload)";
 "and.uploadedToP" = "Uploaded to {x}{n}";
 "and.channelWord" = "Channel";
+"and.helpPower1" = "Wake: standard magic packet (UDP 9). Sleep / restart / shutdown go via each computer's “power route” channel — a LAN broadcast packet or its own AnyBoot API";
+"and.helpPower2" = "The four power keys always work, never greyed out by online/offline; shutdown and restart run immediately with no confirmation — save your work first";
+"and.helpPower3" = "Boot entries (rEFInd / GRUB) apply on next reboot; tap “Undo” to restore the original";
+"and.helpPower4" = "systemd-boot / OpenCore / Clover action cards also apply on next reboot; those with ⤴ require an NVRAM write";
+"and.helpPower5" = "Boot entries can't be read while the computer is offline";
+"and.helpPower6" = "“Not detected” = this computer has no matching boot manager deployed (rEFInd / GRUB / OpenCore / Clover / systemd-boot), not a read failure";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

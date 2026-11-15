@@ -1936,6 +1936,12 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_noteServerBigger">(서버 파일이 예상보다 큼. 다시 업로드로 전환)</string>
     <string name="and_uploadedToP">%1$s에 업로드%2$d</string>
     <string name="and_channelWord">채널</string>
+    <string name="and_helpPower1">깨우기: 표준 매직 패킷(UDP 9). 잠자기/재시작/종료는 각 PC의 ‘전원 라우트’ 채널로 전송(LAN 브로드캐스트 또는 AnyBoot API)</string>
+    <string name="and_helpPower2">전원 4키는 항상 누를 수 있고 온라인/오프라인으로 회색이 되지 않음. 종료/재시작은 확인 없이 즉시 실행. 먼저 작업 저장</string>
+    <string name="and_helpPower3">부팅 항목(rEFInd / GRUB)은 다음 재부팅 시 적용. ‘실행 취소’로 원래대로</string>
+    <string name="and_helpPower4">systemd-boot / OpenCore / Clover 동작 카드도 다음 재부팅 시 적용; ⤴ 있는 것은 NVRAM 기록 필요</string>
+    <string name="and_helpPower5">컴퓨터가 오프라인일 때 부팅 항목을 읽을 수 없음</string>
+    <string name="and_helpPower6">‘감지 안 됨’ = 이 PC에 해당 부트 매니저 미배포(rEFInd / GRUB / OpenCore / Clover / systemd-boot). 읽기 실패 아님</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

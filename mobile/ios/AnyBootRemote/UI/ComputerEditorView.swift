@@ -830,12 +830,10 @@ struct ComputerEditorView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
-            fieldLabel("经由跳板机（**按地址分别选**：外网连家里先到「☰ → 服务器」添加 SSH 跳板机，"
-                + "再回到上面每个地址那行自己挑一台；不选就是直连）")
+            fieldLabel(L("and.viaJumpLabel"))
             Text(jumps.jumps.isEmpty
-                ? "还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。"
-                : "三个直连可以各配三台跳板机：每个地址各建各的转发，互不影响。"
-                    + "一台跳板机只是某个网络的入口，别把不同网络的地址指到同一台上。")
+                ? L("and.noJumpProfiles")
+                : L("and.jumpPerAddrHint"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .frame(maxWidth: .infinity, alignment: .leading)

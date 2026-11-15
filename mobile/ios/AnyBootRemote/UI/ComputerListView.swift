@@ -1831,13 +1831,12 @@ struct ComputerListView: View {
     }
 
     private static let helpLines = [
-        "唤醒：发标准魔术包（UDP 9）。睡眠 / 重启 / 关机按每台电脑「电源路由」里配的通道发送，"
-            + "可以是局域网广播包，也可以走它自己的 AnyBoot 接口",
-        "四个电源键任何时候都能按，不会因为在线/离线变灰；关机与重启立即执行，不会二次确认，请先保存工作",
-        "引导项（rEFInd / GRUB）在下次重启时生效，可点「撤销」恢复成原来那项",
-        "systemd-boot / OpenCore / Clover 的动作卡同样在下次重启时生效；带 ⤴ 的必经 NVRAM 写",
-        "电脑离线时读不到引导项",
-        "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是读取失败",
+        L("and.helpPower1"),
+        L("and.helpPower2"),
+        L("and.helpPower3"),
+        L("and.helpPower4"),
+        L("and.helpPower5"),
+        L("and.helpPower6"),
     ]
 
     @ViewBuilder

@@ -139,8 +139,7 @@ enum WakeOnLan {
         }
 
         if deliveries.isEmpty {
-            throw PowerError.message("没有可发的电源包："
-                + (problems.isEmpty ? "这些路由都被关掉了" : problems.joined(separator: "；")))
+            throw PowerError.message(L("and.noPacketsToSend") + (problems.isEmpty ? L("and.allRoutesOff") : problems.joined(separator: "；")))
         }
 
         // 电源包走**首选地址**那台跳板机（一址一跳板机：别的地址的跳板机到不了这个网段）
@@ -151,7 +150,7 @@ enum WakeOnLan {
             sent = try sendLocal(deliveries)
         } else {
             guard let jump = JumpStore.shared.jump(jumpId) else {
-                throw PowerError.message("跳板机不存在（可能已删除），请到「服务器」页检查")
+                throw PowerError.message(L("and.jumpNotExistCheck"))
             }
             guard jump.isSsh else {
                 throw PowerError.message(L("and.jumpIsTelnetPower"))

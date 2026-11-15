@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "(arquivo no servidor maior que o esperado; reenviar)";
 "and.uploadedToP" = "Enviado para {x}{n}";
 "and.channelWord" = "Canal";
+"and.helpPower1" = "Acordar: magic packet padrão (UDP 9). Suspender/reiniciar/desligar via canal “rota de energia” de cada PC — broadcast LAN ou API AnyBoot";
+"and.helpPower2" = "As quatro teclas de energia funcionam sempre, sem cinza por online/offline; desligar/reiniciar executam sem confirmação — salve o trabalho";
+"and.helpPower3" = "Entradas (rEFInd / GRUB) valem no próximo reinício; “Desfazer” restaura";
+"and.helpPower4" = "Os cartões systemd-boot / OpenCore / Clover também valem no próximo reinício; com ⤴ exige gravação NVRAM";
+"and.helpPower5" = "Não é possível ler entradas com o computador offline";
+"and.helpPower6" = "“Não detectado” = este PC não tem o gerenciador de boot correspondente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), não é falha de leitura";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

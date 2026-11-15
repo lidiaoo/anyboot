@@ -1899,6 +1899,12 @@
 "and.noteServerBigger" = "(archivo del servidor mayor de lo esperado; volver a subir)";
 "and.uploadedToP" = "Subido a {x}{n}";
 "and.channelWord" = "Canal";
+"and.helpPower1" = "Despertar: magic packet estándar (UDP 9). Suspender/reiniciar/apagar por el canal «ruta de energía» de cada equipo: broadcast LAN o API AnyBoot";
+"and.helpPower2" = "Las cuatro teclas de energía funcionan siempre, sin gris por online/offline; apagar/reiniciar se ejecutan sin confirmación: guarda tu trabajo";
+"and.helpPower3" = "Las entradas (rEFInd / GRUB) se aplican al reiniciar; «Deshacer» restaura";
+"and.helpPower4" = "Las tarjetas systemd-boot / OpenCore / Clover también al reiniciar; con ⤴ requiere escritura NVRAM";
+"and.helpPower5" = "No se pueden leer entradas con el equipo sin conexión";
+"and.helpPower6" = "«No detectado» = este equipo no tiene el gestor de arranque correspondiente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), no es un fallo de lectura";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

@@ -1936,6 +1936,12 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_noteServerBigger">(Serverdatei größer als erwartet; auf Neu-Upload)</string>
     <string name="and_uploadedToP">Hochgeladen nach %1$s%2$d</string>
     <string name="and_channelWord">Kanal</string>
+    <string name="and_helpPower1">Aufwecken: Standard-Magic-Packet (UDP 9). Ruhezustand/Neustart/Herunterfahren über den „Energieroute“-Kanal jedes PCs – LAN-Broadcast oder AnyBoot-API</string>
+    <string name="and_helpPower2">Die vier Energietasten funktionieren immer, nie durch Online/Offline ausgegraut; Herunterfahren/Neustart sofort ohne Bestätigung – zuerst speichern</string>
+    <string name="and_helpPower3">Starteinträge (rEFInd / GRUB) gelten beim nächsten Neustart; „Rückgängig“ stellt wieder her</string>
+    <string name="and_helpPower4">systemd-boot / OpenCore / Clover-Aktionskarten gelten auch beim nächsten Neustart; mit ⤴ ist ein NVRAM-Schreibvorgang nötig</string>
+    <string name="and_helpPower5">Starteinträge nicht lesbar, wenn der Computer offline ist</string>
+    <string name="and_helpPower6">„Nicht erkannt“ = kein passender Bootmanager installiert (rEFInd / GRUB / OpenCore / Clover / systemd-boot), kein Lesefehler</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

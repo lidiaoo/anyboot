@@ -1936,6 +1936,12 @@ Telnet：実験的端末のみ。</string>
     <string name="and_noteServerBigger">（サーバーのファイルが想定より大きい。再アップロードに切替）</string>
     <string name="and_uploadedToP">%1$s にアップロード%2$d</string>
     <string name="and_channelWord">チャネル</string>
+    <string name="and_helpPower1">スリープ解除：標準マジックパケット（UDP 9）。スリープ/再起動/シャットダウンは各 PC の「電源ルート」チャネルで送信（LAN ブロードキャストか AnyBoot API）</string>
+    <string name="and_helpPower2">4 つの電源キーは常に押せ、オンライン/オフラインで灰色にならない。シャットダウン/再起動は即実行・確認なし。作業を保存してください</string>
+    <string name="and_helpPower3">起動項目（rEFInd / GRUB）は次回再起動で有効。「元に戻す」で元に戻せます</string>
+    <string name="and_helpPower4">systemd-boot / OpenCore / Clover のアクションカードも次回再起動で有効。⤴ 付きは NVRAM 書き込み必須</string>
+    <string name="and_helpPower5">PC がオフラインのとき起動項目を読めません</string>
+    <string name="and_helpPower6">「未検出」= この PC に対応するブートマネージャ未導入（rEFInd / GRUB / OpenCore / Clover / systemd-boot）。読み取り失敗ではありません</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
