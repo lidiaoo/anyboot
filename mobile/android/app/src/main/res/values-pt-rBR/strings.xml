@@ -1629,6 +1629,41 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_clearAll">Limpar tudo</string>
     <string name="and_clear">Limpar</string>
     <string name="and_scanOrPasteHint">Escaneie/cole para adicionar à seção certa; o mesmo atualiza em vez de duplicar</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (código de pareamento); também cole https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d itens</string>
+    <string name="and_addPlus">＋ Adicionar</string>
+    <string name="and_blockNoPairHint">Ainda sem pareamento nesta seção — cole um código acima ou “＋ Adicionar”</string>
+    <string name="and_pairAddr">Endereço pareado</string>
+    <string name="and_pairSaveHint">Após salvar, cada seção pareia e conta separadamente; limpar tudo e salvar despareia. O código é como senha.</string>
+    <string name="and_connStrategy">Estratégia de conexão</string>
+    <string name="and_priorityN">Prioridade %1$s/%2$s</string>
+    <string name="and_routeProbeShort">Entre canais %1$s</string>
+    <string name="and_multiNicShort">Multi-NIC %1$s</string>
+    <string name="and_defaultShort">Padrão %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d canais separados)</string>
+    <string name="and_routeOrderLabel">Prioridade de conexão (↑↓ reordenar; alternador no fim ativa/desativa; caixinha sob o nome = timeout próprio em s, vazio = padrão abaixo)</string>
+    <string name="and_unavailable">(indisponível)</string>
+    <string name="and_timeout">Timeout</string>
+    <string name="and_timeoutSeeBlock">timeout nas configurações da seção</string>
+    <string name="and_enable">Ativar</string>
+    <string name="and_display">Mostrar</string>
+    <string name="and_routeOrderHint">Sondagem e API tentam as rotas nesta ordem; a primeira que funciona é usada. Cada rota pode ter seu timeout (LAN 1–2 s basta; Funnel de relay público / Funnel embutido demora no início — 5–8 s). Escolha o jump host abaixo; acordar não segue esta ordem — magic packet só na LAN.</string>
+    <string name="and_routeProbeLabel">Modo de sondagem da prioridade (como as seis rotas são tentadas; vale para cada rota acima)</string>
+    <string name="and_probeParallelFirst">Paralelo · primeiro</string>
+    <string name="and_probeParallelAll">Paralelo · todos</string>
+    <string name="and_probeSerial">Serial</string>
+    <string name="and_routeProbeHint">Paralelo·primeiro: dispara todas as rotas, usa a primeira que der certo; Paralelo·todos: espera todas e informa resultado/tempo de cada uma; Serial: tenta na ordem, para na primeira que funcionar.</string>
+    <string name="and_multiNicProbeLabel">Sondagem multi-NIC (como várias direções de uma rota são tentadas)</string>
+    <string name="and_multiNicProbeHint">Aplica-se quando um PC tem vários endereços LAN (várias NICs / IP mudado por DHCP): paralelo usa o primeiro que funcionar; serial vai em ordem.</string>
+    <string name="and_blockProbeLabel">Estratégia na seção (como os pareamentos de uma seção são tentados) e timeout padrão da seção</string>
+    <string name="and_defaultTimeout">Timeout padrão</string>
+    <string name="and_blockProbeHint">Paralelo·primeiro: todos da seção disparam juntos, o primeiro a dar certo pode não ser a linha do topo; Serial: estritamente pela ordem das linhas. Cada pareamento pode ter outro timeout na sua linha (item → seção → global).</string>
+    <string name="and_viaJumpLabel">Via jump host (por endereço: fora → casa, adicione um jump host SSH em “☰ → Servidores” e escolha em cada linha; nenhum = direto)</string>
+    <string name="and_noJumpProfiles">Sem perfis de jump host — adicione um servidor SSH em “☰ → Servidores” e volte para escolher.</string>
+    <string name="and_jumpPerAddrHint">Três endereços diretos podem ter cada um seu jump host: cada endereço encaminha de forma independente. Um jump host é a entrada de uma rede — não aponte endereços de redes diferentes para o mesmo.</string>
+    <string name="and_probeMethodLabel">Modo de sondagem (estratégia geral da prioridade; vale para cada rota acima)</string>
+    <string name="and_probeMethodHint">Paralelo·primeiro: uma thread por endereço, usa a primeira resposta; Paralelo·todos: espera todos e informa por linha; Serial: tenta em ordem, para na primeira que funcionar</string>
+    <string name="and_defaultProbeTimeout">Timeout de sondagem padrão (s) — usado quando a caixa da rota está vazia</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

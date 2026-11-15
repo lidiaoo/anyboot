@@ -1629,6 +1629,41 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_clearAll">모두 지우기</string>
     <string name="and_clear">지우기</string>
     <string name="and_scanOrPasteHint">스캔/붙여넣기 시 해당 구역에 자동 추가. 같은 것은 중복 대신 갱신</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (페어링 코드); https://xxx.trycloudflare.com / http://100.x.y.z:12300 도 붙여넣기 가능</string>
+    <string name="and_nItems">%1$d개</string>
+    <string name="and_addPlus">＋ 추가</string>
+    <string name="and_blockNoPairHint">이 구역에 페어링 없음 — 위에 코드를 붙이거나 ‘＋ 추가’로 직접 입력</string>
+    <string name="and_pairAddr">페어링 주소</string>
+    <string name="and_pairSaveHint">저장 후 각 구역의 페어링은 개별 감지·계측. 모두 지우고 저장 = 해제. 코드는 비밀번호와 같으니 전달 금지.</string>
+    <string name="and_connStrategy">연결 전략</string>
+    <string name="and_priorityN">우선순위 %1$s/%2$s</string>
+    <string name="and_routeProbeShort">채널 간 %1$s</string>
+    <string name="and_multiNicShort">멀티 NIC %1$s</string>
+    <string name="and_defaultShort">기본 %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d개 채널 개별 설정)</string>
+    <string name="and_routeOrderLabel">연결 우선순위 (↑↓ 순서; 끝 토글 사용/중지; 이름 아래 칸 = 이 채널의 감지 타임아웃 초, 비우면 아래 기본값)</string>
+    <string name="and_unavailable">(사용 불가)</string>
+    <string name="and_timeout">타임아웃</string>
+    <string name="and_timeoutSeeBlock">타임아웃은 구역 설정</string>
+    <string name="and_enable">사용</string>
+    <string name="and_display">표시</string>
+    <string name="and_routeOrderHint">탐지·API 요청은 이 순서로 채널을 시도, 처음 통과한 것을 사용. 각 채널은 감지 타임아웃 개별 설정 가능(LAN 1~2초 충분, 공용 릴레이 Funnel/내장 Funnel 첫 핸드셰이크 느림 → 5~8초). 점프 호스트는 아래에서 먼저 선택. 전원 깨우기는 이 순서 아님 — 매직 패킷은 LAN 내에서만.</string>
+    <string name="and_routeProbeLabel">연결 우선순위 감지 방식(6개 채널 간 시도, 위 각 채널에 적용)</string>
+    <string name="and_probeParallelFirst">병렬·첫 번째</string>
+    <string name="and_probeParallelAll">병렬·전체</string>
+    <string name="and_probeSerial">직렬</string>
+    <string name="and_routeProbeHint">병렬·첫 번째: 모든 채널 동시 전송, 먼저 성공한 것 사용; 병렬·전체: 모두 반환 대기 후 각 결과·시간 보고; 직렬: 우선순위대로 시도, 처음 성공 시 중지.</string>
+    <string name="and_multiNicProbeLabel">멀티 NIC 감지(같은 채널 내 여러 주소 시도 방식)</string>
+    <string name="and_multiNicProbeHint">컴퓨터에 여러 LAN 주소(여러 NIC / DHCP로 IP 변경) 시 적용: 병렬은 먼저 통과, 직렬은 순서대로.</string>
+    <string name="and_blockProbeLabel">구역 내 정책(같은 구역의 여러 페어링 시도 방식) 및 구역 기본 타임아웃</string>
+    <string name="and_defaultTimeout">기본 타임아웃</string>
+    <string name="and_blockProbeHint">병렬·첫 번째: 구역 전체 동시 전송, 먼저 성공이 맨 위가 아닐 수 있음; 직렬: 구역 내 행 순서 엄격. 각 페어링은 자기 행에서 타임아웃 추가 설정 가능(항목→구역→전역 기본).</string>
+    <string name="and_viaJumpLabel">점프 호스트 경유(주소별 선택: 외부→집은 먼저 ‘☰ → 서버’에서 SSH 점프 호스트 추가 후 위 각 주소 행에서 선택; 미선택은 직접)</string>
+    <string name="and_noJumpProfiles">점프 호스트 프로필이 없습니다 — ‘☰ → 서버’에서 SSH 서버를 추가한 뒤 선택하세요.</string>
+    <string name="and_jumpPerAddrHint">세 직접 주소에 각각 점프 호스트 설정 가능: 주소마다 독립 전달. 점프 호스트는 한 네트워크의 입구, 다른 네트워크 주소를 같은 것으로 보내지 마세요.</string>
+    <string name="and_probeMethodLabel">감지 방식(연결 우선순위 전체 전략, 위 각 채널에 적용)</string>
+    <string name="and_probeMethodHint">병렬·첫 번째: 주소당 스레드, 첫 응답 사용; 병렬·전체: 모두 완료 후 행별 보고; 직렬: 순서대로 시도, 처음 성공 시 중지</string>
+    <string name="and_defaultProbeTimeout">기본 감지 타임아웃(초) — 채널 칸이 비었을 때 사용</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

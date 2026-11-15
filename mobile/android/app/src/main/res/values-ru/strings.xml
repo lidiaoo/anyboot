@@ -1629,6 +1629,41 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_clearAll">Очистить всё</string>
     <string name="and_clear">Очистить</string>
     <string name="and_scanOrPasteHint">Сканируйте/вставьте — добавится в нужный блок; одинаковое обновится</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (код сопряжения); можно вставить https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d шт.</string>
+    <string name="and_addPlus">＋ Добавить</string>
+    <string name="and_blockNoPairHint">В этом блоке нет сопряжения — вставьте код выше или «＋ Добавить»</string>
+    <string name="and_pairAddr">Адрес сопряжения</string>
+    <string name="and_pairSaveHint">После сохранения сопряжения каждого блока проверяются и считаются отдельно; очистка всех + сохранение = отмена. Код как пароль.</string>
+    <string name="and_connStrategy">Стратегия подключения</string>
+    <string name="and_priorityN">Приоритет %1$s/%2$s</string>
+    <string name="and_routeProbeShort">Между каналами %1$s</string>
+    <string name="and_multiNicShort">Мульти-NIC %1$s</string>
+    <string name="and_defaultShort">По умолчанию %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d каналов отдельно)</string>
+    <string name="and_routeOrderLabel">Приоритет подключения (↑↓ порядок; переключатель в конце вкл/выкл; поле под именем = свой таймаут проверки в с, пусто = значение ниже)</string>
+    <string name="and_unavailable">(недоступно)</string>
+    <string name="and_timeout">Таймаут</string>
+    <string name="and_timeoutSeeBlock">таймаут в настройках блока</string>
+    <string name="and_enable">Включить</string>
+    <string name="and_display">Показать</string>
+    <string name="and_routeOrderHint">Проверка и запросы API идут по маршрутам в этом порядке; первый рабочий используется. У каждого маршрута свой таймаут (LAN 1–2 с; публичный Funnel / встроенный Funnel при первом рукопожатии медленный — 5–8 с). Узел выберите ниже; пробуждение не по этому порядку — magic packet только в LAN.</string>
+    <string name="and_routeProbeLabel">Режим проверки приоритета (как перебираются шесть маршрутов; для каждого маршрута выше)</string>
+    <string name="and_probeParallelFirst">Параллельно · первый</string>
+    <string name="and_probeParallelAll">Параллельно · все</string>
+    <string name="and_probeSerial">Последовательно</string>
+    <string name="and_routeProbeHint">Параллельно·первый: все маршруты сразу, побеждает первый успешный; Параллельно·все: ждать все и сообщить результат/время каждого; Последовательно: по приоритету, стоп на первом успешном.</string>
+    <string name="and_multiNicProbeLabel">Проверка мульти-NIC (как перебираются адреса одного маршрута)</string>
+    <string name="and_multiNicProbeHint">Если у ПК несколько LAN-адресов (несколько NIC / смена IP по DHCP): параллельно — первый рабочий, последовательно — по порядку.</string>
+    <string name="and_blockProbeLabel">Политика внутри блока (как перебираются сопряжения) и таймаут блока по умолчанию</string>
+    <string name="and_defaultTimeout">Таймаут по умолчанию</string>
+    <string name="and_blockProbeHint">Параллельно·первый: все в блоке сразу, успех может быть не верхней строкой; Последовательно: строго по порядку строк. Каждое сопряжение может задать свой таймаут (элемент → блок → глобальный).</string>
+    <string name="and_viaJumpLabel">Через узел (по адресу: извне → дом сначала добавьте SSH-узел в «☰ → Серверы», затем выберите в каждой строке адреса; без выбора — напрямую)</string>
+    <string name="and_noJumpProfiles">Профилей узлов нет — добавьте SSH-сервер в «☰ → Серверы» и вернитесь выбрать.</string>
+    <string name="and_jumpPerAddrHint">Три прямых адреса могут иметь свой узел: каждый адрес переадресует независимо. Узел — это вход в одну сеть; не направляйте адреса разных сетей на один.</string>
+    <string name="and_probeMethodLabel">Режим проверки (общая стратегия приоритета; для каждого маршрута выше)</string>
+    <string name="and_probeMethodHint">Параллельно·первый: поток на адрес, первый ответ; Параллельно·все: ждать все, отчёт по строкам; Последовательно: по порядку, стоп на первом успешном</string>
+    <string name="and_defaultProbeTimeout">Таймаут проверки по умолчанию (с) — когда поле маршрута пусто</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

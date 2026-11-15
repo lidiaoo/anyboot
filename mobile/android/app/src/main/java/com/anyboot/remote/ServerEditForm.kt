@@ -919,7 +919,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 state.applyRemoteHint()
             },
             placeholder = {
-                Text("anyboot://pair?v=2&… （配对码）；也可直接粘 https://xxx.trycloudflare.com / http://100.x.y.z:12300", fontSize = 12.sp)
+                Text(stringResource(R.string.and_pairCodeHint), fontSize = 12.sp)
             },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -962,16 +962,16 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        if (items.isEmpty()) "未配" else items.size.toString() + " 条",
+                        if (items.isEmpty()) stringResource(R.string.and_notConfigured) else stringResource(R.string.and_nItems, items.size),
                         fontSize = 10.sp, color = palette.fgFaint,
                     )
                     TextButton(onClick = { state.addPair(block) }) {
-                        Text("＋ 添加", fontSize = 11.sp)
+                        Text(stringResource(R.string.and_addPlus), fontSize = 11.sp)
                     }
                 }
                 if (items.isEmpty()) {
                     Text(
-                        "这个区块还没有配对 —— 上面粘一条配对码，或点「＋ 添加」手填",
+                        stringResource(R.string.and_blockNoPairHint),
                         fontSize = 10.sp, color = palette.fgFaint,
                     )
                 }
@@ -980,31 +980,30 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         state = state,
                         item = item,
                         palette = palette,
-                        onCopy = { value -> context.copyRemoteSlot("配对地址", value) },
+                        onCopy = { value -> context.copyRemoteSlot(context.getString(R.string.and_pairAddr), value) },
                     )
                 }
             }
         }
         Text(
-            "保存后每个区块里的配对各自独立探测、各自计时；清空全部保存 = 解除配对。" +
-                "配对码等同密码，别转发给别人。",
+            stringResource(R.string.and_pairSaveHint),
             fontSize = 11.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 6.dp),
         )
 
         FoldHeader(
-            title = "连接策略",
-            summary = "优先级 " + state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled } + "/" + ROUTE_IDS_ALL.size +
-                " · 通道间 " + probeLabel(state.routeProbeMode) +
-                " · 多网卡 " + probeLabel(state.probeMode) +
-                " · 默认 " + String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s" +
-                (state.routeTimeoutsMs().size.let { if (it > 0) "（$it 个通道单独设）" else "" }) +
-                (if (state.jumpBindings().isNotEmpty()) " · 跳板机" else ""),
+            title = stringResource(R.string.and_connStrategy),
+            summary = context.getString(R.string.and_priorityN, state.routeOrder.count { state.routeAvailable(it) && it !in state.routeDisabled }, ROUTE_IDS_ALL.size) +
+                " · " + context.getString(R.string.and_routeProbeShort, probeLabel(state.routeProbeMode)) +
+                " · " + context.getString(R.string.and_multiNicShort, probeLabel(state.probeMode)) +
+                " · " + context.getString(R.string.and_defaultShort, String.format(Locale.US, "%.1f", state.probeTimeoutMs() / 1000.0) + "s") +
+                (state.routeTimeoutsMs().size.let { if (it > 0) context.getString(R.string.and_nRoutesSeparate, it) else "" }) +
+                (if (state.jumpBindings().isNotEmpty()) " · " + context.getString(R.string.hub_route_jump) else ""),
             open = state.connFoldOpen,
             onToggle = { state.connFoldOpen = !state.connFoldOpen },
         )
         if (state.connFoldOpen) {
-        FieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用；名称下的小框 = 这个通道自己的探测超时/秒，留空用下面的默认值）")
+        FieldLabel(stringResource(R.string.and_routeOrderLabel))
         state.routeOrder.forEachIndexed { index, kind ->
             val available = state.routeAvailable(kind)
             Row(
@@ -1028,7 +1027,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            state.routeSub(kind) + if (available) "" else "（不可用）",
+                            state.routeSub(kind) + if (available) "" else stringResource(R.string.and_unavailable),
                             fontSize = 10.sp,
                             color = palette.fgFaint,
                             maxLines = 1,
@@ -1038,7 +1037,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         Spacer(Modifier.width(6.dp))
                         if (kind == ServerProfile.ROUTE_LAN || kind == ServerProfile.ROUTE_JUMP) {
                             InlineTimeoutField(
-                                label = "超时",
+                                label = stringResource(R.string.and_timeout),
                                 value = state.routeTimeoutTexts[kind] ?: "",
                                 enabled = available,
                                 onValueChange = { raw ->
@@ -1050,7 +1049,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         } else {
                             // 配对通道的超时在下面「区块默认超时」与每条配对上设
                             Text(
-                                "超时见区块设置",
+                                stringResource(R.string.and_timeoutSeeBlock),
                                 fontSize = 10.sp,
                                 color = palette.fgFaint,
                                 modifier = Modifier.padding(start = 2.dp),
@@ -1083,7 +1082,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         },
                         modifier = Modifier.scale(0.7f),
                     )
-                    Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                    Text(stringResource(R.string.and_enable), fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
                 }
                 // 「是否展示」（2026-10-31 改口径，原「是否展示连通性」，与 PC 端
                 // rsRenderRoutes 同款）：默认开；关掉后电脑列表整行不展示这个通道
@@ -1100,42 +1099,39 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         },
                         modifier = Modifier.scale(0.7f),
                     )
-                    Text("展示", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                    Text(stringResource(R.string.and_display), fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
                 }
             }
         }
         Text(
-            "探活与接口请求按此顺序逐通道试，第一个通的就走谁；每个通道可以单独设探测超时" +
-                "（局域网 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒）。" +
-                "跳板机需先在下方选好档案；电源唤醒不走此排序 —— 魔术包只能在局域网内广播。",
+            stringResource(R.string.and_routeOrderHint),
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
         )
 
         // ---- 两个粒度的探测方式：先通道之间，再同一通道内的多个地址 ----
-        FieldLabel("连接优先级的探测方式（六个通道之间怎么试，对上面每一个通道都生效）")
+        FieldLabel(stringResource(R.string.and_routeProbeLabel))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ProbeModeChoice(
-                "并发·首个", state.routeProbeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                stringResource(R.string.and_probeParallelFirst), state.routeProbeMode == ServerProfile.PROBE_PARALLEL_FIRST,
                 Modifier.weight(1f),
             ) { state.routeProbeMode = ServerProfile.PROBE_PARALLEL_FIRST }
             ProbeModeChoice(
-                "并发·全部", state.routeProbeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                stringResource(R.string.and_probeParallelAll), state.routeProbeMode == ServerProfile.PROBE_PARALLEL_ALL,
                 Modifier.weight(1f),
             ) { state.routeProbeMode = ServerProfile.PROBE_PARALLEL_ALL }
             ProbeModeChoice(
-                "串行", state.routeProbeMode == ServerProfile.PROBE_SERIAL,
+                stringResource(R.string.and_probeSerial), state.routeProbeMode == ServerProfile.PROBE_SERIAL,
                 Modifier.weight(1f),
             ) { state.routeProbeMode = ServerProfile.PROBE_SERIAL }
         }
         Text(
-            "并发·首个：全部通道同时发出，谁先成功用谁；并发·全部：等全部返回，逐行报每个通道的成败与耗时；" +
-                "串行：按上面的优先级逐个通道试，第一个通就停。",
+            stringResource(R.string.and_routeProbeHint),
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
 
-        FieldLabel("多网卡探测（同一通道里的多个地址之间怎么探）")
+        FieldLabel(stringResource(R.string.and_multiNicProbeLabel))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ProbeModeChoice(
                 "并发·首个", state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
@@ -1151,7 +1147,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             ) { state.probeMode = ServerProfile.PROBE_SERIAL }
         }
         Text(
-            "一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发谁先通用谁，串行按地址顺序试。",
+            stringResource(R.string.and_multiNicProbeHint),
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
@@ -1159,7 +1155,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         // ---- 区块内部策略 + 区块默认超时（配对专用，与上面两个粒度并列的第三层） ----
         // 一行塞不下六个元素（354dp 视口下超时框被挤得只剩壳）：拆两行，
         // 第一行「区块名 …… 默认超时[__]秒」，第二行三个策略按钮均分占满 —— 与 PC 端同构。
-        FieldLabel("区块内部策略（同一个区块里的多条配对之间怎么探）与区块默认超时")
+        FieldLabel(stringResource(R.string.and_blockProbeLabel))
         for (block in RemotePair.BLOCK_IDS) {
             val count = state.pairsOf(block).count { it.addr.isNotBlank() }
             Column(
@@ -1175,7 +1171,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         modifier = Modifier.weight(1f),
                     )
                     InlineTimeoutField(
-                        label = "默认超时",
+                        label = stringResource(R.string.and_defaultTimeout),
                         value = state.blockTimeoutTexts[block] ?: "",
                         enabled = count > 0,
                         onValueChange = { raw ->
@@ -1205,29 +1201,26 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
         Text(
-            "并发·首个：同区块全部同时发出，先成功的不一定是最前面那条；串行：严格按区块内的行序试。" +
-                "每条配对还能在它自己那行再设一个超时（条目 → 区块 → 全局默认）。",
+            stringResource(R.string.and_blockProbeHint),
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
 
         FieldLabel(
-            "经由跳板机（**按地址分别选**：外网连家里先到「☰ → 服务器」添加 SSH 跳板机，"
-                + "再回到上面每个地址那行自己挑一台；不选就是直连）"
+            stringResource(R.string.and_viaJumpLabel)
         )
         Text(
             if (state.jumps.isEmpty()) {
                 "还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。"
             } else {
-                "三个直连可以各配三台跳板机：每个地址各建各的转发，互不影响。" +
-                    "一台跳板机只是某个网络的入口，别把不同网络的地址指到同一台上。"
+                stringResource(R.string.and_jumpPerAddrHint)
             },
             fontSize = 11.sp, color = palette.fgFaint,
             modifier = Modifier.padding(bottom = 4.dp),
         )
 
         FieldLabel(
-            "探测方式（连接优先级整体的策略，对上面每一个通道都生效）"
+            stringResource(R.string.and_probeMethodLabel)
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(
@@ -1254,15 +1247,15 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 selected = state.probeMode == ServerProfile.PROBE_SERIAL,
                 onClick = { state.probeMode = ServerProfile.PROBE_SERIAL }
             )
-            Text("串行", fontSize = 13.sp, color = palette.fg)
+            Text(stringResource(R.string.and_probeSerial), fontSize = 13.sp, color = palette.fg)
         }
         Text(
-            "并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停",
+            stringResource(R.string.and_probeMethodHint),
             fontSize = 10.sp, color = palette.fgFaint,
             modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
         )
 
-        FieldLabel("默认探测超时（秒）—— 通道那格留空时用它")
+        FieldLabel(stringResource(R.string.and_defaultProbeTimeout))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = state.probeTimeoutText,

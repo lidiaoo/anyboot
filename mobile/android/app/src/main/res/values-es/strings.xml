@@ -1629,6 +1629,41 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_clearAll">Borrar todo</string>
     <string name="and_clear">Borrar</string>
     <string name="and_scanOrPasteHint">Escanea/pega para añadir a la sección correcta; el mismo se actualiza</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (código de emparejamiento); también pega https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d elementos</string>
+    <string name="and_addPlus">＋ Añadir</string>
+    <string name="and_blockNoPairHint">Aún sin emparejamiento en esta sección: pega un código arriba o «＋ Añadir»</string>
+    <string name="and_pairAddr">Dirección emparejada</string>
+    <string name="and_pairSaveHint">Tras guardar, cada sección empareja y cronometra por separado; vaciar todo y guardar desempareja. El código es como una contraseña.</string>
+    <string name="and_connStrategy">Estrategia de conexión</string>
+    <string name="and_priorityN">Prioridad %1$s/%2$s</string>
+    <string name="and_routeProbeShort">Entre canales %1$s</string>
+    <string name="and_multiNicShort">Multi-NIC %1$s</string>
+    <string name="and_defaultShort">Predeterminado %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d canales por separado)</string>
+    <string name="and_routeOrderLabel">Prioridad de conexión (↑↓ reordenar; interruptor al final activa/desactiva; casilla bajo el nombre = timeout propio en s, vacío = predeterminado abajo)</string>
+    <string name="and_unavailable">(no disponible)</string>
+    <string name="and_timeout">Tiempo límite</string>
+    <string name="and_timeoutSeeBlock">timeout en ajustes de sección</string>
+    <string name="and_enable">Activar</string>
+    <string name="and_display">Mostrar</string>
+    <string name="and_routeOrderHint">Sondeo y API prueban las rutas en este orden; se usa la primera que funcione. Cada ruta puede tener su timeout (LAN 1–2 s basta; Funnel de relay público / Funnel integrado tarda al inicio — 5–8 s). Elige el host de salto abajo; despertar no sigue este orden: magic packet solo en la LAN.</string>
+    <string name="and_routeProbeLabel">Modo de sondeo de la prioridad (cómo se prueban las seis rutas; aplica a cada ruta arriba)</string>
+    <string name="and_probeParallelFirst">Paralelo · primero</string>
+    <string name="and_probeParallelAll">Paralelo · todos</string>
+    <string name="and_probeSerial">Serie</string>
+    <string name="and_routeProbeHint">Paralelo·primero: lanza todas las rutas y usa la primera que funcione; Paralelo·todos: espera todas e informa el resultado/tiempo de cada una; Serie: prueba en orden y para en la primera que funcione.</string>
+    <string name="and_multiNicProbeLabel">Sondeo multi-NIC (cómo se prueban varias direcciones de una ruta)</string>
+    <string name="and_multiNicProbeHint">Se aplica cuando un equipo tiene varias direcciones LAN (varias NICs / IP cambiada por DHCP): paralelo usa la primera que funcione; serie va en orden.</string>
+    <string name="and_blockProbeLabel">Estrategia en la sección (cómo se prueban los emparejamientos) y timeout predeterminado de la sección</string>
+    <string name="and_defaultTimeout">Tiempo límite predeterminado</string>
+    <string name="and_blockProbeHint">Paralelo·primero: todos de la sección se lanzan juntos, el primero en funcionar puede no ser la fila superior; Serie: estrictamente por orden de fila. Cada emparejamiento puede tener otro timeout en su fila (elemento → sección → global).</string>
+    <string name="and_viaJumpLabel">Vía host de salto (por dirección: fuera → casa, añade un host de salto SSH en «☰ → Servidores» y elige en cada fila; ninguno = directo)</string>
+    <string name="and_noJumpProfiles">Sin perfiles de host de salto: añade un servidor SSH en «☰ → Servidores» y vuelve a elegir.</string>
+    <string name="and_jumpPerAddrHint">Tres direcciones directas pueden tener cada una su host de salto: cada dirección reenvía por separado. Un host de salto es la entrada a una red: no apuntes direcciones de redes distintas al mismo.</string>
+    <string name="and_probeMethodLabel">Modo de sondeo (estrategia general de la prioridad; aplica a cada ruta arriba)</string>
+    <string name="and_probeMethodHint">Paralelo·primero: un hilo por dirección, usa la primera respuesta; Paralelo·todos: espera todos e informa por línea; Serie: prueba en orden, para en la primera que funcione</string>
+    <string name="and_defaultProbeTimeout">Tiempo límite de sondeo predeterminado (s): se usa cuando la casilla de la ruta está vacía</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

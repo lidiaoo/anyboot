@@ -1629,6 +1629,41 @@ Telnet：只有实验性终端。</string>
     <string name="and_clearAll">全部清空</string>
     <string name="and_clear">清空</string>
     <string name="and_scanOrPasteHint">扫码或粘贴后自动加入对应区块；同一条会更新而不是重复</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… （配对码）；也可直接粘 https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d 条</string>
+    <string name="and_addPlus">＋ 添加</string>
+    <string name="and_blockNoPairHint">这个区块还没有配对 —— 上面粘一条配对码，或点「＋ 添加」手填</string>
+    <string name="and_pairAddr">配对地址</string>
+    <string name="and_pairSaveHint">保存后每个区块里的配对各自独立探测、各自计时；清空全部保存 = 解除配对。配对码等同密码，别转发给别人。</string>
+    <string name="and_connStrategy">连接策略</string>
+    <string name="and_priorityN">优先级 %1$s/%2$s</string>
+    <string name="and_routeProbeShort">通道间 %1$s</string>
+    <string name="and_multiNicShort">多网卡 %1$s</string>
+    <string name="and_defaultShort">默认 %1$s</string>
+    <string name="and_nRoutesSeparate">（%1$d 个通道单独设）</string>
+    <string name="and_routeOrderLabel">连接优先级（↑↓ 调顺序；行尾开关启用 / 停用；名称下的小框 = 这个通道自己的探测超时/秒，留空用下面的默认值）</string>
+    <string name="and_unavailable">（不可用）</string>
+    <string name="and_timeout">超时</string>
+    <string name="and_timeoutSeeBlock">超时见区块设置</string>
+    <string name="and_enable">启用</string>
+    <string name="and_display">展示</string>
+    <string name="and_routeOrderHint">探活与接口请求按此顺序逐通道试，第一个通的就走谁；每个通道可以单独设探测超时（局域网 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒）。跳板机需先在下方选好档案；电源唤醒不走此排序 —— 魔术包只能在局域网内广播。</string>
+    <string name="and_routeProbeLabel">连接优先级的探测方式（六个通道之间怎么试，对上面每一个通道都生效）</string>
+    <string name="and_probeParallelFirst">并发·首个</string>
+    <string name="and_probeParallelAll">并发·全部</string>
+    <string name="and_probeSerial">串行</string>
+    <string name="and_routeProbeHint">并发·首个：全部通道同时发出，谁先成功用谁；并发·全部：等全部返回，逐行报每个通道的成败与耗时；串行：按上面的优先级逐个通道试，第一个通就停。</string>
+    <string name="and_multiNicProbeLabel">多网卡探测（同一通道里的多个地址之间怎么探）</string>
+    <string name="and_multiNicProbeHint">一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发谁先通用谁，串行按地址顺序试。</string>
+    <string name="and_blockProbeLabel">区块内部策略（同一个区块里的多条配对之间怎么探）与区块默认超时</string>
+    <string name="and_defaultTimeout">默认超时</string>
+    <string name="and_blockProbeHint">并发·首个：同区块全部同时发出，先成功的不一定是最前面那条；串行：严格按区块内的行序试。每条配对还能在它自己那行再设一个超时（条目 → 区块 → 全局默认）。</string>
+    <string name="and_viaJumpLabel">经由跳板机（按地址分别选：外网连家里先到「☰ → 服务器」添加 SSH 跳板机，再回到上面每个地址那行自己挑一台；不选就是直连）</string>
+    <string name="and_noJumpProfiles">还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。</string>
+    <string name="and_jumpPerAddrHint">三个直连可以各配三台跳板机：每个地址各建各的转发，互不影响。一台跳板机只是某个网络的入口，别把不同网络的地址指到同一台上。</string>
+    <string name="and_probeMethodLabel">探测方式（连接优先级整体的策略，对上面每一个通道都生效）</string>
+    <string name="and_probeMethodHint">并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停</string>
+    <string name="and_defaultProbeTimeout">默认探测超时（秒）—— 通道那格留空时用它</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

@@ -1629,6 +1629,41 @@ Telnet：実験的端末のみ。</string>
     <string name="and_clearAll">全てクリア</string>
     <string name="and_clear">クリア</string>
     <string name="and_scanOrPasteHint">スキャン/貼り付けで該当区画に自動追加。同じものは重複せず更新</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… （ペアリングコード）。https://xxx.trycloudflare.com / http://100.x.y.z:12300 も貼れます</string>
+    <string name="and_nItems">%1$d 件</string>
+    <string name="and_addPlus">＋ 追加</string>
+    <string name="and_blockNoPairHint">この区画にペアリングなし — 上にコードを貼るか「＋ 追加」で手入力</string>
+    <string name="and_pairAddr">ペアリングアドレス</string>
+    <string name="and_pairSaveHint">保存後、各区画のペアリングは個別に検出・計時。全クリアして保存 = 解除。コードはパスワード同等、転送しないで。</string>
+    <string name="and_connStrategy">接続戦略</string>
+    <string name="and_priorityN">優先度 %1$s/%2$s</string>
+    <string name="and_routeProbeShort">チャネル間 %1$s</string>
+    <string name="and_multiNicShort">マルチ NIC %1$s</string>
+    <string name="and_defaultShort">既定 %1$s</string>
+    <string name="and_nRoutesSeparate">（%1$d チャネル個別設定）</string>
+    <string name="and_routeOrderLabel">接続優先度（↑↓ で並べ替え、末尾トグルで有効/無効、名前下の小枠 = このチャネルの検出タイムアウト秒、空欄で下の既定）</string>
+    <string name="and_unavailable">（利用不可）</string>
+    <string name="and_timeout">タイムアウト</string>
+    <string name="and_timeoutSeeBlock">タイムアウトは区画設定</string>
+    <string name="and_enable">有効</string>
+    <string name="and_display">表示</string>
+    <string name="and_routeOrderHint">検出と API 要求はこの順で各チャネルを試し、最初に通ったものを使う。各チャネルで検出タイムアウトを個別設定可（LAN は 1〜2 秒で十分、公衆リレーの Funnel / 内蔵 Funnel は初回遅いので 5〜8 秒）。踏み台は下で先に選択。電源起動はこの順序外 — マジックパケットは LAN 内のみ。</string>
+    <string name="and_routeProbeLabel">接続優先度の検出方式（6 チャネル間の試し方、上の各チャネルに適用）</string>
+    <string name="and_probeParallelFirst">並行·最初</string>
+    <string name="and_probeParallelAll">並行·全て</string>
+    <string name="and_probeSerial">直列</string>
+    <string name="and_routeProbeHint">並行·最初：全チャネル同時送信、最初の成功を使用；並行·全て：全部の結果と時間を報告；直列：優先度順に試し最初の成功で停止。</string>
+    <string name="and_multiNicProbeLabel">マルチ NIC 検出（同一チャネル内の複数アドレスの試し方）</string>
+    <string name="and_multiNicProbeHint">PC に複数の LAN アドレス（複数 NIC / DHCP で IP 変更）がある場合に有効：並行は最初に通ったもの、直列は順に試す。</string>
+    <string name="and_blockProbeLabel">区画内部ポリシー（同一区画内の複数ペアリングの試し方）と区画の既定タイムアウト</string>
+    <string name="and_defaultTimeout">既定タイムアウト</string>
+    <string name="and_blockProbeHint">並行·最初：同区画の全てを同時送信、成功は先頭とは限らない；直列：区画内の行順に厳密に試す。各ペアリングは自分の行でもう一つタイムアウト設定可（項目→区画→全体既定）。</string>
+    <string name="and_viaJumpLabel">踏み台経由（アドレス毎に選択：外部→自宅はまず「☰ → サーバー」で SSH 踏み台を追加し、上の各アドレス行で選択。未選択は直接）</string>
+    <string name="and_noJumpProfiles">踏み台プロファイルがありません — 「☰ → サーバー」で SSH サーバーを追加してから選択してください。</string>
+    <string name="and_jumpPerAddrHint">3 つの直接アドレスに各々踏み台を設定可：各アドレスが独自に転送し相互不影响。踏み台はあるネットワークの入口、別ネットワークのアドレスを同じものに向けないで。</string>
+    <string name="and_probeMethodLabel">検出方式（接続優先度全体の戦略、上の各チャネルに適用）</string>
+    <string name="and_probeMethodHint">並行·最初：アドレス毎にスレッド、最初の応答を使用；並行·全て：全部完了後に逐行報告；直列：順に試し最初の成功で停止</string>
+    <string name="and_defaultProbeTimeout">既定の検出タイムアウト（秒）— チャネルの欄が空のとき使用</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

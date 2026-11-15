@@ -1629,6 +1629,41 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
     <string name="and_clearAll">Clear all</string>
     <string name="and_clear">Clear</string>
     <string name="and_scanOrPasteHint">Scan or paste to auto-add to the right section; the same one updates instead of duplicating</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (pairing code); you can also paste https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d items</string>
+    <string name="and_addPlus">＋ Add</string>
+    <string name="and_blockNoPairHint">No pairing in this section yet — paste a code above, or tap “＋ Add” to enter manually</string>
+    <string name="and_pairAddr">Paired address</string>
+    <string name="and_pairSaveHint">After saving, each section\'s pairings probe independently and time separately; clearing all and saving unpairs. A pairing code is like a password — don\'t forward it.</string>
+    <string name="and_connStrategy">Connection strategy</string>
+    <string name="and_priorityN">Priority %1$s/%2$s</string>
+    <string name="and_routeProbeShort">Between routes %1$s</string>
+    <string name="and_multiNicShort">Multi-NIC %1$s</string>
+    <string name="and_defaultShort">Default %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d routes set individually)</string>
+    <string name="and_routeOrderLabel">Connection priority (↑↓ to reorder; end toggle enable/disable; the small box under the name = this route\'s own probe timeout in s, blank = default below)</string>
+    <string name="and_unavailable">(unavailable)</string>
+    <string name="and_timeout">Timeout</string>
+    <string name="and_timeoutSeeBlock">timeout in block settings</string>
+    <string name="and_enable">Enable</string>
+    <string name="and_display">Show</string>
+    <string name="and_routeOrderHint">Probe and API requests try each route in this order; the first that works is used. Each route can set its own probe timeout (LAN 1–2 s is fine; public-relay Funnel / built-in Funnel handshake is slow at first — give 5–8 s). Pick the jump host profile below first; power wake doesn\'t follow this order — a magic packet only broadcasts on the LAN.</string>
+    <string name="and_routeProbeLabel">Probe mode for connection priority (how the six routes are tried; applies to each route above)</string>
+    <string name="and_probeParallelFirst">Parallel · first</string>
+    <string name="and_probeParallelAll">Parallel · all</string>
+    <string name="and_probeSerial">Serial</string>
+    <string name="and_routeProbeHint">Parallel·first: fire all routes at once, use whichever succeeds first; Parallel·all: wait for all and report each route\'s result and time; Serial: try in the priority order, stop at the first that works.</string>
+    <string name="and_multiNicProbeLabel">Multi-NIC probe (how multiple addresses within a route are tried)</string>
+    <string name="and_multiNicProbeHint">Applies when a computer has multiple LAN addresses (several NICs / IP changed by DHCP): parallel uses whichever works first; serial tries in order.</string>
+    <string name="and_blockProbeLabel">Within-section strategy (how pairings in a section are tried) and the section default timeout</string>
+    <string name="and_defaultTimeout">Default timeout</string>
+    <string name="and_blockProbeHint">Parallel·first: all in the section fire at once, the first to succeed may not be the top row; Serial: strictly by row order within the section. Each pairing can set another timeout on its own row (item → section → global default).</string>
+    <string name="and_viaJumpLabel">Via jump host (choose per address: for outside → home, first add an SSH jump host under “☰ → Servers”, then pick one on each address row above; none = direct)</string>
+    <string name="and_noJumpProfiles">No jump host profiles yet — add an SSH server under “☰ → Servers”, then come back to choose here.</string>
+    <string name="and_jumpPerAddrHint">Three direct addresses can each have their own jump host: each address gets its own forwarding, independent. A jump host is just the entrance to one network — don\'t point addresses of different networks to the same one.</string>
+    <string name="and_probeMethodLabel">Probe mode (overall strategy of connection priority; applies to each route above)</string>
+    <string name="and_probeMethodHint">Parallel·first: a thread per address, use the first response; Parallel·all: wait for all and report per line; Serial: try in order, stop at the first that works</string>
+    <string name="and_defaultProbeTimeout">Default probe timeout (s) — used when a route\'s box is blank</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

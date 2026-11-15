@@ -1629,6 +1629,41 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_clearAll">全部清空</string>
     <string name="and_clear">清空</string>
     <string name="and_scanOrPasteHint">掃碼或貼上後自動加入對應區塊；同一條會更新而不是重複</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… （配對碼）；也可直接貼 https://xxx.trycloudflare.com / http://100.x.y.z:12300</string>
+    <string name="and_nItems">%1$d 條</string>
+    <string name="and_addPlus">＋ 新增</string>
+    <string name="and_blockNoPairHint">這個區塊還沒有配對 —— 上面貼一條配對碼，或點「＋ 新增」手填</string>
+    <string name="and_pairAddr">配對位址</string>
+    <string name="and_pairSaveHint">儲存後每個區塊裡的配對各自獨立探測、各自計時；清空全部儲存 = 解除配對。配對碼等同密碼，別轉發給別人。</string>
+    <string name="and_connStrategy">連線策略</string>
+    <string name="and_priorityN">優先順序 %1$s/%2$s</string>
+    <string name="and_routeProbeShort">通道間 %1$s</string>
+    <string name="and_multiNicShort">多網卡 %1$s</string>
+    <string name="and_defaultShort">預設 %1$s</string>
+    <string name="and_nRoutesSeparate">（%1$d 個通道單獨設）</string>
+    <string name="and_routeOrderLabel">連線優先順序（↑↓ 調順序；列尾開關啟用 / 停用；名稱下的小框 = 這個通道自己的探測逾時/秒，留空用下面的預設值）</string>
+    <string name="and_unavailable">（不可用）</string>
+    <string name="and_timeout">逾時</string>
+    <string name="and_timeoutSeeBlock">逾時見區塊設定</string>
+    <string name="and_enable">啟用</string>
+    <string name="and_display">顯示</string>
+    <string name="and_routeOrderHint">探活與介面請求按此順序逐通道試，第一個通的就走誰；每個通道可以單獨設探測逾時（區域網路 1~2 秒夠，走公網中繼的 Funnel / 內建 Funnel 首次握手慢，可以單獨給 5~8 秒）。跳板機需先在下方選好檔案；電源喚醒不走此排序 —— 魔術封包只能在區域網路內廣播。</string>
+    <string name="and_routeProbeLabel">連線優先順序的探測方式（六個通道之間怎麼試，對上面每一個通道都生效）</string>
+    <string name="and_probeParallelFirst">並行·首個</string>
+    <string name="and_probeParallelAll">並行·全部</string>
+    <string name="and_probeSerial">串行</string>
+    <string name="and_routeProbeHint">並行·首個：全部通道同時發出，誰先成功用誰；並行·全部：等全部回傳，逐列報每個通道的成敗與耗時；串行：按上面的優先順序逐個通道試，第一個通就停。</string>
+    <string name="and_multiNicProbeLabel">多網卡探測（同一通道裡的多個位址之間怎麼探）</string>
+    <string name="and_multiNicProbeHint">一台電腦設了多個區域網路位址（多塊網卡 / DHCP 換過 IP）時生效：並行誰先通用誰，串行按位址順序試。</string>
+    <string name="and_blockProbeLabel">區塊內部策略（同一個區塊裡的多條配對之間怎麼探）與區塊預設逾時</string>
+    <string name="and_defaultTimeout">預設逾時</string>
+    <string name="and_blockProbeHint">並行·首個：同區塊全部同時發出，先成功的不一定是最前面那條；串行：嚴格按區塊內的行序試。每條配對還能在它自己那行再設一個逾時（條目 → 區塊 → 全域預設）。</string>
+    <string name="and_viaJumpLabel">經由跳板機（按位址分別選：外網連家裡先到「☰ → 伺服器」新增 SSH 跳板機，再回到上面每個位址那列自己挑一台；不選就是直連）</string>
+    <string name="and_noJumpProfiles">還沒有跳板機檔案 —— 先去「☰ → 伺服器」加一台 SSH 伺服器，回來才能在這裡選。</string>
+    <string name="and_jumpPerAddrHint">三個直連可以各配三台跳板機：每個位址各建各的轉送，互不影響。一台跳板機只是某個網路的入口，別把不同網路的位址指到同一台上。</string>
+    <string name="and_probeMethodLabel">探測方式（連線優先順序整體的策略，對上面每一個通道都生效）</string>
+    <string name="and_probeMethodHint">並行·首個：每位址一個執行緒，任一回應立即用它；並行·全部：等全部探完，逐列報成敗；串行：按順序試，第一個通就停</string>
+    <string name="and_defaultProbeTimeout">預設探測逾時（秒）—— 通道那格留空時用它</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

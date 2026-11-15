@@ -1629,6 +1629,41 @@ Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Her
     <string name="and_clearAll">Alle leeren</string>
     <string name="and_clear">Leeren</string>
     <string name="and_scanOrPasteHint">Scannen/Einfügen fügt automatisch in den passenden Bereich ein; Gleiches wird aktualisiert</string>
+    <string name="and_pairCodeHint">anyboot://pair?v=2&amp;… (Kopplungscode); auch https://xxx.trycloudflare.com / http://100.x.y.z:12300 einfügbar</string>
+    <string name="and_nItems">%1$d Einträge</string>
+    <string name="and_addPlus">＋ Hinzufügen</string>
+    <string name="and_blockNoPairHint">Noch keine Kopplung in diesem Bereich – oben Code einfügen oder „＋ Hinzufügen“</string>
+    <string name="and_pairAddr">Kopplungsadresse</string>
+    <string name="and_pairSaveHint">Nach dem Speichern prüfen/takten Kopplungen je Bereich unabhängig; alles leeren + speichern hebt auf. Code wie Passwort behandeln.</string>
+    <string name="and_connStrategy">Verbindungsstrategie</string>
+    <string name="and_priorityN">Priorität %1$s/%2$s</string>
+    <string name="and_routeProbeShort">Zwischen Kanälen %1$s</string>
+    <string name="and_multiNicShort">Multi-NIC %1$s</string>
+    <string name="and_defaultShort">Standard %1$s</string>
+    <string name="and_nRoutesSeparate">(%1$d Kanäle einzeln)</string>
+    <string name="and_routeOrderLabel">Verbindungspriorität (↑↓ Reihenfolge; Ende-Schalter an/aus; kleines Feld unter dem Namen = eigener Prüf-Timeout in s, leer = Standard unten)</string>
+    <string name="and_unavailable">(nicht verfügbar)</string>
+    <string name="and_timeout">Timeout</string>
+    <string name="and_timeoutSeeBlock">Timeout in Bereichseinstellungen</string>
+    <string name="and_enable">Aktivieren</string>
+    <string name="and_display">Anzeigen</string>
+    <string name="and_routeOrderHint">Prüf- und API-Anfragen versuchen die Routen in dieser Reihenfolge; die erste funktionierende wird genutzt. Jede Route kann einen eigenen Prüf-Timeout setzen (LAN 1–2 s reicht; öffentlicher Relay-Funnel / integrierter Funnel braucht anfangs 5–8 s). Sprungserver zuerst unten wählen; Aufwecken folgt nicht dieser Reihenfolge – Magic Packet nur im LAN.</string>
+    <string name="and_routeProbeLabel">Prüfmodus der Verbindungspriorität (wie die sechs Routen versucht werden; gilt für jede Route oben)</string>
+    <string name="and_probeParallelFirst">Parallel · erster</string>
+    <string name="and_probeParallelAll">Parallel · alle</string>
+    <string name="and_probeSerial">Seriell</string>
+    <string name="and_routeProbeHint">Parallel·erster: alle Routen gleichzeitig, die erste erfolgreiche gewinnt; Parallel·alle: auf alle warten und Ergebnis/Zeit je Route melden; Seriell: in Prioritätsreihenfolge, Stop beim ersten Erfolg.</string>
+    <string name="and_multiNicProbeLabel">Multi-NIC-Prüfung (wie mehrere Adressen einer Route versucht werden)</string>
+    <string name="and_multiNicProbeHint">Gilt bei mehreren LAN-Adressen (mehrere NICs / IP per DHCP geändert): parallel = zuerst funktionierende, seriell = der Reihe nach.</string>
+    <string name="and_blockProbeLabel">Strategie im Bereich (wie Kopplungen eines Bereichs versucht werden) und Standard-Timeout des Bereichs</string>
+    <string name="and_defaultTimeout">Standard-Timeout</string>
+    <string name="and_blockProbeHint">Parallel·erster: alle im Bereich gleichzeitig, Erfolg nicht unbedingt oberste Zeile; Seriell: streng nach Zeilenreihenfolge. Jede Kopplung kann in ihrer Zeile einen weiteren Timeout setzen (Eintrag → Bereich → global).</string>
+    <string name="and_viaJumpLabel">Über Sprungserver (je Adresse: für außen → zu Hause zuerst unter „☰ → Server“ einen SSH-Sprungserver hinzufügen, dann je Adresszeile einen wählen; keiner = direkt)</string>
+    <string name="and_noJumpProfiles">Noch keine Sprungserver-Profile – unter „☰ → Server“ einen SSH-Server hinzufügen, dann hier wählen.</string>
+    <string name="and_jumpPerAddrHint">Drei Direktadressen können je einen Sprungserver haben: jede Adresse leitet eigenständig weiter. Ein Sprungserver ist nur der Einstieg in ein Netz – Adressen anderer Netze nicht auf denselben zeigen.</string>
+    <string name="and_probeMethodLabel">Prüfmodus (Gesamtstrategie der Verbindungspriorität; gilt für jede Route oben)</string>
+    <string name="and_probeMethodHint">Parallel·erster: Thread je Adresse, erste Antwort nutzen; Parallel·alle: auf alle warten, zeilenweise melden; Seriell: der Reihe nach, Stop beim ersten Erfolg</string>
+    <string name="and_defaultProbeTimeout">Standard-Prüf-Timeout (s) – wenn das Routenfeld leer ist</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>
