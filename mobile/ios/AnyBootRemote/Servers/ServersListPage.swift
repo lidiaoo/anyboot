@@ -166,16 +166,16 @@ struct ServerCardRow: View {
 
                 HStack(spacing: ABMetric.px(8)) {
                     if server.isSsh {
-                        cardAction(L("nav.terminal"), filled: true) {
+                        cardAction(L("nav.terminal"), filled: true, icon: "term") {
                             store.openTerminal(jumpId: server.id)
                         }
-                        cardAction(L("nav.files"), filled: false) {
+                        cardAction(L("nav.files"), filled: false, icon: "file") {
                             store.page = .files
                             FilesStackBridge.open(server: server)
                         }
                     }
-                    cardAction(L("and.test"), filled: false) { test() }
-                    cardAction(L("common.edit"), filled: false) {
+                    cardAction(L("and.test"), filled: false, icon: "test") { test() }
+                    cardAction(L("common.edit"), filled: false, icon: "edit") {
                         store.editTarget = server
                         store.editOpen = true
                     }
@@ -236,15 +236,15 @@ struct ServerCardRow: View {
                 .fill(ABColor.elevate.opacity(0.6)))
     }
 
-    private func cardAction(_ label: String, filled: Bool,
+    private func cardAction(_ label: String, filled: Bool, icon: String,
                             onClick: @escaping () -> Void) -> some View {
         Button(action: onClick) {
             VStack(spacing: ABMetric.px(2)) {
-                actionIcon(label, filled: filled)
+                actionIcon(icon, filled: filled)
                 Text(label)
                     .font(.system(size: 9, weight: filled ? .semibold : .regular))
                     .foregroundColor(filled ? ABColor.onAccent
-                                     : (label == "编辑" ? ABColor.fgDim : ABColor.fg))
+                                     : (icon == "edit" ? ABColor.fgDim : ABColor.fg))
             }
             .frame(maxWidth: .infinity)
             .frame(height: ABMetric.px(40))
@@ -259,11 +259,11 @@ struct ServerCardRow: View {
     }
 
     @ViewBuilder
-    private func actionIcon(_ label: String, filled: Bool) -> some View {
-        switch label {
-        case "终端": DrawnIcon.term(filled ? ABColor.onAccent : ABColor.fg, size: 15)
-        case "文件": DrawnIcon.folder(ABColor.fg, size: 15)
-        case "测试": DrawnIcon.refresh(ABColor.fg, size: 15)
+    private func actionIcon(_ icon: String, filled: Bool) -> some View {
+        switch icon {
+        case "term": DrawnIcon.term(filled ? ABColor.onAccent : ABColor.fg, size: 15)
+        case "file": DrawnIcon.folder(ABColor.fg, size: 15)
+        case "test": DrawnIcon.refresh(ABColor.fg, size: 15)
         default: DrawnIcon.pencil(ABColor.fgDim, size: 15)
         }
     }
