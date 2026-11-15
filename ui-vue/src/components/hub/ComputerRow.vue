@@ -7,7 +7,7 @@ import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { CHILD_SOURCE } from "@/pages/boot/bootRows";
+import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -555,15 +555,9 @@ const powerHints = computed(() =>
 );
 
 /** 该行 info.channels 里对应 kind 的通道（无则 undefined） */
-/** 平台图标（与 GrubEntry/后端 grub_os_icon 同一映射）：圆点弃用，改 emoji 图标 */
+/** 平台图标：唯一实现在 bootRows.ts 的 platformIcon（此壳为模板调用 convenience）。 */
 function osIcon(kind: string, name: string): string {
-  const hay = `${kind} ${name}`.toLowerCase();
-  if (hay.includes("win") || hay.includes("microsoft")) return "🪟 ";
-  if (hay.includes("mac") || hay.includes("apple")) return "🍎 ";
-  if (hay.includes("linux") || hay.includes("cachyos") || hay.includes("ubuntu")
-    || hay.includes("fedora") || hay.includes("mint") || hay.includes("manjaro")
-    || hay.includes("arch")) return "🐧 ";
-  return "";
+  return platformIcon(kind, name);
 }
 
 function channelOf(kind: string) {

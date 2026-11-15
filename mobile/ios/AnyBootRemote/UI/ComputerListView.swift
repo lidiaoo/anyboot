@@ -1301,8 +1301,8 @@ struct ComputerListView: View {
                             .frame(width: ABMetric.px(13), height: ABMetric.px(13))
                         Spacer().frame(width: ABMetric.px(7))
                     } else if !dotKind.isEmpty {
-                        // 平台图标（emoji，用户：圆点改图标）
-                        Text(platformEmoji(dotKind))
+                        // GRUB 同源图标（GrubFormat.osIcon 按名字识别）
+                        Text(GrubFormat.osIcon(dotKind))
                             .font(.system(size: 12.5))
                         Spacer().frame(width: ABMetric.px(7))
                     }
@@ -1362,6 +1362,7 @@ struct ComputerListView: View {
 
         var valueLabel: String
         var dotKind = ""
+        var iconOverride = ""
         if !group.available {
             if row.state == Reach.unknown { valueLabel = "读取中…" }
             else if row.state == Reach.offline { valueLabel = "离线不可改" }
@@ -1373,7 +1374,12 @@ struct ComputerListView: View {
             let rows = GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
             let hit = rows.first { $0.option?.value == group.current && !$0.isGroup }
             if let hit {
-                valueLabel = hit.text
+                // 图标 100% GRUB 同源：拼装 text 的行首 emoji 就是 GrubFormat.osIcon 的产物
+                let rawText = hit.text
+                if let r = rawText.range(of: "^[^\\p{L}\\p{Nd}›·]+", options: .regularExpression) {
+                    iconOverride = String(rawText[r])
+                }
+                valueLabel = rawText
                     .replacingOccurrences(of: "^[^\\p{L}\\p{Nd}›·]+", with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespaces)
                 dotKind = hit.option?.kind ?? "linux"
@@ -1417,8 +1423,8 @@ struct ComputerListView: View {
                             .frame(width: ABMetric.px(13), height: ABMetric.px(13))
                         Spacer().frame(width: ABMetric.px(7))
                     } else if !dotKind.isEmpty {
-                        // 平台图标（emoji，用户：圆点改图标）
-                        Text(platformEmoji(dotKind))
+                        // GRUB 同源图标（GrubFormat.osIcon 按名字识别）
+                        Text(GrubFormat.osIcon(dotKind))
                             .font(.system(size: 12.5))
                         Spacer().frame(width: ABMetric.px(7))
                     }
@@ -1842,7 +1848,8 @@ struct ComputerListView: View {
                             Rectangle().fill(ABColor.fgFaint.opacity(0.25)).frame(width: ABMetric.px(2))
                                 .padding(.leading, ABMetric.px(6))
                         }
-                        bootDot(option.kind)
+                        Text(GrubFormat.osIcon(option.kind))
+                            .font(.system(size: 13))
                         if row.pinned {
                             Text("下次启动")
                                 .font(.system(size: 10, weight: .semibold))
@@ -1911,7 +1918,8 @@ struct ComputerListView: View {
                     switchChannelAction(profile, channel: channel, entry: entry, verb: "切换")
                 } label: {
                     HStack(alignment: .top, spacing: ABMetric.px(8)) {
-                        bootDot(iconKind(entry.icon))
+                        Text(GrubFormat.osIcon(entry.icon))
+                            .font(.system(size: 13))
                         VStack(alignment: .leading, spacing: ABMetric.px(2)) {
                             HStack(spacing: ABMetric.px(5)) {
                                 Text(entry.title)

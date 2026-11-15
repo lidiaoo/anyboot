@@ -86,3 +86,16 @@ export function grubRows(opts: {
   }
   return opts.linuxGrubEntries ?? [];
 }
+
+/** 平台图标（四端唯一映射，对齐后端 grub_os_icon）：class 优先 + 名字关键词兜底。
+ *  唯一实现 —— GrubEntry（弹窗/列表行）与 hub ComputerRow（卡片回显）都从这里取，
+ *  勿再抄第二份（用户 2026-11-15：图标识别也要统一，别这边一个逻辑那边一个逻辑）。 */
+export function platformIcon(kind: string | undefined | null, name: string | undefined | null): string {
+  const hay = `${kind ?? ""} ${name ?? ""}`.toLowerCase();
+  if (hay.includes("win") || hay.includes("microsoft")) return "🪟 ";
+  if (hay.includes("mac") || hay.includes("apple")) return "🍎 ";
+  if (hay.includes("linux") || hay.includes("cachyos") || hay.includes("ubuntu")
+    || hay.includes("fedora") || hay.includes("mint") || hay.includes("manjaro")
+    || hay.includes("arch")) return "🐧 ";
+  return "";
+}

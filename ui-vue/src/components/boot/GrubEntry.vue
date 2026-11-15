@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { platformIcon } from "@/pages/boot/bootRows";
 import type { EntryData } from "./types";
 
 /**
@@ -79,17 +80,8 @@ function formatText(entry: { kernels?: string[]; name?: string }, format: string
   ) : (entry.name ?? "");
 }
 
-/** 平台图标（对齐后端 grub_os_icon 的映射）：class 优先，名字关键词兜底。
- *  主界面列表与电脑列表下拉共用本组件 —— 图标在这里渲染，后端 label 保持纯文字。 */
-const osIcon = computed(() => {
-  const hay = `${props.entry.class ?? ""} ${props.entry.name ?? ""}`.toLowerCase();
-  if (hay.includes("win") || hay.includes("microsoft")) return "🪟 ";
-  if (hay.includes("mac") || hay.includes("apple")) return "🍎 ";
-  if (hay.includes("linux") || hay.includes("cachyos") || hay.includes("ubuntu")
-    || hay.includes("fedora") || hay.includes("mint") || hay.includes("manjaro")
-    || hay.includes("arch")) return "🐧 ";
-  return "";
-});
+/** 平台图标：唯一实现在 bootRows.ts 的 platformIcon（本组件是对它的调用）。 */
+const osIcon = computed(() => platformIcon(props.entry.class, props.entry.name));
 
 const displayName = computed(() => {
   // 置顶（回显）项拼「一级 › 二级」前缀（照旧版 grub 回显）；其余行不拼（归属靠组头+缩进）。
