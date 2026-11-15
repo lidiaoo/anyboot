@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.Intent
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.os.Bundle
 import android.util.Size
@@ -128,13 +129,12 @@ class ScanPairActivity : ComponentActivity() {
                         .background(palette.base)
                         .padding(start = 4.dp, top = 10.dp, bottom = 8.dp),
                 ) {
-                    BarIcon("‹", "返回") { finishWith("") }
-                    Text("扫码读配对码", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.fg)
+                    BarIcon("‹", stringResource(R.string.and_back)) { finishWith("") }
+                    Text(stringResource(R.string.and_scanTitle), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.fg)
                 }
 
                 Text(
-                    "对准电脑端「远程接入」页生成的二维码，认出来自动填回粘贴框。" +
-                        "没有摄像头权限也可以手动复制粘贴配对串。",
+                    stringResource(R.string.and_scanIntro),
                     fontSize = 12.sp, color = palette.fgDim,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
@@ -159,7 +159,7 @@ class ScanPairActivity : ComponentActivity() {
                         )
                     }
                     Text(
-                        "把二维码放进框内即可，稍等一两秒",
+                        stringResource(R.string.and_scanHint),
                         fontSize = 11.sp, color = palette.fgFaint,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -176,16 +176,15 @@ class ScanPairActivity : ComponentActivity() {
                             .padding(24.dp),
                         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                     ) {
-                        Text("相机权限没给", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = palette.fg)
+                        Text(stringResource(R.string.and_camNoPerm), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = palette.fg)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "扫码要用摄像头。不给也行 —— 回到上一页，把电脑端显示的" +
-                                "配对串复制粘贴进「远程接入」框，效果一样。",
+                            stringResource(R.string.and_camNoPermBody),
                             fontSize = 12.sp, color = palette.fgDim,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
                         Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = { finishWith("") }) { Text("返回") }
+                        TextButton(onClick = { finishWith("") }) { Text(stringResource(R.string.and_back)) }
                         TextButton(onClick = {
                             // 系统不给「永久拒绝」的再次拉起，用户只能去设置里开
                             try {
@@ -196,9 +195,9 @@ class ScanPairActivity : ComponentActivity() {
                                     )
                                 )
                             } catch (ignored: Exception) {
-                                Toast.makeText(context, "打不开设置，请手动到系统设置里授权", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.and_openSettingsFail), Toast.LENGTH_SHORT).show()
                             }
-                        }) { Text("去设置里授权") }
+                        }) { Text(stringResource(R.string.and_openSettingsAuth)) }
                     }
                 }
             }
@@ -250,7 +249,7 @@ class ScanPairActivity : ComponentActivity() {
                     } catch (ignored: Exception) {
                         // 相机被占用 / 没有摄像头等：不闪退，提示后退出
                         runOnUiThread {
-                            Toast.makeText(ctx, "相机启动失败，可以手动粘贴配对串", Toast.LENGTH_LONG).show()
+                            Toast.makeText(ctx, ctx.getString(R.string.and_camStartFail), Toast.LENGTH_LONG).show()
                         }
                     }
                 }, ContextCompat.getMainExecutor(ctx))

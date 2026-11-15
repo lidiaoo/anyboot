@@ -1260,6 +1260,30 @@
     <string name="and_drawerFooter">Heartbeat 10s · параллельная проверка
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">Доступ к домашнему ПК извне: добавьте доступную извне машину дома как сервер SSH и выберите её в «Через промежуточный узел».</string>
+    <string name="and_scanTitle">Сканировать код сопряжения</string>
+    <string name="and_scanIntro">Наведите на QR-код на странице «Удалённый доступ» компьютера — он подставится в поле. Без доступа к камере вставьте вручную.</string>
+    <string name="and_scanHint">Поместите QR-код в рамку; подождите секунду-две</string>
+    <string name="and_camNoPerm">Нет разрешения на камеру</string>
+    <string name="and_camNoPermBody">Для сканирования нужна камера. Можно пропустить — вернитесь и вставьте строку сопряжения в поле «Удалённый доступ».</string>
+    <string name="and_openSettingsAuth">Разрешить в настройках</string>
+    <string name="and_openSettingsFail">Не удалось открыть настройки; разрешите вручную в системе</string>
+    <string name="and_camStartFail">Не удалось запустить камеру; вставьте вручную</string>
+    <string name="and_termColor">Цветовая схема терминала</string>
+    <string name="and_termThemeDark">Тёмная (экономия на OLED, комфортнее)</string>
+    <string name="and_termThemeLight">Светлая</string>
+    <string name="and_termFontSize">Размер шрифта терминала</string>
+    <string name="and_termFontRange">Диапазон %1$s - %2$s</string>
+    <string name="and_termFontFamily">Семейство шрифтов терминала</string>
+    <string name="and_termFontPh">Пусто = встроенный моноширинный</string>
+    <string name="and_termFontHint">Введите CSS font-family, напр. JetBrains Mono / Menlo; иначе моноширинный. Применится при возврате.</string>
+    <string name="and_termBehavior">Поведение терминала</string>
+    <string name="and_termAutoKeyboard">Автопоказ клавиатуры при входе</string>
+    <string name="and_termAutoKeyboardDesc">По умолчанию выкл: сначала вывод; для ввода коснитесь области или ⌨</string>
+    <string name="and_termKeyBar">Показать панель ярлыков</string>
+    <string name="and_termKeyBarDesc">Строка Esc / Tab / Ctrl / стрелки / Enter внизу</string>
+    <string name="and_termResetDone">Сброшено: тёмная · %1$d · панель ярлыков вкл</string>
+    <string name="and_termResetBtn">Сбросить к умолчанию</string>
+    <string name="and_termLiveHint">Изменения сразу: открытые страницы терминала применят при возврате; A- / A+ в верхней панели для временной подстройки (сохраняется).</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

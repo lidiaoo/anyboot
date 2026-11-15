@@ -1260,6 +1260,30 @@
     <string name="and_drawerFooter">하트비트 10s · 병렬 감지
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">외부에서 집 컴퓨터로: 집에서 공개 접근 가능한 기기를 SSH 서버로 추가한 뒤 컴퓨터의 ‘점프 호스트 경유’에서 선택.</string>
+    <string name="and_scanTitle">QR로 페어링 코드 읽기</string>
+    <string name="and_scanIntro">컴퓨터의 ‘원격 접속’ 페이지 QR을 비추면 붙여넣기 칸에 자동 입력. 카메라 권한이 없어도 직접 붙여넣기 가능.</string>
+    <string name="and_scanHint">QR을 프레임에 넣으세요. 1~2초 기다리세요</string>
+    <string name="and_camNoPerm">카메라 권한 없음</string>
+    <string name="and_camNoPermBody">스캔에는 카메라가 필요. 생략 가능 — 돌아가 컴퓨터에 표시된 페어링 문자열을 ‘원격 접속’ 칸에 붙여넣기.</string>
+    <string name="and_openSettingsAuth">설정에서 승인</string>
+    <string name="and_openSettingsFail">설정을 열 수 없습니다. 시스템 설정에서 직접 승인하세요</string>
+    <string name="and_camStartFail">카메라 시작 실패. 직접 붙여넣기 가능</string>
+    <string name="and_termColor">터미널 색상</string>
+    <string name="and_termThemeDark">다크 (OLED 절전, 장시간 편안)</string>
+    <string name="and_termThemeLight">라이트</string>
+    <string name="and_termFontSize">터미널 글자 크기</string>
+    <string name="and_termFontRange">범위 %1$s - %2$s</string>
+    <string name="and_termFontFamily">터미널 글꼴 패밀리</string>
+    <string name="and_termFontPh">비우면 = 내장 고정폭</string>
+    <string name="and_termFontHint">CSS font-family 입력 (예 JetBrains Mono / Menlo). 없으면 고정폭으로 대체. 터미널 페이지로 돌아오면 적용.</string>
+    <string name="and_termBehavior">터미널 동작</string>
+    <string name="and_termAutoKeyboard">터미널 진입 시 키보드 자동 표시</string>
+    <string name="and_termAutoKeyboardDesc">기본 꺼짐: 먼저 출력 표시, 입력 시 터미널 영역이나 ⌨ 탭</string>
+    <string name="and_termKeyBar">단축키 바 표시</string>
+    <string name="and_termKeyBarDesc">터미널 하단의 Esc / Tab / Ctrl / 방향키 / Enter 줄</string>
+    <string name="and_termResetDone">기본값 복원: 다크 · %1$d · 단축키 바 켜짐</string>
+    <string name="and_termResetBtn">기본값 복원</string>
+    <string name="and_termLiveHint">변경 즉시 적용: 열린 터미널 페이지는 돌아오면 적용. 터미널 상단 바의 A- / A+로 임시 조정 가능(저장됨).</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

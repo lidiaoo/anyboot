@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.os.Bundle
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -74,9 +75,9 @@ class TerminalSettingsActivity : ComponentActivity() {
                         .background(palette.card)
                         .padding(8.dp),
                 ) {
-                    BarIcon("‹", "返回") { finish() }
+                    BarIcon("‹", stringResource(R.string.and_back)) { finish() }
                     Text(
-                        "终端设置",
+                        stringResource(R.string.termset_title),
                         fontSize = 16.sp,
                         color = palette.fg,
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
@@ -108,16 +109,16 @@ class TerminalSettingsActivity : ComponentActivity() {
         }
 
         // ---- 配色 ----
-        SectionTitle("终端配色")
-        ThemeRow("暗色（OLED 上省电，长时间看更舒服）", dark) {
+        SectionTitle(stringResource(R.string.and_termColor))
+        ThemeRow(stringResource(R.string.and_termThemeDark), dark) {
             dark = true; JumpStore.setTerminalDark(this@TerminalSettingsActivity, true)
         }
-        ThemeRow("亮色", !dark) {
+        ThemeRow(stringResource(R.string.and_termThemeLight), !dark) {
             dark = false; JumpStore.setTerminalDark(this@TerminalSettingsActivity, false)
         }
 
         // ---- 字号 ----
-        SectionTitle("终端字号")
+        SectionTitle(stringResource(R.string.and_termFontSize))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -140,7 +141,7 @@ class TerminalSettingsActivity : ComponentActivity() {
                 JumpStore.setTerminalFontSize(this@TerminalSettingsActivity, next)
             }
             Spacer(Modifier.width(10.dp))
-            SecondaryText("范围 ${JumpStore.TERMINAL_FONT_MIN} - ${JumpStore.TERMINAL_FONT_MAX}")
+            SecondaryText(stringResource(R.string.and_termFontRange, JumpStore.TERMINAL_FONT_MIN, JumpStore.TERMINAL_FONT_MAX))
         }
         // 按真实配色 + 真实字号给一行样例，省得来回切页面看效果
         val sampleBg = if (dark) TerminalDarkBg else TerminalLightBg
@@ -164,7 +165,7 @@ class TerminalSettingsActivity : ComponentActivity() {
         // ---- 字体族 ----
         // xterm 的 CSS font-family：空 = 资产页内置 Menlo/等宽栈；字体缺失由
         // WebView 自动回落等宽，不会白屏 —— 所以不做存在性检查，改动即时落盘。
-        SectionTitle("终端字体族")
+        SectionTitle(stringResource(R.string.and_termFontFamily))
         var fontFamily by remember {
             mutableStateOf(JumpStore.terminalFontFamily(this@TerminalSettingsActivity))
         }
@@ -175,7 +176,7 @@ class TerminalSettingsActivity : ComponentActivity() {
                 JumpStore.setTerminalFontFamily(this@TerminalSettingsActivity, it)
             },
             singleLine = true,
-            placeholder = { Text("留空 = 内置等宽", fontSize = 12.sp) },
+            placeholder = { Text(stringResource(R.string.and_termFontPh), fontSize = 12.sp) },
             supportingText = {
                 Text(
                     "填 CSS font-family，如 JetBrains Mono / Menlo；缺失自动回落等宽。返回终端页即生效。",
@@ -189,12 +190,12 @@ class TerminalSettingsActivity : ComponentActivity() {
         )
 
         // ---- 行为 ----
-        SectionTitle("终端行为")
-        CheckRow("进入终端自动弹出键盘", "默认关：先看到输出，要打字时点一下终端区或 ⌨", autoKeyboard) {
+        SectionTitle(stringResource(R.string.and_termBehavior))
+        CheckRow(stringResource(R.string.and_termAutoKeyboard), stringResource(R.string.and_termAutoKeyboardDesc), autoKeyboard) {
             autoKeyboard = it
             JumpStore.setTerminalAutoKeyboard(this@TerminalSettingsActivity, it)
         }
-        CheckRow("显示快捷键栏", "终端底部的 Esc / Tab / Ctrl / 方向键 / Enter 那一条", keyBar) {
+        CheckRow(stringResource(R.string.and_termKeyBar), stringResource(R.string.and_termKeyBarDesc), keyBar) {
             keyBar = it
             JumpStore.setTerminalKeyBar(this@TerminalSettingsActivity, it)
         }
@@ -212,14 +213,13 @@ class TerminalSettingsActivity : ComponentActivity() {
                 JumpStore.setTerminalFontFamily(this@TerminalSettingsActivity, "")
                 JumpStore.setTerminalAutoKeyboard(this@TerminalSettingsActivity, false)
                 JumpStore.setTerminalKeyBar(this@TerminalSettingsActivity, true)
-                toast("已恢复默认：暗色 · 字号 ${JumpStore.TERMINAL_FONT_DEFAULT} · 快捷键栏开")
+                toast(getString(R.string.and_termResetDone, JumpStore.TERMINAL_FONT_DEFAULT))
             },
             modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) { Text("恢复默认设置") }
+        ) { Text(stringResource(R.string.and_termResetBtn)) }
 
         SecondaryText(
-            "改动即时生效：已经打开的终端页返回时会自动套用，也可以直接用终端页顶栏的 "
-                    + "A- / A+ 临时调字号（同样会存下来）。",
+            stringResource(R.string.and_termLiveHint),
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }

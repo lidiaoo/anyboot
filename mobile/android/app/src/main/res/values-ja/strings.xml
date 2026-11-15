@@ -1260,6 +1260,30 @@
     <string name="and_drawerFooter">ハートビート 10s · 並列検出
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">外部から自宅 PC へ：自宅で公開できるマシンを SSH サーバーとして追加し、PC の「踏み台経由」で選択。</string>
+    <string name="and_scanTitle">QR でペアリングコードを読む</string>
+    <string name="and_scanIntro">PC の「リモートアクセス」ページの QR を写すと貼り付け欄に自動入力。カメラ権限がなくても手動で貼り付け可。</string>
+    <string name="and_scanHint">QR を枠内に入れてください。1〜2 秒お待ちを</string>
+    <string name="and_camNoPerm">カメラ権限がありません</string>
+    <string name="and_camNoPermBody">スキャンにはカメラが必要。省略可 — 戻って PC に表示されたペアリング文字列を「リモートアクセス」欄に貼り付け。</string>
+    <string name="and_openSettingsAuth">設定で許可</string>
+    <string name="and_openSettingsFail">設定を開けません。システム設定で手動許可してください</string>
+    <string name="and_camStartFail">カメラ起動に失敗。手動で貼り付け可</string>
+    <string name="and_termColor">端末の配色</string>
+    <string name="and_termThemeDark">ダーク（OLED で省電力、長時間でも快適）</string>
+    <string name="and_termThemeLight">ライト</string>
+    <string name="and_termFontSize">端末の文字サイズ</string>
+    <string name="and_termFontRange">範囲 %1$s - %2$s</string>
+    <string name="and_termFontFamily">端末のフォントファミリー</string>
+    <string name="and_termFontPh">空欄 = 内蔵等幅</string>
+    <string name="and_termFontHint">CSS font-family を入力（例 JetBrains Mono / Menlo）。無ければ等幅にフォールバック。端末ページに戻ると反映。</string>
+    <string name="and_termBehavior">端末の動作</string>
+    <string name="and_termAutoKeyboard">端末に入るとキーボードを自動表示</string>
+    <string name="and_termAutoKeyboardDesc">既定オフ：まず出力を表示。入力時は端末領域か ⌨ をタップ</string>
+    <string name="and_termKeyBar">ショートカットバーを表示</string>
+    <string name="and_termKeyBarDesc">端末下部の Esc / Tab / Ctrl / 矢印 / Enter の行</string>
+    <string name="and_termResetDone">既定に戻しました：ダーク · %1$d · ショートカットバー オン</string>
+    <string name="and_termResetBtn">既定に戻す</string>
+    <string name="and_termLiveHint">変更は即時反映：開いている端末ページは戻ると適用。端末トップバーの A- / A+ で一時的に文字サイズ調整可（保存もされます）。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

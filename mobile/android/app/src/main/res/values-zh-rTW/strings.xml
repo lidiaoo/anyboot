@@ -1260,6 +1260,30 @@
     <string name="and_drawerFooter">心跳 10s · 並行探測
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">外網連家裡的電腦：先把家裡能公網存取的機器加成 SSH 伺服器，再在電腦的「經由跳板機」裡選它。</string>
+    <string name="and_scanTitle">掃碼讀配對碼</string>
+    <string name="and_scanIntro">對準電腦端「遠端存取」頁生成的二維碼，認出來自動填回貼上框。沒有相機權限也可以手動複製貼上配對串。</string>
+    <string name="and_scanHint">把二維碼放進框內即可，稍等一兩秒</string>
+    <string name="and_camNoPerm">相機權限沒給</string>
+    <string name="and_camNoPermBody">掃碼要用相機。不給也行 —— 回到上一頁，把電腦端顯示的配對串複製貼上進「遠端存取」框，效果一樣。</string>
+    <string name="and_openSettingsAuth">去設定裡授權</string>
+    <string name="and_openSettingsFail">打不開設定，請手動到系統設定裡授權</string>
+    <string name="and_camStartFail">相機啟動失敗，可以手動貼上配對串</string>
+    <string name="and_termColor">終端機配色</string>
+    <string name="and_termThemeDark">暗色（OLED 上省電，長時間看更舒服）</string>
+    <string name="and_termThemeLight">亮色</string>
+    <string name="and_termFontSize">終端機字級</string>
+    <string name="and_termFontRange">範圍 %1$s - %2$s</string>
+    <string name="and_termFontFamily">終端機字型族</string>
+    <string name="and_termFontPh">留空 = 內建等寬</string>
+    <string name="and_termFontHint">填 CSS font-family，如 JetBrains Mono / Menlo；缺失自動回落等寬。返回終端機頁即生效。</string>
+    <string name="and_termBehavior">終端機行為</string>
+    <string name="and_termAutoKeyboard">進入終端機自動彈出鍵盤</string>
+    <string name="and_termAutoKeyboardDesc">預設關：先看到輸出，要打字時點一下終端機區或 ⌨</string>
+    <string name="and_termKeyBar">顯示快速鍵列</string>
+    <string name="and_termKeyBarDesc">終端機底部的 Esc / Tab / Ctrl / 方向鍵 / Enter 那一條</string>
+    <string name="and_termResetDone">已恢復預設：暗色 · 字級 %1$d · 快速鍵列開</string>
+    <string name="and_termResetBtn">恢復預設設定</string>
+    <string name="and_termLiveHint">改動即時生效：已開啟的終端機頁返回時會自動套用，也可以直接用終端機頁頂欄的 A- / A+ 臨時調字級（同樣會存下來）。</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

@@ -1260,6 +1260,30 @@
     <string name="and_drawerFooter">心跳 10s · 并发探测
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，再在电脑的「经由跳板机」里选它。</string>
+    <string name="and_scanTitle">扫码读配对码</string>
+    <string name="and_scanIntro">对准电脑端「远程接入」页生成的二维码，认出来自动填回粘贴框。没有摄像头权限也可以手动复制粘贴配对串。</string>
+    <string name="and_scanHint">把二维码放进框内即可，稍等一两秒</string>
+    <string name="and_camNoPerm">相机权限没给</string>
+    <string name="and_camNoPermBody">扫码要用摄像头。不给也行 —— 回到上一页，把电脑端显示的配对串复制粘贴进「远程接入」框，效果一样。</string>
+    <string name="and_openSettingsAuth">去设置里授权</string>
+    <string name="and_openSettingsFail">打不开设置，请手动到系统设置里授权</string>
+    <string name="and_camStartFail">相机启动失败，可以手动粘贴配对串</string>
+    <string name="and_termColor">终端配色</string>
+    <string name="and_termThemeDark">暗色（OLED 上省电，长时间看更舒服）</string>
+    <string name="and_termThemeLight">亮色</string>
+    <string name="and_termFontSize">终端字号</string>
+    <string name="and_termFontRange">范围 %1$s - %2$s</string>
+    <string name="and_termFontFamily">终端字体族</string>
+    <string name="and_termFontPh">留空 = 内置等宽</string>
+    <string name="and_termFontHint">填 CSS font-family，如 JetBrains Mono / Menlo；缺失自动回落等宽。返回终端页即生效。</string>
+    <string name="and_termBehavior">终端行为</string>
+    <string name="and_termAutoKeyboard">进入终端自动弹出键盘</string>
+    <string name="and_termAutoKeyboardDesc">默认关：先看到输出，要打字时点一下终端区或 ⌨</string>
+    <string name="and_termKeyBar">显示快捷键栏</string>
+    <string name="and_termKeyBarDesc">终端底部的 Esc / Tab / Ctrl / 方向键 / Enter 那一条</string>
+    <string name="and_termResetDone">已恢复默认：暗色 · 字号 %1$d · 快捷键栏开</string>
+    <string name="and_termResetBtn">恢复默认设置</string>
+    <string name="and_termLiveHint">改动即时生效：已经打开的终端页返回时会自动套用，也可以直接用终端页顶栏的 A- / A+ 临时调字号（同样会存下来）。</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

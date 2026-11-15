@@ -1260,6 +1260,30 @@ Unter „Server“ hinzufügen, dann erscheinen hier Energie und Starteinträge<
     <string name="and_drawerFooter">Heartbeat 10s · parallele Prüfung
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">Von außen zum Heim-PC: ein öffentlich erreichbares Gerät zu Hause als SSH-Server hinzufügen und unter „Über Sprungserver“ wählen.</string>
+    <string name="and_scanTitle">Kopplungscode scannen</string>
+    <string name="and_scanIntro">Auf den QR-Code der „Fernzugriff“-Seite des Computers richten; füllt das Einfügefeld automatisch. Ohne Kamerarecht manuell einfügen.</string>
+    <string name="and_scanHint">QR-Code in den Rahmen halten; ein bis zwei Sekunden warten</string>
+    <string name="and_camNoPerm">Kameraberechtigung fehlt</string>
+    <string name="and_camNoPermBody">Scannen braucht die Kamera. Überspringbar – zurück und die Kopplungszeichenfolge des Computers in „Fernzugriff“ einfügen.</string>
+    <string name="and_openSettingsAuth">In Einstellungen erlauben</string>
+    <string name="and_openSettingsFail">Einstellungen ließen sich nicht öffnen; manuell in den Systemeinstellungen erlauben</string>
+    <string name="and_camStartFail">Kamera-Start fehlgeschlagen; manuell einfügen</string>
+    <string name="and_termColor">Terminalfarbschema</string>
+    <string name="and_termThemeDark">Dunkel (sparsam auf OLED, augenschonend)</string>
+    <string name="and_termThemeLight">Hell</string>
+    <string name="and_termFontSize">Terminal-Schriftgröße</string>
+    <string name="and_termFontRange">Bereich %1$s - %2$s</string>
+    <string name="and_termFontFamily">Terminal-Schriftfamilie</string>
+    <string name="and_termFontPh">Leer = eingebautes Mono</string>
+    <string name="and_termFontHint">CSS font-family eingeben, z. B. JetBrains Mono / Menlo; fällt sonst auf Monospace zurück. Gilt beim Zurückkehren.</string>
+    <string name="and_termBehavior">Terminalverhalten</string>
+    <string name="and_termAutoKeyboard">Tastatur beim Öffnen automatisch zeigen</string>
+    <string name="and_termAutoKeyboardDesc">Standard aus: erst Ausgabe; zum Tippen Terminalbereich oder ⌨ antippen</string>
+    <string name="and_termKeyBar">Tastenkürzelleiste anzeigen</string>
+    <string name="and_termKeyBarDesc">Die Esc / Tab / Ctrl / Pfeile / Enter-Leiste unten</string>
+    <string name="and_termResetDone">Auf Standard zurückgesetzt: dunkel · %1$d · Tastenkürzelleiste an</string>
+    <string name="and_termResetBtn">Standard wiederherstellen</string>
+    <string name="and_termLiveHint">Änderungen sofort: offene Terminalseiten übernehmen beim Zurückkehren; A- / A+ in der oberen Leiste zum临时 Anpassen (wird gespeichert).</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

@@ -1260,6 +1260,30 @@ Adicione em “Servidores” e a energia e entradas aparecerão aqui</string>
     <string name="and_drawerFooter">Heartbeat 10s · sondagem paralela
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">Acessar o PC de casa de fora: adicione uma máquina acessível publicamente em casa como servidor SSH e escolha em “Via jump host”.</string>
+    <string name="and_scanTitle">Ler código de pareamento</string>
+    <string name="and_scanIntro">Aponte para o QR na página “Acesso remoto” do computador; preenche a caixa automaticamente. Sem permissão de câmera, cole manualmente.</string>
+    <string name="and_scanHint">Coloque o QR no quadro; aguarde um ou dois segundos</string>
+    <string name="and_camNoPerm">Permissão de câmera não concedida</string>
+    <string name="and_camNoPermBody">Escanear precisa da câmera. Pode pular — volte e cole a string de pareamento na caixa “Acesso remoto”.</string>
+    <string name="and_openSettingsAuth">Autorizar nas configurações</string>
+    <string name="and_openSettingsFail">Não foi possível abrir os ajustes; autorize manualmente no sistema</string>
+    <string name="and_camStartFail">Falha ao iniciar a câmera; cole manualmente</string>
+    <string name="and_termColor">Esquema de cores do terminal</string>
+    <string name="and_termThemeDark">Escuro (economiza em OLED, mais confortável)</string>
+    <string name="and_termThemeLight">Claro</string>
+    <string name="and_termFontSize">Tamanho da fonte do terminal</string>
+    <string name="and_termFontRange">Intervalo %1$s - %2$s</string>
+    <string name="and_termFontFamily">Família de fonte do terminal</string>
+    <string name="and_termFontPh">Vazio = mono embutida</string>
+    <string name="and_termFontHint">Informe um CSS font-family, ex. JetBrains Mono / Menlo; senão volta a monoespaçada. Vale ao voltar.</string>
+    <string name="and_termBehavior">Comportamento do terminal</string>
+    <string name="and_termAutoKeyboard">Mostrar teclado ao entrar</string>
+    <string name="and_termAutoKeyboardDesc">Desligado: veja a saída; toque na área ou ⌨ para digitar</string>
+    <string name="and_termKeyBar">Mostrar barra de atalhos</string>
+    <string name="and_termKeyBarDesc">A linha Esc / Tab / Ctrl / setas / Enter embaixo</string>
+    <string name="and_termResetDone">Padrões restaurados: escuro · %1$d · barra de atalhos ativa</string>
+    <string name="and_termResetBtn">Restaurar padrões</string>
+    <string name="and_termLiveHint">Mudanças imediatas: páginas de terminal abertas aplicam ao voltar; A- / A+ no topo ajustam temporariamente (também salvo).</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

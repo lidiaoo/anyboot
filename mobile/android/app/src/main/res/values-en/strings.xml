@@ -1260,6 +1260,30 @@ Add one under “Servers” and its power and boot entries appear here</string>
     <string name="and_drawerFooter">Heartbeat 10s · parallel probe
 GitHub · lidiaoo/anyboot</string>
     <string name="and_drawerJumpHint">Reach a home computer from outside: add a publicly reachable machine at home as an SSH server, then pick it under the computer\'s “Via jump host”.</string>
+    <string name="and_scanTitle">Scan pairing code</string>
+    <string name="and_scanIntro">Point at the QR code shown on the computer\'s “Remote access” page; it fills the paste box automatically. Without camera permission you can copy-paste the pairing string manually.</string>
+    <string name="and_scanHint">Put the QR code in the frame; wait a second or two</string>
+    <string name="and_camNoPerm">Camera permission not granted</string>
+    <string name="and_camNoPermBody">Scanning needs the camera. You can skip it — go back and copy-paste the pairing string shown on the computer into the “Remote access” box; same result.</string>
+    <string name="and_openSettingsAuth">Authorize in settings</string>
+    <string name="and_openSettingsFail">Couldn\'t open settings; authorize manually in system settings</string>
+    <string name="and_camStartFail">Camera failed to start; you can paste the pairing string manually</string>
+    <string name="and_termColor">Terminal color scheme</string>
+    <string name="and_termThemeDark">Dark (power-saving on OLED, easier on the eyes)</string>
+    <string name="and_termThemeLight">Light</string>
+    <string name="and_termFontSize">Terminal font size</string>
+    <string name="and_termFontRange">Range %1$s - %2$s</string>
+    <string name="and_termFontFamily">Terminal font family</string>
+    <string name="and_termFontPh">Blank = built-in mono</string>
+    <string name="and_termFontHint">Enter a CSS font-family, e.g. JetBrains Mono / Menlo; falls back to monospace if missing. Applies on returning to the terminal page.</string>
+    <string name="and_termBehavior">Terminal behavior</string>
+    <string name="and_termAutoKeyboard">Auto-show keyboard on entering terminal</string>
+    <string name="and_termAutoKeyboardDesc">Off by default: see output first; tap the terminal area or ⌨ to type</string>
+    <string name="and_termKeyBar">Show shortcut bar</string>
+    <string name="and_termKeyBarDesc">The Esc / Tab / Ctrl / arrows / Enter row at the bottom</string>
+    <string name="and_termResetDone">Reset to defaults: dark · size %1$d · shortcut bar on</string>
+    <string name="and_termResetBtn">Restore defaults</string>
+    <string name="and_termLiveHint">Changes apply immediately: open terminal pages pick them up on return; you can also use A- / A+ in the terminal top bar to adjust size temporarily (also saved).</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>
