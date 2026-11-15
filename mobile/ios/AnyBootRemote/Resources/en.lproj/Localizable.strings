@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "Sessions (active / history)";
 "and.menuTransfers" = "Transfers";
 "and.addKey" = "Add key";
+"and.notJsonObject" = "This computer didn't return a JSON object ({s})";
+"and.addrInvalid" = "Invalid address: {x}";
+"and.connTimeout" = "Connection timed out";
+"and.cannotConnect" = "Can't reach this computer";
+"and.symlink" = "Symlink";
+"and.opFailNoPath" = "{a} failed: not found on the server “{p}”";
+"and.opFailPerm" = "{a} failed: permission denied ({p})";
+"and.opFailUnsupported" = "{a} failed: server doesn't support this operation";
+"and.opFailDisconnected" = "{a} failed: connection dropped; re-entering this page reconnects";
+"and.opFailRefused" = "{a} failed: server refused ({p})";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

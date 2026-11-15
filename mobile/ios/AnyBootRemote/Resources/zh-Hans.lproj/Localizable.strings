@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "会话（进行中 / 历史）";
 "and.menuTransfers" = "传输管理";
 "and.addKey" = "添加密钥";
+"and.notJsonObject" = "这台电脑返回的不是 JSON 对象（{s}）";
+"and.addrInvalid" = "地址不合法：{x}";
+"and.connTimeout" = "连接超时";
+"and.cannotConnect" = "连不上这台电脑";
+"and.symlink" = "软链接";
+"and.opFailNoPath" = "{a}失败：服务器上找不到「{p}」";
+"and.opFailPerm" = "{a}失败：权限不够（{p}）";
+"and.opFailUnsupported" = "{a}失败：这台服务器不支持这个操作";
+"and.opFailDisconnected" = "{a}失败：连接断了，重进这一页会自动重连";
+"and.opFailRefused" = "{a}失败：服务器拒绝了（{p}）";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

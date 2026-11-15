@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "Sitzungen (aktiv / Verlauf)";
 "and.menuTransfers" = "Übertragungen";
 "and.addKey" = "Schlüssel hinzufügen";
+"and.notJsonObject" = "Dieser Computer lieferte kein JSON-Objekt ({s})";
+"and.addrInvalid" = "Ungültige Adresse: {x}";
+"and.connTimeout" = "Verbindungs-Timeout";
+"and.cannotConnect" = "Dieser Computer nicht erreichbar";
+"and.symlink" = "Symlink";
+"and.opFailNoPath" = "{a} fehlgeschlagen: „{p}“ nicht auf dem Server";
+"and.opFailPerm" = "{a} fehlgeschlagen: keine Berechtigung ({p})";
+"and.opFailUnsupported" = "{a} fehlgeschlagen: Server unterstützt dies nicht";
+"and.opFailDisconnected" = "{a} fehlgeschlagen: Verbindung getrennt; erneut öffnen verbindet neu";
+"and.opFailRefused" = "{a} fehlgeschlagen: Server abgelehnt ({p})";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

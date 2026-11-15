@@ -1901,6 +1901,16 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_menuSessions">Sitzungen (aktiv / Verlauf)</string>
     <string name="and_menuTransfers">Übertragungen</string>
     <string name="and_addKey">Schlüssel hinzufügen</string>
+    <string name="and_notJsonObject">Dieser Computer lieferte kein JSON-Objekt (%1$s)</string>
+    <string name="and_addrInvalid">Ungültige Adresse: %1$s</string>
+    <string name="and_connTimeout">Verbindungs-Timeout</string>
+    <string name="and_cannotConnect">Dieser Computer nicht erreichbar</string>
+    <string name="and_symlink">Symlink</string>
+    <string name="and_opFailNoPath">%1$s fehlgeschlagen: „%2$s“ nicht auf dem Server</string>
+    <string name="and_opFailPerm">%1$s fehlgeschlagen: keine Berechtigung (%2$s)</string>
+    <string name="and_opFailUnsupported">%1$s fehlgeschlagen: Server unterstützt dies nicht</string>
+    <string name="and_opFailDisconnected">%1$s fehlgeschlagen: Verbindung getrennt; erneut öffnen verbindet neu</string>
+    <string name="and_opFailRefused">%1$s fehlgeschlagen: Server abgelehnt (%2$s)</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

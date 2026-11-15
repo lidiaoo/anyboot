@@ -1901,6 +1901,16 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_menuSessions">Сеансы (активные / история)</string>
     <string name="and_menuTransfers">Передачи</string>
     <string name="and_addKey">Добавить ключ</string>
+    <string name="and_notJsonObject">Компьютер вернул не JSON-объект (%1$s)</string>
+    <string name="and_addrInvalid">Неверный адрес: %1$s</string>
+    <string name="and_connTimeout">Тайм-аут подключения</string>
+    <string name="and_cannotConnect">Не удаётся подключиться к компьютеру</string>
+    <string name="and_symlink">Симлинк</string>
+    <string name="and_opFailNoPath">%1$s: не найдено на сервере «%2$s»</string>
+    <string name="and_opFailPerm">%1$s: недостаточно прав (%2$s)</string>
+    <string name="and_opFailUnsupported">%1$s: сервер не поддерживает операцию</string>
+    <string name="and_opFailDisconnected">%1$s: соединение прервано; переоткроется автоматически</string>
+    <string name="and_opFailRefused">%1$s: сервер отклонил (%2$s)</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

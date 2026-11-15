@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "세션(진행 중 / 기록)";
 "and.menuTransfers" = "전송 관리";
 "and.addKey" = "키 추가";
+"and.notJsonObject" = "이 컴퓨터가 반환한 것이 JSON 객체가 아닙니다 ({s})";
+"and.addrInvalid" = "주소 오류: {x}";
+"and.connTimeout" = "연결 시간 초과";
+"and.cannotConnect" = "이 컴퓨터에 연결할 수 없음";
+"and.symlink" = "심볼릭 링크";
+"and.opFailNoPath" = "{a} 실패: 서버에 ‘{p}’ 없음";
+"and.opFailPerm" = "{a} 실패: 권한 부족({p})";
+"and.opFailUnsupported" = "{a} 실패: 이 서버가 지원하지 않는 작업";
+"and.opFailDisconnected" = "{a} 실패: 연결 끊김. 다시 들어오면 재연결";
+"and.opFailRefused" = "{a} 실패: 서버 거부({p})";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

@@ -23,11 +23,11 @@ enum RemoteHttp {
         let (parsed, status) = try await raw(endpoint: endpoint, token: token,
                                              path: path, timeoutMs: timeoutMs)
         guard let json = parsed as? [String: Any] else {
-            throw RemoteHttpError(message: "这台电脑返回的不是 JSON 对象（\(status)）")
+            throw RemoteHttpError(message: L("and.notJsonObject", status))
         }
         if status >= 400 {
             let message = (json["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw RemoteHttpError(message: message.isEmpty ? "请求被拒绝" : message)
+            throw RemoteHttpError(message: message.isEmpty ? L("and.requestRejected") : message)
         }
         return json
     }
@@ -44,7 +44,7 @@ enum RemoteHttp {
             if let object = parsed as? [String: Any], status == 404 {
                 throw RemoteHttpError(message: L("and.oldAnyboot"))
             }
-            throw RemoteHttpError(message: "这台电脑返回的不是 JSON 数组（\(status)）")
+            throw RemoteHttpError(message: L("and.notJsonArray", status, ""))
         }
         return list.compactMap { $0 as? [String: Any] }
     }
@@ -55,7 +55,7 @@ enum RemoteHttp {
                             path: String,
                             timeoutMs: Int? = nil) async throws -> (Any, Int) {
         let base = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !base.isEmpty else { throw RemoteHttpError(message: "还没有可用地址") }
+        guard !base.isEmpty else { throw RemoteHttpError(message: L("error.noAddress")) }
 
         let secret = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let origin = (base.hasPrefix("http://") || base.hasPrefix("https://")) ? base : "http://" + base
@@ -66,7 +66,7 @@ enum RemoteHttp {
                 withAllowedCharacters: .alphanumerics) ?? secret)
         }
         guard let url = URL(string: full) else {
-            throw RemoteHttpError(message: "地址不合法：\(full)")
+            throw RemoteHttpError(message: L("and.addrInvalid", full))
         }
 
         var request = URLRequest(url: url)
@@ -97,7 +97,7 @@ enum RemoteHttp {
 
         let body = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let parsed = try? JSONSerialization.jsonObject(with: Data(body.utf8)) else {
-            throw RemoteHttpError(message: "这台电脑返回的不是合法 JSON（\(status)）：\(body.prefix(80))")
+            throw RemoteHttpError(message: L("and.invalidJson", status, String(body.prefix(80))))
         }
         return (parsed, status)
     }
@@ -107,9 +107,9 @@ enum RemoteHttp {
         let ns = error as NSError
         switch ns.code {
         case NSURLErrorTimedOut:
-            return "连接超时"
+            return L("and.connTimeout")
         case NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
-            return "连不上这台电脑"
+            return L("and.cannotConnect")
         case NSURLErrorNotConnectedToInternet:
             return "手机没有网络"
         case NSURLErrorSecureConnectionFailed, NSURLErrorServerCertificateUntrusted:

@@ -1901,6 +1901,16 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_menuSessions">Sessions (active / history)</string>
     <string name="and_menuTransfers">Transfers</string>
     <string name="and_addKey">Add key</string>
+    <string name="and_notJsonObject">This computer didn\'t return a JSON object (%1$s)</string>
+    <string name="and_addrInvalid">Invalid address: %1$s</string>
+    <string name="and_connTimeout">Connection timed out</string>
+    <string name="and_cannotConnect">Can\'t reach this computer</string>
+    <string name="and_symlink">Symlink</string>
+    <string name="and_opFailNoPath">%1$s failed: not found on the server “%2$s”</string>
+    <string name="and_opFailPerm">%1$s failed: permission denied (%2$s)</string>
+    <string name="and_opFailUnsupported">%1$s failed: server doesn\'t support this operation</string>
+    <string name="and_opFailDisconnected">%1$s failed: connection dropped; re-entering this page reconnects</string>
+    <string name="and_opFailRefused">%1$s failed: server refused (%2$s)</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

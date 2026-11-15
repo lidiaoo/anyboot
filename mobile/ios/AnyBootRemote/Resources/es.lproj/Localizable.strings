@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "Sesiones (activas / historial)";
 "and.menuTransfers" = "Transferencias";
 "and.addKey" = "Añadir clave";
+"and.notJsonObject" = "Este equipo no devolvió un objeto JSON ({s})";
+"and.addrInvalid" = "Dirección no válida: {x}";
+"and.connTimeout" = "Tiempo de conexión agotado";
+"and.cannotConnect" = "No se puede conectar a este equipo";
+"and.symlink" = "Enlace simbólico";
+"and.opFailNoPath" = "{a} falló: «{p}» no encontrado en el servidor";
+"and.opFailPerm" = "{a} falló: permiso denegado ({p})";
+"and.opFailUnsupported" = "{a} falló: el servidor no lo admite";
+"and.opFailDisconnected" = "{a} falló: conexión perdida; reabrir reconecta";
+"and.opFailRefused" = "{a} falló: el servidor rechazó ({p})";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

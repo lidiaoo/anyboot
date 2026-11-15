@@ -164,7 +164,7 @@ enum SftpOps {
         detail.dir = bits & 0o40000 != 0
         detail.link = bits & 0o120000 == 0o120000
         if detail.link {
-            detail.typeLabel = "软链接"
+            detail.typeLabel = L("and.symlink")
         } else if detail.dir {
             detail.typeLabel = L("bk.dir")
         } else {
@@ -336,19 +336,19 @@ enum SftpOps {
         let raw = text(error)
         let lower = raw.lowercased()
         if lower.contains("no such file") || lower.contains("not found") {
-            return action + "失败：服务器上找不到「" + path + "」"
+            return L("and.opFailNoPath", action, path)
         }
         if lower.contains("permission denied") {
-            return action + "失败：权限不够（" + path + "）"
+            return L("and.opFailPerm", action, path)
         }
         if lower.contains("operation not supported") || lower.contains("unsupported") {
-            return action + "失败：这台服务器不支持这个操作"
+            return L("and.opFailUnsupported", action)
         }
         if lower.contains("connection") && (lower.contains("lost") || lower.contains("closed") || lower.contains("reset")) {
-            return action + "失败：连接断了，重进这一页会自动重连"
+            return L("and.opFailDisconnected", action)
         }
         if lower.contains("failure") {
-            return action + "失败：服务器拒绝了（" + path + "）"
+            return L("and.opFailRefused", action, path)
         }
         return action + "失败：" + (raw.isEmpty ? "未知错误" : raw)
     }

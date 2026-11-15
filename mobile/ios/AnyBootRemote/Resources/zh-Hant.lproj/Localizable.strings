@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "工作階段（進行中 / 歷史）";
 "and.menuTransfers" = "傳輸管理";
 "and.addKey" = "新增金鑰";
+"and.notJsonObject" = "這台電腦回傳的不是 JSON 物件（{s}）";
+"and.addrInvalid" = "位址不合法：{x}";
+"and.connTimeout" = "連線逾時";
+"and.cannotConnect" = "連不上這台電腦";
+"and.symlink" = "軟連結";
+"and.opFailNoPath" = "{a}失敗：伺服器上找不到「{p}」";
+"and.opFailPerm" = "{a}失敗：權限不夠（{p}）";
+"and.opFailUnsupported" = "{a}失敗：這台伺服器不支援這個操作";
+"and.opFailDisconnected" = "{a}失敗：連線斷了，重進這一頁會自動重連";
+"and.opFailRefused" = "{a}失敗：伺服器拒絕了（{p}）";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

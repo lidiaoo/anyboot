@@ -1864,6 +1864,16 @@
 "and.menuSessions" = "Сеансы (активные / история)";
 "and.menuTransfers" = "Передачи";
 "and.addKey" = "Добавить ключ";
+"and.notJsonObject" = "Компьютер вернул не JSON-объект ({s})";
+"and.addrInvalid" = "Неверный адрес: {x}";
+"and.connTimeout" = "Тайм-аут подключения";
+"and.cannotConnect" = "Не удаётся подключиться к компьютеру";
+"and.symlink" = "Симлинк";
+"and.opFailNoPath" = "{a}: не найдено на сервере «{p}»";
+"and.opFailPerm" = "{a}: недостаточно прав ({p})";
+"and.opFailUnsupported" = "{a}: сервер не поддерживает операцию";
+"and.opFailDisconnected" = "{a}: соединение прервано; переоткроется автоматически";
+"and.opFailRefused" = "{a}: сервер отклонил ({p})";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";
