@@ -254,6 +254,11 @@ error: {
   busy: "감지/작업 진행 중입니다. 잠시 후 다시 시도하세요",
 },
 server: {
+  list: "서버 목록",
+  noAddr: "(주소 없음)",
+  listEmpty: "다른 서버가 없습니다 — 오른쪽 위 ⋮ ‘서버 추가’ 또는 컴퓨터 화면의 ‘＋ 추가’.",
+  listAdd: "＋ 서버 추가",
+  listHint: "항목을 클릭해 탭 전환. 로컬은 항상 유지되며 편집·삭제 불가.",
   title: "서버",
   searchPh: "이름 / 주소 검색",
   searchAria: "서버 검색",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "점프 호스트 · {name}",
   jumpDeleted: "점프 호스트 (삭제됨, 저장 시 직접 연결로)",
   direct: "직접",
+},
+log: {
+  empty: "(로그 없음)",
+  copyAll: "모두 복사",
+  clear: "지우기",
 },
 menu: {
   more: "더보기",

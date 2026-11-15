@@ -254,6 +254,11 @@ error: {
   busy: "探测/操作进行中，稍候再点",
 },
 server: {
+  list: "服务端列表",
+  noAddr: "（无地址）",
+  listEmpty: "还没有添加其它服务端 —— 点右上角 ⋮「添加服务端」或电脑页顶栏「＋ 添加」。",
+  listAdd: "＋ 添加服务端",
+  listHint: "点击条目切换标签；本机始终保留，不可编辑删除。",
   title: "服务器",
   searchPh: "搜索名称 / 地址",
   searchAria: "搜索服务器",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "跳板机 · {name}",
   jumpDeleted: "跳板机（已删除，保存后回落直连）",
   direct: "直连",
+},
+log: {
+  empty: "（暂无日志）",
+  copyAll: "复制全部",
+  clear: "清空",
 },
 menu: {
   more: "更多",

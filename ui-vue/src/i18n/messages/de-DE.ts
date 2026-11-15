@@ -254,6 +254,11 @@ error: {
   busy: "Prüfung/Vorgang läuft – bitte kurz warten",
 },
 server: {
+  list: "Serverliste",
+  noAddr: "(keine Adresse)",
+  listEmpty: "Noch keine weiteren Server – ⋮ „Server hinzufügen“ (oben rechts) oder „＋ Hinzufügen“ auf der Computerseite.",
+  listAdd: "＋ Server hinzufügen",
+  listHint: "Eintrag anklicken zum Wechseln; der lokale Computer bleibt immer und ist nicht editierbar.",
   title: "Server",
   searchPh: "Name / Adresse suchen",
   searchAria: "Server suchen",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "Sprungserver · {name}",
   jumpDeleted: "Sprungserver (gelöscht; beim Speichern direkt)",
   direct: "Direkt",
+},
+log: {
+  empty: "(noch keine Logs)",
+  copyAll: "Alles kopieren",
+  clear: "Leeren",
 },
 menu: {
   more: "Mehr",

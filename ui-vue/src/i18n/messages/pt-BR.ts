@@ -254,6 +254,11 @@ error: {
   busy: "Sondagem/operação em andamento, tente em breve",
 },
 server: {
+  list: "Lista de servidores",
+  noAddr: "(sem endereço)",
+  listEmpty: "Ainda sem outros servidores — ⋮ “Adicionar servidor” (canto superior) ou “＋ Adicionar” na página do computador.",
+  listAdd: "＋ Adicionar servidor",
+  listHint: "Clique para trocar de aba; o computador local é sempre mantido e não pode ser editado.",
   title: "Servidores",
   searchPh: "Pesquisar nome / endereço",
   searchAria: "Pesquisar servidores",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "Jump host · {name}",
   jumpDeleted: "Jump host (excluído; volta para direto)",
   direct: "Direto",
+},
+log: {
+  empty: "(sem logs)",
+  copyAll: "Copiar tudo",
+  clear: "Limpar",
 },
 menu: {
   more: "Mais",

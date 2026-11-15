@@ -254,6 +254,11 @@ error: {
   busy: "Sondeo/operación en curso, inténtalo en breve",
 },
 server: {
+  list: "Lista de servidores",
+  noAddr: "(sin dirección)",
+  listEmpty: "Aún sin otros servidores — ⋮ «Añadir servidor» (arriba a la derecha) o «＋ Añadir» en la página del equipo.",
+  listAdd: "＋ Añadir servidor",
+  listHint: "Haz clic para cambiar de pestaña; el equipo local siempre se conserva y no se puede editar.",
   title: "Servidores",
   searchPh: "Buscar nombre / dirección",
   searchAria: "Buscar servidores",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "Host de salto · {name}",
   jumpDeleted: "Host de salto (eliminado; vuelve a directo)",
   direct: "Directo",
+},
+log: {
+  empty: "(sin registros)",
+  copyAll: "Copiar todo",
+  clear: "Limpiar",
 },
 menu: {
   more: "Más",

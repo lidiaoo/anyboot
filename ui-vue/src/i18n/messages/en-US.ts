@@ -254,6 +254,11 @@ error: {
   busy: "Probe/operation in progress, try again shortly",
 },
 server: {
+  list: "Server list",
+  noAddr: "(no address)",
+  listEmpty: "No other servers yet — use ⋮ “Add server” (top right) or “＋ Add” on the Computer page.",
+  listAdd: "＋ Add server",
+  listHint: "Click an item to switch tabs; the local computer is always kept and can't be edited or deleted.",
   title: "Servers",
   searchPh: "Search name / address",
   searchAria: "Search servers",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "Jump host · {name}",
   jumpDeleted: "Jump host (deleted; falls back to direct on save)",
   direct: "Direct",
+},
+log: {
+  empty: "(no logs yet)",
+  copyAll: "Copy all",
+  clear: "Clear",
 },
 menu: {
   more: "More",

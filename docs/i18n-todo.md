@@ -31,7 +31,7 @@
 ### P1 导航与通用组件
 - [x] **P1.1** `pages/hub/HubApp.vue`：侧栏菜单项、顶部工具栏
 - [ ] **P1.2** `pages/boot/BootApp.vue`：引导页顶部标签/返回/标题
-- [ ] **P1.3** 通用组件：`components/hub/ConfirmDialog.vue`、`FbModal.vue`、`LogDialog.vue`、`WindowNavMenu.vue`、`PcMenu.vue`
+- [x] **P1.3** 通用组件：ConfirmDialog / FbModal / LogDialog / WindowNavMenu / PcMenu 已完成（RemoteListDialog 同步完成）
 - [ ] **P1.4** `stores/toast.ts` 调用方改造为传 key（`toast.show(t("..."))`）；toast 组件本身无文案
 - [ ] **P1.5** `api/tauri.ts` 中面向用户的错误文案（`reportIpcFailure` 等）
 
@@ -161,7 +161,7 @@
 - [x] **T0** `scripts/i18n-scan.mjs`：扫源码残留中文字面量（支持白名单文件/行注释、品牌词表），PC/Android/iOS 三模式
 - [x] **T1** `docs/i18n-keys.csv`：三端 key 对照表（生成 + 校验）；`scripts/i18n-check.mjs` 比对
       csv ↔ `messages/zh-CN.ts` ↔ `strings.xml` ↔ `xcstrings`，缺失/多余即非零退出
-- [ ] **T2** CI 接入：`.github/workflows/build-all.yml` 的 `build-vue` job 增加 `i18n-scan` + `i18n-check`
+- [ ] **T2**（已加 `scripts/i18n-refs.mjs`：校验代码引用的 key 都存在，防显示 key 原文；待并入 CI） CI 接入：`.github/workflows/build-all.yml` 的 `build-vue` job 增加 `i18n-scan` + `i18n-check`
       （Android/iOS 的 scan 也在对应 job 跑；失败即阻断）
 - [ ] **T3** 文档：`docs/i18n-方案.md` 补充「新增文案流程」小节（改 zh → 同步 en → `npm run i18n:check` → 提交）
 - [x] **T4** 白名单初版：`scripts/i18n-whitelist.json`（品牌词：GRUB/rEFInd/RefindPlus/OpenCore/systemd-boot/Clover/ESP/NVRAM/APFS/OCBtOrder/Token…；文件名；日志 trace）

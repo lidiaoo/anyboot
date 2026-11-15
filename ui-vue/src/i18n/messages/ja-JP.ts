@@ -254,6 +254,11 @@ error: {
   busy: "検出/操作中です。しばらくして再度お試しください",
 },
 server: {
+  list: "サーバー一覧",
+  noAddr: "（アドレスなし）",
+  listEmpty: "他のサーバーは未追加 — 右上 ⋮「サーバー追加」またはコンピューター画面の「＋ 追加」。",
+  listAdd: "＋ サーバー追加",
+  listHint: "項目をクリックでタブ切替。ローカルは常に保持され、編集・削除できません。",
   title: "サーバー",
   searchPh: "名前 / アドレスを検索",
   searchAria: "サーバーを検索",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "踏み台 · {name}",
   jumpDeleted: "踏み台（削除済み。保存で直接接続に）",
   direct: "直接",
+},
+log: {
+  empty: "（ログなし）",
+  copyAll: "すべてコピー",
+  clear: "クリア",
 },
 menu: {
   more: "その他",

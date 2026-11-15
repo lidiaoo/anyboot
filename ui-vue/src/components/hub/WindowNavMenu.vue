@@ -6,20 +6,21 @@
  * - Tauri：同样先写 localStorage，再 hub_open_window 唤/建 hub 窗口（其启动读同一键定位）
  */
 import { ref, onMounted, onUnmounted } from "vue";
+import { t } from "@/i18n";
 
 const NAV = [
-  { id: "home", label: "电脑" },
-  { id: "computers", label: "电脑列表" },
-  { id: "servers", label: "服务器" },
-  { id: "gateway", label: "远程接入" },
-  { id: "term", label: "终端" },
-  { id: "sessions", label: "会话" },
-  { id: "transfers", label: "传输" },
-  { id: "files", label: "文件" },
-  { id: "keys", label: "密钥" },
-  { id: "backup", label: "备份" },
-  { id: "termset", label: "终端设置" },
-  { id: "about", label: "关于" },
+  { id: "home", label: "nav.computer" },
+  { id: "computers", label: "nav.computerList" },
+  { id: "servers", label: "nav.servers" },
+  { id: "gateway", label: "nav.gateway" },
+  { id: "term", label: "nav.terminal" },
+  { id: "sessions", label: "nav.sessions" },
+  { id: "transfers", label: "nav.transfers" },
+  { id: "files", label: "nav.files" },
+  { id: "keys", label: "nav.keys" },
+  { id: "backup", label: "nav.backup" },
+  { id: "termset", label: "nav.termSettings" },
+  { id: "about", label: "nav.about" },
 ] as const;
 
 const open = ref(false);
@@ -54,8 +55,8 @@ onUnmounted(() => document.removeEventListener("click", onDocClick, true));
     <button
       type="button"
       class="wnm-btn"
-      aria-label="导航"
-      title="导航"
+      :aria-label="t('nav.navAria')"
+      :title="t('nav.navAria')"
       :aria-expanded="open"
       @click.stop="toggle"
     >
@@ -73,7 +74,7 @@ onUnmounted(() => document.removeEventListener("click", onDocClick, true));
         role="menuitem"
         @click="go(item.id)"
       >
-        {{ item.label }}
+        {{ t(item.label) }}
       </button>
     </div>
   </div>

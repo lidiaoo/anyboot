@@ -22,7 +22,8 @@
     "reload": "bash scripts/dev-reload.sh",
     "i18n:scan": "node scripts/i18n-scan.mjs all",
     "i18n:check": "node scripts/i18n-check.mjs",
-    "i18n:csv": "node scripts/i18n-check.mjs --write-csv"
+    "i18n:csv": "node scripts/i18n-check.mjs --write-csv",
+    "i18n:refs": "node scripts/i18n-refs.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",

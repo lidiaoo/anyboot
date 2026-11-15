@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 /**
  * 日志弹层（对齐旧版 `#gwLogOverlay` / `#tsLogOverlay` / `#tsnLogOverlay`，
@@ -41,13 +42,13 @@ const emit = defineEmits<{
     <div v-if="open" :id="`${idPrefix}Overlay`" class="token-modal-overlay" @click.self="emit('close')">
       <div class="token-modal gw-log-modal">
         <h2>{{ title }}</h2>
-        <pre :id="`${idPrefix}Body`" class="gw-log">{{ lines.join("\n") || "（暂无日志）" }}</pre>
+        <pre :id="`${idPrefix}Body`" class="gw-log">{{ lines.join("\n") || t("log.empty") }}</pre>
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
           <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalCopy' : 'Copy'}`" class="btn" @click="emit('copy', lines.join('\n'))">
-            复制全部
+            {{ t("log.copyAll") }}
           </button>
-          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClear' : 'Clear'}`" class="btn" @click="emit('clear')">清空</button>
-          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClose' : 'Close'}`" class="btn primary" @click="emit('close')">关闭</button>
+          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClear' : 'Clear'}`" class="btn" @click="emit('clear')">{{ t("log.clear") }}</button>
+          <button type="button" :id="`${idPrefix}${buttonStyle === 'modal' ? 'ModalClose' : 'Close'}`" class="btn primary" @click="emit('close')">{{ t("common.close") }}</button>
         </div>
       </div>
     </div>

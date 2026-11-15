@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 /**
  * 通用确认弹窗（对齐旧版 `#deleteOverlay` 等一批 `.overlay > .dialog`）。
@@ -30,8 +31,8 @@ const props = withDefaults(
   }>(),
   {
     message: "",
-    confirmText: "确定",
-    cancelText: "取消",
+    confirmText: "",
+    cancelText: "",
     danger: false,
     checkboxLabel: "",
   },
@@ -55,7 +56,7 @@ const checked = ref(false);
     <div class="dialog" role="dialog" aria-modal="true" :aria-label="title">
       <div class="dialog-head">
         <h3>{{ title }}</h3>
-        <button type="button" class="icon-btn" aria-label="关闭" @click="emit('cancel')">✕</button>
+        <button type="button" class="icon-btn" :aria-label="t('common.close')" @click="emit('cancel')">✕</button>
       </div>
       <div class="dialog-body">
         <p class="d-text" style="margin: 0; font-size: 13px">{{ message }}</p>
@@ -67,9 +68,9 @@ const checked = ref(false);
       </div>
       <div class="dialog-foot">
         <span class="spacer" />
-        <button type="button" class="btn ghost" @click="emit('cancel')">{{ cancelText }}</button>
+        <button type="button" class="btn ghost" @click="emit('cancel')">{{ cancelText || t("common.cancel") }}</button>
         <button :class="['btn', danger ? 'danger' : 'primary']" @click="emit('confirm', checked)">
-          {{ confirmText }}
+          {{ confirmText || t("common.ok") }}
         </button>
       </div>
     </div>

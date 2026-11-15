@@ -254,6 +254,11 @@ error: {
   busy: "探測/操作進行中，請稍後再點",
 },
 server: {
+  list: "伺服器列表",
+  noAddr: "（無位址）",
+  listEmpty: "還沒有新增其它伺服器 —— 點右上角 ⋮「新增伺服器」或電腦頁頂欄「＋ 新增」。",
+  listAdd: "＋ 新增伺服器",
+  listHint: "點擊項目切換標籤；本機一律保留，不可編輯刪除。",
   title: "伺服器",
   searchPh: "搜尋名稱 / 位址",
   searchAria: "搜尋伺服器",
@@ -301,6 +306,11 @@ server: {
   jumpVia: "跳板機 · {name}",
   jumpDeleted: "跳板機（已刪除，儲存後回落直連）",
   direct: "直連",
+},
+log: {
+  empty: "（尚無日誌）",
+  copyAll: "複製全部",
+  clear: "清空",
 },
 menu: {
   more: "更多",

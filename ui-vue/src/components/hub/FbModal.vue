@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 /**
  * 文件窗弹层（对齐旧版 `#fbMkdirModal` / `#fbRenameModal` / `#fbDelModal` /
@@ -29,8 +30,8 @@ const props = withDefaults(
     confirmDisabled?: boolean;
   }>(),
   {
-    confirmText: "确定",
-    cancelText: "取消",
+    confirmText: "",
+    cancelText: "",
     danger: false,
     confirmDisabled: false,
   },
@@ -52,7 +53,7 @@ useEscape(openRef, () => emit("cancel"));
     <div class="fb-modal-card">
       <div class="fb-modal-head">
         <h3>{{ title }}</h3>
-        <button type="button" aria-label="关闭" @click="emit('cancel')">
+        <button type="button" :aria-label="t('common.close')" @click="emit('cancel')">
           <svg
             width="15"
             height="15"
@@ -72,14 +73,14 @@ useEscape(openRef, () => emit("cancel"));
       </div>
 
       <div class="fb-modal-foot">
-        <button type="button" class="fb-btn fb-plain" @click="emit('cancel')">{{ cancelText }}</button>
+        <button type="button" class="fb-btn fb-plain" @click="emit('cancel')">{{ cancelText || t("common.cancel") }}</button>
         <button
           type="button"
           :class="['fb-btn', danger ? 'danger' : 'fb-primary']"
           :disabled="confirmDisabled"
           @click="emit('confirm')"
         >
-          {{ confirmText }}
+          {{ confirmText || t("common.ok") }}
         </button>
       </div>
     </div>

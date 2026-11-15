@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 import type { RemoteProfile } from "@/stores/remote";
 
@@ -31,8 +32,8 @@ const emit = defineEmits<{
   <div v-if="open" id="rsListOverlay" class="overlay">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="rsListTitle">
       <div class="dialog-head">
-        <h3 id="rsListTitle">服务端列表</h3>
-        <button type="button" class="icon-btn" id="rsListClose" aria-label="关闭" @click="emit('close')">
+        <h3 id="rsListTitle">{{ t("server.list") }}</h3>
+        <button type="button" class="icon-btn" id="rsListClose" :aria-label="t('common.close')" @click="emit('close')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -43,20 +44,20 @@ const emit = defineEmits<{
         <div id="rsListRows">
         <div v-for="server in servers" :key="server.id" class="rs-list-row">
           <span class="nm">{{ server.name }}</span>
-          <span class="mono addr">{{ (server.addresses ?? []).join(" / ") || "（无地址）" }}</span>
+          <span class="mono addr">{{ (server.addresses ?? []).join(" / ") || t("server.noAddr") }}</span>
           <span class="spacer" />
-          <button type="button" class="link-btn" @click="emit('edit', server.id)">编辑</button>
-          <button type="button" class="link-btn" @click="emit('remove', server.id)">删除</button>
+          <button type="button" class="link-btn" @click="emit('edit', server.id)">{{ t("common.edit") }}</button>
+          <button type="button" class="link-btn" @click="emit('remove', server.id)">{{ t("common.delete") }}</button>
         </div>
         </div>
-        <p v-if="!servers.length" class="field-hint">还没有添加其它服务端 —— 点右上角 ⋮「添加服务端」或电脑页顶栏「＋ 添加」。</p>
-        <button type="button" class="secondary" @click="emit('add')">＋ 添加服务端</button>
-        <p class="field-hint">点击条目切换标签；本机始终保留，不可编辑删除。</p>
+        <p v-if="!servers.length" class="field-hint">{{ t("server.listEmpty") }}</p>
+        <button type="button" class="secondary" @click="emit('add')">{{ t("server.listAdd") }}</button>
+        <p class="field-hint">{{ t("server.listHint") }}</p>
       </div>
 
       <div class="dialog-foot">
         <span class="spacer" />
-        <button type="button" class="btn" @click="emit('close')">关闭</button>
+        <button type="button" class="btn" @click="emit('close')">{{ t("common.close") }}</button>
       </div>
     </div>
   </div>
