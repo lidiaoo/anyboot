@@ -10,6 +10,7 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import { useToastStore } from "@/stores/toast";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 
 const props = defineProps<{ addSeed?: number; remoteAction?: { act: string; n: number } }>();
@@ -73,10 +74,17 @@ watch(sortMenuOpen, async (open) => {
   menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + "px";
 });
 const SORT_LABELS: Record<"custom" | "name" | "recent", string> = {
-  custom: "自定义",
-  name: "按名称",
-  recent: "最近连接",
+  custom: "hub.list.sortCustom",
+  name: "hub.list.sortName",
+  recent: "hub.list.sortRecent",
 };
+
+/** 操作说明 9 条（key 列表，模板 v-for 渲染） */
+const HELP_ITEMS = [
+  "hub.list.helpBody1", "hub.list.helpBody2", "hub.list.helpBody3",
+  "hub.list.helpBody4", "hub.list.helpBody5", "hub.list.helpBody6",
+  "hub.list.helpBody7", "hub.list.helpBody8", "hub.list.helpBody9",
+];
 function pickSort(mode: "custom" | "name" | "recent") {
   sortMode.value = mode;
   sortMenuOpen.value = false;
@@ -175,12 +183,12 @@ const stats = computed(() => {
 async function manualRefresh() {
   if (refreshing.value) return;
   refreshing.value = true;
-  toast.show("正在重新探测全部电脑…");
+  toast.show(t("hub.list.probingAll"));
   try {
     await remote.refreshAllBoot(true);
-    toast.show("全部电脑已重连重载");
+    toast.show(t("hub.list.reloadedAll"));
   } catch (e) {
-    toast.show("探测失败：" + e, "bad");
+    toast.show(t("hub.list.probeFailed", { msg: String(e) }), "bad");
   } finally {
     refreshing.value = false;
   }
@@ -268,7 +276,7 @@ watch(() => props.remoteAction?.n, () => {
   if (!act) return;
   if (act === "edit") {
     if (!activeId.value || activeId.value === "local") {
-      toast.show("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑");
+      toast.show(t("hub.list.editLocalOnly"));
       return;
     }
     openRemoteEdit(activeId.value);
@@ -276,10 +284,10 @@ watch(() => props.remoteAction?.n, () => {
     rsListOpen.value = true;
   } else if (act === "reloadCurrent") {
     if (!activeId.value || activeId.value === "local") {
-      toast.show("先点一行电脑选中它，再重载", "bad");
+      toast.show(t("hub.list.selectRowFirst"), "bad");
       return;
     }
-    toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    toast.show(t("hub.list.reloading", { name: remote.servers.find((s) => s.id === activeId.value)?.name ?? "" }));
     void remote.refreshBoot(activeId.value, true).catch((e) => toast.show("重载失败：" + e, "bad"));
   } else if (act === "reloadAll") {
     void manualRefresh();
@@ -305,7 +313,7 @@ function onMenuAction(act: string) {
   } else if (act === "edit") {
     const id = activeId.value;
     if (!id || id === "local") {
-      toast.show("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑");
+      toast.show(t("hub.list.editLocalOnly"));
       return;
     }
     rsEditing.value = id;
@@ -314,10 +322,10 @@ function onMenuAction(act: string) {
     rsListOpen.value = true;
   } else if (act === "reloadCurrent") {
     if (!activeId.value || activeId.value === "local") {
-      toast.show("先点一行电脑选中它，再重载", "bad");
+      toast.show(t("hub.list.selectRowFirst"), "bad");
       return;
     }
-    toast.show("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    toast.show(t("hub.list.reloading", { name: remote.servers.find((s) => s.id === activeId.value)?.name ?? "" }));
     // 必须走 store.refreshBoot：它把 remote_boot_info 结果存进 store 并刷新行；直接 call 只拿数据不更新 UI
     void remote.refreshBoot(activeId.value).catch((e) => toast.show("重载失败：" + e, "bad"));
   } else if (act === "reloadAll") {
@@ -349,7 +357,7 @@ const viewSeed = ref(0);
 function openView(rid: string) {
   const row = remote.servers.find((s) => s.id === rid);
   // 旧版 frame.title：本机页面 / 服务端页面
-  viewTitle.value = rid === "local" ? "本机页面" : "服务端页面";
+  viewTitle.value = rid === "local" ? t("hub.list.viewTitleLocal") : t("hub.list.viewTitleRemote");
   const info = infoOf(rid);
   // 统一化（用户 2026-11-15）：电脑页访问网址优先用**嗅探可用**的地址
   // （probe_results 里 ok=true 的第一个），都不通/还没探测才回退 info.addr
@@ -420,9 +428,9 @@ function rowMenuAction(action: string, id: string) {
       break;
     case "refresh": {
       const nm = remote.servers.find((s) => s.id === id)?.name ?? "";
-      toast.show("正在重新探测「" + nm + "」…");
+      toast.show(t("hub.list.probingOne", { name: nm }));
       void remote.refreshBoot(id, true)
-        .then(() => toast.show("「" + nm + "」已重新探测"))
+        .then(() => toast.show(t("hub.list.reprobed", { name: nm })))
         .catch((e) => toast.show("重新探测失败：" + e, "bad"));
       break;
     }
@@ -454,7 +462,7 @@ const browserPickId = ref("");
 const browserPickList = ref<{ label: string; address: string; ok: boolean | null }[]>([]);
 
 const ROUTE_NAME: Record<string, string> = {
-  lan: "直连", jump: "跳板机", tunnel: "Cloudflare", ts: "Tailscale", funnel: "Funnel", tsnet: "内置",
+  lan: "hub.route.lan", jump: "hub.route.jump", tunnel: "Cloudflare", ts: "Tailscale", funnel: "Funnel", tsnet: "hub.route.builtin",
 };
 
 /** 收集这台电脑所有可用于浏览器打开的地址（探测出的各通道地址 + 配置的远程配对地址），去重。 */
@@ -472,16 +480,16 @@ function browserCandidates(id: string): { label: string; address: string; ok: bo
   // 1) 探测出结果的各通道地址（带通/不通）
   for (const r of (info?.probe_results ?? [])) {
     if (!r?.address) continue;
-    const nm = ROUTE_NAME[r.kind ?? "lan"] ?? (r.remote ? "远程" : (r.kind || "直连"));
+    const nm = ROUTE_NAME[r.kind ?? "lan"] ? t(ROUTE_NAME[r.kind ?? "lan"]) : (r.remote ? t("hub.route.remote") : (r.kind || t("hub.route.lan")));
     push(nm, r.address, !!r.ok);
   }
   // 2) 配置的局域网地址（探测里没有时兜底带出）
-  for (const a of ((row?.addresses as string[] | undefined) ?? [])) push("直连", String(a), null);
+  for (const a of ((row?.addresses as string[] | undefined) ?? [])) push(t("hub.route.lan"), String(a), null);
   // 3) 远程配对地址
   for (const p of ((row?.pairs as { kind?: string; lane?: string; addr?: string }[] | undefined) ?? [])) {
     if (!p?.addr) continue;
     const rk = p.kind === "cloudflare" ? "tunnel" : p.kind === "tsnet" ? "tsnet" : p.kind === "ts" ? (p.lane === "funnel" ? "funnel" : "ts") : (p.kind || "tunnel");
-    push(ROUTE_NAME[rk] ?? (p.kind || "远程"), String(p.addr), null);
+    push(ROUTE_NAME[rk] ? t(ROUTE_NAME[rk]) : (p.kind || t("hub.route.remote")), String(p.addr), null);
   }
   return out;
 }
@@ -491,7 +499,7 @@ async function openInBrowser(id: string) {
   const token = encodeURIComponent(String(row?.token ?? ""));
   const cands = browserCandidates(id);
   if (!cands.length) {
-    toast.show("这台电脑还没有可打开的地址", "bad");
+    toast.show(t("hub.list.noOpenAddr"), "bad");
     return;
   }
   if (cands.length === 1) {
@@ -509,12 +517,12 @@ async function doOpenBrowser(address: string, token: string) {
   const { isTauri } = await import("@/api/tauri");
   if (!isTauri()) {
     window.open(url, "_blank"); // 网页端/移动端：直接开新标签
-    toast.show("已打开 " + address);
+    toast.show(t("hub.list.opened", { addr: address }));
     return;
   }
   const { call } = await import("@/api/tauri");
   await call("remote_open_page", { url })
-    .then(() => toast.show("已在系统浏览器打开 " + address))
+    .then(() => toast.show(t("hub.list.openedSystem", { addr: address })))
     .catch((e) => toast.show("打开浏览器失败：" + e, "bad"));
 }
 
@@ -558,7 +566,7 @@ function power(payload: Record<string, unknown>) {
   cqBusy.add(key);
   void remote
     .power(payload)
-    .then(() => toast.show("已发送电源指令"))
+    .then(() => toast.show(t("hub.list.powerSent")))
     .catch((e) => toast.show("电源操作失败：" + e, "bad"))
     .finally(() => cqBusy.delete(key));
 }
@@ -569,20 +577,20 @@ useEscape(viewOpen, () => { viewOpen.value = false });
   <div class="cq-list-view">
     <div class="cq-head">
       <div class="cq-head-txt">
-        <h1>电脑列表</h1>
+        <h1>{{ $t("hub.list.title") }}</h1>
       </div>
       <div class="cq-stats">
         <button type="button" class="cq-stat cq-stat--all" :class="{ 'is-active': filter === 'all' }" @click="filter = 'all'">
-          <i>全部</i><b id="cqStAll">{{ stats.all }}</b>
+          <i>{{ $t("hub.list.all") }}</i><b id="cqStAll">{{ stats.all }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--on" :class="{ 'is-active': filter === 'online' }" @click="filter = 'online'">
-          <i>在线</i><b id="cqStOnline">{{ stats.online }}</b>
+          <i>{{ $t("hub.list.online") }}</i><b id="cqStOnline">{{ stats.online }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--off" :class="{ 'is-active': filter === 'offline' }" @click="filter = 'offline'">
-          <i>离线</i><b id="cqStOffline">{{ stats.offline }}</b>
+          <i>{{ $t("hub.list.offline") }}</i><b id="cqStOffline">{{ stats.offline }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--pend" :class="{ 'is-active': filter === 'pending' }" @click="filter = 'pending'">
-          <i>待生效</i><b id="cqStPending">{{ stats.pending }}</b>
+          <i>{{ $t("hub.list.pending") }}</i><b id="cqStPending">{{ stats.pending }}</b>
         </button>
       </div>
     </div>
@@ -598,8 +606,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         id="cqQ"
         v-model="query"
           type="search"
-          placeholder="搜索电脑名称、IP 或 MAC"
-          aria-label="搜索电脑"
+          :placeholder="$t('hub.list.search')"
+          :aria-label="$t('hub.list.searchAria')"
           spellcheck="false"
           autocomplete="off"
         />
@@ -607,51 +615,43 @@ useEscape(viewOpen, () => { viewOpen.value = false });
 
       <span class="cq-spacer" />
       <button type="button" id="cqHelpToggle" class="link-btn cq-help-btn" :aria-expanded="helpOpen" @click="helpOpen = !helpOpen">
-        操作说明
+        {{ $t("hub.list.help") }}
       </button>
       <button
         type="button"
         id="cqSort"
         ref="sortBtnRef"
         class="link-btn menu-anchor"
-        title="选择电脑列表的排序方式（电脑页标签栏跟着同一套顺序）"
+        :title="$t('hub.list.sortTitle')"
         :aria-expanded="sortMenuOpen"
         @click.stop="sortMenuOpen = !sortMenuOpen"
       >
-        排序 <span id="cqSortText">{{ SORT_LABELS[sortMode] }}</span>
+        {{ $t("hub.list.sort") }} <span id="cqSortText">{{ $t(SORT_LABELS[sortMode]) }}</span>
       </button>
-      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" title="重新探测全部电脑的在线状态与引导项" @click="manualRefresh">
-        <span id="cqRefreshText">{{ refreshing ? "探测中" : "刷新" }}</span>
+      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" :title="$t('hub.list.refreshTitle')" @click="manualRefresh">
+        <span id="cqRefreshText">{{ refreshing ? $t("hub.list.probing") : $t("common.refresh") }}</span>
       </button>
       <PcMenu id="cqMore" @menu-action="onMenuAction" />
     </div>
 
     <div v-show="helpOpen" class="cq-help" id="cqHelp">
-      <h4>操作说明</h4>
+      <h4>{{ $t("hub.list.help") }}</h4>
       <ul>
-        <li>电源操作<b>点了立即执行，不再弹确认框</b>（与「电脑」页电源悬浮球同一套说明）。</li>
-        <li>唤醒：发魔术包让电脑开机 —— 需要配好 MAC 并在主板开启网络唤醒。</li>
-        <li>睡眠：电脑挂起到内存，网页服务立刻停掉 —— 会显示离线，要叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）。</li>
-        <li>关机：电脑立刻关机，网页服务随之中断 —— 关机后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键。</li>
-        <li>重启：电脑立刻重启，网页会话断开 —— 重启完成后会自动恢复在线。</li>
-        <li>没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。</li>
-        <li>rEFInd / RefindPlus / GRUB / systemd-boot / OpenCore / Clover 的选择写入该机引导配置，<b>下次重启时生效</b>，可点「撤销」恢复原值。</li>
-        <li>四个电源键任何时候都能按、不会置灰（与移动端一致）；设备离线时引导项不可改。</li>
-        <li>显示「未检测到」= 该机没部署对应引导管理器。</li>
+        <li v-for="(k, i) in HELP_ITEMS" :key="i">{{ $t(k) }}</li>
       </ul>
     </div>
 
     <div class="cq-card">
-      <div class="cq-grid" role="table" aria-label="电脑列表">
+      <div class="cq-grid" role="table" :aria-label="$t('hub.list.title')">
         <!-- 表头（旧版静态 HTML 里就有，CSS 里 `display:none` —— 卡片流时代不用它，
              但 DOM 保留：一是与旧版一致，二是它给 .cq-col 提供字号/颜色继承基线） -->
         <div class="cq-thead" role="row" aria-hidden="true">
-          <div class="cq-col cq-col-dev" role="columnheader">电脑</div>
-          <div class="cq-col cq-col-st" role="columnheader">状态</div>
-          <div class="cq-col cq-col-boot" role="columnheader">rEFInd 启动项</div>
-          <div class="cq-col cq-col-boot" role="columnheader">RefindPlus 启动项</div>
-          <div class="cq-col cq-col-boot" role="columnheader">GRUB 启动项</div>
-          <div class="cq-col cq-col-pwr" role="columnheader">电源</div>
+          <div class="cq-col cq-col-dev" role="columnheader">{{ $t("nav.computer") }}</div>
+          <div class="cq-col cq-col-st" role="columnheader">{{ $t("hub.list.colStatus") }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "rEFInd" }) }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "RefindPlus" }) }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "GRUB" }) }}</div>
+          <div class="cq-col cq-col-pwr" role="columnheader">{{ $t("hub.list.colPower") }}</div>
           <div class="cq-col cq-col-more" role="columnheader" />
         </div>
         <div class="cq-rows" id="cqTbody">
@@ -678,9 +678,9 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           </div>
       </div>
       <div v-if="!rows.length" class="cq-empty" id="cqEmpty">
-        <div>{{ remote.lastError ? "读取电脑列表失败" : "没有匹配的电脑" }}</div>
-        <p id="cqEmptyHint">{{ remote.lastError || "换个关键词，或把筛选切回「全部」" }}</p>
-        <button v-if="remote.lastError" type="button" class="link-btn" @click="remote.load()">重试</button>
+        <div>{{ remote.lastError ? $t("hub.list.loadFailed") : $t("hub.list.empty") }}</div>
+        <p id="cqEmptyHint">{{ remote.lastError || $t("hub.list.emptyHint") }}</p>
+        <button v-if="remote.lastError" type="button" class="link-btn" @click="remote.load()">{{ $t("common.retry") }}</button>
       </div>
     </div>
 
@@ -696,8 +696,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         <div class="dialog-head" style="flex: none">
           <h3 id="cqViewTitle">{{ viewTitle }}</h3>
           <div style="display: flex; align-items: center; gap: 6px">
-            <button type="button" class="btn small" id="cqViewReload" @click="viewSeed += 1">重载</button>
-            <button type="button" class="icon-btn" id="cqViewClose" aria-label="关闭" @click="viewOpen = false">
+            <button type="button" class="btn small" id="cqViewReload" @click="viewSeed += 1">{{ $t("hub.list.reloadBtn") }}</button>
+            <button type="button" class="icon-btn" id="cqViewClose" :aria-label="$t('common.close')" @click="viewOpen = false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
@@ -718,8 +718,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M3 9h18M8 4v5" />
               </svg>
-              <p><b>页面加载中…</b></p>
-              <p>这台电脑的 AnyBoot 页面会显示在这里；连不上时会给出排查提示。</p>
+              <p><b>{{ $t("hub.list.viewLoading") }}</b></p>
+              <p>{{ $t("hub.list.viewHint") }}</p>
             </div>
           </div>
         </div>
@@ -732,32 +732,32 @@ useEscape(viewOpen, () => { viewOpen.value = false });
       class="pc-menu cq-sort-menu"
       id="cqSortMenu"
       role="menu"
-      aria-label="排序方式"
+      :aria-label="$t('hub.list.sortMenuAria')"
       @click.stop
     >
-      <div class="menu-caption">排序方式</div>
-      <button role="menuitem" data-order="custom" :class="{ on: sortMode === 'custom' }" @click="pickSort('custom')">自定义（我用 ↑ ↓ 排的）</button>
-      <button role="menuitem" data-order="name" :class="{ on: sortMode === 'name' }" @click="pickSort('name')">名称 A → Z</button>
-      <button role="menuitem" data-order="recent" :class="{ on: sortMode === 'recent' }" @click="pickSort('recent')">最近连接</button>
+      <div class="menu-caption">{{ $t("hub.list.sortMenuAria") }}</div>
+      <button role="menuitem" data-order="custom" :class="{ on: sortMode === 'custom' }" @click="pickSort('custom')">{{ $t("hub.list.sortCustomDesc") }}</button>
+      <button role="menuitem" data-order="name" :class="{ on: sortMode === 'name' }" @click="pickSort('name')">{{ $t("hub.list.sortNameAZ") }}</button>
+      <button role="menuitem" data-order="recent" :class="{ on: sortMode === 'recent' }" @click="pickSort('recent')">{{ $t("hub.list.sortRecent") }}</button>
       <div class="menu-divider" role="separator" />
-      <div class="menu-caption" id="cqSortHint">自定义：每行左侧 ↑ ↓ 调整顺序</div>
+      <div class="menu-caption" id="cqSortHint">{{ $t("hub.list.sortHint") }}</div>
     </div>
 
     <!-- 行内 ⋮ 菜单（旧版 cqRowMenu，hub.html:8158） -->
     <div v-if="rowMenuId" class="overlay-transparent" @click="rowMenuId = null">
       <div class="pc-menu cq-row-menu" role="menu" @click.stop>
         <div class="menu-caption">{{ renmoteRow(rowMenuId)?.name }}</div>
-        <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">打开页面（内嵌查看）</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">在电脑页打开（选中标签）</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">在系统浏览器打开</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">{{ $t("rowMenu.viewInline") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">{{ $t("rowMenu.gotoTab") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">{{ $t("rowMenu.openBrowser") }}</button>
         <div class="menu-divider" />
-        <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">重新探测这台电脑</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">系统信息（系统 / CPU / 内存）</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">{{ $t("rowMenu.reprobe") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">{{ $t("rowMenu.sysinfo") }}</button>
         <template v-if="rowMenuId !== 'local'">
-          <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">编辑这台电脑</button>
-          <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">复制地址</button>
+          <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">{{ $t("rowMenu.edit") }}</button>
+          <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">{{ $t("rowMenu.copyAddr") }}</button>
           <div class="menu-divider" />
-          <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">删除这台电脑</button>
+          <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">{{ $t("rowMenu.delete") }}</button>
         </template>
       </div>
     </div>
