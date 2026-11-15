@@ -53,7 +53,7 @@
 - [ ] **P3.7** `pages/boot/BootSettings.vue`
 
 ### P4 其余功能页
-- [ ] **P4.1** `pages/hub/ServersPage.vue` + `stores/servers.ts` 用户可见文案
+- [x] **P4.1** `pages/hub/ServersPage.vue` + `stores/servers.ts` 用户可见文案
 - [ ] **P4.2** `pages/hub/BackupPage.vue`、`pages/backup/index.vue`
 - [ ] **P4.3** `pages/hub/TermPage.vue`、`TermsetPage.vue`、`term/*`、`components/boot/SettingsPanel.vue`（终端设置段落，语言项已在 P0.6）
 - [ ] **P4.4** `pages/hub/TransfersPage.vue`
