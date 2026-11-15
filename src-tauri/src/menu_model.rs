@@ -1192,16 +1192,16 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     if state.status.temporary_mount {
         nodes.push(menu_item("unmount-temporary", "卸载临时挂载", !busy));
     }
-    nodes.push(menu_item("show", "显示主窗口", true));
+    nodes.push(menu_item("show", crate::t!(crate::i18n::current(),"显示主窗口","顯示主視窗","Show main window","メイン画面を表示","메인 창 표시","Hauptfenster anzeigen","Показать окно","Mostrar janela principal","Mostrar ventana principal"), true));
     // 远程管理（server-hub）独立窗口的入口：托盘是唯一新增入口，主窗口零改动。
-    nodes.push(menu_item("open-hub", "远程管理…", true));
+    nodes.push(menu_item("open-hub", crate::t!(crate::i18n::current(),"远程管理…","遠端管理…","Remote management…","リモート管理…","원격 관리…","Fernverwaltung…","Удалённое управление…","Gerenciamento remoto…","Gestión remota…"), true));
 
     // —— 分区：应用设置 ——
     nodes.push(menu_separator());
-    nodes.push(menu_header("settings-label", "应用设置"));
+    nodes.push(menu_header("settings-label", crate::t!(crate::i18n::current(),"应用设置","應用程式設定","App settings","アプリ設定","앱 설정","App-Einstellungen","Настройки приложения","Configurações do app","Ajustes de la app")));
     nodes.push(menu_choice_item(
         "setting-autostart",
-        toggle_label(settings.autostart, "开机启动"),
+        toggle_label(settings.autostart, crate::t!(crate::i18n::current(),"开机启动","開機啟動","Launch at startup","起動時に開始","시작 시 실행","Beim Start starten","Запуск при старте","Iniciar ao ligar","Iniciar al arrancar")),
         true,
     ));
     // 开关项的 id 带「点下去要变成的状态」。原生勾选控件会先把勾翻转再通知我们，
@@ -1273,7 +1273,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     nodes.push(menu_submenu(
         "setting-close-action",
         "点击窗口 ❌ 时",
-        [(CloseAction::Tray, "最小化到托盘"), (CloseAction::Quit, "退出程序")]
+        [(CloseAction::Tray, "最小化到托盘"), (CloseAction::Quit, crate::t!(crate::i18n::current(),"退出程序","結束程式","Quit","終了","종료","Beenden","Выйти","Sair","Salir"))]
             .into_iter()
             .map(|(action, label)| {
                 menu_choice_item(
@@ -1287,13 +1287,13 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
 
     // —— 分区：扫描 ——
     nodes.push(menu_separator());
-    nodes.push(menu_item("refresh", "扫描", !busy));
+    nodes.push(menu_item("refresh", crate::t!(crate::i18n::current(),"扫描","掃描","Scan","スキャン","스캔","Scannen","Сканировать","Escanear","Escanear"), !busy));
 
     // —— 分区：电源操作 ——
     // 铺平在主菜单里（不折叠成子菜单：关机/重启是高频动作，多一层展开纯属添堵），
     // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区，而不是粘在「扫描」下面。
     nodes.push(menu_separator());
-    nodes.push(menu_header("power-label", "电源操作"));
+    nodes.push(menu_header("power-label", crate::t!(crate::i18n::current(),"电源操作","電源操作","Power","電源操作","전원 작업","Energie","Питание","Energia","Energía")));
     for action in [
         PowerAction::Reboot,
         PowerAction::Shutdown,
@@ -1305,7 +1305,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     // —— 分区：远程控制 ——
     // 同样铺平在主菜单里；监听状态是这一区的**第一行**，不展开任何子菜单就能看到在不在听。
     nodes.push(menu_separator());
-    nodes.push(menu_header("remote-label", "远程控制"));
+    nodes.push(menu_header("remote-label", crate::t!(crate::i18n::current(),"远程控制","遠端控制","Remote control","リモート制御","원격 제어","Fernsteuerung","Удалённое управление","Controle remoto","Control remoto")));
     nodes.push(menu_item(
         "remote-status",
         format!("监听状态：{}", menu_status_text(&state.http.state_text, 48)),
@@ -1343,11 +1343,11 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
             .collect(),
     ));
     // 检查更新：结果不在这里弹，交给主窗「关于与更新」区块展示（有进度/日志）
-    nodes.push(menu_item("check-update", "检查更新…", true));
+    nodes.push(menu_item("check-update", crate::t!(crate::i18n::current(),"检查更新…","檢查更新…","Check for updates…","更新を確認…","업데이트 확인…","Nach Updates suchen…","Проверить обновления…","Verificar atualizações…","Buscar actualizaciones…"), true));
     nodes.push(menu_item("show-remote", "远程控制设置…", true));
     // 用系统浏览器打开 Web 控制页（带 token，点开即用）。
     // 没在监听时置灰：没有页面可开，免得点了弹一个必然失败的错误。
-    nodes.push(menu_item("open-web", "打开 Web 页面", state.http.listening));
+    nodes.push(menu_item("open-web", crate::t!(crate::i18n::current(),"打开 Web 页面","開啟 Web 頁面","Open web page","Web ページを開く","웹 페이지 열기","Webseite öffnen","Открыть веб-страницу","Abrir página web","Abrir página web"), state.http.listening));
 
     nodes.push(menu_separator());
     nodes.push(menu_item("quit", "退出程序", true));

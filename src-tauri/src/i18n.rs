@@ -57,6 +57,17 @@ impl Lang {
     }
 }
 
+use std::sync::atomic::{AtomicU8, Ordering};
+static CUR: AtomicU8 = AtomicU8::new(0);
+
+fn from_u8(v: u8) -> Lang {
+    match v { 1=>Lang::ZhTw,2=>Lang::En,3=>Lang::Ja,4=>Lang::Ko,5=>Lang::De,6=>Lang::Ru,7=>Lang::PtBr,8=>Lang::Es,_=>Lang::ZhCn }
+}
+
+/// 进程全局当前语言（由设置/系统语言设置；托盘/通知/API 读它）。
+pub fn set_current(l: Lang) { CUR.store(l as u8, Ordering::Relaxed); }
+pub fn current() -> Lang { from_u8(CUR.load(Ordering::Relaxed)) }
+
 /// 从 9 元组中按语言取一条。
 pub fn pick(lang: Lang, v: [&'static str; 9]) -> &'static str {
     match lang {
