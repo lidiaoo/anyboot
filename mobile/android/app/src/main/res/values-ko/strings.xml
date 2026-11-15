@@ -1766,6 +1766,30 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_copyAddr">주소 복사</string>
     <string name="and_emptyAddrHint">컴퓨터 주소를 입력하세요</string>
     <string name="and_default">기본</string>
+    <string name="and_sshKeyNotFound">선택한 키를 찾을 수 없습니다. ‘키’ 페이지 확인</string>
+    <string name="and_keyReadFail">개인 키 읽기 실패(Keychain 불가 시 다시 가져오기)</string>
+    <string name="and_sessionReleased">세션 관리자 해제됨</string>
+    <string name="and_confirmNotReady">확인 창이 뜨지 않았습니다(UI 미준비). 다시 시도하세요</string>
+    <string name="and_firstConnect">%1$s 첫 연결
+
+호스트 지문 (SHA256): %2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+연결하려는 서버가 맞습니까? (확인 후 기억, 다시 묻지 않음)</string>
+    <string name="and_hostKeyTitle">호스트 지문 확인</string>
+    <string name="and_hostKeyCancelled">취소: 호스트 지문 미확인</string>
+    <string name="and_hostKeyChanged">호스트 지문이 바뀌었습니다! 서버 재설치 또는 중간자 공격 가능. 서버 상세의 ‘신뢰 재설정’ 후 재시도</string>
+    <string name="and_portListenFail">로컬 포트 수신 실패</string>
+    <string name="and_portNotReady">로컬 포트 준비 안 됨</string>
+    <string name="and_forwardFail">점프 호스트가 %1$s:%2$s(으)로 전달 불가(%3$s)</string>
+    <string name="and_forwardRefused">서버가 전달 거부: 포트 전달 비활성(sshd AllowTcpForwarding) 또는 대상 도달 불가</string>
+    <string name="and_tcpForwardDisabled">서버가 포트 전달 비활성화. sshd AllowTcpForwarding 확인</string>
+    <string name="and_targetPortNoService">대상 포트에 서비스 없음 또는 주소 오류</string>
+    <string name="and_targetNoResponse">대상 무응답. 주소 불통 또는 방화벽 차단 가능</string>
+    <string name="and_timeoutNoResponse">%1$d초 무응답 (timeout)</string>
+    <string name="and_opNoReturn">작업 미반환 (timeout)</string>
+    <string name="and_jumpCmdTimeout">점프 호스트 명령 시간 초과 (%1$ds)</string>
+    <string name="and_jumpCmdNoReturn">점프 호스트 명령 미반환</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

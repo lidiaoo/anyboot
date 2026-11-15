@@ -1766,6 +1766,30 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_copyAddr">Copiar endereço</string>
     <string name="and_emptyAddrHint">Informe o endereço do computador</string>
     <string name="and_default">Padrão</string>
+    <string name="and_sshKeyNotFound">Chave selecionada não encontrada; verifique em Chaves</string>
+    <string name="and_keyReadFail">Falha ao ler a chave privada (reimporte se o Keychain estiver indisponível)</string>
+    <string name="and_sessionReleased">Gerenciador de sessões liberado</string>
+    <string name="and_confirmNotReady">A caixa de confirmação não apareceu (UI não pronta); tente de novo</string>
+    <string name="and_firstConnect">Primeira conexão a %1$s
+
+Impressão do host (SHA256): %2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+É o servidor ao qual quer conectar? (Memorizado após confirmar)</string>
+    <string name="and_hostKeyTitle">Confirmar impressão do host</string>
+    <string name="and_hostKeyCancelled">Cancelado: impressão do host não confirmada</string>
+    <string name="and_hostKeyChanged">Impressão do host mudou! Reinstalação ou MITM possível. — Use “Redefinir confiança” nos detalhes e tente de novo</string>
+    <string name="and_portListenFail">Falha ao escutar a porta local</string>
+    <string name="and_portNotReady">Porta local não pronta</string>
+    <string name="and_forwardFail">Jump host não encaminha para %1$s:%2$s (%3$s)</string>
+    <string name="and_forwardRefused">Servidor recusou o encaminhamento: port forwarding pode estar desativado (sshd AllowTcpForwarding), ou destino inacessível</string>
+    <string name="and_tcpForwardDisabled">Servidor desativou o port forwarding; verifique AllowTcpForwarding no sshd</string>
+    <string name="and_targetPortNoService">Sem serviço na porta de destino, ou endereço errado</string>
+    <string name="and_targetNoResponse">Destino sem resposta; endereço inacessível ou firewall</string>
+    <string name="and_timeoutNoResponse">Sem resposta em %1$ds (timeout)</string>
+    <string name="and_opNoReturn">A operação não retornou (timeout)</string>
+    <string name="and_jumpCmdTimeout">Tempo esgotado do comando do jump host (%1$ds)</string>
+    <string name="and_jumpCmdNoReturn">O comando do jump host não retornou</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

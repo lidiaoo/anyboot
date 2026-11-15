@@ -138,11 +138,11 @@ final class SshSessionManager {
         let authenticationMethod: SSHAuthenticationMethod
         if jump.authType == JumpServer.authKey {
             guard let key = JumpStore.shared.key(jump.keyId) else {
-                throw SshError.message("找不到选中的密钥，请到「密钥」页检查")
+                throw SshError.message(L("and.sshKeyNotFound"))
             }
             let pem = KeyVault.load(account: key.privateRef)
             guard !pem.isEmpty else {
-                throw SshError.message("私钥读取失败（Keychain 不可用时需重新导入）")
+                throw SshError.message(L("and.keyReadFail"))
             }
             let passphrase = KeyVault.load(account: jump.keyPassphraseRef)
             if pem.contains("BEGIN OPENSSH PRIVATE KEY"),
@@ -199,7 +199,7 @@ final class SshSessionManager {
         func validateHostKey(hostKey: NIOSSHPublicKey,
                              validationCompletePromise: EventLoopPromise<Void>) {
             guard let manager else {
-                validationCompletePromise.fail(SshError.message("会话管理器已释放"))
+                validationCompletePromise.fail(SshError.message(L("and.sessionReleased")))
                 return
             }
             // 指纹：OpenSSH 口径 = SHA256(wire-format key blob，带算法名头)。
@@ -219,9 +219,9 @@ final class SshSessionManager {
                                 "确认框没弹出来（界面未就绪），请重试"))
                         return
                     }
-                    let message = "首次连接 \(label)\n\n主机指纹（SHA256）：\(fingerprint)"
-                            + "\n\n确认是你要连的服务器吗？（确认后记住，不再询问）"
-                    guard await confirm("确认主机指纹", message) else {
+                    let message = L("and.firstConnect", label, fingerprint)
+                            + L("and.confirmFingerprintHint")
+                    guard await confirm(L("and.hostKeyTitle"), message) else {
                         NSLog("[ABSSH] 用户拒绝主机指纹 host=\(storeKey)")
                         validationCompletePromise.fail(SshError.hostKey("已取消：主机指纹没有确认"))
                         return
@@ -230,7 +230,7 @@ final class SshSessionManager {
                 } else if stored != fingerprint {
                     NSLog("[ABSSH] 主机指纹不匹配 host=\(storeKey) 存=\(stored) 收=\(fingerprint)")
                     validationCompletePromise.fail(SshError.hostKey(
-                            "主机指纹变了！可能服务器重装了系统，也可能有人在中间。—— 到服务器详情里「重置信任」后可重试"))
+                            L("and.hostKeyChanged")))
                     return
                 }
                 validationCompletePromise.succeed(())
@@ -275,7 +275,7 @@ final class SshSessionManager {
         params.allowLocalEndpointReuse = true
         guard let address = try? SocketAddress(ipAddress: "127.0.0.1", port: 0),
               let listener = try? NWListener(using: params, on: NWEndpoint.Port(rawValue: 0)!) else {
-            throw SshError.message("本地端口监听失败")
+            throw SshError.message(L("and.portListenFail"))
         }
         let portBox = PortBox()
         listener.stateUpdateHandler = { state in
@@ -304,7 +304,7 @@ final class SshSessionManager {
             try await Task.sleep(nanoseconds: 20_000_000)
         }
         guard let port = portBox.get() else {
-            throw SshError.message("本地端口未能就绪")
+            throw SshError.message(L("and.portNotReady"))
         }
         lock.lock()
         tunnels[key] = Tunnel(port: port, listener: listener, clientID: clientID)
@@ -377,7 +377,7 @@ final class SshSessionManager {
         } catch {
             NSLog("[ABSSH] verify 失败 \(destHost):\(destPort)：\(error)")
             throw SshError.message(
-                "跳板机无法转发到 \(destHost):\(destPort)（\(Self.describeForwardError(error))）")
+                L("and.forwardFail", destHost, destPort, Self.describeForwardError(error)))
         }
     }
 
@@ -410,7 +410,7 @@ final class SshSessionManager {
             group.addTask { try await body() }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                throw SshError.message("\(Int(seconds)) 秒无响应（timeout）")
+                throw SshError.message(L("and.timeoutNoResponse", Int(seconds)))
             }
             guard let first = try await group.next() else {
                 throw SshError.message("操作未返回（timeout）")
@@ -433,7 +433,7 @@ final class SshSessionManager {
         let id = (jumpId ?? "").trimmedAnyBoot.isEmpty ? profile.jumpServerId(for: target)
                                                        : jumpId!.trimmedAnyBoot
         guard let jump = JumpStore.shared.jump(id) else {
-            throw SshError.message("跳板机不存在（可能已删除）")
+            throw SshError.message(L("and.jumpNotExist"))
         }
         let destHost: String
         var destPort = ServerProfile.defaultPort
@@ -513,10 +513,10 @@ final class SshSessionManager {
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw SshError.message("跳板机命令超时（\(Int(timeout))s）")
+                throw SshError.message(L("and.jumpCmdTimeout", Int(timeout)))
             }
             guard let first = try await group.next() else {
-                throw SshError.message("跳板机命令没有返回")
+                throw SshError.message(L("and.jumpCmdNoReturn"))
             }
             group.cancelAll()
             return first

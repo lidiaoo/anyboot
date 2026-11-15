@@ -1766,6 +1766,30 @@ Telnet：実験的端末のみ。</string>
     <string name="and_copyAddr">アドレスをコピー</string>
     <string name="and_emptyAddrHint">PC のアドレスを入力してください</string>
     <string name="and_default">既定</string>
+    <string name="and_sshKeyNotFound">選択した鍵が見つかりません。「鍵」ページで確認</string>
+    <string name="and_keyReadFail">秘密鍵の読み取りに失敗（Keychain 不可用時は再取り込み）</string>
+    <string name="and_sessionReleased">セッションマネージャは解放済み</string>
+    <string name="and_confirmNotReady">確認ダイアログが出ません（UI 未準備）。再試行してください</string>
+    <string name="and_firstConnect">%1$s へ初回接続
+
+ホスト指紋（SHA256）：%2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+接続したいサーバーですか？（確認後は記憶し、再詢問しません）</string>
+    <string name="and_hostKeyTitle">ホスト指紋の確認</string>
+    <string name="and_hostKeyCancelled">キャンセル：ホスト指紋が確認されていません</string>
+    <string name="and_hostKeyChanged">ホスト指紋が変わりました！サーバー再インストールか中間者攻撃の可能性。サーバー詳細の「信頼をリセット」後に再試行</string>
+    <string name="and_portListenFail">ローカルポートの待受に失敗</string>
+    <string name="and_portNotReady">ローカルポートが準備できません</string>
+    <string name="and_forwardFail">踏み台が %1$s:%2$s に転送できません（%3$s）</string>
+    <string name="and_forwardRefused">サーバーが転送を拒否：ポート転送無効（sshd AllowTcpForwarding）か、対象に到達不可の可能性</string>
+    <string name="and_tcpForwardDisabled">サーバーがポート転送を無効化。sshd の AllowTcpForwarding を確認</string>
+    <string name="and_targetPortNoService">対象ポートにサービスなし、またはアドレス誤り</string>
+    <string name="and_targetNoResponse">対象が無応答。アドレス不通かファイアウォール遮断の可能性</string>
+    <string name="and_timeoutNoResponse">%1$d 秒無応答（timeout）</string>
+    <string name="and_opNoReturn">操作が戻りません（timeout）</string>
+    <string name="and_jumpCmdTimeout">踏み台コマンドがタイムアウト（%1$ds）</string>
+    <string name="and_jumpCmdNoReturn">踏み台コマンドが戻りません</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

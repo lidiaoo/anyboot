@@ -1766,6 +1766,30 @@ Telnet：只有实验性终端。</string>
     <string name="and_copyAddr">复制地址</string>
     <string name="and_emptyAddrHint">请填电脑地址</string>
     <string name="and_default">默认</string>
+    <string name="and_sshKeyNotFound">找不到选中的密钥，请到「密钥」页检查</string>
+    <string name="and_keyReadFail">私钥读取失败（Keychain 不可用时需重新导入）</string>
+    <string name="and_sessionReleased">会话管理器已释放</string>
+    <string name="and_confirmNotReady">确认框没弹出来（界面未就绪），请重试</string>
+    <string name="and_firstConnect">首次连接 %1$s
+
+主机指纹（SHA256）：%2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+确认是你要连的服务器吗？（确认后记住，不再询问）</string>
+    <string name="and_hostKeyTitle">确认主机指纹</string>
+    <string name="and_hostKeyCancelled">已取消：主机指纹没有确认</string>
+    <string name="and_hostKeyChanged">主机指纹变了！可能服务器重装了系统，也可能有人在中间。—— 到服务器详情里「重置信任」后可重试</string>
+    <string name="and_portListenFail">本地端口监听失败</string>
+    <string name="and_portNotReady">本地端口未能就绪</string>
+    <string name="and_forwardFail">跳板机无法转发到 %1$s:%2$s（%3$s）</string>
+    <string name="and_forwardRefused">服务器拒绝了转发请求：可能禁用了端口转发（sshd 的 AllowTcpForwarding），也可能连不上目标</string>
+    <string name="and_tcpForwardDisabled">服务器禁用了端口转发，请检查 sshd 的 AllowTcpForwarding 设置</string>
+    <string name="and_targetPortNoService">目标端口没有服务在听，或地址配错</string>
+    <string name="and_targetNoResponse">目标无响应，可能地址不通或被防火墙拦截</string>
+    <string name="and_timeoutNoResponse">%1$d 秒无响应（timeout）</string>
+    <string name="and_opNoReturn">操作未返回（timeout）</string>
+    <string name="and_jumpCmdTimeout">跳板机命令超时（%1$ds）</string>
+    <string name="and_jumpCmdNoReturn">跳板机命令没有返回</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

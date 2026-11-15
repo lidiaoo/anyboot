@@ -1766,6 +1766,30 @@ Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Her
     <string name="and_copyAddr">Adresse kopieren</string>
     <string name="and_emptyAddrHint">Bitte die Computeradresse eingeben</string>
     <string name="and_default">Standard</string>
+    <string name="and_sshKeyNotFound">Gewählter Schlüssel nicht gefunden; auf der Schlüssel-Seite prüfen</string>
+    <string name="and_keyReadFail">Privaten Schlüssel lesen fehlgeschlagen (bei Keychain-Ausfall neu importieren)</string>
+    <string name="and_sessionReleased">Sitzungsmanager freigegeben</string>
+    <string name="and_confirmNotReady">Bestätigungsdialog erschien nicht (UI nicht bereit); erneut versuchen</string>
+    <string name="and_firstConnect">Erstverbindung zu %1$s
+
+Host-Fingerabdruck (SHA256): %2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</string>
+    <string name="and_hostKeyTitle">Host-Fingerabdruck bestätigen</string>
+    <string name="and_hostKeyCancelled">Abgebrochen: Host-Fingerabdruck nicht bestätigt</string>
+    <string name="and_hostKeyChanged">Host-Fingerabdruck geändert! Neuinstallation oder Man-in-the-Middle möglich. – In den Serverdetails „Vertrauen zurücksetzen“, dann erneut</string>
+    <string name="and_portListenFail">Lokaler Port-Listen fehlgeschlagen</string>
+    <string name="and_portNotReady">Lokaler Port nicht bereit</string>
+    <string name="and_forwardFail">Sprungserver kann nicht an %1$s:%2$s weiterleiten (%3$s)</string>
+    <string name="and_forwardRefused">Server lehnte Weiterleitung ab: Portweiterleitung evtl. deaktiviert (sshd AllowTcpForwarding) oder Ziel nicht erreichbar</string>
+    <string name="and_tcpForwardDisabled">Server hat Portweiterleitung deaktiviert; sshd AllowTcpForwarding prüfen</string>
+    <string name="and_targetPortNoService">Kein Dienst am Zielport, oder falsche Adresse</string>
+    <string name="and_targetNoResponse">Ziel antwortet nicht; Adresse nicht erreichbar oder Firewall</string>
+    <string name="and_timeoutNoResponse">Keine Antwort in %1$ds (Timeout)</string>
+    <string name="and_opNoReturn">Vorgang kehrte nicht zurück (Timeout)</string>
+    <string name="and_jumpCmdTimeout">Sprungserver-Befehl Zeitüberschreitung (%1$ds)</string>
+    <string name="and_jumpCmdNoReturn">Sprungserver-Befehl kehrte nicht zurück</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

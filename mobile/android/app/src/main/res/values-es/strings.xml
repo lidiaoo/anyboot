@@ -1766,6 +1766,30 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_copyAddr">Copiar dirección</string>
     <string name="and_emptyAddrHint">Introduce la dirección del equipo</string>
     <string name="and_default">Predeterminado</string>
+    <string name="and_sshKeyNotFound">Clave seleccionada no encontrada; revisa Claves</string>
+    <string name="and_keyReadFail">Error al leer la clave privada (reimporta si Keychain no está disponible)</string>
+    <string name="and_sessionReleased">Gestor de sesiones liberado</string>
+    <string name="and_confirmNotReady">El diálogo de confirmación no apareció (UI no lista); reinténtalo</string>
+    <string name="and_firstConnect">Primera conexión a %1$s
+
+Huella del host (SHA256): %2$s</string>
+    <string name="and_confirmFingerprintHint">
+
+¿Es el servidor al que quieres conectar? (Se recuerda tras confirmar)</string>
+    <string name="and_hostKeyTitle">Confirmar huella del host</string>
+    <string name="and_hostKeyCancelled">Cancelado: huella del host no confirmada</string>
+    <string name="and_hostKeyChanged">¡Huella del host cambiada! Reinstalación o MITM posible. — Usa «Restablecer confianza» y reinténtalo</string>
+    <string name="and_portListenFail">Error al escuchar el puerto local</string>
+    <string name="and_portNotReady">Puerto local no listo</string>
+    <string name="and_forwardFail">El host de salto no reenvía a %1$s:%2$s (%3$s)</string>
+    <string name="and_forwardRefused">El servidor rechazó el reenvío: port forwarding quizá desactivado (sshd AllowTcpForwarding), o destino inaccesible</string>
+    <string name="and_tcpForwardDisabled">El servidor desactivó el reenvío; comprueba AllowTcpForwarding en sshd</string>
+    <string name="and_targetPortNoService">Sin servicio en el puerto de destino, o dirección incorrecta</string>
+    <string name="and_targetNoResponse">Destino sin respuesta; dirección inaccesible o firewall</string>
+    <string name="and_timeoutNoResponse">Sin respuesta en %1$ds (timeout)</string>
+    <string name="and_opNoReturn">La operación no volvió (timeout)</string>
+    <string name="and_jumpCmdTimeout">Tiempo agotado del comando del host de salto (%1$ds)</string>
+    <string name="and_jumpCmdNoReturn">El comando del host de salto no volvió</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
