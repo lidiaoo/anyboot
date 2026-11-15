@@ -536,7 +536,7 @@ struct ComputerTabsView: View {
                 await MainActor.run {
                     powerBusy = false
                     let text = (error as? RemoteHttpError)?.message ?? error.localizedDescription
-                    ABToastBus.shared.show(L("__MISS__", ServerProfile.powerActionLabel(action), text))
+                    ABToastBus.shared.show(L("and.powerNotSent", ServerProfile.powerActionLabel(action), text))
                 }
             }
         }

@@ -171,7 +171,7 @@ struct ComputerListView: View {
                         .font(.system(size: 16.5, weight: .bold))
                         .foregroundColor(ABColor.fg)
                         .lineLimit(1)
-                    Text(L("__MISS__"))
+                    Text(L("hub.list.subtitle"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                         .lineLimit(1)
@@ -382,7 +382,7 @@ struct ComputerListView: View {
                 .padding(.top, ABMetric.px(12))
                 .padding(.bottom, ABMetric.px(24))
                 // 列表末尾说明（HostList 799-810）
-                Text(L("__MISS__"))
+                Text(L("and.powerHintMulti"))
                     .font(.system(size: 11))
                     .lineSpacing(ABMetric.px(7))
                     .foregroundColor(ABColor.fgFaint)
@@ -746,7 +746,7 @@ struct ComputerListView: View {
     }
 
     private func displayAddress(_ profile: ServerProfile) -> String {
-        guard let value = ServerProfile.normalizeHost(profile.host) else { return L("__MISS__") }
+        guard let value = ServerProfile.normalizeHost(profile.host) else { return L("remote.addrUnfilled") }
         return stripDefaultPort(value)
     }
 
@@ -1251,7 +1251,7 @@ struct ComputerListView: View {
             if previewRows.isEmpty {
                 if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
                 else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
-                else { valueLabel = L("__MISS__") }
+                else { valueLabel = L("and.noActionAvailable") }
             } else if let defaultRow = previewRows.first(where: { $0.isDefault && !$0.spec.isEmpty }) {
                 valueLabel = defaultRow.title
                 dotKind = defaultRow.kind
