@@ -1577,6 +1577,16 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
     <string name="and_missJumpNotInBackup">Jump hosts for %1$d computers aren\'t in this backup</string>
     <string name="and_importingNow">Importing…</string>
     <string name="and_importSelectedN">Import selected (%1$d categories)</string>
+    <string name="and_connecting">Connecting…</string>
+    <string name="and_connectingAddr">Connecting %1$s…</string>
+    <string name="and_sessionEnded">Session ended</string>
+    <string name="and_sessionEndToast">Session ended</string>
+    <string name="and_switchTermTheme">Switch terminal theme</string>
+    <string name="and_fontSize">Font size</string>
+    <string name="and_zoomOut">Smaller font (now %1$d)</string>
+    <string name="and_zoomIn">Larger font (now %1$d)</string>
+    <string name="and_toggleKeyboard">Show/hide keyboard</string>
+    <string name="and_termCrash">The terminal renderer crashed; leave this page and re-enter</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

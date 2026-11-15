@@ -1577,6 +1577,16 @@ Telnet：実験的端末のみ。</string>
     <string name="and_missJumpNotInBackup">%1$d 台の PC に関連する踏み台がこのバックアップにありません</string>
     <string name="and_importingNow">取り込み中…</string>
     <string name="and_importSelectedN">選択を取り込み（%1$d 種）</string>
+    <string name="and_connecting">接続中…</string>
+    <string name="and_connectingAddr">%1$s に接続中…</string>
+    <string name="and_sessionEnded">セッション終了</string>
+    <string name="and_sessionEndToast">セッション終了</string>
+    <string name="and_switchTermTheme">端末テーマ切替</string>
+    <string name="and_fontSize">文字サイズ</string>
+    <string name="and_zoomOut">文字を小さく（現在 %1$d）</string>
+    <string name="and_zoomIn">文字を大きく（現在 %1$d）</string>
+    <string name="and_toggleKeyboard">キーボード表示/非表示</string>
+    <string name="and_termCrash">端末レンダラーがクラッシュしました。ページを出て再入してください</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

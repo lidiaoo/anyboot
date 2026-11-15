@@ -1577,6 +1577,16 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_missJumpNotInBackup">%1$d 台電腦關聯的跳板機不在本備份中</string>
     <string name="and_importingNow">正在匯入…</string>
     <string name="and_importSelectedN">匯入所選（%1$d 類）</string>
+    <string name="and_connecting">正在連線 …</string>
+    <string name="and_connectingAddr">正在連線 %1$s …</string>
+    <string name="and_sessionEnded">工作階段已結束</string>
+    <string name="and_sessionEndToast">工作階段結束</string>
+    <string name="and_switchTermTheme">切換終端機主題</string>
+    <string name="and_fontSize">字級</string>
+    <string name="and_zoomOut">縮小字級（目前 %1$d）</string>
+    <string name="and_zoomIn">放大字級（目前 %1$d）</string>
+    <string name="and_toggleKeyboard">彈出/收起鍵盤</string>
+    <string name="and_termCrash">終端機渲染程序崩潰，請退出本頁重進</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

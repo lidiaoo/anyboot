@@ -1577,6 +1577,16 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_missJumpNotInBackup">Los hosts de salto de %1$d equipos no están en este backup</string>
     <string name="and_importingNow">Importando…</string>
     <string name="and_importSelectedN">Importar seleccionados (%1$d categorías)</string>
+    <string name="and_connecting">Conectando…</string>
+    <string name="and_connectingAddr">Conectando %1$s…</string>
+    <string name="and_sessionEnded">Sesión finalizada</string>
+    <string name="and_sessionEndToast">Sesión finalizada</string>
+    <string name="and_switchTermTheme">Cambiar tema del terminal</string>
+    <string name="and_fontSize">Tamaño de fuente</string>
+    <string name="and_zoomOut">Fuente menor (ahora %1$d)</string>
+    <string name="and_zoomIn">Fuente mayor (ahora %1$d)</string>
+    <string name="and_toggleKeyboard">Mostrar/ocultar teclado</string>
+    <string name="and_termCrash">El renderizador del terminal se bloqueó; sal y vuelve a entrar</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

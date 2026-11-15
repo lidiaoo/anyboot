@@ -1577,6 +1577,16 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_missJumpNotInBackup">Узлы для %1$d компьютеров отсутствуют в этой копии</string>
     <string name="and_importingNow">Импорт…</string>
     <string name="and_importSelectedN">Импортировать выбранное (%1$d)</string>
+    <string name="and_connecting">Подключение…</string>
+    <string name="and_connectingAddr">Подключение %1$s…</string>
+    <string name="and_sessionEnded">Сеанс завершён</string>
+    <string name="and_sessionEndToast">Сеанс завершён</string>
+    <string name="and_switchTermTheme">Сменить тему терминала</string>
+    <string name="and_fontSize">Размер шрифта</string>
+    <string name="and_zoomOut">Мельче (сейчас %1$d)</string>
+    <string name="and_zoomIn">Крупнее (сейчас %1$d)</string>
+    <string name="and_toggleKeyboard">Показать/скрыть клавиатуру</string>
+    <string name="and_termCrash">Рендерер терминала упал; выйдите и зайдите снова</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

@@ -1577,6 +1577,16 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_missJumpNotInBackup">Jump hosts de %1$d computadores não estão neste backup</string>
     <string name="and_importingNow">Importando…</string>
     <string name="and_importSelectedN">Importar selecionados (%1$d categorias)</string>
+    <string name="and_connecting">Conectando…</string>
+    <string name="and_connectingAddr">Conectando %1$s…</string>
+    <string name="and_sessionEnded">Sessão encerrada</string>
+    <string name="and_sessionEndToast">Sessão encerrada</string>
+    <string name="and_switchTermTheme">Trocar tema do terminal</string>
+    <string name="and_fontSize">Tamanho da fonte</string>
+    <string name="and_zoomOut">Fonte menor (agora %1$d)</string>
+    <string name="and_zoomIn">Fonte maior (agora %1$d)</string>
+    <string name="and_toggleKeyboard">Mostrar/ocultar teclado</string>
+    <string name="and_termCrash">O renderizador do terminal travou; saia e entre de novo</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

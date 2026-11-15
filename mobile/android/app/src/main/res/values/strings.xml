@@ -1577,6 +1577,16 @@ Telnet：只有实验性终端。</string>
     <string name="and_missJumpNotInBackup">%1$d 台电脑关联的跳板机不在本备份中</string>
     <string name="and_importingNow">正在导入…</string>
     <string name="and_importSelectedN">导入所选（%1$d 类）</string>
+    <string name="and_connecting">正在连接 …</string>
+    <string name="and_connectingAddr">正在连接 %1$s …</string>
+    <string name="and_sessionEnded">会话已结束</string>
+    <string name="and_sessionEndToast">会话结束</string>
+    <string name="and_switchTermTheme">切换终端主题</string>
+    <string name="and_fontSize">字号</string>
+    <string name="and_zoomOut">缩小字号（当前 %1$d）</string>
+    <string name="and_zoomIn">放大字号（当前 %1$d）</string>
+    <string name="and_toggleKeyboard">弹出/收起键盘</string>
+    <string name="and_termCrash">终端渲染进程崩溃，请退出本页重进</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

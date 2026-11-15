@@ -1577,6 +1577,16 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_missJumpNotInBackup">%1$d대 컴퓨터의 점프 호스트가 이 백업에 없습니다</string>
     <string name="and_importingNow">가져오는 중…</string>
     <string name="and_importSelectedN">선택 가져오기 (%1$d개)</string>
+    <string name="and_connecting">연결 중…</string>
+    <string name="and_connectingAddr">%1$s 연결 중…</string>
+    <string name="and_sessionEnded">세션 종료됨</string>
+    <string name="and_sessionEndToast">세션 종료</string>
+    <string name="and_switchTermTheme">터미널 테마 전환</string>
+    <string name="and_fontSize">글자 크기</string>
+    <string name="and_zoomOut">글자 작게 (현재 %1$d)</string>
+    <string name="and_zoomIn">글자 크게 (현재 %1$d)</string>
+    <string name="and_toggleKeyboard">키보드 표시/숨기기</string>
+    <string name="and_termCrash">터미널 렌더러가 충돌했습니다. 페이지를 나갔다 다시 들어오세요</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

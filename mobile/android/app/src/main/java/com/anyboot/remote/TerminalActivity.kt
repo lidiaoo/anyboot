@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.annotation.SuppressLint
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.os.Bundle
 import android.util.Base64
@@ -95,7 +96,7 @@ class TerminalActivity : ComponentActivity() {
 
     private var currentId by mutableStateOf("")
     private var tick by mutableIntStateOf(0)   // 标签集合变化时自增
-    private var statusMessage by mutableStateOf<String?>("正在连接 …")
+    private var statusMessage by mutableStateOf<String?>(null)
     private var ctrlArmed by mutableStateOf(false)
 
     // 以下四项都是「终端设置」页里的偏好：初值先给默认，onCreate 里再从 prefs 读（属性初始化
@@ -195,7 +196,7 @@ class TerminalActivity : ComponentActivity() {
     private fun ensureSession(jumpId: String, alreadyOpen: Boolean) {
         val server = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
         if (server == null) {
-            toast("服务器不存在（可能已删除）")
+            toast(getString(R.string.and_serverNotExist))
             finish()
             return
         }
@@ -209,7 +210,7 @@ class TerminalActivity : ComponentActivity() {
             manualPassword = ManualPwdRequest(server) { ensureSession(jumpId, alreadyOpen) }
             return
         }
-        statusMessage = "正在连接 ${server.addressLabel()} …"
+        statusMessage = getString(R.string.and_connectingAddr, server.addressLabel())
         val appContext = applicationContext
         val listener = listenerFor(server.id)
         Thread({
@@ -228,11 +229,11 @@ class TerminalActivity : ComponentActivity() {
                     bind(live)
                 }
             } catch (error: Exception) {
-                val message = error.message ?: "连接失败"
+                val message = error.message ?: getString(R.string.and_connFail)
                 tlog("会话建立失败: ${error.javaClass.simpleName}: $message")
                 runOnUiThread {
-                    statusMessage = "连接失败：$message"
-                    toast("连接失败：$message", long = true)
+                    statusMessage = getString(R.string.and_connFailMsg, message)
+                    toast(getString(R.string.and_connFailMsg, message), long = true)
                     if (!alreadyOpen) finish()
                 }
             }
@@ -261,8 +262,8 @@ class TerminalActivity : ComponentActivity() {
                     JumpStore.appendHistory(this@TerminalActivity, history)
                     tick++
                     if (serverId == currentId) {
-                        statusMessage = "会话已结束" + (if (reason.isNullOrEmpty()) "" else "：$reason")
-                        toast("会话结束" + (if (reason.isNullOrEmpty()) "" else "：$reason"), long = true)
+                        statusMessage = getString(R.string.and_sessionEnded) + (if (reason.isNullOrEmpty()) "" else "：$reason")
+                        toast(getString(R.string.and_sessionEndToast) + (if (reason.isNullOrEmpty()) "" else "：$reason"), long = true)
                     }
                 }
             }
@@ -377,7 +378,7 @@ class TerminalActivity : ComponentActivity() {
                         .background(palette.card)
                         .padding(start = 4.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
                 ) {
-                    BarIcon("‹", "返回") { finish() }
+                    BarIcon("‹", stringResource(R.string.and_back)) { finish() }
                     Box(
                         Modifier
                             .size(32.dp)
@@ -392,7 +393,7 @@ class TerminalActivity : ComponentActivity() {
                         // 服务器没起名时回退到地址，别让标题空着
                         val title = session?.server?.let { s ->
                             JumpStore.text(s.name).ifEmpty { s.addressLabel() }
-                        } ?: "终端"
+                        } ?: stringResource(R.string.nav_terminal)
                         Text(
                             title,
                             fontSize = 14.sp,
@@ -413,10 +414,10 @@ class TerminalActivity : ComponentActivity() {
                             Text(
                                 when {
                                     statusMessage != null -> statusMessage!!
-                                    session != null -> "已连接 · " + humanDuration(
+                                    session != null -> stringResource(R.string.and_connectedFor, humanDuration(
                                         System.currentTimeMillis() - session.startedAt
-                                    )
-                                    else -> "未连接"
+                                    ))
+                                    else -> stringResource(R.string.hub_state_notConnected)
                                 },
                                 fontSize = 10.sp,
                                 color = if (connected) palette.accent else palette.fgDim,
@@ -426,22 +427,22 @@ class TerminalActivity : ComponentActivity() {
                         }
                     }
                     var fontMenuOpen by remember { mutableStateOf(false) }
-                    BarIcon("🌓", "切换终端主题") {
+                    BarIcon("🌓", stringResource(R.string.and_switchTermTheme)) {
                         dark = !dark
                         JumpStore.setTerminalDark(this@TerminalActivity, dark)
                         eval("termSetTheme('" + (if (dark) "dark" else "light") + "')")
                     }
                     Box {
-                        BarIcon("Aa", "字号") { fontMenuOpen = true }
+                        BarIcon("Aa", stringResource(R.string.and_fontSize)) { fontMenuOpen = true }
                         DropdownMenu(expanded = fontMenuOpen, onDismissRequest = { fontMenuOpen = false }) {
-                            DropdownMenuItem(text = { Text("缩小字号（当前 $fontSize）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.and_zoomOut, fontSize)) }, onClick = {
                                 fontMenuOpen = false
                                 fontSize = (fontSize - 1).coerceAtLeast(JumpStore.TERMINAL_FONT_MIN)
                                 // 落盘：与「终端设置」页共用一份偏好，返回设置页时能对上
                                 JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
                                 eval("termSetFont($fontSize)")
                             })
-                            DropdownMenuItem(text = { Text("放大字号（当前 $fontSize）") }, onClick = {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.and_zoomIn, fontSize)) }, onClick = {
                                 fontMenuOpen = false
                                 fontSize = (fontSize + 1).coerceAtMost(JumpStore.TERMINAL_FONT_MAX)
                                 JumpStore.setTerminalFontSize(this@TerminalActivity, fontSize)
@@ -449,7 +450,7 @@ class TerminalActivity : ComponentActivity() {
                             })
                         }
                     }
-                    BarIcon("⌨", "弹出/收起键盘") { toggleKeyboard() }
+                    BarIcon("⌨", stringResource(R.string.and_toggleKeyboard)) { toggleKeyboard() }
                 }
 
                 // 终端区 + 连接状态覆盖
@@ -515,7 +516,7 @@ class TerminalActivity : ComponentActivity() {
                                         pageReady = false
                                         pendingFeeds.clear()
                                         runOnUiThread {
-                                            statusMessage = "终端渲染进程崩溃，请退出本页重进"
+                                            statusMessage = getString(R.string.and_termCrash)
                                         }
                                         return true
                                     }
@@ -707,8 +708,8 @@ class TerminalActivity : ComponentActivity() {
     private fun KillDialog(session: TerminalSession) {
         AlertDialog(
             onDismissRequest = { killTarget = null },
-            title = { Text("结束会话") },
-            text = { Text("结束「${session.server.name}」的终端会话吗？") },
+            title = { Text(stringResource(R.string.and_endSessionTitle)) },
+            text = { Text(stringResource(R.string.and_endSessionConfirm, session.server.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     killTarget = null
@@ -716,11 +717,11 @@ class TerminalActivity : ComponentActivity() {
                         current?.detach()
                         current = null
                     }
-                    session.close("用户结束")
+                    session.close(getString(R.string.and_userEnded))
                     TerminalRegistry.remove(session.server.id)
                     tick++
                     if (TerminalRegistry.all().isEmpty()) finish()
-                }) { Text("结束") }
+                }) { Text(stringResource(R.string.and_end)) }
             },
             dismissButton = {
                 TextButton(onClick = { killTarget = null }) { Text("取消") }
