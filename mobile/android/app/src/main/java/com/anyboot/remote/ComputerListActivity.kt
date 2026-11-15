@@ -2890,10 +2890,10 @@ class ComputerListActivity : ComponentActivity() {
                     Text(
                         when {
                             help -> "操作说明"
-                            request.kind == KIND_CHANNEL -> "${channel?.label ?: "通道"} 启动项"
-                            request.kind == KIND_REFIND -> "rEFInd 启动项"
-                            request.kind == KIND_REFINDPLUS -> "RefindPlus 启动项"
-                            else -> "GRUB 启动项"
+                            request.kind == KIND_CHANNEL -> "${channel?.label ?: "通道"} · 选择下次启动"
+                            request.kind == KIND_REFIND -> "rEFInd · 选择下次启动"
+                            request.kind == KIND_REFINDPLUS -> "RefindPlus · 选择下次启动"
+                            else -> "GRUB · 选择下次启动"
                         },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -2985,8 +2985,6 @@ class ComputerListActivity : ComponentActivity() {
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = palette.accent,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f),
                                         )
                                         if (row.trailing.isNotEmpty()) {
@@ -3037,34 +3035,21 @@ class ComputerListActivity : ComponentActivity() {
                                     ) {
                                         Column(Modifier.weight(1f)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                                if (row.pinned) {
-                                                    Text(
-                                                        "下次启动",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = palette.ok,
-                                                        modifier = Modifier
-                                                            .background(palette.ok.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
-                                                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                }
                                                 Text(
                                                     row.label,
                                                     fontSize = 13.sp,
                                                     color = if (selected) palette.accent else palette.fg,
-                                                    maxLines = 2,
-                                                    overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier.weight(1f),
                                                 )
-                                                if (row.trailing.isNotEmpty()) {
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
-                                                }
                                                 if (selected) {
                                                     Spacer(Modifier.width(8.dp))
                                                     CheckIcon(tint = palette.ok, size = 16.dp)
                                                 }
+                                            }
+                                            // tag/说明在名字**下方**（PC .grub-entry-tags 同口径）：
+                                            // 「默认项 / 折叠内核 / 类型 · 来源」等一行小字
+                                            if (row.trailing.isNotEmpty()) {
+                                                Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, lineHeight = 17.sp)
                                             }
                                             if (row.sub.isNotEmpty()) {
                                                 Text(row.sub, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -3113,13 +3098,12 @@ class ComputerListActivity : ComponentActivity() {
                     onClick = { sheetRequest = null },
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = palette.fg,
+                        containerColor = palette.accent,
+                        contentColor = palette.onAccent,
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp)
-                        .border(1.dp, palette.line, RoundedCornerShape(8.dp)),
+                        .padding(8.dp),
                 ) {
                     Text("取消", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
@@ -4274,12 +4258,15 @@ class ComputerListActivity : ComponentActivity() {
     // ---- GRUB 拼装：与 PC 托盘菜单（menu_model::grub_menu_nodes）同一条规则 ----
 
     /** 系统图标（与托盘 grub_os_icon 同一规则，不猜）：windows→🪟 mac→🍎 linux→🐧 */
-    private fun grubOsIcon(text: String): String {
-        val lowered = text.lowercase(Locale.US)
+    /** 平台图标（与 PC 端 platformIcon / 后端 grub_os_icon 同一映射）：class 优先，名字关键词兜底 */
+    private fun grubOsIcon(cls: String?, text: String): String {
+        val hay = "${cls ?: ""} ${text}".lowercase(Locale.US)
         return when {
-            lowered.contains("windows") -> "🪟 "
-            lowered.contains("mac") || lowered.contains("apple") -> "🍎 "
-            lowered.contains("linux") -> "🐧 "
+            hay.contains("windows") || hay.contains("microsoft") -> "🪟 "
+            hay.contains("mac") || hay.contains("apple") -> "🍎 "
+            hay.contains("linux") || hay.contains("cachyos") || hay.contains("ubuntu")
+                || hay.contains("fedora") || hay.contains("mint") || hay.contains("manjaro")
+                || hay.contains("arch") -> "🐧 "
             else -> ""
         }
     }
@@ -4320,36 +4307,38 @@ class ComputerListActivity : ComponentActivity() {
      *  绿底（ok-bg 混 panel）、左 2px ok 色条、「下次启动」徽标、绿勾。 */
     private fun PinnedBootRowFixed(row: GrubRow, palette: Palette) {
         val okBg = palette.ok.copy(alpha = 0.12f)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
+        Column(
+            Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(6.dp))
                 .background(palette.card)
                 .background(okBg)
-                .drawBehind { drawRect(palette.ok, topLeft = Offset(0f, 0f), size = Size(2.dp.toPx(), size.height)) }
+                .border(1.dp, palette.ok.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
                 .padding(horizontal = 9.dp, vertical = 7.dp),
         ) {
-            Text(
-                "下次启动",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = palette.ok,
-                modifier = Modifier
-                    .background(palette.ok.copy(alpha = 0.16f), RoundedCornerShape(5.dp))
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                row.label,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = palette.ok,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            CheckIcon(tint = palette.ok, size = 16.dp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "下次启动",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.onAccent,
+                    modifier = Modifier
+                        .background(palette.accent, RoundedCornerShape(5.dp))
+                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    row.label,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = palette.fg,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            // 行下 tag（PC 置顶副本也有「默认项」等小字）
+            if (row.trailing.isNotEmpty()) {
+                Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, lineHeight = 17.sp)
+            }
         }
         Spacer(Modifier.height(6.dp))
     }
@@ -4391,7 +4380,7 @@ class ComputerListActivity : ComponentActivity() {
             val suffix = if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
             // label 里的平台图标按**条目名/组名**判定（比 option.kind 的粗分类准），
             // 渲染层 GRUB 行不再另画 BootDot（用户定案：保留这个、删另一个）
-            val icon = grubOsIcon(prefix + option.grubName)
+            val icon = grubOsIcon(option.kind, prefix + option.grubName)
             val arrow = if (top) "" else "↳ "
             rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false, pinned,
                 trailing = option.tag, sub = option.grubSub, note = option.grubNote,
@@ -4427,7 +4416,7 @@ class ComputerListActivity : ComponentActivity() {
             if (!emittedGroups.add(submenuId)) return@forEach
             val title = names[submenuId]?.takeIf { it.isNotBlank() } ?: submenuId
             val count = children.count { it.grubSubmenuId == submenuId }
-            rows.add(GrubRow(null, "▾ ${grubOsIcon(title)}$title（$count 项$location）", true))
+            rows.add(GrubRow(null, "▾ ${grubOsIcon(null, title)}$title", true, trailing = "${count} 项$location"))
             val groupChildren = children.filter { it.grubSubmenuId == submenuId }
             val counts = grubCollapse(format, groupChildren)
             val emitted = mutableSetOf<String>()
