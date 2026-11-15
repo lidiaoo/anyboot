@@ -173,7 +173,7 @@ struct ComputerEditorView: View {
             // 也划不掉这个弹窗，而底部只有「保存」—— 被卡死（移动端复现的
             // 「只有保存、没有取消」）。现在任何情况都保留关闭入口。
             HStack(spacing: 8) {
-                Text(editing ? "编辑这台电脑"
+                Text(editing ? L("rowMenu.edit")
                      : (firstRun ? L("remote.connectTitle") : L("menu.add")))
                     .font(.system(size: 15, weight: .bold))
                     .foregroundColor(ABColor.fg)
@@ -941,7 +941,7 @@ struct ComputerEditorView: View {
                 Text(L("remote.jumpLabel"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
-                Text(entry.jump.isEmpty ? "直连（不经跳板机）" : jumpName(entry.jump))
+                Text(entry.jump.isEmpty ? L("and.directNoJump") : jumpName(entry.jump))
                     .font(.system(size: 11))
                     .foregroundColor(entry.jump.isEmpty ? ABColor.fgDim : ABColor.fg)
                     .lineLimit(1)
@@ -1060,15 +1060,15 @@ struct ComputerEditorView: View {
     private func routeSub(_ kind: String) -> String {
         switch kind {
         case ServerProfile.routeLan:
-            return addressEntries.first { !$0.address.trimmedAnyBoot.isEmpty }?.address ?? "未填局域网地址"
+            return addressEntries.first { !$0.address.trimmedAnyBoot.isEmpty }?.address ?? L("and.noLanAddr")
         case ServerProfile.routeJump:
             let bound = addressEntries.filter {
                 !$0.address.trimmedAnyBoot.isEmpty && !$0.jump.isEmpty
             }
             if bound.isEmpty { return L("and.noJumpProfile") }
-            if bound.count == 1 { return "经 " + jumpName(bound[0].jump) + " → " + bound[0].address }
+            if bound.count == 1 { return L("and.viaJump").replacingOccurrences(of: "{j}", with: jumpName(bound[0].jump)).replacingOccurrences(of: "{a}", with: bound[0].address) }
             // 三个直连三台跳板机：副标只报数量，明细在各自的地址卡片里
-            return "\(bound.count) 个地址各走跳板机"
+            return L("and.nAddrsViaJump")
         default:
             let empty: String
             switch kind {
@@ -1097,8 +1097,7 @@ struct ComputerEditorView: View {
 
     private var powerFoldContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            fieldLabel("局域网电源路由（可选：每个动作发到哪个地址、哪个端口。"
-                + "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）")
+            fieldLabel(L("and.lanPowerRouteLabel"))
             if draft.powerRoutes.isEmpty {
                 Text(L("and.noRouteHint"))
                     .font(.system(size: 11))
@@ -1404,7 +1403,7 @@ private struct PairEditRowView: View {
                         .font(.system(size: 13))
                         .abField()
                 } else {
-                    Text(token.isEmpty ? "（未配）" : masked)
+                    Text(token.isEmpty ? L("and.unconfiguredParen") : masked)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundColor(ABColor.fgDim)
                         .lineLimit(expanded ? 3 : 1)
