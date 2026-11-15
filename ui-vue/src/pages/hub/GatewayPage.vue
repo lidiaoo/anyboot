@@ -2,6 +2,7 @@
 const toast = useToastStore();
 const ui = useUiStateStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { call, isTauri } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
@@ -126,42 +127,39 @@ const tsSvcBusy = ref(false);
 /** Tailscale 状态文案（旧版 tsStateText 的 8 个分支） */
 const tsStateText = computed(() => {
   const st = tsStatus.value;
-  if (!st) return "正在检测 Tailscale…";
-  if (!st.installed) return "未检测到 Tailscale";
-  if (tsRunning.value) return "运行中" + (st.dnsName ? " · " + st.dnsName : "");
+  if (!st) return t("gw.tsDetecting");
+  if (!st.installed) return t("gw.tsNotInstalled");
+  if (tsRunning.value) return t("gw.tsRunning") + (st.dnsName ? " · " + st.dnsName : "");
   switch (tsState.value) {
     case "needs_login":
-      return "已安装 · 待登录";
+      return t("gw.tsNeedLogin");
     case "stopped":
-      return "已安装 · 已停止";
+      return t("gw.tsStopped");
     case "needs_gui":
-      return "已安装 · Tailscale.app 未启动";
+      return t("gw.tsAppNotRunning");
     case "needs_reboot":
-      return "已安装 · 需要重启 Mac 才能启用";
+      return t("gw.tsNeedReboot");
     case "needs_approval":
-      return "已安装 · 网络扩展待允许";
+      return t("gw.tsNetExt");
     default:
-      return st.serviceRunning === 0 ? "已安装 · tailscaled 服务未运行" : "已安装 · 状态未知";
+      return st.serviceRunning === 0 ? t("gw.tsDaemonDown") : t("gw.tsUnknown");
   }
 });
 
 /** 未安装态说明（mac 是 .pkg 系统安装器要管理员授权，win 是 setup.exe，linux 是 tarball） */
 const tsDlHint = computed(() =>
   tsStatus.value?.platform === "macos"
-    ? "没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。"
-      + "下载官方安装包后会自动弹出系统安装器（需要管理员授权），装好并登录，再点「重新检测」。"
-    : "没检测到 Tailscale —— 它给两台设备组一个加密虚拟局域网（100.x 地址，不出公网、地址长期固定）。"
-      + "下载完成后安装器会自动弹出，按提示装好并登录，再点「重新检测」。",
+    ? t("gw.tsMissingInstall")
+    : t("gw.tsMissingDmg"),
 );
 
 /** 已保存 AuthKey 时把提示换成「留空不动 / 清空即删除」，避免用户以为要重填 */
 const tsKeyPlaceholder = computed(() =>
-  tsStatus.value?.authkeySet ? "已保存（留空不动，清空后点保存即删除）" : "留空则走浏览器登录",
+  tsStatus.value?.authkeySet ? t("gw.tsAuthkeySavedField") : t("gw.tsAuthkeyEmptyField"),
 );
 const tsKeyHint = computed(() =>
   tsStatus.value?.authkeySet
-    ? "已保存 AuthKey：连接时免浏览器登录（密钥存本机 0600 文件，不进命令行参数）。"
-    : "在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它连接时免浏览器登录。",
+    ? t("gw.tsAuthkeySavedHint") : t("gw.tsAuthkeyHint"),
 );
 /** 登录卡片可见性：待登录恒显示；拿到链接后也留着（up 阻塞期间状态还没转成 needs_login） */
 const tsLoginVisible = computed(
@@ -206,12 +204,12 @@ const tsfState = computed(() => (tsfBusy.value ? "starting" : (tsfStatus.value?.
 const tsfStateText = computed(() => {
   const st = tsfStatus.value;
   const state = tsfState.value;
-  if (state === "starting") return "正在开启 Funnel…";
-  if (state === "needs_authorize") return st?.message || "需要官方授权后才能开启";
-  if (state === "ready") return st?.url ? "Funnel 已开启" : "Funnel 已开启（未取得地址）" + (st?.message ? "：" + st.message : "");
-  if (state === "unavailable") return st?.message || "Tailscale 未就绪，装好并登录后可开启";
-  if (state === "error") return "开启失败" + (st?.message ? "：" + st.message : "");
-  return "Funnel 未开启";
+  if (state === "starting") return t("gw.funnelStarting");
+  if (state === "needs_authorize") return st?.message || t("gw.funnelNeedAuth");
+  if (state === "ready") return st?.url ? t("gw.funnelReady") : t("gw.funnelReadyNoUrl") + (st?.message ? ": " + st.message : "");
+  if (state === "unavailable") return st?.message || t("gw.funnelUnavailable");
+  if (state === "error") return t("gw.funnelError") + (st?.message ? ": " + st.message : "");
+  return t("gw.funnelOff");
 });
 
 /** 命名隧道配置（旧版 #gwNamedToken / #gwNamedUrl） */
@@ -230,9 +228,9 @@ watch(config, (cfg) => {
 function toggleAutostart() {
   const next = !config.value?.autostart;
   void run(
-    next ? "开启自启" : "关闭自启",
+    next ? t("gw.autostartOn") : t("gw.autostartOff"),
     () => call("gateway_set_autostart", { channel: "tunnel", enabled: next }),
-    next ? "已开启自启" : "已关闭自启",
+    next ? t("gw.autostartDoneOn") : t("gw.autostartDoneOff"),
   );
 }
 /** Tailscale 授权密钥输入（旧版 #tsKey） */
@@ -262,10 +260,10 @@ const tsnRunning = computed(
 
 const tsnStateText = computed(() => {
   const s = tsnStatus.value?.state;
-  if (s === "needs_auth") return "需要登录 Tailscale 账号";
-  if (s === "ready") return "内置引擎已就绪";
-  if (s === "error") return "内置引擎出错";
-  return "内置引擎未开启";
+  if (s === "needs_auth") return t("gw.tsnetNeedAuth");
+  if (s === "ready") return t("gw.tsnetReady");
+  if (s === "error") return t("gw.tsnetError");
+  return t("gw.tsnetOff");
 });
 
 /** 开关引擎（旧版 #tsnSw change） */
@@ -278,8 +276,8 @@ function tsnToggle() {
 /** 打开 Tailscale 登录页（旧版校验 URL 必须是 login.tailscale.com） */
 function copyLoginUrl() {
   const url = loginLink();
-  if (!url) { toast.show("还没有登录链接 —— 先点连接或重新生成", "bad"); return; }
-  const done = () => toast.show("登录链接已复制（约 10 分钟内有效，过期点「重新生成链接」）");
+  if (!url) { toast.show(t("gw.noLoginLink"), "bad"); return; }
+  const done = () => toast.show(t("gw.loginLinkCopied"));
   try {
     if (navigator.clipboard && window.isSecureContext) { void navigator.clipboard.writeText(url).then(done).catch(() => toast.show("复制失败", "bad")); return; }
   } catch { /* fallthrough */ }
@@ -288,7 +286,7 @@ function copyLoginUrl() {
 function regenLoginUrl() {
   // 旧版：把开关拨到「开」再走一遍 up（等同关开一次），拿新链接
   if (tsBusy.value) {
-    toast.show("上一次开关操作还在执行，稍等一下", "bad");
+    toast.show(t("gw.busyOp"), "bad");
     return;
   }
   tsSetUp(true);
@@ -302,15 +300,15 @@ function loginLink(): string {
 }
 async function openLoginPage() {
   const url = loginLink();
-  if (!url) { toast.show("还没有有效登录链接 —— 先点连接或重新生成", "bad"); return; }
+  if (!url) { toast.show(t("gw.noValidLink"), "bad"); return; }
   const { isTauri } = await import("@/api/tauri");
-  if (!isTauri()) { const w = window.open(url, "_blank"); if (!w) toast.show("浏览器拦截了弹窗，请允许后重试", "bad"); return; }
+  if (!isTauri()) { const w = window.open(url, "_blank"); if (!w) toast.show(t("hub.toast.popupBlocked"), "bad"); return; }
   void call("remote_open_page", { url }).catch((e) => toast.show("打开登录页失败：" + e, "bad"));
 }
 
 function tsnOpenSetup() {
   const url = tsnStatus.value?.setupUrl;
-  if (!url) { toast.show("开通地址无效", "bad"); return; }
+  if (!url) { toast.show(t("gw.invalidUrl"), "bad"); return; }
   void call("remote_open_page", { url }).catch((e) => toast.show("开通地址无效：" + e, "bad"));
 }
 
@@ -336,23 +334,23 @@ async function refreshTsn() {
 }
 
 function tsnEnable() {
-  void run("启用内置引擎", () => call("tsnet_enable"), "内置引擎已启用");
+  void run(t("gw.enableBuiltin"), () => call("tsnet_enable"), t("gw.enableBuiltinDone"));
 }
 
 function tsnDisable() {
-  void run("停用内置引擎", () => call("tsnet_disable"), "内置引擎已停用");
+  void run(t("gw.disableBuiltin"), () => call("tsnet_disable"), t("gw.disableBuiltinDone"));
 }
 
 function tsnLogout() {
-  void run("退出内置引擎", () => call("tsnet_logout"), "已退出登录");
+  void run(t("gw.logoutBuiltin"), () => call("tsnet_logout"), t("gw.logoutBuiltinDone"));
 }
 
 function tsnUninstall() {
-  void run("卸载内置引擎", () => call("tsnet_uninstall"), "已卸载");
+  void run(t("gw.uninstallBuiltin"), () => call("tsnet_uninstall"), t("gw.uninstallBuiltinDone"));
 }
 
 function tsnSaveKey() {
-  void run("保存密钥", () => call("tsnet_set_authkey", { key: tsnKey.value.trim() }), "密钥已保存");
+  void run(t("gw.saveKey"), () => call("tsnet_set_authkey", { key: tsnKey.value.trim() }), t("gw.saveKeyDone"));
 }
 
 /** Tailscale 自启（旧版 #tsAutostart） */
@@ -404,7 +402,7 @@ function clearTsnLogs() {
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
-    message.value = "已复制到剪贴板";
+    message.value = t("gw.copied");
     toast.show("已复制到剪贴板");
   } catch {
     /* 剪贴板不可用 */
