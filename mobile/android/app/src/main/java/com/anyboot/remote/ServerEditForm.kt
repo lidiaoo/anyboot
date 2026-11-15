@@ -151,14 +151,6 @@ internal data class PairEdit(
 /** 表单的全部可编辑状态；宿主保存时读这里的当前值 */
 /** 五通道 id（连接优先级用；与 ServerProfile 的 ROUTE_* 常量一致） */
 private val ROUTE_IDS_ALL = listOf("lan", "jump", "tunnel", "ts", "funnel", "tsnet")
-private val ROUTE_LABELS_ZH = mapOf(
-    "lan" to "直连",
-    "jump" to "跳板机",
-    "tunnel" to "Cloudflare 隧道",
-    "ts" to "Tailscale 直连",
-    "funnel" to "Tailscale Funnel",
-    "tsnet" to "Tailscale Funnel（内建）",
-)
 
 internal class ServerEditFormState(
     val profile: ServerProfile?,
@@ -225,6 +217,16 @@ internal class ServerEditFormState(
     }
 
     /** 有没有配对（保存时据此决定是否 clearRemote） */
+    fun routeLabel(kind: String): String = when (kind) {
+        "lan" -> context.getString(R.string.hub_route_lan)
+        "jump" -> context.getString(R.string.hub_route_jump)
+        "tunnel" -> context.getString(R.string.and_routeTunnel)
+        "ts" -> context.getString(R.string.and_routeTs)
+        "funnel" -> context.getString(R.string.and_routeFunnel)
+        "tsnet" -> context.getString(R.string.and_routeTsnet)
+        else -> kind
+    }
+
     fun hasPairs(): Boolean = pairItems.any { it.addr.isNotBlank() }
 
     /** 某个区块里的配对（保持列表顺序） */
@@ -1020,7 +1022,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 )
                 Column(Modifier.weight(1f)) {
                     Text(
-                        ROUTE_LABELS_ZH[kind] ?: kind,
+                        state.routeLabel(kind),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (available) palette.fg else palette.fgFaint,
@@ -1459,11 +1461,11 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "MAC：" + if (route.macs.isEmpty()) {
-                            "全部（${state.macPool.size} 块）"
+                        stringResource(R.string.and_macWith, if (route.macs.isEmpty()) {
+                            stringResource(R.string.and_allMacsN, state.macPool.size)
                         } else {
-                            "${route.macs.size} / ${state.macPool.size} 块"
-                        },
+                            stringResource(R.string.and_nOfMBlocks, route.macs.size, state.macPool.size)
+                        }),
                         fontSize = 11.sp, color = palette.fgFaint,
                         modifier = Modifier.weight(1f),
                     )
@@ -1473,7 +1475,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         },
                         enabled = state.macPool.isNotEmpty(),
                     ) {
-                        Text(if (state.macPool.isEmpty()) "没配 MAC" else "选择", fontSize = 12.sp)
+                        Text(if (state.macPool.isEmpty()) stringResource(R.string.hub_power_noMac) else stringResource(R.string.and_select), fontSize = 12.sp)
                     }
                 }
                 if (state.macMenuIndex == index && state.macPool.isNotEmpty()) {
@@ -1489,7 +1491,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             },
                     ) {
                         Checkbox(checked = route.macs.isEmpty(), onCheckedChange = null)
-                        Text("全部网卡", fontSize = 11.sp, color = palette.fgDim)
+                        Text(stringResource(R.string.and_allNics), fontSize = 11.sp, color = palette.fgDim)
                     }
                     if (route.macs.isNotEmpty()) {
                         state.macPool.forEach { mac ->
@@ -1527,7 +1529,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
                             state.routeList[index] = route.withCounts(number, route.retry)
                         },
-                        label = { Text(if (waking) "每块发几个包" else "发几个包", fontSize = 10.sp) },
+                        label = { Text(if (waking) stringResource(R.string.and_packetsPerNic) else stringResource(R.string.and_packets), fontSize = 10.sp) },
                         placeholder = { Text(route.defaultBurst().toString(), fontSize = 11.sp) },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
@@ -1542,7 +1544,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             val number = value.filter { it.isDigit() }.take(2).toIntOrNull() ?: 0
                             state.routeList[index] = route.withCounts(route.burst, number)
                         },
-                        label = { Text("重试次数", fontSize = 10.sp) },
+                        label = { Text(stringResource(R.string.and_retryCount), fontSize = 10.sp) },
                         placeholder = { Text(route.defaultRetry().toString(), fontSize = 11.sp) },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall,
@@ -1551,7 +1553,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     )
                 }
                 Text(
-                    "重试 = 没发出去就隔 0.2 秒再打一轮；走跳板机时每轮重试都会重新连接跳板机，直到次数用完。",
+                    stringResource(R.string.and_retryHint),
                     fontSize = 9.5.sp,
                     color = palette.fgFaint,
                     modifier = Modifier.padding(top = 3.dp),
@@ -1567,8 +1569,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     modifier = Modifier.padding(top = 8.dp),
                 )
                 Text(
-                    "调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。" +
-                        "混合模式 = HTTP 与广播包同时发。",
+                    stringResource(R.string.and_powerApiHint),
                     fontSize = 10.sp, color = palette.fgFaint,
                 )
             }
@@ -1580,7 +1581,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     .withCounts(10, 10)
                     .withMode("auto")
             )
-        }) { Text("+ 添加一条路由", fontSize = 13.sp) }
+        }) { Text(stringResource(R.string.and_addRoute), fontSize = 13.sp) }
         } // end if (state.powerFoldOpen)
 
         Spacer(Modifier.height(4.dp))
@@ -1779,7 +1780,7 @@ private fun PairEditRow(
                     onCheckedChange = { on -> state.updatePair(item.id) { it.copy(enabled = on) } },
                     modifier = Modifier.scale(0.7f),
                 )
-                Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                Text(stringResource(R.string.and_enable), fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
             }
             // 「是否展示」（2026-10-31 改口径，原「是否展示连通性」，与 PC 端
             // rsPairRow 同款）：默认开；关掉后电脑列表整行不展示这条配对
@@ -1790,7 +1791,7 @@ private fun PairEditRow(
                     onCheckedChange = { on -> state.updatePair(item.id) { it.copy(showProbe = on) } },
                     modifier = Modifier.scale(0.7f),
                 )
-                Text("展示", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                Text(stringResource(R.string.and_display), fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
             }
             OutlinedTextField(
                 value = addrText,
@@ -1800,7 +1801,7 @@ private fun PairEditRow(
                 },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
-                placeholder = { Text("地址（https://… 或 100.x:12300）", fontSize = 11.sp) },
+                placeholder = { Text(stringResource(R.string.and_addrPh3), fontSize = 11.sp) },
                 modifier = Modifier.weight(1f),
             )
             TinyTextButton(
@@ -1836,14 +1837,14 @@ private fun PairEditRow(
                 Spacer(Modifier.width(6.dp))
             }
             Text(
-                item.sourceLabel.ifEmpty { "手填" },
+                item.sourceLabel.ifEmpty { stringResource(R.string.and_manualEntry) },
                 fontSize = 10.sp, color = palette.fgFaint,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
             InlineTimeoutField(
-                label = "超时",
+                label = stringResource(R.string.and_timeout),
                 value = item.timeoutText,
                 enabled = item.enabled,
                 onValueChange = { raw ->
@@ -1853,7 +1854,7 @@ private fun PairEditRow(
             )
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("令牌", fontSize = 10.sp, color = palette.fgFaint)
+            Text(stringResource(R.string.and_token), fontSize = 10.sp, color = palette.fgFaint)
             Spacer(Modifier.width(6.dp))
             if (tokenShown) {
                 OutlinedTextField(
@@ -1868,7 +1869,7 @@ private fun PairEditRow(
                 )
             } else {
                 Text(
-                    if (item.token.isEmpty()) "（未配）" else state.maskToken(item.token),
+                    if (item.token.isEmpty()) stringResource(R.string.and_unconfiguredParen) else state.maskToken(item.token),
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     color = palette.fgDim,
@@ -1880,10 +1881,10 @@ private fun PairEditRow(
                 )
             }
             TextButton(onClick = { tokenShown = !tokenShown }) {
-                Text(if (tokenShown) "打码" else "改/看", fontSize = 11.sp)
+                Text(if (tokenShown) stringResource(R.string.and_mask) else stringResource(R.string.and_editView), fontSize = 11.sp)
             }
             TextButton(onClick = { onCopy(item.addr) }) {
-                Text("复制地址", fontSize = 11.sp, color = palette.fgDim)
+                Text(stringResource(R.string.and_copyAddr), fontSize = 11.sp, color = palette.fgDim)
             }
         }
         if (expanded && item.token.isNotEmpty() && !tokenShown) {
@@ -1976,12 +1977,12 @@ private fun InlineTimeoutField(
         SmallNumberField(
             value = value,
             enabled = enabled,
-            placeholder = "默认",
+            placeholder = stringResource(R.string.and_default),
             onValueChange = onValueChange,
             modifier = Modifier.width(56.dp),
         )
         Spacer(Modifier.width(2.dp))
-        Text("秒", fontSize = 10.sp, color = palette.fgFaint)
+        Text(stringResource(R.string.and_seconds), fontSize = 10.sp, color = palette.fgFaint)
     }
 }
 /**

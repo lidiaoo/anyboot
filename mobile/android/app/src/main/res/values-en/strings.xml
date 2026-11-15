@@ -1741,6 +1741,31 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
     <string name="and_uploadedWithSpeed">Sent %1$s · %2$s</string>
     <string name="and_uploadedSize">Sent %1$s</string>
     <string name="and_pausedSize">Paused · %1$s</string>
+    <string name="and_routeTunnel">Cloudflare tunnel</string>
+    <string name="and_routeTs">Tailscale direct</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel (built-in)</string>
+    <string name="and_notProbed">Not probed</string>
+    <string name="and_macWith">MAC: %1$s</string>
+    <string name="and_allMacsN">All (%1$d)</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s</string>
+    <string name="and_select">Select</string>
+    <string name="and_allNics">All NICs</string>
+    <string name="and_packetsPerNic">Packets per NIC</string>
+    <string name="and_packets">Packets</string>
+    <string name="and_retryCount">Retries</string>
+    <string name="and_retryHint">Retry = if not sent, try again after 0.2 s; via a jump host, each retry reconnects the jump host until the count runs out.</string>
+    <string name="and_powerApiHint">Calls the computer\'s own /api/power (token shared with connection; no separate config). Hybrid = HTTP and broadcast packet sent together.</string>
+    <string name="and_addRoute">+ Add a route</string>
+    <string name="and_addrPh3">Address (https://… or 100.x:12300)</string>
+    <string name="and_manualEntry">Manual</string>
+    <string name="and_token">Token</string>
+    <string name="and_unconfiguredParen">(not set)</string>
+    <string name="and_mask">Mask</string>
+    <string name="and_editView">Show/edit</string>
+    <string name="and_copyAddr">Copy address</string>
+    <string name="and_emptyAddrHint">Please enter the computer address</string>
+    <string name="and_default">Default</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

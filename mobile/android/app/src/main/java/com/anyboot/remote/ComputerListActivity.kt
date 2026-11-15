@@ -4792,12 +4792,10 @@ class ComputerListActivity : ComponentActivity() {
                     http()
                 } catch (httpError: Exception) {
                     throw Exception(
-                        "${packetError.message ?: "广播包没发出去"}；" +
-                            "HTTP 兜底也失败：${httpError.message ?: "未知错误"}"
+                        getString(R.string.and_solAndHttpFail, packetError.message ?: getString(R.string.and_sendFail), httpError.message ?: getString(R.string.gw_unknownErr))
                     )
                 }
-                "广播包没发出去（${packetError.message ?: "未知错误"}），" +
-                    "已改走它自己的 AnyBoot 接口：$outcome"
+                getString(R.string.and_solFallbackHttp, packetError.message ?: getString(R.string.gw_unknownErr), outcome)
             }
         }
     }
@@ -5046,7 +5044,7 @@ class ComputerListActivity : ComponentActivity() {
      * 完整失败原因走 [probeReason]，垫在地址行下面。
      */
     private fun probeStateText(hit: ProbeEngine.Hit?): String = when {
-        hit == null -> "未探测"
+        hit == null -> getString(R.string.and_notProbed)
         hit.ok -> "通 " + hit.ms + "ms"
         hit.error.contains("未测出") || hit.error.contains("未探测") -> "不通"
         else -> "不通"

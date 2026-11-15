@@ -1741,6 +1741,31 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_uploadedWithSpeed">Отправлено %1$s · %2$s</string>
     <string name="and_uploadedSize">Отправлено %1$s</string>
     <string name="and_pausedSize">Пауза · %1$s</string>
+    <string name="and_routeTunnel">Туннель Cloudflare</string>
+    <string name="and_routeTs">Tailscale напрямую</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel (встроенный)</string>
+    <string name="and_notProbed">Не проверено</string>
+    <string name="and_macWith">MAC: %1$s</string>
+    <string name="and_allMacsN">Все (%1$d)</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s</string>
+    <string name="and_select">Выбрать</string>
+    <string name="and_allNics">Все NIC</string>
+    <string name="and_packetsPerNic">Пакетов на NIC</string>
+    <string name="and_packets">Пакетов</string>
+    <string name="and_retryCount">Повторы</string>
+    <string name="and_retryHint">Повтор = если не отправлено, через 0,2 с ещё раз; через узел каждый повтор переподключает узел до исчерпания.</string>
+    <string name="and_powerApiHint">Вызывает /api/power самого ПК (токен общий с подключением). Гибрид = HTTP и broadcast вместе.</string>
+    <string name="and_addRoute">+ Добавить маршрут</string>
+    <string name="and_addrPh3">Адрес (https://… или 100.x:12300)</string>
+    <string name="and_manualEntry">Вручную</string>
+    <string name="and_token">Токен</string>
+    <string name="and_unconfiguredParen">(не задан)</string>
+    <string name="and_mask">Скрыть</string>
+    <string name="and_editView">Изм./смотр.</string>
+    <string name="and_copyAddr">Копировать адрес</string>
+    <string name="and_emptyAddrHint">Укажите адрес компьютера</string>
+    <string name="and_default">По умолчанию</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

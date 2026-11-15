@@ -1741,6 +1741,31 @@ Telnet：実験的端末のみ。</string>
     <string name="and_uploadedWithSpeed">送信 %1$s · %2$s</string>
     <string name="and_uploadedSize">送信 %1$s</string>
     <string name="and_pausedSize">一時停止 · %1$s</string>
+    <string name="and_routeTunnel">Cloudflare トンネル</string>
+    <string name="and_routeTs">Tailscale 直接</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel（内蔵）</string>
+    <string name="and_notProbed">未検出</string>
+    <string name="and_macWith">MAC：%1$s</string>
+    <string name="and_allMacsN">全て（%1$d 個）</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s 個</string>
+    <string name="and_select">選択</string>
+    <string name="and_allNics">全 NIC</string>
+    <string name="and_packetsPerNic">NIC ごとのパケット数</string>
+    <string name="and_packets">パケット数</string>
+    <string name="and_retryCount">再試行回数</string>
+    <string name="and_retryHint">再試行 = 送れなければ 0.2 秒後にもう一巡。踏み台経由時は回数まで毎回再接続。</string>
+    <string name="and_powerApiHint">この PC 自体の /api/power を呼ぶ（token は接続と共用、別設定不要）。ハイブリッド = HTTP とブロードキャストを同時送信。</string>
+    <string name="and_addRoute">+ ルートを追加</string>
+    <string name="and_addrPh3">アドレス（https://… または 100.x:12300）</string>
+    <string name="and_manualEntry">手入力</string>
+    <string name="and_token">トークン</string>
+    <string name="and_unconfiguredParen">（未設定）</string>
+    <string name="and_mask">伏せ字</string>
+    <string name="and_editView">変更/表示</string>
+    <string name="and_copyAddr">アドレスをコピー</string>
+    <string name="and_emptyAddrHint">PC のアドレスを入力してください</string>
+    <string name="and_default">既定</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

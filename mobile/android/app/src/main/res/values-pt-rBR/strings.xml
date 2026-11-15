@@ -1741,6 +1741,31 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_uploadedWithSpeed">Enviado %1$s · %2$s</string>
     <string name="and_uploadedSize">Enviado %1$s</string>
     <string name="and_pausedSize">Pausado · %1$s</string>
+    <string name="and_routeTunnel">Túnel Cloudflare</string>
+    <string name="and_routeTs">Tailscale direto</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel (embutido)</string>
+    <string name="and_notProbed">Não sondado</string>
+    <string name="and_macWith">MAC: %1$s</string>
+    <string name="and_allMacsN">Todos (%1$d)</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s</string>
+    <string name="and_select">Selecionar</string>
+    <string name="and_allNics">Todas as NICs</string>
+    <string name="and_packetsPerNic">Pacotes por NIC</string>
+    <string name="and_packets">Pacotes</string>
+    <string name="and_retryCount">Tentativas</string>
+    <string name="and_retryHint">Repetir = se não enviado, tenta de novo após 0,2 s; via jump host, cada tentativa reconecta até acabar.</string>
+    <string name="and_powerApiHint">Chama o /api/power do próprio PC (token compartilhado; sem config própria). Híbrido = HTTP e broadcast juntos.</string>
+    <string name="and_addRoute">+ Adicionar rota</string>
+    <string name="and_addrPh3">Endereço (https://… ou 100.x:12300)</string>
+    <string name="and_manualEntry">Manual</string>
+    <string name="and_token">Token</string>
+    <string name="and_unconfiguredParen">(não definido)</string>
+    <string name="and_mask">Mascarar</string>
+    <string name="and_editView">Editar/ver</string>
+    <string name="and_copyAddr">Copiar endereço</string>
+    <string name="and_emptyAddrHint">Informe o endereço do computador</string>
+    <string name="and_default">Padrão</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

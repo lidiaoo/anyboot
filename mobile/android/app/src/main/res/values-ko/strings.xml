@@ -1741,6 +1741,31 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_uploadedWithSpeed">전송됨 %1$s · %2$s</string>
     <string name="and_uploadedSize">전송됨 %1$s</string>
     <string name="and_pausedSize">일시정지 · %1$s</string>
+    <string name="and_routeTunnel">Cloudflare 터널</string>
+    <string name="and_routeTs">Tailscale 직접</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel (내장)</string>
+    <string name="and_notProbed">미탐지</string>
+    <string name="and_macWith">MAC: %1$s</string>
+    <string name="and_allMacsN">전체 (%1$d개)</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s개</string>
+    <string name="and_select">선택</string>
+    <string name="and_allNics">전체 NIC</string>
+    <string name="and_packetsPerNic">NIC당 패킷 수</string>
+    <string name="and_packets">패킷 수</string>
+    <string name="and_retryCount">재시도 횟수</string>
+    <string name="and_retryHint">재시도 = 전송 실패 시 0.2초 후 다시. 점프 호스트 경유 시 횟수까지 매번 재연결.</string>
+    <string name="and_powerApiHint">이 PC의 /api/power 호출(token은 연결과 공유, 별도 설정 불필요). 하이브리드 = HTTP와 브로드캐스트 동시 전송.</string>
+    <string name="and_addRoute">+ 라우트 추가</string>
+    <string name="and_addrPh3">주소 (https://… 또는 100.x:12300)</string>
+    <string name="and_manualEntry">직접 입력</string>
+    <string name="and_token">토큰</string>
+    <string name="and_unconfiguredParen">(미설정)</string>
+    <string name="and_mask">마스킹</string>
+    <string name="and_editView">변경/보기</string>
+    <string name="and_copyAddr">주소 복사</string>
+    <string name="and_emptyAddrHint">컴퓨터 주소를 입력하세요</string>
+    <string name="and_default">기본</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

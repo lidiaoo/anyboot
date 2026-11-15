@@ -1741,6 +1741,31 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_uploadedWithSpeed">Enviado %1$s · %2$s</string>
     <string name="and_uploadedSize">Enviado %1$s</string>
     <string name="and_pausedSize">Pausado · %1$s</string>
+    <string name="and_routeTunnel">Túnel Cloudflare</string>
+    <string name="and_routeTs">Tailscale directo</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel (integrado)</string>
+    <string name="and_notProbed">No sondeado</string>
+    <string name="and_macWith">MAC: %1$s</string>
+    <string name="and_allMacsN">Todos (%1$d)</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s</string>
+    <string name="and_select">Seleccionar</string>
+    <string name="and_allNics">Todas las NICs</string>
+    <string name="and_packetsPerNic">Paquetes por NIC</string>
+    <string name="and_packets">Paquetes</string>
+    <string name="and_retryCount">Reintentos</string>
+    <string name="and_retryHint">Reintentar = si no se envía, tras 0,2 s otra vez; vía host de salto, cada intento reconecta hasta agotar.</string>
+    <string name="and_powerApiHint">Llama al /api/power del propio equipo (token compartido; sin config aparte). Híbrido = HTTP y broadcast juntos.</string>
+    <string name="and_addRoute">+ Añadir ruta</string>
+    <string name="and_addrPh3">Dirección (https://… o 100.x:12300)</string>
+    <string name="and_manualEntry">Manual</string>
+    <string name="and_token">Token</string>
+    <string name="and_unconfiguredParen">(sin definir)</string>
+    <string name="and_mask">Ocultar</string>
+    <string name="and_editView">Editar/ver</string>
+    <string name="and_copyAddr">Copiar dirección</string>
+    <string name="and_emptyAddrHint">Introduce la dirección del equipo</string>
+    <string name="and_default">Predeterminado</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

@@ -1741,6 +1741,31 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_uploadedWithSpeed">已傳 %1$s · %2$s</string>
     <string name="and_uploadedSize">已傳 %1$s</string>
     <string name="and_pausedSize">已暫停 · %1$s</string>
+    <string name="and_routeTunnel">Cloudflare 通道</string>
+    <string name="and_routeTs">Tailscale 直連</string>
+    <string name="and_routeFunnel">Tailscale Funnel</string>
+    <string name="and_routeTsnet">Tailscale Funnel（內建）</string>
+    <string name="and_notProbed">未探測</string>
+    <string name="and_macWith">MAC：%1$s</string>
+    <string name="and_allMacsN">全部（%1$d 塊）</string>
+    <string name="and_nOfMBlocks">%1$s / %2$s 塊</string>
+    <string name="and_select">選擇</string>
+    <string name="and_allNics">全部網卡</string>
+    <string name="and_packetsPerNic">每塊發幾個封包</string>
+    <string name="and_packets">發幾個封包</string>
+    <string name="and_retryCount">重試次數</string>
+    <string name="and_retryHint">重試 = 沒發出去就隔 0.2 秒再打一輪；走跳板機時每輪重試都會重新連線跳板機，直到次數用完。</string>
+    <string name="and_powerApiHint">調這台電腦自帶的 /api/power 介面（token 與連線共用，無需單獨設定）。混合模式 = HTTP 與廣播封包同時發。</string>
+    <string name="and_addRoute">+ 新增一條路由</string>
+    <string name="and_addrPh3">位址（https://… 或 100.x:12300）</string>
+    <string name="and_manualEntry">手填</string>
+    <string name="and_token">權杖</string>
+    <string name="and_unconfiguredParen">（未設）</string>
+    <string name="and_mask">打碼</string>
+    <string name="and_editView">改/看</string>
+    <string name="and_copyAddr">複製位址</string>
+    <string name="and_emptyAddrHint">請填電腦位址</string>
+    <string name="and_default">預設</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>
