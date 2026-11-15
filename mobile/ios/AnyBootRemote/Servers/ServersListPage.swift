@@ -197,8 +197,8 @@ struct ServerCardRow: View {
     private var subtitle: String {
         var text = ""
         if name.isEmpty {
-            text += "用户 " + (server.username.isEmpty ? "root" : server.username)
-            text += " · 端口 \(server.port)"
+            text += L("and.userShort") + " " + (server.username.isEmpty ? "root" : server.username)
+            text += " · " + L("server.kPort") + " \(server.port)"
         } else {
             text += server.addressLabel
         }
@@ -344,7 +344,7 @@ enum TelnetProbe {
             DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
                 connection.cancel()
                 finish(NSError(domain: "telnet", code: -2,
-                               userInfo: [NSLocalizedDescriptionKey: "连接超时"]))
+                               userInfo: [NSLocalizedDescriptionKey: L("and.connTimeout")]))
             }
         }
     }

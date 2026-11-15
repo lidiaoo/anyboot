@@ -685,7 +685,7 @@ struct ComputerTabsView: View {
 
                 ForEach([2, 5, 10, 30, 0], id: \.self) { sec in
                     radioRow(selected: dataRefreshSec == sec,
-                             label: sec == 0 ? "关闭数据刷新"
+                             label: sec == 0 ? L("and.closeDataRefresh")
                                 : L("menu.everyN", sec) + (sec == 2 ? "（默认）" : "")) {
                         DataRefreshPref.sec = sec
                         ABToastBus.shared.show(sec > 0
@@ -825,7 +825,7 @@ struct ComputerTabsView: View {
                         ABToastBus.shared.show(
                             removed > 0
                                 ? L("and.mergedRecords", removed)
-                                : "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同")
+                                : L("and.noMergeNeeded"))
                     }
                     Spacer(minLength: 0)
                     ABButton(title: L("common.add"), kind: .primary, compact: true) {

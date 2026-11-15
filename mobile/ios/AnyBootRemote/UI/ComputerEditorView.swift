@@ -1026,7 +1026,7 @@ struct ComputerEditorView: View {
                 probeChoice(L("and.probeParallelFirst"), mode.wrappedValue == ServerProfile.probeParallelFirst) {
                     mode.wrappedValue = ServerProfile.probeParallelFirst
                 }
-                probeChoice("全部", mode.wrappedValue == ServerProfile.probeParallelAll) {
+                probeChoice(L("and.probeAllShort"), mode.wrappedValue == ServerProfile.probeParallelAll) {
                     mode.wrappedValue = ServerProfile.probeParallelAll
                 }
                 probeChoice(L("remote.probeSerial"), mode.wrappedValue == ServerProfile.probeSerial) {

@@ -115,7 +115,7 @@ struct BackupPage: View {
 
     private var navBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "返回") { nav.back() }
+            ABBarIcon(text: "‹", description: L("and.back")) { nav.back() }
             Text(L("bk.titleFull"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
@@ -173,7 +173,7 @@ struct BackupPage: View {
                         .foregroundColor(ABColor.fgFaint)
                 }
                 Spacer(minLength: 0)
-                Text("（\(count(cat))）")
+                Text(L("and.countParen", count(cat)))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgDim)
             }
@@ -236,7 +236,7 @@ struct BackupPage: View {
         if missing > 0 || needPassword {
             let text = needPassword
                 ? L("and.mustSetPwd")
-                : "\(missing) 台电脑关联的跳板机未包含在本次导出"
+                : L("and.nComputersJumpMissing", missing)
             HStack(spacing: ABMetric.px(6)) {
                 Text(needPassword ? "⚠" : "ℹ")
                     .font(.system(size: 12, weight: .bold))
@@ -289,9 +289,9 @@ struct BackupPage: View {
             }
             Group {
                 if showPassword {
-                    TextField("输入口令", text: $password)
+                    TextField(L("and.inputPwdPh"), text: $password)
                 } else {
-                    SecureField("输入口令", text: $password)
+                    SecureField(L("and.inputPwdPh"), text: $password)
                 }
             }
             .font(.system(size: 13))
@@ -481,7 +481,7 @@ struct BackupPage: View {
                 .buttonStyle(.plain)
                 .disabled(!sync.config.isConfigured || syncing)
                 .opacity(sync.config.isConfigured ? 1 : 0.4)
-                .accessibilityHint(sync.config.isConfigured ? "" : "请先配置 WebDAV 服务器和同步内容")
+                .accessibilityHint(sync.config.isConfigured ? "" : L("and.cfgFirst"))
             }
             .background(RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                 .fill(ABColor.card))
@@ -498,7 +498,7 @@ struct BackupPage: View {
         switch sync.status {
         case .idle:
             if let last = sync.lastSyncAt { return L("bk.lastSync", SyncStatus.timeText(last)) }
-            return "未同步过"
+            return L("bk.neverSynced")
         case .running: return L("and.syncing")
         case .success(let date): return L("bk.lastSync", SyncStatus.timeText(date)) + " · " + L("and.syncSuccess")
         case .failed(let reason): return L("bk.syncFail", reason)
@@ -546,7 +546,7 @@ struct BackupPage: View {
                             .strokeBorder(ABColor.accent, lineWidth: 1.5))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("从文件导入备份")
+                .accessibilityLabel(L("and.importFromFileBackup"))
                 Text(L("and.importHint"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgFaint)
@@ -571,7 +571,7 @@ struct BackupPage: View {
                 showPreview = true
             }
         } catch {
-            ABToastBus.shared.show((error as? BackupError)?.errorDescription ?? "读取文件失败")
+            ABToastBus.shared.show((error as? BackupError)?.errorDescription ?? L("bk.readFileErr"))
         }
     }
 }

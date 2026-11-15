@@ -211,7 +211,7 @@ enum ProbeEngine {
             if ok { break }
         }
         // 没轮到的通道如实标「没探」，逐行结果才能和优先级表对得上
-        fillMissing(&hits, groups, reason: "前面已有通道命中，按串行策略未探测")
+        fillMissing(&hits, groups, reason: L("and.reasonPrevHit"))
         return finish(hits)
     }
 
@@ -267,11 +267,11 @@ enum ProbeEngine {
                 }
                 let reason: String
                 if wonEarly {
-                    reason = "已有通道命中，未测出"
+                    reason = L("and.reasonHitNotMeasured")
                 } else if timedOut {
-                    reason = "探测超时（>\(item.timeoutMs)ms）"
+                    reason = L("and.probeTimeoutMs", item.timeoutMs)
                 } else {
-                    reason = "没有结果（>\(item.timeoutMs)ms）"
+                    reason = L("and.noResultMs", item.timeoutMs)
                 }
                 hits.append(.failure(kind: group.kind, origin: item.origin,
                                      pairId: item.pairId, error: reason))
@@ -299,7 +299,7 @@ enum ProbeEngine {
             for item in group.items where !contains(hits, kind: group.kind,
                                                     origin: item.origin, pairId: item.pairId) {
                 hits.append(.failure(kind: group.kind, origin: item.origin,
-                                     pairId: item.pairId, error: "同通道前面已命中，未探测"))
+                                     pairId: item.pairId, error: L("and.reasonSameChPrevHit")))
             }
             return hits
         }
@@ -329,8 +329,8 @@ enum ProbeEngine {
                 hits.append(hit)
             } else {
                 hits.append(.failure(kind: group.kind, origin: item.origin, pairId: item.pairId,
-                                     error: wonEarly ? "同通道已命中，未测出"
-                                                     : "探测超时（>\(item.timeoutMs)ms）"))
+                                     error: wonEarly ? L("and.reasonHitNotMeasured")
+                                                     : L("and.probeTimeoutMs", item.timeoutMs)))
             }
         }
         return hits
@@ -363,7 +363,7 @@ enum ProbeEngine {
         guard let probe = await HealthProbe.probe(target, remote: remote,
                                                   timeoutMs: item.timeoutMs) else {
             return Hit(kind: kind, origin: rowOrigin, target: target, pairId: item.pairId,
-                       ok: false, ms: 0, error: "连不上（超时或对方没起 HTTP 服务）",
+                       ok: false, ms: 0, error: L("and.connFailTimeoutNoHttp"),
                        machineId: "", machineName: "", os: "")
         }
         return Hit(kind: kind, origin: rowOrigin, target: target, pairId: item.pairId, ok: true,
@@ -403,7 +403,7 @@ enum ProbeEngine {
             if let firstError = hits.first(where: { !$0.error.isEmpty })?.error {
                 result.error = L("and.allChannelsFail", firstError)
             } else {
-                result.error = "所有通道都不通"
+                result.error = L("and.allChannelsDown")
             }
             return result
         }
