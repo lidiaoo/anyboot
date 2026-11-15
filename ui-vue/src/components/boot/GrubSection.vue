@@ -3,6 +3,7 @@
 const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
 import { computed, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call, setLoaderMode } from "@/api/tauri";
@@ -59,7 +60,7 @@ async function setGrubTab(name: "auto" | "manual"): Promise<void> {
     try {
       await setLoaderMode("grub", name);
     } catch (e) {
-      ui.setBootNotice("切换读取方式失败：" + e, true);
+      ui.setBootNotice(t("grub.switchFail", { msg: String(e) }), true);
     }
   }
 }
@@ -155,7 +156,7 @@ const autoBusy = ref(false);
 async function refreshAuto() {
   if (autoBusy.value) return;
   autoBusy.value = true;
-  ui.setBootNotice("正在读取…");
+  ui.setBootNotice(t("grub.reading"));
   try {
     // 「重新读取」：循环重试直到读到条目或达到上限（期间按钮保持“读取中…”）。
     // 不带 auto → Elevation::Allow（首轮可能弹一次授权）。
@@ -174,15 +175,15 @@ async function refreshAuto() {
     }
     // 统一文案：扫描不到条目只提示「GRUB」扫描完成，但没有识别到条目（不标红、不带长诊断）。
     if (okN > 0) {
-      ui.setBootNotice(`「GRUB」扫描完成，识别到 ${okN} 条`);
+      ui.setBootNotice(t("grub.scanDone", { name: "GRUB", n: okN }));
     } else if (lastErr) {
-      ui.setBootNotice("「GRUB」扫描失败：" + lastErr, true);
+      ui.setBootNotice(t("grub.scanFail", { name: "GRUB", msg: String(lastErr) }), true);
     } else {
-      ui.setBootNotice("「GRUB」扫描完成，但没有识别到条目");
+      ui.setBootNotice(t("grub.scanEmpty", { name: "GRUB" }));
     }
     void call("refresh").catch(() => {});
   } catch (e) {
-    ui.setBootNotice("重新读取失败：" + e, true);
+    ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {
     autoBusy.value = false;
   }
@@ -207,24 +208,24 @@ async function switchEntry(selector: string) {
       await call("switch_grub", { selector });
     }
   } catch (e) {
-    toast.show("切换失败：" + e, "bad");
+    toast.show(t("grub.switchFailToast", { msg: String(e) }), "bad");
   }
 }
 </script>
 
 <template>
-  <section aria-label="GRUB 启动项" class="grub" id="grub">
+  <section :aria-label="$t('grub.sectionTitle', { name: 'GRUB' })" class="grub" id="grub">
     <div v-if="!props.hideList" class="grub-head">
       <div class="grub-title-row">
-        <span class="zone-tag" id="grub-zone-tag">GRUB 区</span>
-        <h2>GRUB 启动项</h2>
+        <span class="zone-tag" id="grub-zone-tag">{{ $t("grub.zone", { name: "GRUB" }) }}</span>
+        <h2>{{ $t("grub.sectionTitle", { name: "GRUB" }) }}</h2>
       </div>
       <small class="grub-pane-status" id="grub-status" role="status" />
-      <small id="grub-meta">{{ grubManual?.syncedAt ? `同步于 ${grubManual.syncedAt}` : "" }}</small>
+      <small id="grub-meta">{{ grubManual?.syncedAt ? $t("grub.syncedAt", { t: grubManual.syncedAt }) : "" }}</small>
     </div>
 
     <!-- 两个横向标签 -->
-    <div class="grub-tabs" id="grub-tabs" role="tablist" aria-label="GRUB 读取方式">
+    <div class="grub-tabs" id="grub-tabs" role="tablist" :aria-label="$t('grub.tabsAria', { name: 'GRUB' })">
       <button
         type="button"
         id="grub-tab-auto"
@@ -235,7 +236,7 @@ async function switchEntry(selector: string) {
         data-grub-tab="auto"
         @click="setGrubTab('auto')"
       >
-        自动读取
+        {{ $t("grub.tabAuto") }}
       </button>
       <button
         type="button"
@@ -247,7 +248,7 @@ async function switchEntry(selector: string) {
         data-grub-tab="manual"
         @click="setGrubTab('manual')"
       >
-        手动解析
+        {{ $t("grub.tabManual") }}
       </button>
     </div>
 
@@ -258,18 +259,18 @@ async function switchEntry(selector: string) {
       id="grub-panel-auto"
       role="tabpanel"
     >
-      <section aria-label="自动读取（Linux 分区自己的 GRUB）" class="grub-auto" id="grub-auto">
+      <section :aria-label="$t('grub.autoAria')" class="grub-auto" id="grub-auto">
         <div class="grub-auto-head">
-          <h3>直接读 Linux 分区自己的 grub.cfg <small>不用装 09_anyboot</small></h3>
+          <h3>{{ $t("grub.autoTitle") }} <small>{{ $t("grub.autoTitleSub") }}</small></h3>
           <button
             type="button"
             id="grub-auto-refresh"
             class="secondary"
             :disabled="autoBusy"
-            title="按下方选的 ESP 分区重新定位 Linux 分区并读取"
+            :title="$t('grub.reprobeTitle')"
             @click="refreshAuto"
           >
-            {{ autoBusy ? "读取中…" : "重新读取" }}
+            {{ autoBusy ? $t("grub.reading") : $t("grub.reread") }}
           </button>
         </div>
 
@@ -325,43 +326,43 @@ async function switchEntry(selector: string) {
         />
         <!-- 空状态（旧版 #grub-empty），无条目时显示 -->
         <div v-if="!manualEntries.length" id="grub-empty" class="grub-empty-state">
-          <strong>还没识别到 GRUB 启动信息</strong>
+          <strong>{{ $t("grub.notFoundTitle", { name: "GRUB" }) }}</strong>
           <small>选 ESP 分区里的文件夹去识别，或直接填下面的 fs-uuid —— 两种方式填一个就行，另一个会自动对上</small>
           <div class="actions">
-            <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">选择文件夹识别…</button>
+            <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">{{ $t("grub.pickDir") }}</button>
           </div>
         </div>
       </div>
 
       <!-- 安装 / 卸载 09_anyboot（旧版 #grub-install-actions） -->
       <div class="actions" id="grub-install-actions">
-        <button type="button" class="secondary" id="grub-install" @click="installAnyboot">安装 09_anyboot</button>
-        <button type="button" class="secondary" id="grub-uninstall" @click="uninstallAnyboot">卸载 09_anyboot</button>
+        <button type="button" class="secondary" id="grub-install" @click="installAnyboot">{{ $t("grub.install") }}</button>
+        <button type="button" class="secondary" id="grub-uninstall" @click="uninstallAnyboot">{{ $t("grub.uninstall") }}</button>
       </div>
 
       <!-- 执行过程（旧版 #grub-log-box） -->
       <details v-if="grubManual?.scriptLog" id="grub-log-box" class="grub-log">
-        <summary id="grub-log-summary">执行过程</summary>
+        <summary id="grub-log-summary">{{ $t("grub.logSummary") }}</summary>
         <pre id="grub-log">{{ grubManual.scriptLog }}</pre>
       </details>
 
       <!-- 内置脚本编辑（旧版 details.grub-script） -->
       <details class="grub-script">
-        <summary>查看 / 修改内置脚本（09_anyboot）</summary>
+        <summary>{{ $t("grub.scriptSummary") }}</summary>
         <small
           >安装时只把 <code>@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
           清空后保存 = 恢复内置模板</small
         >
         <textarea id="grub-script" v-model="scriptText" rows="8" spellcheck="false" />
         <div class="actions">
-          <button type="button" class="secondary" id="grub-script-save" @click="saveScript">保存脚本</button>
-          <button type="button" class="secondary" id="grub-script-reset" @click="resetScript">恢复内置</button>
+          <button type="button" class="secondary" id="grub-script-save" @click="saveScript">{{ $t("grub.scriptSave") }}</button>
+          <button type="button" class="secondary" id="grub-script-reset" @click="resetScript">{{ $t("grub.scriptReset") }}</button>
         </div>
       </details>
 
       <!-- 引导配置须知（旧版 .grub-advice，原文照抄） -->
       <small class="grub-advice" id="grub-advice">
-        <strong>引导配置须知</strong>
+        <strong>{{ $t("grub.noticeTitle") }}</strong>
         <ul>
           <li>
             Linux 必须开启 <strong>os-prober</strong>：在 <code>/etc/default/grub</code> 里加

@@ -9,6 +9,7 @@ const props = withDefaults(
 const toast = useToastStore();
 const settings = useSettingsStore();
 import { computed, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call, setLoaderMode } from "@/api/tauri";
@@ -80,7 +81,7 @@ async function setRefindTab(name: "auto" | "manual"): Promise<void> {
     try {
       await setLoaderMode(props.channel, name);
     } catch (e) {
-      ui.setBootNotice("切换读取方式失败：" + e, true);
+      ui.setBootNotice(t("grub.switchFail", { msg: String(e) }), true);
     }
   }
 }
@@ -112,7 +113,7 @@ const simBusy = ref(false);
 async function refreshSim() {
   if (simBusy.value) return;
   simBusy.value = true;
-  ui.setBootNotice("正在读取…");
+  ui.setBootNotice(t("grub.reading"));
   try {
     // 循环重试直到读到条目或达上限；期间按钮保持“读取中…”
     const MAX_TRIES = 1; // T8: 扫描已快，不再连打多次（失败一次即报错）
@@ -139,11 +140,11 @@ async function refreshSim() {
     }
     // 统一文案：扫描不到任何条目时只提示「扫描完成，但没有识别到条目」
     // （不再带一长串诊断/error，也不标红 —— 没装/没条目是正常状态）。
-    if (okN > 0) ui.setBootNotice(`「${who.value}」扫描完成，识别到 ${okN} 条`);
-    else if (lastErr) ui.setBootNotice(`「${who.value}」扫描失败：` + lastErr, true);
-    else { void last; ui.setBootNotice(`「${who.value}」扫描完成，但没有识别到条目`); }
+    if (okN > 0) ui.setBootNotice(t("grub.scanDone", { name: who.value, n: okN }));
+    else if (lastErr) ui.setBootNotice(t("grub.scanFail", { name: who.value, msg: String(lastErr) }), true);
+    else { void last; ui.setBootNotice(t("grub.scanEmpty", { name: who.value })); }
   } catch (e) {
-    ui.setBootNotice("重新读取失败：" + e, true);
+    ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {
     simBusy.value = false;
     // **不要在这里再 call("refresh")**：refind_sim_scan 已经把 sim 算好并写回
@@ -180,16 +181,16 @@ async function selectEntry(selector: string) {
       await call("refind_sim_switch", { title: selector, channel: props.channel });
     }
   } catch (e) {
-    toast.show("切换失败：" + e, "bad");
+    toast.show(t("grub.switchFailToast", { msg: String(e) }), "bad");
   }
 }
 </script>
 
 <template>
-  <section :aria-label="`${who} 启动项`" class="refind" :id="uid('refind')">
+  <section :aria-label="$t('grub.sectionTitle', { name: who })" class="refind" :id="uid('refind')">
     <div v-if="!props.hideList" class="grub-title-row">
-      <span class="zone-tag" :id="uid('refind-zone-tag')">{{ who }} 区</span>
-      <h2>{{ who }} 启动项</h2>
+      <span class="zone-tag" :id="uid('refind-zone-tag')">{{ $t("grub.zone", { name: who }) }}</span>
+      <h2>{{ $t("grub.sectionTitle", { name: who }) }}</h2>
     </div>
 
     <!-- 面板一：自动扫描 -->
@@ -199,9 +200,9 @@ async function selectEntry(selector: string) {
       :id="uid('refind-panel-auto')"
       role="tabpanel"
     >
-      <section :aria-label="'模拟引导项扫描'" class="sim-scan" :id="uid('sim-scan')">
+      <section :aria-label="$t('refind.simScan')" class="sim-scan" :id="uid('sim-scan')">
         <div class="sim-scan-head">
-          <h3>模拟引导项扫描</h3>
+          <h3>{{ $t("refind.simScan") }}</h3>
           <small
             >按 {{ who }} 规则复算 · 点条目展开第二层（{{ who }} 里按 Tab / + / F2 进入）·
             「下次启动」写 PreviousBoot</small
@@ -211,10 +212,10 @@ async function selectEntry(selector: string) {
             :id="uid('sim-scan-refresh')"
             class="secondary"
             :disabled="simBusy"
-            title="重新读一遍 ESP 与引导器配置，重算菜单"
+            :title="$t('refind.reprobeTitle')"
             @click="refreshSim"
           >
-            {{ simBusy ? "读取中…" : "重新读取" }}
+            {{ simBusy ? $t("grub.reading") : $t("grub.reread") }}
           </button>
         </div>
 
@@ -242,7 +243,7 @@ async function selectEntry(selector: string) {
              折叠面板）里也必须能展开看到，否则用户只看到「N 项」却点开是空的
              （用户报「被隐藏的项折叠没显示条目」）。所以这里去掉 v-if="!props.hideList"。 -->
         <details v-if="hiddenEntries.length" class="sim-scan-hidden" :id="uid('sim-scan-hidden')">
-          <summary>被隐藏的 <b :id="uid('sim-scan-hidden-count')">{{ hiddenEntries.length }}</b> 项（{{ who }} 菜单里看不到）</summary>
+          <summary>{{ $t("refind.hiddenCount", { n: hiddenEntries.length, who }) }}</summary>
           <div class="sim-scan-list" :id="uid('sim-scan-hidden-list')">
             <GrubList :entries="hiddenEntries" :active-selector="''" />
           </div>
@@ -257,7 +258,7 @@ async function selectEntry(selector: string) {
       :id="uid('refind-panel-manual')"
       role="tabpanel"
     >
-      <section :aria-label="'可启动系统'" :id="uid('systems')">
+      <section :aria-label="$t('refind.systemsAria')" :id="uid('systems')">
         <GrubList
           v-if="!props.hideList"
           :entries="
@@ -272,7 +273,7 @@ async function selectEntry(selector: string) {
     </div>
 
     <!-- 两个横向标签 -->
-    <div class="grub-tabs" :id="uid('refind-tabs')" role="tablist" :aria-label="`${who} 读取方式`">
+    <div class="grub-tabs" :id="uid('refind-tabs')" role="tablist" :aria-label="$t('grub.tabsAria', { name: who })">
       <button
         type="button"
         :id="uid('refind-tab-auto')"
@@ -283,7 +284,7 @@ async function selectEntry(selector: string) {
         :data-refind-tab="lp ? 'refindplus-auto' : 'auto'"
         @click="setRefindTab('auto')"
       >
-        自动扫描
+        {{ $t("refind.tabAuto") }}
       </button>
       <button
         type="button"
@@ -295,7 +296,7 @@ async function selectEntry(selector: string) {
         :data-refind-tab="lp ? 'refindplus-manual' : 'manual'"
         @click="setRefindTab('manual')"
       >
-        手动处理
+        {{ $t("refind.tabManual") }}
       </button>
     </div>
 
@@ -304,17 +305,17 @@ async function selectEntry(selector: string) {
          三个命令后端只作用于 rEFInd 通道的槽位（无 channel 参数），refindplus
          的变量目录由后端扫描 EFI/refindplus/vars 自动定位，这里不提供目录设置。 -->
     <section v-if="!lp" class="directory">
-      <label :for="uid('vars-dir')">变量目录</label>
+      <label :for="uid('vars-dir')">{{ $t("refind.varsDir") }}</label>
       <input
         :id="uid('vars-dir')"
         v-model="varsDir"
-        placeholder="留空则自动扫描 EFI/refind/vars"
+        :placeholder="$t('refind.varsDirPh')"
         spellcheck="false"
         type="text"
       />
       <div class="actions">
-        <button type="button" :id="uid('open-vars-dir')" class="secondary" @click="openVarsDir">打开变量目录</button>
-        <button type="button" :id="uid('use-directory')" @click="useDirectory">使用此目录</button>
+        <button type="button" :id="uid('open-vars-dir')" class="secondary" @click="openVarsDir">{{ $t("refind.openVarsDir") }}</button>
+        <button type="button" :id="uid('use-directory')" @click="useDirectory">{{ $t("refind.useDir") }}</button>
         <button
           v-if="ui.status?.temporaryMount"
           type="button"
@@ -322,9 +323,9 @@ async function selectEntry(selector: string) {
           class="secondary"
           @click="unmountTemp"
         >
-          卸载临时挂载
+          {{ $t("refind.unmountTmp") }}
         </button>
-        <button type="button" :id="uid('refresh')" class="secondary" @click="scan">扫描</button>
+        <button type="button" :id="uid('refresh')" class="secondary" @click="scan">{{ $t("refind.scan") }}</button>
       </div>
     </section>
   </section>

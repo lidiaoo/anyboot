@@ -45,7 +45,7 @@
 
 ### P3 系统引导页
 - [ ] **P3.1** `components/boot/BootList.vue`：区块标题、空态、`showGroups`
-- [ ] **P3.2** `components/boot/GrubEntry.vue`：`tagText`（组头 N 项 / 变体 / 只读）、`displayName` 分隔符保持代码
+- [x] **P3.2** `components/boot/GrubEntry.vue`：`tagText`（组头 N 项 / 变体 / 只读）、`displayName` 分隔符保持代码
 - [ ] **P3.3** `components/boot/GrubList.vue`、`GrubSection.vue`、`RefindSection.vue`、`bootRows.ts` 的 `CHILD_SOURCE` 改 key
 - [ ] **P3.4** `components/boot/GrubEsp.vue`：ESP 配置表单（分区/UUID/目录/挂载/保持挂载说明）
 - [ ] **P3.5** `components/boot/{LoaderSettings,ChannelSettings,SolPanel,HelperPrompt,TokenPrompt}.vue`
