@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
-import { SUPPORTED_LOCALES, LOCALE_LABELS, currentPref, setLocale, type LangPref } from "@/i18n";
+import { SUPPORTED_LOCALES, LOCALE_LABELS, currentPref, setLocale, t, type LangPref } from "@/i18n";
 import {
   call,
   setAutostart,
@@ -93,7 +93,7 @@ function applyHttp() {
   // 旧版：端口校验 1-65535 → set_http_bind { bind } 链 set_http_port { port }
   const port = Number(httpPort.value);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    window.dispatchEvent(new CustomEvent("ab-status-bar", { detail: { text: "端口必须是 1-65535 的整数", error: true } }));
+    window.dispatchEvent(new CustomEvent("ab-status-bar", { detail: { text: t("settings.portRange"), error: true } }));
     return;
   }
   void call("set_http_bind", { bind: httpBind.value.trim() }).then(() =>
@@ -174,13 +174,13 @@ function onLangChange(e: Event) {
   setLocale(v);
 }
 const LANG_OPTIONS = [
-  { v: "auto" as LangPref, label: "跟随系统 / Auto" },
+  { v: "auto" as LangPref, label: t("settings.autoLabel") },
   ...SUPPORTED_LOCALES.map((loc) => ({ v: loc as LangPref, label: LOCALE_LABELS[loc] })),
 ];
 </script>
 
 <template>
-  <section aria-label="应用设置" class="settings">
+  <section :aria-label="$t('settings.sectionAria')" class="settings">
     <h2>{{ $t("settings.title") }}</h2>
 
     <!-- 语言 / Language（i18n：Tier0 + Tier1 共 9 种，'auto' 跟随系统） -->
@@ -216,7 +216,7 @@ const LANG_OPTIONS = [
       class="link"
       @click="openLoginItems"
     >
-      打开「登录项与扩展」设置
+      {{ $t("settings.loginItems") }}
     </button>
 
     <!-- 启动时隐藏主界面 -->
@@ -474,7 +474,7 @@ const LANG_OPTIONS = [
     <div class="setting">
       <span class="setting-text">
         <strong>{{ $t("settings.winHeight") }}</strong>
-        <small>拖动实时调整窗口</small>
+        <small>{{ $t("settings.winHeightNote") }}</small>
         <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 560) }} px</small>
       </span>
       <span class="remote-inline">
@@ -497,7 +497,7 @@ const LANG_OPTIONS = [
         <small>{{ $t("settings.resetPosNote") }}</small>
       </span>
       <button type="button" id="reset-main-window-position" class="secondary" @click="commit('reset_main_window_position', {})">
-        重置到屏幕中央
+        {{ $t("settings.resetPosBtn") }}
       </button>
     </div>
 
@@ -507,7 +507,7 @@ const LANG_OPTIONS = [
         <small>{{ $t("settings.resetSizeNote") }}</small>
       </span>
       <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_window_size', {})">
-        重置窗口大小
+        {{ $t("settings.resetSizeBtn") }}
       </button>
     </div>
 
@@ -526,8 +526,8 @@ const LANG_OPTIONS = [
     <!-- Dock / 任务栏 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>隐藏程序（任务栏/Dock）</strong>
-        <small>Linux/Windows 不显示任务栏图标，macOS 不显示 Dock 图标</small>
+        <strong>{{ $t("settings.hideTaskbar") }}</strong>
+        <small>{{ $t("settings.hideTaskbarNote") }}</small>
       </span>
       <input id="hide-from-dock-taskbar"
         type="checkbox"
@@ -539,56 +539,56 @@ const LANG_OPTIONS = [
     <!-- 关闭行为 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>点击窗口 ❌ 时</strong>
-        <small>可在托盘菜单「显示主窗口」中重新打开</small>
+        <strong>{{ $t("settings.onClose") }}</strong>
+        <small>{{ $t("settings.onCloseNote") }}</small>
       </span>
       <select id="close-action"
         :value="s?.closeAction || 'tray'"
         @change="setCloseAction(($event.target as HTMLSelectElement).value as 'tray' | 'quit')"
       >
-        <option value="tray">最小化到托盘</option>
-        <option value="quit">退出程序</option>
+        <option value="tray">{{ $t("settings.optTray") }}</option>
+        <option value="quit">{{ $t("settings.optQuit") }}</option>
       </select>
     </label>
 
     <!-- 托盘菜单样式 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>托盘菜单方式</strong>
-        <small>各自方式=三端各用系统原生托盘菜单（默认）；全局统一=所有平台右键直接展示同一份菜单内容（Windows/macOS 弹自绘菜单窗，Linux 由桌面环境渲染）。切换后重启应用生效</small>
+        <strong>{{ $t("settings.trayMode") }}</strong>
+        <small>{{ $t("settings.trayModeNote") }}</small>
       </span>
       <select id="tray-menu-style"
         :value="s?.trayMenuStyle === 'unified' ? 'unified' : 'classic'"
         @change="commit('set_tray_menu_style', { mode: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="classic">各自方式（默认）</option>
-        <option value="unified">全局统一</option>
+        <option value="classic">{{ $t("settings.optClassic") }}</option>
+        <option value="unified">{{ $t("settings.optUnified") }}</option>
       </select>
     </label>
 
     <!-- 主题 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>界面主题</strong>
-        <small v-if="isGuestUi">亮暗主题跟随查看方（远程管理窗 / 手机 App）显示，不改动这台电脑保存的设置。</small>
-        <small v-else>暗色 / 亮色 / 跟随系统</small>
+        <strong>{{ $t("settings.uiTheme") }}</strong>
+        <small v-if="isGuestUi">{{ $t("settings.uiThemeGuestNote") }}</small>
+        <small v-else>{{ $t("settings.uiThemeNote") }}</small>
       </span>
       <select id="theme"
         :value="isGuestUi ? guestUiTheme : (s?.theme || 'dark')"
         :disabled="isGuestUi"
         @change="commit('set_theme', { theme: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="dark">暗色</option>
-        <option value="light">亮色</option>
-        <option value="system">跟随系统</option>
+        <option value="dark">{{ $t("settings.optDark") }}</option>
+        <option value="light">{{ $t("settings.optLight") }}</option>
+        <option value="system">{{ $t("settings.optSystem") }}</option>
       </select>
     </label>
 
     <!-- 强调色 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>主题色调</strong>
-        <small>点开调色板选强调色，按钮/链接跟着变色（主窗口和 GRUB 窗口同步）</small>
+        <strong>{{ $t("settings.accent") }}</strong>
+        <small>{{ $t("settings.accentNote") }}</small>
       </span>
       <input id="accent-color"
         type="color"
@@ -600,8 +600,8 @@ const LANG_OPTIONS = [
     <!-- 不透明度 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>窗口不透明度</strong>
-        <small>拖动即时预览，松手保存</small>
+        <strong>{{ $t("settings.winOpacity") }}</strong>
+        <small>{{ $t("settings.winOpacityNote") }}</small>
         <small class="setting-state" id="opacity-state">{{ fmtPct(val("opacityPercent", 90)) }}</small>
       </span>
       <input id="opacity"
@@ -616,51 +616,51 @@ const LANG_OPTIONS = [
     </label>
 
     <!-- 远程控制（旧版 section#remote） -->
-    <section aria-label="远程控制" class="settings" id="remote">
-      <h2>远程控制</h2>
+    <section :aria-label="$t('settings.remoteAria')" class="settings" id="remote">
+      <h2>{{ $t("settings.remoteControl") }}</h2>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>HTTP 服务监听</strong>
-          <small class="setting-state" id="http-state">{{ ui.http?.stateText || "正在读取…" }}</small>
+          <strong>{{ $t("settings.httpListen") }}</strong>
+          <small class="setting-state" id="http-state">{{ ui.http?.stateText || $t("settings.httpReading") }}</small>
         </span>
         <input id="http-enabled" type="checkbox" :checked="Boolean(ui.http?.listening)" @change="toggleHttp" />
       </div>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>监听地址 / 端口</strong>
-          <small>默认 0.0.0.0:12300；改成 127.0.0.1 则只能本机或 SSH 隧道访问</small>
+          <strong>{{ $t("settings.listenAddr") }}</strong>
+          <small>{{ $t("settings.listenAddrNote") }}</small>
         </span>
         <span class="remote-inline">
           <input id="http-bind" v-model="httpBind" spellcheck="false" type="text" :disabled="httpDisabled" />
           <input id="http-port" v-model="httpPort" inputmode="numeric" spellcheck="false" type="text" :disabled="httpDisabled" />
-          <button type="button" id="http-apply" class="secondary" @click="applyHttp">应用</button>
+          <button type="button" id="http-apply" class="secondary" @click="applyHttp">{{ $t("settings.apply") }}</button>
         </span>
       </div>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>访问令牌（token）</strong>
-          <small class="setting-state mono" id="token-hint">{{ ui.http?.tokenHint || "（未设置）" }}</small>
-          <small>自己填一个也可以：4–128 位可见 ASCII（字母/数字/符号），不能有空格和中文；清空则服务不启动</small>
+          <strong>{{ $t("settings.tokenTitle") }}</strong>
+          <small class="setting-state mono" id="token-hint">{{ ui.http?.tokenHint || $t("settings.tokenUnset") }}</small>
+          <small>{{ $t("settings.tokenNote") }}</small>
         </span>
         <span class="remote-inline">
-          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" placeholder="自定义 token…" :disabled="httpDisabled" />
-          <button type="button" class="secondary" @click="regenerateToken">重新生成</button>
+          <input id="token-input" v-model="tokenInput" spellcheck="false" type="text" :placeholder="t('settings.tokenInputPh')" :disabled="httpDisabled" />
+          <button type="button" class="secondary" @click="regenerateToken">{{ $t("settings.regenerate") }}</button>
         </span>
       </div>
 
       <div class="remote-hint">
-        <strong>远程怎么调</strong>
-        <small>下面这段默认就展开、含明文 token（注意旁人视线）；上面的令牌 / 地址 / 端口一改，这里立刻同步</small>
-        <pre id="http-hint">点「复制命令」拿含 token 的可直接执行示例（含 ssh 用法）</pre>
+        <strong>{{ $t("settings.howToCall") }}</strong>
+        <small>{{ $t("settings.howToCallNote") }}</small>
+        <pre id="http-hint">{{ $t("settings.copyCmdHint") }}</pre>
         <div class="actions">
-          <button type="button" class="secondary" id="http-hint-copy" @click="copyToken">复制命令</button>
+          <button type="button" class="secondary" id="http-hint-copy" @click="copyToken">{{ $t("settings.copyCmd") }}</button>
         </div>
       </div>
       <div class="remote-log">
-        <strong>最近请求</strong>
+        <strong>{{ $t("settings.recentReq") }}</strong>
         <ol id="http-requests">
           <li v-for="(entry, i) in httpRequests" :key="i">{{ fmtRequest(entry) }}</li>
         </ol>
@@ -668,42 +668,42 @@ const LANG_OPTIONS = [
 
       <div v-if="(ui.http as any)?.occupiedBy" class="port-occupant" id="port-occupant">
         <span class="setting-text">
-          <strong>端口被占用</strong>
+          <strong>{{ $t("settings.portBusy") }}</strong>
           <small class="setting-state" id="port-occupant-message">{{ (ui.http as any)?.occupiedBy || "" }}</small>
-          <small id="port-occupant-hint">端口被别的程序占用时可以重试或结束占用进程</small>
+          <small id="port-occupant-hint">{{ $t("settings.portBusyNote") }}</small>
         </span>
         <span class="remote-inline">
-          <button type="button" id="retry-http" class="secondary" @click="retryHttp">重试监听</button>
-          <button type="button" id="kill-occupant" class="secondary danger" @click="killOccupant">结束占用进程</button>
+          <button type="button" id="retry-http" class="secondary" @click="retryHttp">{{ $t("settings.retryListen") }}</button>
+          <button type="button" id="kill-occupant" class="secondary danger" @click="killOccupant">{{ $t("settings.killOccupant") }}</button>
         </span>
       </div>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>Token 设置</strong>
-          <small>显示 / 复制 / 重新生成访问令牌</small>
+          <strong>{{ $t("settings.tokenSettings") }}</strong>
+          <small>{{ $t("settings.tokenSettingsNote") }}</small>
         </span>
         <span class="remote-inline">
-          <button type="button" id="token-reveal" class="secondary" @click="commit('reveal_http_token', {})">显示</button>
-          <button type="button" id="token-copy" class="secondary" @click="copyToken">复制</button>
-          <button type="button" id="token-regenerate" class="secondary" @click="regenerateToken">重新生成</button>
-          <button type="button" id="token-save" class="secondary" @click="saveToken" :disabled="httpDisabled">保存</button>
+          <button type="button" id="token-reveal" class="secondary" @click="commit('reveal_http_token', {})">{{ $t("settings.show") }}</button>
+          <button type="button" id="token-copy" class="secondary" @click="copyToken">{{ $t("settings.copy") }}</button>
+          <button type="button" id="token-regenerate" class="secondary" @click="regenerateToken">{{ $t("settings.regenerate") }}</button>
+          <button type="button" id="token-save" class="secondary" @click="saveToken" :disabled="httpDisabled">{{ $t("settings.save") }}</button>
         </span>
       </div>
 
       <!-- 远程请求通知（旧版 notify-enabled 起） -->
       <label class="setting">
         <span class="setting-text">
-          <strong>远程请求通知</strong>
-          <small>总开关；关掉后不再弹窗，只在主窗口显示待执行请求</small>
+          <strong>{{ $t("settings.remoteNotify") }}</strong>
+          <small>{{ $t("settings.remoteNotifyNote") }}</small>
         </span>
         <input id="notify-enabled" type="checkbox" :checked="Boolean(s?.notifyEnabled)" @change="commit('set_notify_enabled', { on: !s?.notifyEnabled })" />
       </label>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>远程可触发本机授权框</strong>
-          <small>默认关：远程遇到需要本机授权的操作会直接说明原因，不会挂着等人点确认</small>
+          <strong>{{ $t("settings.remoteAuthDialog") }}</strong>
+          <small>{{ $t("settings.remoteAuthDialogNote") }}</small>
         </span>
         <input id="remote-allow-gui-auth" type="checkbox" :checked="Boolean(s?.remoteAllowGuiAuth)" @change="commit('set_remote_allow_gui_auth', { on: !s?.remoteAllowGuiAuth })" />
       </div>
@@ -711,8 +711,8 @@ const LANG_OPTIONS = [
       <!-- 通知渠道（旧版 http-channel-* / cli-channel-*） -->
       <div class="setting">
         <span class="setting-text">
-          <strong>HTTP 渠道（webhook / curl / 面板）</strong>
-          <small>弹窗通知 + 延迟秒数（0 = 立即执行）</small>
+          <strong>{{ $t("settings.httpChannel") }}</strong>
+          <small>{{ $t("settings.httpChannelNote") }}</small>
         </span>
         <span class="remote-inline">
           <input id="http-channel-notify" type="checkbox" :checked="Boolean(s?.httpChannelNotify)" @change="commit('set_channel_notify', { channel: 'http', enabled: !s?.httpChannelNotify })" :disabled="channelDisabled" />
@@ -722,8 +722,8 @@ const LANG_OPTIONS = [
 
       <div class="setting">
         <span class="setting-text">
-          <strong>SSH / CLI 渠道</strong>
-          <small>ssh 远程调用的通知与延迟（与 webhook 分开配置）</small>
+          <strong>{{ $t("settings.sshChannel") }}</strong>
+          <small>{{ $t("settings.sshChannelNote") }}</small>
         </span>
         <span class="remote-inline">
           <input id="cli-channel-notify" type="checkbox" :checked="Boolean(s?.cliChannelNotify)" @change="commit('set_channel_notify', { channel: 'cli', enabled: !s?.cliChannelNotify })" :disabled="channelDisabled" />
@@ -734,46 +734,46 @@ const LANG_OPTIONS = [
       <!-- 提示音（旧版 setting-sound / play-sound / sound-file-path / sound-apply） -->
       <div class="setting">
         <span class="setting-text">
-          <strong>提示音</strong>
-          <small>收到远程请求时播放提示音（系统默认或自定义文件）</small>
+          <strong>{{ $t("settings.sound") }}</strong>
+          <small>{{ $t("settings.soundNote") }}</small>
         </span>
         <span class="remote-inline">
           <label class="setting" style="border: 0; padding: 0">
             <input id="setting-sound" type="checkbox" :checked="Boolean(s?.playSound)" @change="commit('set_play_sound', { enabled: !s?.playSound })" />
           </label>
-          <button type="button" id="play-sound" class="secondary" @click="commit('set_play_sound', { enabled: true })" :disabled="soundDisabled">试听</button>
-          <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" placeholder="自定义路径（留空用内置音）" />
-          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file_path', { path: soundPath })" :disabled="soundDisabled">应用</button>
+          <button type="button" id="play-sound" class="secondary" @click="commit('set_play_sound', { enabled: true })" :disabled="soundDisabled">{{ $t("settings.preview") }}</button>
+          <input id="sound-file-path" v-model="soundPath" spellcheck="false" type="text" :placeholder="$t('settings.soundPathPh')" />
+          <button type="button" id="sound-apply" class="secondary" @click="commit('set_sound_file_path', { path: soundPath })" :disabled="soundDisabled">{{ $t("settings.apply") }}</button>
         </span>
       </div>
 
       <!-- 打开配置目录（旧版 open-dir-actions / open-config-dir） -->
       <div class="setting" id="open-dir-actions">
-        <button type="button" id="open-config-dir" class="secondary" @click="commit('open_config_dir', {})">打开配置目录（含 trace.log / settings.json）</button>
+        <button type="button" id="open-config-dir" class="secondary" @click="commit('open_config_dir', {})">{{ $t("settings.openConfigDir") }}</button>
       </div>
 
       <!-- 待确认卡（旧版 .pending#pending-card） -->
       <div v-if="(ui.state as any)?.pending" class="pending" id="pending-card">
-        <strong id="pending-title">远程请求待执行</strong>
+        <strong id="pending-title">{{ $t("settings.pendingTitle") }}</strong>
         <p id="pending-detail">{{ (ui.state as any).pending.text }}</p>
         <span class="remote-inline">
-          <button type="button" id="pending-run" class="primary-sol" @click="commit('confirm_pending', {})">执行</button>
-          <button type="button" id="pending-cancel" class="secondary" @click="commit('cancel_pending', {})">取消</button>
+          <button type="button" id="pending-run" class="primary-sol" @click="commit('confirm_pending', {})">{{ $t("settings.run") }}</button>
+          <button type="button" id="pending-cancel" class="secondary" @click="commit('cancel_pending', {})">{{ $t("settings.cancel") }}</button>
         </span>
       </div>
 
       <div class="setting">
         <span class="setting-text">
-          <strong>打开 Web 页面</strong>
-          <small>用系统默认浏览器打开控制页，自动带上访问令牌，不用手输</small>
+          <strong>{{ $t("settings.openWeb") }}</strong>
+          <small>{{ $t("settings.openWebNote") }}</small>
         </span>
-        <button type="button" id="open-web" class="secondary" @click="openWeb">打开</button>
+        <button type="button" id="open-web" class="secondary" @click="openWeb">{{ $t("settings.open") }}</button>
       </div>
 
       <label class="setting">
         <span class="setting-text">
-          <strong>允许远程图形授权</strong>
-          <small>远程请求转本机确认时，是否允许在远程界面上点确认</small>
+          <strong>{{ $t("settings.allowRemoteAuth") }}</strong>
+          <small>{{ $t("settings.allowRemoteAuthNote") }}</small>
         </span>
         <input
           type="checkbox"
