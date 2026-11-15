@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "伺服器已刪除，重試不了";
 "and.retryNoLocalCopy" = "找不到原本的本機檔案拷貝，只能重新上傳";
 "and.downloadedTo" = "已下載到 {path}";
+"and.pwdWrongOrCorrupt" = "口令錯誤或檔案已損壞";
+"and.syncOffKept" = "已關閉同步，雲端檔案已保留";
+"and.syncOnDone" = "已開啟多端同步";
+"and.switchPwdPlain" = "切換口令明文";
+"and.checkedState" = "{x}，{state}";
+"and.stateChecked" = "已勾選";
+"and.stateUnchecked" = "未勾選";
+"and.keysSkipped" = "（金鑰 {n} 把讀取失敗已略過）";
+"and.syncSuccess" = "成功";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

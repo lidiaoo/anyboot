@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "Servidor eliminado; no se puede reintentar";
 "and.retryNoLocalCopy" = "Copia local original no encontrada; solo volver a subir";
 "and.downloadedTo" = "Descargado en {path}";
+"and.pwdWrongOrCorrupt" = "Contraseña incorrecta o archivo dañado";
+"and.syncOffKept" = "Sincronización desactivada; archivos en la nube conservados";
+"and.syncOnDone" = "Sincronización multidispositivo activada";
+"and.switchPwdPlain" = "Alternar contraseña visible";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "marcado";
+"and.stateUnchecked" = "desmarcado";
+"and.keysSkipped" = "({n} claves omitidas por error de lectura)";
+"and.syncSuccess" = "Éxito";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

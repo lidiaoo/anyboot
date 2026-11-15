@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "Servidor excluído; não repete";
 "and.retryNoLocalCopy" = "Cópia local original não encontrada; apenas reenviar";
 "and.downloadedTo" = "Baixado em {path}";
+"and.pwdWrongOrCorrupt" = "Senha errada ou arquivo corrompido";
+"and.syncOffKept" = "Sincronização desligada; arquivos na nuvem mantidos";
+"and.syncOnDone" = "Sincronização multi-dispositivo ativada";
+"and.switchPwdPlain" = "Alternar senha visível";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "marcado";
+"and.stateUnchecked" = "desmarcado";
+"and.keysSkipped" = "({n} chaves ignoradas por falha de leitura)";
+"and.syncSuccess" = "Sucesso";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

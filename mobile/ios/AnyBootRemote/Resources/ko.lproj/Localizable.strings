@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "서버 삭제됨. 재시도 불가";
 "and.retryNoLocalCopy" = "원본 로컬 사본을 찾을 수 없음. 다시 업로드만";
 "and.downloadedTo" = "{path}에 다운로드";
+"and.pwdWrongOrCorrupt" = "암호 오류 또는 파일 손상";
+"and.syncOffKept" = "동기화 끔, 클라우드 파일 유지";
+"and.syncOnDone" = "멀티 디바이스 동기화 켜짐";
+"and.switchPwdPlain" = "암호 평문 표시 전환";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "체크됨";
+"and.stateUnchecked" = "미체크";
+"and.keysSkipped" = "(키 {n}개 읽기 실패로 건너뜀)";
+"and.syncSuccess" = "성공";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

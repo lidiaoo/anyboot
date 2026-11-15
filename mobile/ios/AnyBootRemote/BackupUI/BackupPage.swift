@@ -67,11 +67,11 @@ struct BackupPage: View {
             BackupPasswordSheet(
                 title: L("and.backupPwdTitle"),
                 verify: { pwd in
-                    guard let raw = importRaw else { return .bad("文件已失效，请重新选择") }
+                    guard let raw = importRaw else { return .bad(L("and.fileInvalidReselect")) }
                     do {
                         return .ok(try BackupStore.shared.decrypt(raw: raw, password: pwd))
                     } catch {
-                        return .bad((error as? BackupError)?.errorDescription ?? "口令错误或文件已损坏")
+                        return .bad((error as? BackupError)?.errorDescription ?? L("and.pwdWrongOrCorrupt"))
                     }
                 },
                 onSuccess: { envelope in
@@ -93,7 +93,7 @@ struct BackupPage: View {
                 sync.enabled = false
                 sync.resetTombstones()
                 SyncEngine.shared.stopAll()
-                ABToastBus.shared.show("已关闭同步，云端文件已保留")
+                ABToastBus.shared.show(L("and.syncOffKept"))
             }
             Button(L("common.cancel"), role: .cancel) { }
         } message: {
@@ -129,7 +129,7 @@ struct BackupPage: View {
 
     private var exportSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABSectionTitle("导出")
+            ABSectionTitle(L("bk.exportRunLabel"))
             VStack(spacing: 0) {
                 ForEach(BackupCategory.allCases) { cat in
                     categoryRow(cat)
@@ -182,7 +182,7 @@ struct BackupPage: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(cat.label)，\(checked ? "已勾选" : "未勾选")")
+        .accessibilityLabel(L("and.checkedState", cat.label, checked ? L("and.stateChecked") : L("and.stateUnchecked")))
     }
 
     private func toggle(_ cat: BackupCategory) {
@@ -235,7 +235,7 @@ struct BackupPage: View {
         let needPassword = selected.contains(.keys) && !passwordValid
         if missing > 0 || needPassword {
             let text = needPassword
-                ? "含私钥的备份必须设置口令加密"
+                ? L("and.mustSetPwd")
                 : "\(missing) 台电脑关联的跳板机未包含在本次导出"
             HStack(spacing: ABMetric.px(6)) {
                 Text(needPassword ? "⚠" : "ℹ")
@@ -275,7 +275,7 @@ struct BackupPage: View {
     private var passwordArea: some View {
         VStack(alignment: .leading, spacing: ABMetric.px(6)) {
             HStack {
-                ABFieldLabel("备份口令（≥6 位）")
+                ABFieldLabel(L("and.pwdHint"))
                 Spacer()
                 Button {
                     showPassword.toggle()
@@ -285,7 +285,7 @@ struct BackupPage: View {
                         .foregroundColor(ABColor.accent)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("切换口令明文")
+                .accessibilityLabel(L("and.switchPwdPlain"))
             }
             Group {
                 if showPassword {
@@ -377,9 +377,9 @@ struct BackupPage: View {
                 try data.write(to: url)
                 shareURL = url
                 showShare = true
-                ABToastBus.shared.show("已导出 \(cats.count) 类数据\(keySkipped > 0 ? "（密钥 \(keySkipped) 把读取失败已跳过）" : "")")
+                ABToastBus.shared.show(L("and.exportedN", cats.count, (keySkipped > 0 ? L("and.keysSkipped") : "")))
             } catch {
-                ABToastBus.shared.show("导出失败：\((error as? BackupError)?.errorDescription ?? (error as NSError).localizedDescription)")
+                ABToastBus.shared.show(L("and.exportFailed", (error as? BackupError)?.errorDescription ?? (error as NSError).localizedDescription))
             }
         }
     }
@@ -394,7 +394,7 @@ struct BackupPage: View {
 
     private var syncSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABSectionTitle("多端同步")
+            ABSectionTitle(L("and.syncTitle"))
             VStack(spacing: 0) {
                 // L4 启用开关
                 Button {
@@ -402,11 +402,11 @@ struct BackupPage: View {
                         confirmSyncOff = true
                     } else if !sync.config.isConfigured {
                         showWebDav = true
-                        ABToastBus.shared.show("请先配置 WebDAV 服务器和同步内容")
+                        ABToastBus.shared.show(L("and.cfgFirst"))
                     } else {
                         sync.enabled = true
                         SyncEngine.shared.restartPeriodic()
-                        ABToastBus.shared.show("已开启多端同步")
+                        ABToastBus.shared.show(L("and.syncOnDone"))
                     }
                 } label: {
                     HStack {
@@ -438,7 +438,7 @@ struct BackupPage: View {
                             Text(L("and.webdavTitle"))
                                 .font(.system(size: 14))
                                 .foregroundColor(ABColor.fg)
-                            Text(sync.config.isConfigured ? Self.hostLabel(sync.config.serverURL) : "未配置")
+                            Text(sync.config.isConfigured ? Self.hostLabel(sync.config.serverURL) : L("and.notConfigured"))
                                 .font(.system(size: 12))
                                 .foregroundColor(ABColor.fgFaint)
                         }
@@ -497,10 +497,10 @@ struct BackupPage: View {
         if syncingNow { return L("and.syncing") }
         switch sync.status {
         case .idle:
-            if let last = sync.lastSyncAt { return "上次同步 \(SyncStatus.timeText(last))" }
+            if let last = sync.lastSyncAt { return L("bk.lastSync", SyncStatus.timeText(last)) }
             return "未同步过"
         case .running: return L("and.syncing")
-        case .success(let date): return "上次同步 \(SyncStatus.timeText(date)) · 成功"
+        case .success(let date): return L("bk.lastSync", SyncStatus.timeText(date)) + " · " + L("and.syncSuccess")
         case .failed(let reason): return L("bk.syncFail", reason)
         }
     }
@@ -532,7 +532,7 @@ struct BackupPage: View {
 
     private var importSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABSectionTitle("导入")
+            ABSectionTitle(L("bk.importBusy"))
             VStack(spacing: ABMetric.px(10)) {
                 Button {
                     showImporter = true

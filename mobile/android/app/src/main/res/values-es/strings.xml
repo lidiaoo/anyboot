@@ -1808,6 +1808,15 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_retryNoServer">Servidor eliminado; no se puede reintentar</string>
     <string name="and_retryNoLocalCopy">Copia local original no encontrada; solo volver a subir</string>
     <string name="and_downloadedTo">Descargado en %1$s</string>
+    <string name="and_pwdWrongOrCorrupt">Contraseña incorrecta o archivo dañado</string>
+    <string name="and_syncOffKept">Sincronización desactivada; archivos en la nube conservados</string>
+    <string name="and_syncOnDone">Sincronización multidispositivo activada</string>
+    <string name="and_switchPwdPlain">Alternar contraseña visible</string>
+    <string name="and_checkedState">%1$s, %2$s</string>
+    <string name="and_stateChecked">marcado</string>
+    <string name="and_stateUnchecked">desmarcado</string>
+    <string name="and_keysSkipped">(%1$d claves omitidas por error de lectura)</string>
+    <string name="and_syncSuccess">Éxito</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

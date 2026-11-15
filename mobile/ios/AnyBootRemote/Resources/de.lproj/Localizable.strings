@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "Server gelöscht; kein erneuter Versuch";
 "and.retryNoLocalCopy" = "Original-Lokalkopie nicht gefunden; nur neu hochladen";
 "and.downloadedTo" = "Heruntergeladen nach {path}";
+"and.pwdWrongOrCorrupt" = "Passphrase falsch oder Datei beschädigt";
+"and.syncOffKept" = "Sync aus; Cloud-Dateien bleiben";
+"and.syncOnDone" = "Multi-Geräte-Sync aktiviert";
+"and.switchPwdPlain" = "Passphrase-Klartext umschalten";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "aktiviert";
+"and.stateUnchecked" = "deaktiviert";
+"and.keysSkipped" = "({n} Schlüssel nach Lesefehler übersprungen)";
+"and.syncSuccess" = "Erfolg";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

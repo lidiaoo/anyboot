@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "Server deleted; can't retry";
 "and.retryNoLocalCopy" = "Original local file copy not found; re-upload only";
 "and.downloadedTo" = "Downloaded to {path}";
+"and.pwdWrongOrCorrupt" = "Wrong passphrase or the file is corrupted";
+"and.syncOffKept" = "Sync off; cloud files kept";
+"and.syncOnDone" = "Multi-device sync enabled";
+"and.switchPwdPlain" = "Toggle passphrase visibility";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "checked";
+"and.stateUnchecked" = "unchecked";
+"and.keysSkipped" = "({n} keys skipped after read failure)";
+"and.syncSuccess" = "Success";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

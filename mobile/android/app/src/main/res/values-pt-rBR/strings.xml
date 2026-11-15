@@ -1808,6 +1808,15 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_retryNoServer">Servidor excluído; não repete</string>
     <string name="and_retryNoLocalCopy">Cópia local original não encontrada; apenas reenviar</string>
     <string name="and_downloadedTo">Baixado em %1$s</string>
+    <string name="and_pwdWrongOrCorrupt">Senha errada ou arquivo corrompido</string>
+    <string name="and_syncOffKept">Sincronização desligada; arquivos na nuvem mantidos</string>
+    <string name="and_syncOnDone">Sincronização multi-dispositivo ativada</string>
+    <string name="and_switchPwdPlain">Alternar senha visível</string>
+    <string name="and_checkedState">%1$s, %2$s</string>
+    <string name="and_stateChecked">marcado</string>
+    <string name="and_stateUnchecked">desmarcado</string>
+    <string name="and_keysSkipped">(%1$d chaves ignoradas por falha de leitura)</string>
+    <string name="and_syncSuccess">Sucesso</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

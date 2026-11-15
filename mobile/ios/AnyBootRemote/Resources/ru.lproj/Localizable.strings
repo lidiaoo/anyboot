@@ -1771,6 +1771,15 @@
 "and.retryNoServer" = "Сервер удалён; повтор невозможен";
 "and.retryNoLocalCopy" = "Оригинальная локальная копия не найдена; только заново";
 "and.downloadedTo" = "Загружено в {path}";
+"and.pwdWrongOrCorrupt" = "Неверный пароль или файл повреждён";
+"and.syncOffKept" = "Синхронизация выкл; облачные файлы сохранены";
+"and.syncOnDone" = "Синхронизация устройств включена";
+"and.switchPwdPlain" = "Показать пароль открыто";
+"and.checkedState" = "{x}, {state}";
+"and.stateChecked" = "выбрано";
+"and.stateUnchecked" = "не выбрано";
+"and.keysSkipped" = "({n} ключей пропущено из-за ошибки чтения)";
+"and.syncSuccess" = "Успех";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

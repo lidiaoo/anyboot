@@ -1808,6 +1808,15 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_retryNoServer">Server deleted; can\'t retry</string>
     <string name="and_retryNoLocalCopy">Original local file copy not found; re-upload only</string>
     <string name="and_downloadedTo">Downloaded to %1$s</string>
+    <string name="and_pwdWrongOrCorrupt">Wrong passphrase or the file is corrupted</string>
+    <string name="and_syncOffKept">Sync off; cloud files kept</string>
+    <string name="and_syncOnDone">Multi-device sync enabled</string>
+    <string name="and_switchPwdPlain">Toggle passphrase visibility</string>
+    <string name="and_checkedState">%1$s, %2$s</string>
+    <string name="and_stateChecked">checked</string>
+    <string name="and_stateUnchecked">unchecked</string>
+    <string name="and_keysSkipped">(%1$d keys skipped after read failure)</string>
+    <string name="and_syncSuccess">Success</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

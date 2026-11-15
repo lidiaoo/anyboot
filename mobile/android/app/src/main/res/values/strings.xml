@@ -1808,6 +1808,15 @@ Telnet：只有实验性终端。</string>
     <string name="and_retryNoServer">服务器已删除，重试不了</string>
     <string name="and_retryNoLocalCopy">找不到原来的本地文件拷贝，只能重新上传</string>
     <string name="and_downloadedTo">已下载到 %1$s</string>
+    <string name="and_pwdWrongOrCorrupt">口令错误或文件已损坏</string>
+    <string name="and_syncOffKept">已关闭同步，云端文件已保留</string>
+    <string name="and_syncOnDone">已开启多端同步</string>
+    <string name="and_switchPwdPlain">切换口令明文</string>
+    <string name="and_checkedState">%1$s，%2$s</string>
+    <string name="and_stateChecked">已勾选</string>
+    <string name="and_stateUnchecked">未勾选</string>
+    <string name="and_keysSkipped">（密钥 %1$d 把读取失败已跳过）</string>
+    <string name="and_syncSuccess">成功</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

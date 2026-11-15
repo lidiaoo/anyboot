@@ -1808,6 +1808,15 @@ Telnet：実験的端末のみ。</string>
     <string name="and_retryNoServer">サーバー削除済み。再試行できません</string>
     <string name="and_retryNoLocalCopy">元のローカルコピーが見つかりません。再アップロードのみ</string>
     <string name="and_downloadedTo">%1$s にダウンロード</string>
+    <string name="and_pwdWrongOrCorrupt">口令が違うかファイルが破損</string>
+    <string name="and_syncOffKept">同期を停止、クラウドファイルは保持</string>
+    <string name="and_syncOnDone">マルチデバイス同期を有効化</string>
+    <string name="and_switchPwdPlain">口令の平文表示を切替</string>
+    <string name="and_checkedState">%1$s、%2$s</string>
+    <string name="and_stateChecked">チェック済み</string>
+    <string name="and_stateUnchecked">未チェック</string>
+    <string name="and_keysSkipped">（鍵 %1$d 個の読み取り失敗をスキップ）</string>
+    <string name="and_syncSuccess">成功</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

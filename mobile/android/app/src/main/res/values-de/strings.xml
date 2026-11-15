@@ -1808,6 +1808,15 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_retryNoServer">Server gelöscht; kein erneuter Versuch</string>
     <string name="and_retryNoLocalCopy">Original-Lokalkopie nicht gefunden; nur neu hochladen</string>
     <string name="and_downloadedTo">Heruntergeladen nach %1$s</string>
+    <string name="and_pwdWrongOrCorrupt">Passphrase falsch oder Datei beschädigt</string>
+    <string name="and_syncOffKept">Sync aus; Cloud-Dateien bleiben</string>
+    <string name="and_syncOnDone">Multi-Geräte-Sync aktiviert</string>
+    <string name="and_switchPwdPlain">Passphrase-Klartext umschalten</string>
+    <string name="and_checkedState">%1$s, %2$s</string>
+    <string name="and_stateChecked">aktiviert</string>
+    <string name="and_stateUnchecked">deaktiviert</string>
+    <string name="and_keysSkipped">(%1$d Schlüssel nach Lesefehler übersprungen)</string>
+    <string name="and_syncSuccess">Erfolg</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>
