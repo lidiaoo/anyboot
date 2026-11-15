@@ -411,6 +411,23 @@ remote: {
   enable: "启用",
   show: "展示",
 },
+boot: {
+  tabBoot: "系统引导",
+  tabAdv: "引导高级设置",
+  tabSettings: "基本设置",
+  tabSol: "SOL 远程唤醒",
+  pctPreview: "{n}%（拖动即时预览）",
+  srcSnapshot: "vars/PreviousBoot 快照",
+  unknown: "未知",
+  healthItems: "{src} · {n} 个条目",
+  notRead: "还没读取",
+},
+grub: {
+  itemsN: "{n} 项",
+  variantsN: "{n} 个变体",
+  handoff: "转交引导",
+  kernelPrefix: "内核",
+},
 srvEdit: {
   errName: "名称不能为空",
   errAddr: "地址不能为空",

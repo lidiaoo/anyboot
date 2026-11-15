@@ -411,6 +411,23 @@ remote: {
   enable: "啟用",
   show: "顯示",
 },
+boot: {
+  tabBoot: "系統引導",
+  tabAdv: "引導進階設定",
+  tabSettings: "基本設定",
+  tabSol: "SOL 遠端喚醒",
+  pctPreview: "{n}%（拖曳即時預覽）",
+  srcSnapshot: "vars/PreviousBoot 快照",
+  unknown: "未知",
+  healthItems: "{src} · {n} 個項目",
+  notRead: "還沒讀取",
+},
+grub: {
+  itemsN: "{n} 項",
+  variantsN: "{n} 個變體",
+  handoff: "轉交引導",
+  kernelPrefix: "內核",
+},
 srvEdit: {
   errName: "名稱不能為空",
   errAddr: "位址不能為空",

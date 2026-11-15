@@ -411,6 +411,23 @@ remote: {
   enable: "Aktiv",
   show: "Sichtbar",
 },
+boot: {
+  tabBoot: "Systemstart",
+  tabAdv: "Erweiterte Starteinstellungen",
+  tabSettings: "Allgemeine Einstellungen",
+  tabSol: "SOL-Fernstart",
+  pctPreview: "{n}% (Live-Vorschau beim Ziehen)",
+  srcSnapshot: "vars/PreviousBoot-Snapshot",
+  unknown: "Unbekannt",
+  healthItems: "{src} · {n} Einträge",
+  notRead: "Noch nicht geladen",
+},
+grub: {
+  itemsN: "{n} Einträge",
+  variantsN: "{n} Varianten",
+  handoff: "Chainload",
+  kernelPrefix: "Kernel",
+},
 srvEdit: {
   errName: "Name erforderlich",
   errAddr: "Adresse erforderlich",

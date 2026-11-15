@@ -411,6 +411,23 @@ remote: {
   enable: "Ativo",
   show: "Visível",
 },
+boot: {
+  tabBoot: "Inicialização do sistema",
+  tabAdv: "Config. avançada de boot",
+  tabSettings: "Configurações gerais",
+  tabSol: "Ativação remota SOL",
+  pctPreview: "{n}% (prévia ao arrastar)",
+  srcSnapshot: "instantâneo vars/PreviousBoot",
+  unknown: "Desconhecido",
+  healthItems: "{src} · {n} itens",
+  notRead: "Ainda não carregado",
+},
+grub: {
+  itemsN: "{n} itens",
+  variantsN: "{n} variantes",
+  handoff: "Chainload",
+  kernelPrefix: "kernel",
+},
 srvEdit: {
   errName: "Nome é obrigatório",
   errAddr: "Endereço é obrigatório",

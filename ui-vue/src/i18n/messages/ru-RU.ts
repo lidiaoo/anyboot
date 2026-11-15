@@ -411,6 +411,23 @@ remote: {
   enable: "Включено",
   show: "Показывать",
 },
+boot: {
+  tabBoot: "Загрузка системы",
+  tabAdv: "Доп. настройки загрузки",
+  tabSettings: "Основные настройки",
+  tabSol: "SOL удалённое пробуждение",
+  pctPreview: "{n}% (предпросмотр при перетаскивании)",
+  srcSnapshot: "снимок vars/PreviousBoot",
+  unknown: "Неизвестно",
+  healthItems: "{src} · {n} записей",
+  notRead: "Ещё не загружено",
+},
+grub: {
+  itemsN: "{n} элем.",
+  variantsN: "{n} вариантов",
+  handoff: "Передача загрузки",
+  kernelPrefix: "ядро",
+},
 srvEdit: {
   errName: "Имя обязательно",
   errAddr: "Адрес обязателен",

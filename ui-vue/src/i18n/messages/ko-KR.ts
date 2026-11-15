@@ -411,6 +411,23 @@ remote: {
   enable: "사용",
   show: "표시",
 },
+boot: {
+  tabBoot: "시스템 부팅",
+  tabAdv: "부팅 고급 설정",
+  tabSettings: "기본 설정",
+  tabSol: "SOL 원격 깨우기",
+  pctPreview: "{n}% (드래그 즉시 미리보기)",
+  srcSnapshot: "vars/PreviousBoot 스냅샷",
+  unknown: "알 수 없음",
+  healthItems: "{src} · {n}개",
+  notRead: "아직 읽지 않음",
+},
+grub: {
+  itemsN: "{n}개",
+  variantsN: "{n}개 변형",
+  handoff: "체인로드",
+  kernelPrefix: "커널",
+},
 srvEdit: {
   errName: "이름은 필수입니다",
   errAddr: "주소는 필수입니다",

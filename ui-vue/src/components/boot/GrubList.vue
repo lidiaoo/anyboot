@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { t } from "@/i18n";
 import GrubEntry from "./GrubEntry.vue";
 import type { EntryData } from "./types";
 
@@ -136,7 +137,7 @@ const rows = computed<Row[]>(() => {
       depth,
       childCount: 0,
       groupTitle: "",
-      tag: variants > 1 ? `${variants} 个变体` : "",
+      tag: variants > 1 ? t("grub.variantsN", { n: variants }) : "",
     });
   };
   props.entries.forEach((entry) => {

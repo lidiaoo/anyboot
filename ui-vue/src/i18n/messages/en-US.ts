@@ -411,6 +411,23 @@ remote: {
   enable: "Enabled",
   show: "Visible",
 },
+boot: {
+  tabBoot: "System boot",
+  tabAdv: "Advanced boot",
+  tabSettings: "General settings",
+  tabSol: "SOL remote wake",
+  pctPreview: "{n}% (live preview while dragging)",
+  srcSnapshot: "vars/PreviousBoot snapshot",
+  unknown: "Unknown",
+  healthItems: "{src} · {n} entries",
+  notRead: "Not loaded yet",
+},
+grub: {
+  itemsN: "{n} items",
+  variantsN: "{n} variants",
+  handoff: "Chainload",
+  kernelPrefix: "kernel",
+},
 srvEdit: {
   errName: "Name is required",
   errAddr: "Address is required",

@@ -411,6 +411,23 @@ remote: {
   enable: "有効",
   show: "表示",
 },
+boot: {
+  tabBoot: "システム起動",
+  tabAdv: "起動の詳細設定",
+  tabSettings: "基本設定",
+  tabSol: "SOL リモート起動",
+  pctPreview: "{n}%（ドラッグで即時プレビュー）",
+  srcSnapshot: "vars/PreviousBoot スナップショット",
+  unknown: "不明",
+  healthItems: "{src} · {n} 件",
+  notRead: "未読み込み",
+},
+grub: {
+  itemsN: "{n} 件",
+  variantsN: "{n} バリエーション",
+  handoff: "チェーンロード",
+  kernelPrefix: "カーネル",
+},
 srvEdit: {
   errName: "名前は必須です",
   errAddr: "アドレスは必須です",

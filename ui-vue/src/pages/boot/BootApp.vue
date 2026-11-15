@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { applyAccent, shadeHex } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
@@ -47,10 +48,10 @@ const adv = useBootAdvStore();
 type TabId = "boot" | "adv-boot" | "settings" | "sol";
 
 const TABS = [
-  { id: "boot", label: "系统引导" },
-  { id: "adv-boot", label: "引导高级设置" },
-  { id: "settings", label: "基本设置" },
-  { id: "sol", label: "SOL 远程唤醒" },
+  { id: "boot", label: "boot.tabBoot" },
+  { id: "adv-boot", label: "boot.tabAdv" },
+  { id: "settings", label: "boot.tabSettings" },
+  { id: "sol", label: "boot.tabSol" },
 ] as const;
 
 const TAB_KEY = "anyboot.main.tab";
@@ -143,7 +144,7 @@ function applyAppearance(): void {
   document.documentElement.style.setProperty("--ui-alpha", String(clamped / 100));
   // 同步设置里的透明度滑条状态文字（旧版 #opacity-state）
   const el = document.getElementById("opacity-state");
-  if (el) el.textContent = `${clamped}%（拖动即时预览）`;
+  if (el) el.textContent = t("boot.pctPreview", { n: clamped });
   // 镜像到 localStorage 供下次首帧
   try {
     localStorage.setItem("anyboot.ui-alpha", String(clamped / 100));
@@ -343,8 +344,8 @@ onMounted(async () => {
 /** 每引导器的真实设置数据（旧版 boot-adv.js 各 *_Loader 适配器精简）：
  *  esp 副标题、entries(t/def)、nextBoot（默认项）、healthText —— 供各主题「引导器设置」面板显示。 */
 function loaderEspText(id: LoaderId | string): string {
-  if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
-  if (id === "refindplus") return settings.refindplusMode === "manual" ? "vars/PreviousBoot 快照" : (ui.refindplusSim?.installDir || "ESP · config.conf");
+  if (id === "refind") return settings.refindMode === "manual" ? t("boot.srcSnapshot") : "ESP · refind.conf";
+  if (id === "refindplus") return settings.refindplusMode === "manual" ? t("boot.srcSnapshot") : (ui.refindplusSim?.installDir || "ESP · config.conf");
   if (id === "grub") {
     // 旧版定案：各显各的、零回落。手动报 ESP cfgPath，自动报分区 target.cfgRel
     if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
@@ -357,9 +358,9 @@ function loaderEspText(id: LoaderId | string): string {
 function loaderDefaultTitle(id: LoaderId | string): string {
   if (id === "refind") {
     if (settings.refindMode === "manual") {
-      return (ui.status?.variables ?? []).find((v) => v.active)?.displayName ?? "未知";
+      return (ui.status?.variables ?? []).find((v) => v.active)?.displayName ?? t("boot.unknown");
     }
-    return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
+    return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? t("boot.unknown");
   }
   if (id === "refindplus") {
     // 与 refind 同口径，数据源换成 refindplus 通道的独立槽位
@@ -370,13 +371,13 @@ function loaderDefaultTitle(id: LoaderId | string): string {
   }
   if (id === "grub") {
     const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
-    return source?.nextEntry || source?.savedEntry || "未知";
+    return source?.nextEntry || source?.savedEntry || t("boot.unknown");
   }
   const ch = ui.channels.find((c) => c.id === id);
   const cur = String(ch?.currentDefault || "");
   const list = ((ch?.entries ?? []) as { id?: string; title?: string }[]);
   const hit = cur ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000")) : undefined;
-  return hit?.title || cur || ch?.lastBoot || "未知";
+  return hit?.title || cur || ch?.lastBoot || t("boot.unknown");
 }
 /** 引导器状态点(绿/黄/灰)——反映**真实健康**，不是只判"检测到没有"。
  *  · refind/grub 没有 channel 对象，用各自的 issues/error 判；
@@ -424,7 +425,7 @@ const loaders = computed<LoaderInfo[]>(() => {
     const count = countEntries(id);
     // 真实条目：设置面板只需要 length + 默认项（t/def）；用默认项造一个带 def 的条目
     const entries: { t?: string; def?: boolean }[] = [];
-    if (defTitle && defTitle !== "未知") entries.push({ t: defTitle, def: true });
+    if (defTitle && defTitle !== t("boot.unknown")) entries.push({ t: defTitle, def: true });
     // 补齐到 count（占位仅用于角标长度），首个为真实默认项
     while (entries.length < count) entries.push({ t: "", def: false });
     list.push({
@@ -438,7 +439,7 @@ const loaders = computed<LoaderInfo[]>(() => {
       nextBoot: entries.find((e) => e.def) ?? null,
       // 健康文案统一按条目数（OpenCore 不再显示「免密已开启/旧构建建议重装」等提示——
       // 免密提权入口已统一到「引导高级设置」总入口）。
-      healthText: count ? `${loaderEspText(id) || "ESP"} · ${count} 个条目` : "还没读取",
+      healthText: count ? t("boot.healthItems", { src: loaderEspText(id) || "ESP", n: count }) : t("boot.notRead"),
     });
   }
   return list;
@@ -779,7 +780,7 @@ const statusHidden = computed(() => {
           :data-tab="tab.id"
           @click="currentTab = tab.id"
         >
-          {{ tab.label }}
+          {{ $t(tab.label) }}
         </button>
       </nav>
 

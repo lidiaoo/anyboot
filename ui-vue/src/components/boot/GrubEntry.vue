@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { t } from "@/i18n";
 import { platformIcon } from "@/pages/boot/bootRows";
 import type { EntryData } from "./types";
 
@@ -101,17 +102,17 @@ const displayName = computed(() => {
 /** 右侧小字：组头显示「N 项」；普通项显示变体数 / 内核 / class */
 const tagText = computed(() => {
   if (props.tag) return props.tag;
-  if (props.group) return `${props.childCount} 项`;
+  if (props.group) return t("grub.itemsN", { n: props.childCount });
   const variants = Number(props.entry.variants) || 1;
   const parts: string[] = [];
-  if (variants > 1) parts.push(`${variants} 个变体`);
+  if (variants > 1) parts.push(t("grub.variantsN", { n: variants }));
   // 旧版：detailed 格式才有内核角标；其余格式无角标（除非有变体数）
   if (props.format === "detailed") {
     parts.push(
       props.entry.chainloader
-        ? "转交引导"
+        ? t("grub.handoff")
         : props.entry.kernels && props.entry.kernels[0]
-          ? "内核 " + props.entry.kernels[0]
+          ? t("grub.kernelPrefix") + " " + props.entry.kernels[0]
           : props.entry.class || "",
     );
   }
@@ -150,7 +151,7 @@ function onClick() {
   >
     <template v-if="entry.tags?.length || entry.sub || entry.note">
       <span class="grub-entry-body">
-        <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">下次启动</span>{{ displayName }}</span>
+        <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ $t("hub.picker.pinned") }}</span>{{ displayName }}</span>
         <span v-if="entry.tags?.length" class="grub-entry-tags">
           <small v-for="(tg, i) in entry.tags" :key="i" class="grub-entry-tag">{{ tg }}</small>
         </span>
@@ -159,7 +160,7 @@ function onClick() {
       </span>
     </template>
     <template v-else>
-      <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">下次启动</span>{{ displayName }}</span>
+      <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ $t("hub.picker.pinned") }}</span>{{ displayName }}</span>
       <small v-if="tagText" :class="group ? 'grub-entry-count' : 'grub-entry-tag'">
         {{ tagText }}
       </small>
