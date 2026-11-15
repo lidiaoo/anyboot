@@ -181,13 +181,13 @@ const LANG_OPTIONS = [
 
 <template>
   <section aria-label="应用设置" class="settings">
-    <h2>应用设置</h2>
+    <h2>{{ $t("settings.title") }}</h2>
 
     <!-- 语言 / Language（i18n：Tier0 + Tier1 共 9 种，'auto' 跟随系统） -->
     <label class="setting">
       <span class="setting-text">
-        <strong>语言 / Language</strong>
-        <small>界面语言；选择「跟随系统」则随系统语言自动切换</small>
+        <strong>{{ $t("settings.lang") }}</strong>
+        <small>{{ $t("settings.langNote") }}</small>
       </span>
       <select id="app-language" :value="langPref" @change="onLangChange">
         <option v-for="o in LANG_OPTIONS" :key="o.v" :value="o.v">{{ o.label }}</option>
@@ -197,8 +197,8 @@ const LANG_OPTIONS = [
     <!-- 开机启动 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>开机启动</strong>
-        <small>登录系统后自动启动，常驻托盘待命</small>
+        <strong>{{ $t("settings.autostart") }}</strong>
+        <small>{{ $t("settings.autostartNote") }}</small>
         <small class="setting-state" id="autostart-state">{{ s?.autostartState || "" }}</small>
       </span>
       <input id="autostart"
@@ -222,8 +222,8 @@ const LANG_OPTIONS = [
     <!-- 启动时隐藏主界面 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>启动时隐藏主界面</strong>
-        <small>启动后不直接打开主菜单，仅显示在托盘</small>
+        <strong>{{ $t("settings.hideOnStart") }}</strong>
+        <small>{{ $t("settings.hideOnStartNote") }}</small>
       </span>
       <input id="start-in-tray"
         type="checkbox"
@@ -235,8 +235,8 @@ const LANG_OPTIONS = [
     <!-- 窗口始终置顶 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>窗口始终置顶</strong>
-        <small>主窗口任何情况下都不被别的窗口盖住；取消勾选后可被正常覆盖</small>
+        <strong>{{ $t("settings.alwaysOnTop") }}</strong>
+        <small>{{ $t("settings.alwaysOnTopNote") }}</small>
       </span>
       <input id="main-always-on-top"
         type="checkbox"
@@ -248,9 +248,9 @@ const LANG_OPTIONS = [
     <!-- 贴边自动隐藏 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边自动隐藏</strong>
-        <small>鼠标离开后主窗口贴到最近的屏幕边，只露一条边条；悬停边条再展开</small>
-        <small class="setting-state" id="main-auto-hide-state">{{ s?.mainAutoHide ? "已开启" : "已关闭" }}</small>
+        <strong>{{ $t("settings.edgeHide") }}</strong>
+        <small>{{ $t("settings.edgeHideNote") }}</small>
+        <small class="setting-state" id="main-auto-hide-state">{{ s?.mainAutoHide ? $t("settings.on") : $t("settings.off") }}</small>
       </span>
       <input id="main-auto-hide"
         type="checkbox"
@@ -261,8 +261,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边触发距离</strong>
-        <small>主窗口距屏幕边框不超过该像素值、且鼠标离开窗口时才隐藏（0–200，越大越灵敏）</small>
+        <strong>{{ $t("settings.edgeTrigger") }}</strong>
+        <small>{{ $t("settings.edgeTriggerNote") }}</small>
       </span>
       <input id="main-auto-hide-edge-distance" type="number" min="0" max="200" step="1" :value="val('mainAutoHideEdgeDistance', 24)" @change="commit('set_main_auto_hide_edge_distance', { distance: Number(($event.target as HTMLInputElement).value) })" />
     </label>
@@ -270,8 +270,8 @@ const LANG_OPTIONS = [
     <!-- 贴边白条 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>悬浮呼出延时</strong>
-        <small>鼠标压住白条持续这么久才展开主窗（0–2000 毫秒，0 = 立即）</small>
+        <strong>{{ $t("settings.hoverDelay") }}</strong>
+        <small>{{ $t("settings.hoverDelayNote") }}</small>
       </span>
       <input
         id="main-dock-strip-hover-ms"
@@ -286,8 +286,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>白条距屏幕边界</strong>
-        <small>贴边隐藏时白条离屏幕边框留出的距离（0–100px，0 = 紧贴边缘）</small>
+        <strong>{{ $t("settings.barInset") }}</strong>
+        <small>{{ $t("settings.barInsetNote") }}</small>
       </span>
       <input
         id="main-dock-strip-edge-gap"
@@ -301,8 +301,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边白条厚度</strong>
-        <small>6px（拖动即时预览）</small>
+        <strong>{{ $t("settings.barThickness") }}</strong>
+        <small>{{ $t("settings.barThicknessNote") }}</small>
         <small class="setting-state" id="main-dock-strip-thickness-state">{{ val("mainDockStripThickness", 6) }} px</small>
       </span>
       <input id="main-dock-strip-thickness"
@@ -318,8 +318,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边白条长度</strong>
-        <small>100%（主窗那条边长的百分比）</small>
+        <strong>{{ $t("settings.barLength") }}</strong>
+        <small>{{ $t("settings.barLengthNote") }}</small>
         <small class="setting-state" id="main-dock-strip-length-state">{{ fmtPct(val("mainDockStripLength", 100)) }}</small>
       </span>
       <input id="main-dock-strip-length"
@@ -335,8 +335,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边白条不透明度</strong>
-        <small>100%（拖动即时预览）</small>
+        <strong>{{ $t("settings.barOpacity") }}</strong>
+        <small>{{ $t("settings.barOpacityNote") }}</small>
         <small class="setting-state" id="main-dock-strip-opacity-state">{{ fmtPct(val("mainDockStripOpacity", 100)) }}</small>
       </span>
       <input id="main-dock-strip-opacity"
@@ -352,8 +352,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>贴边白条颜色</strong>
-        <small>点开调色板选一个色调，即时预览</small>
+        <strong>{{ $t("settings.barColor") }}</strong>
+        <small>{{ $t("settings.barColorNote") }}</small>
       </span>
       <input id="main-dock-strip-color"
         type="color"
@@ -365,8 +365,8 @@ const LANG_OPTIONS = [
     <!-- 热区 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>热区触发厚度</strong>
-        <small>鼠标移入屏幕边缘往内这一段就呼出主窗</small>
+        <strong>{{ $t("settings.hotzone") }}</strong>
+        <small>{{ $t("settings.hotzoneNote") }}</small>
         <small class="setting-state" id="main-hotzone-thickness-state">{{ val("mainHotzoneThickness", 40) }} px</small>
       </span>
       <input id="main-hotzone-thickness"
@@ -382,8 +382,8 @@ const LANG_OPTIONS = [
 
     <div class="setting">
       <span class="setting-text">
-        <strong>热区调试底色与透明度</strong>
-        <small>0%（默认全透明看不见；调出来可核对热区边界）</small>
+        <strong>{{ $t("settings.hotzoneDebug") }}</strong>
+        <small>{{ $t("settings.hotzoneDebugNote") }}</small>
         <small class="setting-state" id="main-hotzone-opacity-state">{{ fmtPct(val("mainHotzoneOpacity", 0)) }}</small>
       </span>
       <span class="remote-inline">
@@ -408,8 +408,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>热区边框</strong>
-        <small>给热区画一圈边框，调试用（默认关）</small>
+        <strong>{{ $t("settings.hotzoneBorder") }}</strong>
+        <small>{{ $t("settings.hotzoneBorderNote") }}</small>
       </span>
       <input id="main-hotzone-border"        type="checkbox"
         :checked="Boolean(s?.mainHotzoneBorder)"
@@ -421,31 +421,31 @@ const LANG_OPTIONS = [
     <!-- 窗口位置 -->
     <label class="setting">
       <span class="setting-text">
-        <strong>固定显示位置</strong>
-        <small>屏幕中间=每次显示都居中；上次位置=记住你最后一次摆放的位置；自由=可随意拖动</small>
+        <strong>{{ $t("settings.fixedPos") }}</strong>
+        <small>{{ $t("settings.fixedPosNote") }}</small>
       </span>
       <select id="main-window-position"
         :value="s?.mainWindowPosition || 'last'"
         @change="commit('set_main_window_position', { mode: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="free">自由拖动</option>
-        <option value="center">屏幕中间</option>
-        <option value="last">上次位置</option>
+        <option value="free">{{ $t("settings.optFree") }}</option>
+        <option value="center">{{ $t("settings.optCenter") }}</option>
+        <option value="last">{{ $t("settings.optLast") }}</option>
       </select>
     </label>
 
     <!-- 固定显示器（旧版 main-fixed-monitor） -->
     <label class="setting">
       <span class="setting-text">
-        <strong>固定显示器</strong>
-        <small>选了某台显示器后主窗口只在这台显示器里显示：居中、呼出、贴边都落在它上面，拖到别的显示器会被夹回来；自动 = 不限制</small>
+        <strong>{{ $t("settings.fixedDisplay") }}</strong>
+        <small>{{ $t("settings.fixedDisplayNote") }}</small>
       </span>
       <select
         id="main-fixed-monitor"
         :value="s?.mainFixedMonitor || 'auto'"
         @change="commit('set_main_fixed_monitor', { name: ($event.target as HTMLSelectElement).value })"
       >
-        <option value="auto">自动（不固定）</option>
+        <option value="auto">{{ $t("settings.optAutoDisplay") }}</option>
         <option v-for="m in (s?.mainMonitorOptions ?? [])" :key="m" :value="m">{{ m }}</option>
       </select>
     </label>
@@ -453,8 +453,8 @@ const LANG_OPTIONS = [
     <!-- 窗口宽度 / 高度（旧版 window-size-*） -->
     <div class="setting">
       <span class="setting-text">
-        <strong>窗口宽度</strong>
-        <small>拖动实时调整窗口</small>
+        <strong>{{ $t("settings.winWidth") }}</strong>
+        <small>{{ $t("settings.winWidthNote") }}</small>
         <small class="setting-state" id="window-size-width-state">{{ val("windowSizeWidth", 460) }} px</small>
       </span>
       <span class="remote-inline">
@@ -473,7 +473,7 @@ const LANG_OPTIONS = [
 
     <div class="setting">
       <span class="setting-text">
-        <strong>窗口高度</strong>
+        <strong>{{ $t("settings.winHeight") }}</strong>
         <small>拖动实时调整窗口</small>
         <small class="setting-state" id="window-size-height-state">{{ val("windowSizeHeight", 560) }} px</small>
       </span>
@@ -493,8 +493,8 @@ const LANG_OPTIONS = [
 
     <div class="setting">
       <span class="setting-text">
-        <strong>重置位置</strong>
-        <small>把主窗口立即放回屏幕正中央（在「上次位置」模式下也会记忆这个中心点为新的落点）</small>
+        <strong>{{ $t("settings.resetPos") }}</strong>
+        <small>{{ $t("settings.resetPosNote") }}</small>
       </span>
       <button type="button" id="reset-main-window-position" class="secondary" @click="commit('reset_main_window_position', {})">
         重置到屏幕中央
@@ -503,8 +503,8 @@ const LANG_OPTIONS = [
 
     <div class="setting">
       <span class="setting-text">
-        <strong>重置窗口大小</strong>
-        <small>宽回到内嵌单栏的标称值（460）、高回到整屏高度的 2/3（与托盘「重置窗口大小」同源）</small>
+        <strong>{{ $t("settings.resetSize") }}</strong>
+        <small>{{ $t("settings.resetSizeNote") }}</small>
       </span>
       <button type="button" id="reset-main-window-size" class="secondary" @click="commit('reset_window_size', {})">
         重置窗口大小
@@ -513,8 +513,8 @@ const LANG_OPTIONS = [
 
     <label class="setting">
       <span class="setting-text">
-        <strong>锁定窗口大小</strong>
-        <small>锁定后不能拖拽窗口边框改变大小、也不能最大化；上面的宽高滑条同时停用（双向实时生效）</small>
+        <strong>{{ $t("settings.lockSize") }}</strong>
+        <small>{{ $t("settings.lockSizeNote") }}</small>
       </span>
       <input id="window-size-locked"
         type="checkbox"
