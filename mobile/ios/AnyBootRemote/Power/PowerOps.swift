@@ -78,8 +78,7 @@ enum PowerOps {
                     return L("and.httpFailedBroadcast") + error.localizedDescription
                         + (try await packets())
                 } catch let packetError {
-                    throw PowerError.message("HTTP 没通（\(error.localizedDescription)）；"
-                        + "广播包也没发出去：\(packetError.localizedDescription)")
+                    throw PowerError.message(L("and.httpAndPacketFail").replacingOccurrences(of: "{a}", with: error.localizedDescription).replacingOccurrences(of: "{b}", with: packetError.localizedDescription))
                 }
             }
 
@@ -92,14 +91,11 @@ enum PowerOps {
             case let (.success(httpMessage), .success(packetMessage)):
                 return L("and.mixedBothSent", httpMessage, packetMessage)
             case let (.success(httpMessage), .failure(packetError)):
-                return "（混合模式）HTTP 接口已执行：\(httpMessage)；"
-                    + "广播包没发出去（\(packetError.localizedDescription)）"
+                return L("and.mixedHttpDonePacketFail").replacingOccurrences(of: "{h}", with: httpMessage).replacingOccurrences(of: "{m}", with: packetError.localizedDescription)
             case let (.failure(httpError), .success(packetMessage)):
-                return "（混合模式）广播包已发出：\(packetMessage)；"
-                    + "HTTP 接口失败：\(httpError.localizedDescription)"
+                return L("and.mixedPacketSentHttpFail").replacingOccurrences(of: "{p}", with: packetMessage).replacingOccurrences(of: "{m}", with: httpError.localizedDescription)
             case let (.failure(httpError), .failure(packetError)):
-                throw PowerError.message("（混合模式）两边都失败 —— 广播包："
-                    + "\(packetError.localizedDescription)；HTTP：\(httpError.localizedDescription)")
+                throw PowerError.message(L("and.mixedBothFail").replacingOccurrences(of: "{a}", with: packetError.localizedDescription).replacingOccurrences(of: "{b}", with: httpError.localizedDescription))
             }
 
         default:
@@ -110,10 +106,9 @@ enum PowerOps {
                 if mode != "auto" { throw packetError }
                 do {
                     let outcome = try await http()
-                    return "广播包没发出去（\(packetError.localizedDescription)），已改走 HTTP：\(outcome)"
+                    return L("and.broadcastFailUseHttp").replacingOccurrences(of: "{e}", with: packetError.localizedDescription).replacingOccurrences(of: "{m}", with: outcome)
                 } catch let httpError {
-                    throw PowerError.message("\(packetError.localizedDescription)；"
-                        + "HTTP 兜底也失败：\(httpError.localizedDescription)")
+                    throw PowerError.message(L("and.solAndHttpFail").replacingOccurrences(of: "{sol}", with: packetError.localizedDescription).replacingOccurrences(of: "{http}", with: httpError.localizedDescription))
                 }
             }
         }

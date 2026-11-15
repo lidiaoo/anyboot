@@ -673,9 +673,7 @@ struct ComputerTabsView: View {
     private var dataRefreshOverlay: some View {
         ABDialogHost(isPresented: dataRefreshOpen, onDismiss: { dataRefreshOpen = false }) {
             ABDialogCard(L("and.dataRefreshTitle")) {
-                Text("正常时每隔多久刷一次列表数据（在线状态 + 引导项），" +
-                     "让手机端看到电脑那边的变更。\n与「连不上时自动重载」不同：" +
-                     "那个只管失败后要不要重试。")
+                Text(L("and.introDataRefresh"))
                     .font(.system(size: 11.5))
                     .foregroundColor(ABColor.fgDim)
                     .fixedSize(horizontal: false, vertical: true)

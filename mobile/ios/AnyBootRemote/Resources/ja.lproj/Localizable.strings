@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "上の PC タブをタップして接続。";
 "and.reuseAddrTip" = "前回成功アドレスを再利用：省電力・安定";
 "and.alwaysProbeTip" = "更新のたびに再検出：IP 変更時に最速";
+"and.broadcastFailUseHttp" = "ブロードキャスト未送信（{e}）。代わりに HTTP：{m}";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

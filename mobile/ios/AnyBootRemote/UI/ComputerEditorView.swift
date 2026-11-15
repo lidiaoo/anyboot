@@ -747,14 +747,14 @@ struct ComputerEditorView: View {
             routeAvailable($0) && !draft.routeDisabled.contains($0)
         }.count
         var text = L("and.priorityN", availableEnabled, Self.routeNames.count)
-            + " · 通道间 \(probeShort(draft.routeProbeMode))"
-            + " · 多网卡 \(probeShort(draft.probeMode))"
-            + " · 默认 \(String(format: "%.1f", Double(probeTimeoutMsValue) / 1000.0))s"
+            + " · " + L("and.routeProbeShort", probeShort(draft.routeProbeMode))
+            + " · " + L("and.multiNicShort", probeShort(draft.probeMode))
+            + " · " + L("and.defaultShort", String(format: "%.1f", Double(probeTimeoutMsValue) / 1000.0) + "s")
         let separatelySet = [ServerProfile.routeLan, ServerProfile.routeJump].filter {
             !(routeTimeoutTexts[$0] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
         }.count
         if separatelySet > 0 { text += L("and.nRoutesSeparate", separatelySet) }
-        if !jumpBindings.isEmpty { text += " · 跳板机" }
+        if !jumpBindings.isEmpty { text += " · " + L("hub.route.jump") }
         return text
     }
 

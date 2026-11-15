@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "Toque numa aba acima para conectar.";
 "and.reuseAddrTip" = "Reutilizar último bom endereço: econômico, estável";
 "and.alwaysProbeTip" = "Sondar a cada atualização: mais rápido após troca de IP";
+"and.broadcastFailUseHttp" = "Pacote de broadcast não enviado ({e}); usei HTTP: {m}";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "Tap a computer tab above to connect.";
 "and.reuseAddrTip" = "Reuse last good address: power-saving, stable";
 "and.alwaysProbeTip" = "Re-probe address on every refresh: fastest after IP change";
+"and.broadcastFailUseHttp" = "Broadcast packet not sent ({e}); used HTTP instead: {m}";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

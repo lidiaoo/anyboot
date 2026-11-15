@@ -1977,6 +1977,7 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_tapTabConnect">Toque numa aba acima para conectar.</string>
     <string name="and_reuseAddrTip">Reutilizar último bom endereço: econômico, estável</string>
     <string name="and_alwaysProbeTip">Sondar a cada atualização: mais rápido após troca de IP</string>
+    <string name="and_broadcastFailUseHttp">Pacote de broadcast não enviado (%1$s); usei HTTP: %2$s</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

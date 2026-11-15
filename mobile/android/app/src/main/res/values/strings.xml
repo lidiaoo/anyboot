@@ -1977,6 +1977,7 @@ Telnet：只有实验性终端。</string>
     <string name="and_tapTabConnect">点上面的电脑标签开始连接。</string>
     <string name="and_reuseAddrTip">复用上次成功的地址：省电、地址稳定</string>
     <string name="and_alwaysProbeTip">每次刷新都重新探测地址：换 IP 抓得最快</string>
+    <string name="and_broadcastFailUseHttp">广播包没发出去（%1$s），已改走 HTTP：%2$s</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

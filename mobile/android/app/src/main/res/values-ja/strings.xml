@@ -1977,6 +1977,7 @@ Telnet：実験的端末のみ。</string>
     <string name="and_tapTabConnect">上の PC タブをタップして接続。</string>
     <string name="and_reuseAddrTip">前回成功アドレスを再利用：省電力・安定</string>
     <string name="and_alwaysProbeTip">更新のたびに再検出：IP 変更時に最速</string>
+    <string name="and_broadcastFailUseHttp">ブロードキャスト未送信（%1$s）。代わりに HTTP：%2$s</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

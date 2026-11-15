@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "위 컴퓨터 탭을 눌러 연결.";
 "and.reuseAddrTip" = "마지막 성공 주소 재사용: 절전·안정";
 "and.alwaysProbeTip" = "새로 고침마다 재감지: IP 변경 시 가장 빠름";
+"and.broadcastFailUseHttp" = "브로드캐스트 미전송({e}). 대신 HTTP: {m}";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

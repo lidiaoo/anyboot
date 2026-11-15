@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "Нажмите вкладку компьютера выше.";
 "and.reuseAddrTip" = "Повторно успешный адрес: экономно, стабильно";
 "and.alwaysProbeTip" = "Проверять адрес при каждом обновлении: быстрее всего при смене IP";
+"and.broadcastFailUseHttp" = "Broadcast не отправлен ({e}); использован HTTP: {m}";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

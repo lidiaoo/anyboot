@@ -1977,6 +1977,7 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_tapTabConnect">Нажмите вкладку компьютера выше.</string>
     <string name="and_reuseAddrTip">Повторно успешный адрес: экономно, стабильно</string>
     <string name="and_alwaysProbeTip">Проверять адрес при каждом обновлении: быстрее всего при смене IP</string>
+    <string name="and_broadcastFailUseHttp">Broadcast не отправлен (%1$s); использован HTTP: %2$s</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

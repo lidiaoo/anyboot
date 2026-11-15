@@ -1940,6 +1940,7 @@
 "and.tapTabConnect" = "点上面的电脑标签开始连接。";
 "and.reuseAddrTip" = "复用上次成功的地址：省电、地址稳定";
 "and.alwaysProbeTip" = "每次刷新都重新探测地址：换 IP 抓得最快";
+"and.broadcastFailUseHttp" = "广播包没发出去（{e}），已改走 HTTP：{m}";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

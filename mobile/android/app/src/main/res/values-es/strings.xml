@@ -1977,6 +1977,7 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_tapTabConnect">Toca una pestaña arriba para conectar.</string>
     <string name="and_reuseAddrTip">Reutilizar última buena dirección: ahorra, estable</string>
     <string name="and_alwaysProbeTip">Sondear en cada actualización: más rápido tras cambio de IP</string>
+    <string name="and_broadcastFailUseHttp">Broadcast no enviado (%1$s); usé HTTP: %2$s</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
