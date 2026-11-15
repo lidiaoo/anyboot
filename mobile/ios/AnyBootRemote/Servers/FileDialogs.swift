@@ -65,14 +65,14 @@ struct FileActionSheet: View {
                     Spacer().frame(height: ABMetric.px(12))
 
                     if entry.dir {
-                        action("重命名") { store.askRename = entry }
-                        action("复制路径") { copyPath(path) }
-                        action("删除（含目录内全部内容）", color: ABColor.bad) { store.askDelete = entry }
+                        action(L("fb.rename")) { store.askRename = entry }
+                        action(L("fb.copyPath")) { copyPath(path) }
+                        action(L("and.delWithContents"), color: ABColor.bad) { store.askDelete = entry }
                     } else {
-                        action("下载到本机", color: ABColor.accent) { store.startDownload(entry) }
+                        action(L("fb.dlTo"), color: ABColor.accent) { store.startDownload(entry) }
                         action("重命名") { store.askRename = entry }
                         action("复制路径") { copyPath(path) }
-                        action("删除", color: ABColor.bad) { store.askDelete = entry }
+                        action(L("common.delete"), color: ABColor.bad) { store.askDelete = entry }
                     }
 
                     // 分隔线 + 折叠「更多操作」
@@ -84,24 +84,24 @@ struct FileActionSheet: View {
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                         .padding(.bottom, ABMetric.px(4))
-                    action("详情", small: true) { store.askDetail = entry }
-                    action("复制", small: true) { store.setClip(.copy, entry) }
-                    action("剪切", small: true) { store.setClip(.cut, entry) }
+                    action(L("fb.info"), small: true) { store.askDetail = entry }
+                    action(L("common.copy"), small: true) { store.setClip(.copy, entry) }
+                    action(L("fb.cut"), small: true) { store.setClip(.cut, entry) }
                     if entry.dir && store.clip != .none {
-                        action("粘贴到此处", small: true) { store.paste(destDir: store.path) }
+                        action(L("and.pasteHere"), small: true) { store.paste(destDir: store.path) }
                     }
                     if entry.dir {
-                        action("在终端打开", small: true) {
+                        action(L("and.openInTerminal"), small: true) {
                             if let jump = store.server {
                                 module.openTerminal(jumpId: jump.id, cdPath: path)
                             }
                         }
                     }
-                    action("复制到…", small: true) {
+                    action(L("fb.copyTo"), small: true) {
                         store.pick = FilesStore.PickRequest(cut: false, paths: [path],
                                                            label: entry.name, startDir: store.path)
                     }
-                    action("移动到…", small: true) {
+                    action(L("fb.moveTo"), small: true) {
                         store.pick = FilesStore.PickRequest(cut: true, paths: [path],
                                                            label: entry.name, startDir: store.path)
                     }
@@ -179,7 +179,7 @@ struct FileDetailDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.askDetail != nil,
                      onDismiss: { store.askDetail = nil }) {
-            ABDialogCard("文件详情") {
+            ABDialogCard(L("and.fileDetailTitle")) {
                 VStack(alignment: .leading, spacing: ABMetric.px(2)) {
                     if !error.isEmpty {
                         ABDialogNote(error, color: ABColor.bad)
@@ -191,11 +191,11 @@ struct FileDetailDialog: View {
                         HStack(spacing: ABMetric.px(8)) {
                             ProgressView().scaleEffect(0.7)
                                 .frame(width: ABMetric.px(16), height: ABMetric.px(16))
-                            ABSecondaryText("读取中 …")
+                            ABSecondaryText(L("hub.state.reading"))
                         }
                     }
                 }
-                ABDialogButtons(confirmTitle: "复制路径", dismissTitle: "关闭",
+                ABDialogButtons(confirmTitle: "复制路径", dismissTitle: L("common.close"),
                                 onConfirm: {
                                     if let entry = store.askDetail {
                                         UIPasteboard.general.string = SftpOps.join(store.path, entry.name)
@@ -223,17 +223,17 @@ struct FileDetailDialog: View {
             do {
                 let detail = try await SftpOps.detail(jump: jump, path: path)
                 var out: [(String, String)] = []
-                out.append(("名称", detail.name))
-                out.append(("类型", detail.typeLabel))
-                out.append(("完整路径", detail.path))
+                out.append((L("keysWin.name"), detail.name))
+                out.append((L("keysWin.type"), detail.typeLabel))
+                out.append((L("and.detailPath"), detail.path))
                 if !detail.dir {
                     out.append(("大小", ABFormat.size(detail.size)
                                 + "（\(detail.size) 字节）"))
                 }
-                out.append(("修改时间", FilesStore.timeText(detail.mtime)))
-                out.append(("访问时间", FilesStore.timeText(detail.atime)))
-                out.append(("权限", detail.permissions.isEmpty ? "-" : detail.permissions))
-                out.append(("属主", "\(detail.uid) : \(detail.gid)"))
+                out.append((L("fb.colMtime"), FilesStore.timeText(detail.mtime)))
+                out.append((L("and.detailAtime"), FilesStore.timeText(detail.atime)))
+                out.append((L("fb.colPerms"), detail.permissions.isEmpty ? "-" : detail.permissions))
+                out.append((L("and.detailOwner"), "\(detail.uid) : \(detail.gid)"))
                 if !detail.linkTarget.isEmpty {
                     out.append(("指向", detail.linkTarget))
                 }
