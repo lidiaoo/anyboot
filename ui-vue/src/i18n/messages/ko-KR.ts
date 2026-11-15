@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless 스캔",
   protocolDriver: "프로토콜 드라이버",
 },
-api: {
-  invalidToken: "액세스 토큰 무효 (401)",
-  commandFailed: "명령 실패: {command}",
-},
-ts: {
-  local: "로컬 직접",
-  pushing: "푸시 중",
-  polling: "폴링 중",
-  pushWs: "푸시 (WebSocket)",
-  pollHttp: "폴링 (HTTP)",
-  auto: "자동 (푸시 우선, 실패 시 폴링)",
-},
-lat: {
-  title: "지연 추세",
-  stats: "최근 {last} ms · 평균 {avg} · 최소 {min} · 최대 {max}",
-  noSample: "아직 샘플 없음 — ‘연결 테스트’로 시작",
-},
 boot: {
+  scanningRefind: "rEFInd 변수 디렉터리 검사 중…",
   listEmpty: "사용 가능한 항목 없음",
   switchFailToast: "전환 실패: {msg}",
   loaderSettings: "부트로더 설정",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "알 수 없음",
   healthItems: "{src} · {n}개",
   notRead: "아직 읽지 않음",
+},
+api: {
+  invalidToken: "액세스 토큰 무효 (401)",
+  commandFailed: "명령 실패: {command}",
+},
+ts: {
+  local: "로컬 직접",
+  pushing: "푸시 중",
+  polling: "폴링 중",
+  pushWs: "푸시 (WebSocket)",
+  pollHttp: "폴링 (HTTP)",
+  auto: "자동 (푸시 우선, 실패 시 폴링)",
+},
+lat: {
+  title: "지연 추세",
+  stats: "최근 {last} ms · 평균 {avg} · 최소 {min} · 최대 {max}",
+  noSample: "아직 샘플 없음 — ‘연결 테스트’로 시작",
 },
 srvEdit: {
   errName: "이름은 필수입니다",

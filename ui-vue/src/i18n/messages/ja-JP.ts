@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless スキャン",
   protocolDriver: "プロトコルドライバ",
 },
-api: {
-  invalidToken: "アクセストークンが無効（401）",
-  commandFailed: "コマンド失敗：{command}",
-},
-ts: {
-  local: "ローカル直結",
-  pushing: "プッシュ中",
-  polling: "ポーリング中",
-  pushWs: "プッシュ（WebSocket）",
-  pollHttp: "ポーリング（HTTP）",
-  auto: "自動（プッシュ優先、失敗時ポーリング）",
-},
-lat: {
-  title: "レイテンシ推移",
-  stats: "最新 {last} ms · 平均 {avg} · 最小 {min} · 最大 {max}",
-  noSample: "まだサンプルなし — 「接続テスト」で開始",
-},
 boot: {
+  scanningRefind: "rEFInd 変数ディレクトリをスキャン中…",
   listEmpty: "利用可能な項目がありません",
   switchFailToast: "切替に失敗：{msg}",
   loaderSettings: "ブートローダ設定",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "不明",
   healthItems: "{src} · {n} 件",
   notRead: "未読み込み",
+},
+api: {
+  invalidToken: "アクセストークンが無効（401）",
+  commandFailed: "コマンド失敗：{command}",
+},
+ts: {
+  local: "ローカル直結",
+  pushing: "プッシュ中",
+  polling: "ポーリング中",
+  pushWs: "プッシュ（WebSocket）",
+  pollHttp: "ポーリング（HTTP）",
+  auto: "自動（プッシュ優先、失敗時ポーリング）",
+},
+lat: {
+  title: "レイテンシ推移",
+  stats: "最新 {last} ms · 平均 {avg} · 最小 {min} · 最大 {max}",
+  noSample: "まだサンプルなし — 「接続テスト」で開始",
 },
 srvEdit: {
   errName: "名前は必須です",

@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless 掃描",
   protocolDriver: "協定驅動",
 },
-api: {
-  invalidToken: "存取權杖無效（401）",
-  commandFailed: "命令失敗：{command}",
-},
-ts: {
-  local: "本機直連",
-  pushing: "推送中",
-  polling: "輪詢中",
-  pushWs: "推送（WebSocket）",
-  pollHttp: "輪詢（HTTP）",
-  auto: "自動（推送優先，失敗回落輪詢）",
-},
-lat: {
-  title: "延遲趨勢",
-  stats: "最近 {last} ms · 均 {avg} · 低 {min} · 高 {max}",
-  noSample: "還沒有取樣 —— 點「測試連線」開始",
-},
 boot: {
+  scanningRefind: "正在掃描 rEFInd 變數目錄…",
   listEmpty: "沒有可用項目",
   switchFailToast: "切換失敗：{msg}",
   loaderSettings: "引導器設定",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "未知",
   healthItems: "{src} · {n} 個項目",
   notRead: "還沒讀取",
+},
+api: {
+  invalidToken: "存取權杖無效（401）",
+  commandFailed: "命令失敗：{command}",
+},
+ts: {
+  local: "本機直連",
+  pushing: "推送中",
+  polling: "輪詢中",
+  pushWs: "推送（WebSocket）",
+  pollHttp: "輪詢（HTTP）",
+  auto: "自動（推送優先，失敗回落輪詢）",
+},
+lat: {
+  title: "延遲趨勢",
+  stats: "最近 {last} ms · 均 {avg} · 低 {min} · 高 {max}",
+  noSample: "還沒有取樣 —— 點「測試連線」開始",
 },
 srvEdit: {
   errName: "名稱不能為空",

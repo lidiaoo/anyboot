@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless 扫描",
   protocolDriver: "协议驱动",
 },
-api: {
-  invalidToken: "访问令牌无效（401）",
-  commandFailed: "命令失败：{command}",
-},
-ts: {
-  local: "本机直连",
-  pushing: "推送中",
-  polling: "轮询中",
-  pushWs: "推送（WebSocket）",
-  pollHttp: "轮询（HTTP）",
-  auto: "自动（推送优先，失败回落轮询）",
-},
-lat: {
-  title: "延迟趋势",
-  stats: "最近 {last} ms · 均 {avg} · 低 {min} · 高 {max}",
-  noSample: "还没有采样 —— 点「测试连接」开始",
-},
 boot: {
+  scanningRefind: "正在扫描 rEFInd 变量目录…",
   listEmpty: "没有可用条目",
   switchFailToast: "切换失败：{msg}",
   loaderSettings: "引导器设置",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "未知",
   healthItems: "{src} · {n} 个条目",
   notRead: "还没读取",
+},
+api: {
+  invalidToken: "访问令牌无效（401）",
+  commandFailed: "命令失败：{command}",
+},
+ts: {
+  local: "本机直连",
+  pushing: "推送中",
+  polling: "轮询中",
+  pushWs: "推送（WebSocket）",
+  pollHttp: "轮询（HTTP）",
+  auto: "自动（推送优先，失败回落轮询）",
+},
+lat: {
+  title: "延迟趋势",
+  stats: "最近 {last} ms · 均 {avg} · 低 {min} · 高 {max}",
+  noSample: "还没有采样 —— 点「测试连接」开始",
 },
 srvEdit: {
   errName: "名称不能为空",

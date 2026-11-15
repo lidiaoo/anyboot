@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "сканирование bless",
   protocolDriver: "Драйвер протокола",
 },
-api: {
-  invalidToken: "Недействительный токен (401)",
-  commandFailed: "Ошибка команды: {command}",
-},
-ts: {
-  local: "Локально напрямую",
-  pushing: "Отправка (push)",
-  polling: "Опрос (polling)",
-  pushWs: "Push (WebSocket)",
-  pollHttp: "Опрос (HTTP)",
-  auto: "Авто (сначала push, затем опрос)",
-},
-lat: {
-  title: "Динамика задержки",
-  stats: "Последн. {last} мс · ср {avg} · мин {min} · макс {max}",
-  noSample: "Замеров нет — нажмите «Проверить соединение»",
-},
 boot: {
+  scanningRefind: "Сканирование каталога переменных rEFInd…",
   listEmpty: "Нет доступных записей",
   switchFailToast: "Ошибка переключения: {msg}",
   loaderSettings: "Настройки загрузчика",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "Неизвестно",
   healthItems: "{src} · {n} записей",
   notRead: "Ещё не загружено",
+},
+api: {
+  invalidToken: "Недействительный токен (401)",
+  commandFailed: "Ошибка команды: {command}",
+},
+ts: {
+  local: "Локально напрямую",
+  pushing: "Отправка (push)",
+  polling: "Опрос (polling)",
+  pushWs: "Push (WebSocket)",
+  pollHttp: "Опрос (HTTP)",
+  auto: "Авто (сначала push, затем опрос)",
+},
+lat: {
+  title: "Динамика задержки",
+  stats: "Последн. {last} мс · ср {avg} · мин {min} · макс {max}",
+  noSample: "Замеров нет — нажмите «Проверить соединение»",
 },
 srvEdit: {
   errName: "Имя обязательно",

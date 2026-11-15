@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless-Scan",
   protocolDriver: "Protokolltreiber",
 },
-api: {
-  invalidToken: "Ungültiges Zugriffstoken (401)",
-  commandFailed: "Befehl fehlgeschlagen: {command}",
-},
-ts: {
-  local: "Lokal direkt",
-  pushing: "Übertrage (Push)",
-  polling: "Abfrage (Polling)",
-  pushWs: "Push (WebSocket)",
-  pollHttp: "Polling (HTTP)",
-  auto: "Auto (Push bevorzugt, Fallback Polling)",
-},
-lat: {
-  title: "Latenzverlauf",
-  stats: "Letzte {last} ms · Ø {avg} · min {min} · max {max}",
-  noSample: "Noch keine Messungen – „Verbindung testen“ startet",
-},
 boot: {
+  scanningRefind: "rEFInd-Variablenverzeichnis wird gescannt…",
   listEmpty: "Keine verfügbaren Einträge",
   switchFailToast: "Wechsel fehlgeschlagen: {msg}",
   loaderSettings: "Bootloader-Einstellungen",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "Unbekannt",
   healthItems: "{src} · {n} Einträge",
   notRead: "Noch nicht geladen",
+},
+api: {
+  invalidToken: "Ungültiges Zugriffstoken (401)",
+  commandFailed: "Befehl fehlgeschlagen: {command}",
+},
+ts: {
+  local: "Lokal direkt",
+  pushing: "Übertrage (Push)",
+  polling: "Abfrage (Polling)",
+  pushWs: "Push (WebSocket)",
+  pollHttp: "Polling (HTTP)",
+  auto: "Auto (Push bevorzugt, Fallback Polling)",
+},
+lat: {
+  title: "Latenzverlauf",
+  stats: "Letzte {last} ms · Ø {avg} · min {min} · max {max}",
+  noSample: "Noch keine Messungen – „Verbindung testen“ startet",
 },
 srvEdit: {
   errName: "Name erforderlich",

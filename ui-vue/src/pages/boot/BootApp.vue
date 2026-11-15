@@ -365,9 +365,9 @@ function loaderDefaultTitle(id: LoaderId | string): string {
   if (id === "refindplus") {
     // 与 refind 同口径，数据源换成 refindplus 通道的独立槽位
     if (settings.refindplusMode === "manual") {
-      return (ui.refindplusVariables ?? []).find((v) => v.active)?.displayName ?? "未知";
+      return (ui.refindplusVariables ?? []).find((v) => v.active)?.displayName ?? t("boot.unknown");
     }
-    return (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? "未知";
+    return (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? t("boot.unknown");
   }
   if (id === "grub") {
     const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
@@ -477,7 +477,7 @@ const nextBootName = computed(() => {
     if (hit) return hit.title.trim();
   }
   const active = ui.status?.variables?.find((v) => v.active);
-  return active?.displayName || "未知";
+  return active?.displayName || t("boot.unknown");
 });
 
 /** 下次启动：每行 = 一个引导器 + 它选中的条目 */
@@ -682,14 +682,14 @@ onMounted(() => {
 
 function busyLabel(busy: { power?: string | null; switching?: boolean; unmounting?: boolean; scanning?: boolean } | null | undefined): string {
   if (!busy) return "";
-  if (busy.power) return `${busy.power}处理中…`;
-  if (busy.switching) return "正在切换下次启动系统…";
-  if (busy.unmounting) return "正在卸载临时挂载…";
-  if (busy.scanning) return "正在扫描…";
+  if (busy.power) return t("boot.busyPower", { label: busy.power });
+  if (busy.switching) return t("boot.switching");
+  if (busy.unmounting) return t("boot.unmounting");
+  if (busy.scanning) return t("boot.scanning");
   return "";
 }
 const statusText = computed(() => {
-  if (!ui.ready) return "正在扫描 rEFInd 变量目录…";
+  if (!ui.ready) return t("boot.scanningRefind");
   const raw = (ui.status?.message || "").trim();
   const duplicatesNextBoot = !raw || raw.startsWith("下次启动：");
   const label = busyLabel(ui.busy);
@@ -719,8 +719,8 @@ const statusHidden = computed(() => {
               type="button"
               id="theme-btn"
               class="secondary ico-btn"
-              aria-label="切换主题"
-              title="切换主题"
+              :aria-label="$t('boot.themeAria')"
+              :title="$t('boot.themeAria')"
               @click="toggleTheme"
             >
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
@@ -728,38 +728,38 @@ const statusHidden = computed(() => {
                 <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
               </svg>
             </button>
-            <button type="button" id="open-hub" class="secondary ico-btn" aria-label="远程管理" title="远程管理" @click="openHub">
+            <button type="button" id="open-hub" class="secondary ico-btn" :aria-label="$t('boot.remoteMgmt')" :title="$t('boot.remoteMgmt')" @click="openHub">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />
                 <path d="M5.4 6.2 7 7.6 5.4 9" />
                 <path d="M8.4 9h2.4" />
               </svg>
             </button>
-            <button type="button" id="power-reboot" class="secondary ico-btn" aria-label="重启系统" title="重启系统" @click="call('power_action', { action: 'reboot' })">
+            <button type="button" id="power-reboot" class="secondary ico-btn" :aria-label="$t('boot.rebootSystem')" :title="$t('boot.rebootSystem')" @click="call('power_action', { action: 'reboot' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5" />
                 <path d="M13 3.1v3h-3" />
               </svg>
             </button>
-            <button type="button" id="power-shutdown" class="secondary ico-btn" aria-label="关机" title="关机" @click="call('power_action', { action: 'shutdown' })">
+            <button type="button" id="power-shutdown" class="secondary ico-btn" :aria-label="$t('hub.power.shutdown')" :title="$t('hub.power.shutdown')" @click="call('power_action', { action: 'shutdown' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M8 2.6v5" />
                 <path d="M11.7 4.8a5 5 0 1 1-7.4 0" />
               </svg>
             </button>
-            <button type="button" id="power-sleep" class="secondary ico-btn" aria-label="睡眠" title="睡眠" @click="call('power_action', { action: 'sleep' })">
+            <button type="button" id="power-sleep" class="secondary ico-btn" :aria-label="$t('hub.power.sleep')" :title="$t('hub.power.sleep')" @click="call('power_action', { action: 'sleep' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z" />
               </svg>
             </button>
-            <button type="button" id="restart-app" class="secondary ico-btn" aria-label="重启程序" title="重启程序" @click="call('restart_app')">
+            <button type="button" id="restart-app" class="secondary ico-btn" :aria-label="$t('boot.restartApp')" :title="$t('boot.restartApp')" @click="call('restart_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8" />
                 <path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2" />
                 <path d="M9.8 4.9v1.7H8.1" />
               </svg>
             </button>
-            <button type="button" id="quit-app" class="secondary ico-btn" aria-label="退出程序" title="退出程序" @click="call('quit_app')">
+            <button type="button" id="quit-app" class="secondary ico-btn" :aria-label="$t('boot.quitApp')" :title="$t('boot.quitApp')" @click="call('quit_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2" />
                 <path d="M3 8h5.5" />
@@ -771,7 +771,7 @@ const statusHidden = computed(() => {
         <p id="status" :class="{ hidden: statusHidden }">{{ statusText }}</p>
       </header>
 
-      <nav aria-label="界面栏目" class="tabs" id="tabs">
+      <nav :aria-label="$t('boot.navAria')" class="tabs" id="tabs">
         <button
           v-for="tab in TABS"
           :key="tab.id"
@@ -799,11 +799,11 @@ const statusHidden = computed(() => {
         <section
           v-if="adv.state.nextBoot !== 'off'"
           :class="['next-boot', { 'has-rows': nextBootRows.length > 0, 'nb-folded': !nextBootRowsVisible }]"
-          aria-label="下次启动"
+          :aria-label="$t('boot.nextBootLabel')"
           id="next-boot"
         >
           <div class="nb-head">
-            <small>下次启动</small>
+            <small>{{ $t("boot.nextBootLabel") }}</small>
             <button
               type="button"
               id="nb-toggle"
@@ -812,11 +812,11 @@ const statusHidden = computed(() => {
               :hidden="!nextBootRows.length"
               @click="nextBootRowsOpen = !nextBootRowsVisible"
             >
-              {{ nextBootRowsVisible ? "收起" : "展开" }}
+              {{ nextBootRowsVisible ? $t("boot.collapse") : $t("boot.expand") }}
             </button>
           </div>
           <strong id="next-boot-name">{{ nextBootName }}</strong>
-          <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">上次启动 <b>{{ nextBootLast }}</b></small>
+          <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">{{ $t("boot.lastBoot", { name: nextBootLast }) }}</small>
           <div
             v-show="nextBootRowsVisible && nextBootRows.length"
             class="next-boot-rows"
@@ -858,9 +858,9 @@ const statusHidden = computed(() => {
             <!-- 仅「不套用主题(K)」显示每个引导器的头部标题（多引导器堆叠需区分）；
                  启用主题(A/B/C/G/I/J)不显示任何区块标题。 -->
             <div v-if="adv.effectiveTheme === 'K'" class="boot-loader-head">
-              <span class="zone-tag">{{ loaders.find((l) => l.id === id)?.name ?? id }} 区</span>
-              <b>{{ loaders.find((l) => l.id === id)?.name ?? id }} 启动项</b>
-              <span class="cnt">· {{ bootRowsByLoader[id]?.length ?? 0 }} 项</span>
+              <span class="zone-tag">{{ $t("grub.zone", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</span>
+              <b>{{ $t("grub.sectionTitle", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</b>
+              <span class="cnt">· {{ $t("grub.itemsN", { n: bootRowsByLoader[id]?.length ?? 0 }) }}</span>
             </div>
             <BootList :loader="id" @select="(sel: string) => adv.setSelection(id, sel)" />
             <LoaderSettings :loader="id" />
@@ -891,7 +891,7 @@ const statusHidden = computed(() => {
   <div v-if="statusBar.text" id="status-bar" aria-live="polite" :class="['status-bar', statusBar.error ? 'error' : 'ok']" role="status">
     <span id="status-bar-icon" class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
     <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>
-    <button type="button" id="status-bar-close" class="status-bar-close" title="收起" @click="dismissStatusBar">×</button>
+    <button type="button" id="status-bar-close" class="status-bar-close" :title="$t('boot.collapse')" @click="dismissStatusBar">×</button>
   </div>
   <HelperPrompt v-if="helperPromptVisible" @resolved="onHelperPromptResolved" />
   <TokenPrompt v-if="needToken" @confirmed="onTokenConfirmed" />

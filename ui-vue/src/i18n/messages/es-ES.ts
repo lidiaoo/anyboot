@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "escaneo bless",
   protocolDriver: "Controlador de protocolo",
 },
-api: {
-  invalidToken: "Token de acceso no válido (401)",
-  commandFailed: "Comando falló: {command}",
-},
-ts: {
-  local: "Directo local",
-  pushing: "Enviando (push)",
-  polling: "Consultando (polling)",
-  pushWs: "Push (WebSocket)",
-  pollHttp: "Polling (HTTP)",
-  auto: "Auto (push primero, con polling de reserva)",
-},
-lat: {
-  title: "Tendencia de latencia",
-  stats: "Último {last} ms · med {avg} · mín {min} · máx {max}",
-  noSample: "Sin muestras — pulsa «Probar conexión»",
-},
 boot: {
+  scanningRefind: "Escaneando el directorio de variables de rEFInd…",
   listEmpty: "Sin elementos disponibles",
   switchFailToast: "Error al cambiar: {msg}",
   loaderSettings: "Ajustes del gestor de arranque",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "Desconocido",
   healthItems: "{src} · {n} elementos",
   notRead: "Aún sin cargar",
+},
+api: {
+  invalidToken: "Token de acceso no válido (401)",
+  commandFailed: "Comando falló: {command}",
+},
+ts: {
+  local: "Directo local",
+  pushing: "Enviando (push)",
+  polling: "Consultando (polling)",
+  pushWs: "Push (WebSocket)",
+  pollHttp: "Polling (HTTP)",
+  auto: "Auto (push primero, con polling de reserva)",
+},
+lat: {
+  title: "Tendencia de latencia",
+  stats: "Último {last} ms · med {avg} · mín {min} · máx {max}",
+  noSample: "Sin muestras — pulsa «Probar conexión»",
 },
 srvEdit: {
   errName: "El nombre es obligatorio",

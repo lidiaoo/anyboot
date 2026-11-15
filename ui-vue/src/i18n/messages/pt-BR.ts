@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "varredura bless",
   protocolDriver: "Driver de protocolo",
 },
-api: {
-  invalidToken: "Token de acesso inválido (401)",
-  commandFailed: "Comando falhou: {command}",
-},
-ts: {
-  local: "Direto local",
-  pushing: "Enviando (push)",
-  polling: "Consultando (polling)",
-  pushWs: "Push (WebSocket)",
-  pollHttp: "Polling (HTTP)",
-  auto: "Auto (push primeiro, cai para polling)",
-},
-lat: {
-  title: "Tendência de latência",
-  stats: "Último {last} ms · méd {avg} · mín {min} · máx {max}",
-  noSample: "Sem amostras — clique em “Testar conexão”",
-},
 boot: {
+  scanningRefind: "Varrendo o diretório de variáveis do rEFInd…",
   listEmpty: "Sem itens disponíveis",
   switchFailToast: "Falha ao alternar: {msg}",
   loaderSettings: "Configurações do bootloader",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "Desconhecido",
   healthItems: "{src} · {n} itens",
   notRead: "Ainda não carregado",
+},
+api: {
+  invalidToken: "Token de acesso inválido (401)",
+  commandFailed: "Comando falhou: {command}",
+},
+ts: {
+  local: "Direto local",
+  pushing: "Enviando (push)",
+  polling: "Consultando (polling)",
+  pushWs: "Push (WebSocket)",
+  pollHttp: "Polling (HTTP)",
+  auto: "Auto (push primeiro, cai para polling)",
+},
+lat: {
+  title: "Tendência de latência",
+  stats: "Último {last} ms · méd {avg} · mín {min} · máx {max}",
+  noSample: "Sem amostras — clique em “Testar conexão”",
 },
 srvEdit: {
   errName: "Nome é obrigatório",

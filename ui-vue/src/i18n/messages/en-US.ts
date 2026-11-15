@@ -1314,24 +1314,8 @@ oc: {
   blessScan: "bless scan",
   protocolDriver: "Protocol driver",
 },
-api: {
-  invalidToken: "Invalid access token (401)",
-  commandFailed: "Command failed: {command}",
-},
-ts: {
-  local: "Local direct",
-  pushing: "Pushing",
-  polling: "Polling",
-  pushWs: "Push (WebSocket)",
-  pollHttp: "Polling (HTTP)",
-  auto: "Auto (prefer push, fall back to polling)",
-},
-lat: {
-  title: "Latency trend",
-  stats: "Last {last} ms · avg {avg} · min {min} · max {max}",
-  noSample: "No samples yet — click “Test connection” to start",
-},
 boot: {
+  scanningRefind: "Scanning the rEFInd variables directory…",
   listEmpty: "No available entries",
   switchFailToast: "Switch failed: {msg}",
   loaderSettings: "Bootloader settings",
@@ -1358,6 +1342,23 @@ boot: {
   unknown: "Unknown",
   healthItems: "{src} · {n} entries",
   notRead: "Not loaded yet",
+},
+api: {
+  invalidToken: "Invalid access token (401)",
+  commandFailed: "Command failed: {command}",
+},
+ts: {
+  local: "Local direct",
+  pushing: "Pushing",
+  polling: "Polling",
+  pushWs: "Push (WebSocket)",
+  pollHttp: "Polling (HTTP)",
+  auto: "Auto (prefer push, fall back to polling)",
+},
+lat: {
+  title: "Latency trend",
+  stats: "Last {last} ms · avg {avg} · min {min} · max {max}",
+  noSample: "No samples yet — click “Test connection” to start",
 },
 srvEdit: {
   errName: "Name is required",
