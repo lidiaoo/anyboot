@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "「未検出」= この PC に対応するブートマネージャ未導入（rEFInd / GRUB / OpenCore / Clover / systemd-boot）。読み取り失敗ではありません";
 "and.opFailed" = "操作に失敗";
 "and.jumpTunnelAddrUnusable" = "踏み台トンネルアドレス利用不可";
+"and.inputSshPwd" = "SSH パスワードを入力";
+"and.checkUpdateFailNet" = "更新確認失敗：{x}。次：ネットワークを確認して再試行、または Releases ページを開く。";
+"and.checkUpdateFailVer" = "更新確認失敗：応答に有効なバージョンなし。次：後で再試行、または Releases ページ。";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

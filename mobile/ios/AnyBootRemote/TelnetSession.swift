@@ -24,7 +24,7 @@ final class TelnetSession {
         let value = jump.hostname.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else {
             throw NSError(domain: "TelnetSession", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "地址不合法"])
+                          userInfo: [NSLocalizedDescriptionKey: L("and.addrInvalid", "")])
         }
         let connection = NWConnection(
             host: NWEndpoint.Host(value),
@@ -36,7 +36,7 @@ final class TelnetSession {
             case .failed(let error):
                 self?.finish(L("and.connFailMsg", String(describing: error)))
             case .cancelled:
-                self?.finish("连接已关闭")
+                self?.finish(L("and.connClosed"))
             default:
                 break
             }
@@ -52,7 +52,7 @@ final class TelnetSession {
                 self.filterIac(data)
             }
             if isComplete || error != nil {
-                self.finish("连接已关闭")
+                self.finish(L("and.connClosed"))
                 return
             }
             self.receiveLoop(connection)

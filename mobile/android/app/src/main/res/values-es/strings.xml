@@ -1944,6 +1944,9 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_helpPower6">«No detectado» = este equipo no tiene el gestor de arranque correspondiente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), no es un fallo de lectura</string>
     <string name="and_opFailed">La operación falló</string>
     <string name="and_jumpTunnelAddrUnusable">Dirección del túnel del host de salto no disponible</string>
+    <string name="and_inputSshPwd">Introduce la contraseña SSH</string>
+    <string name="and_checkUpdateFailNet">Error al buscar actualizaciones: %1$s. Luego: comprueba la red y reinténtalo, o abre la página Releases.</string>
+    <string name="and_checkUpdateFailVer">Error al buscar: sin versión válida en la respuesta. Luego: reintenta más tarde o abre Releases.</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

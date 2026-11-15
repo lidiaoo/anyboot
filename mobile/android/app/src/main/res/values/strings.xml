@@ -1944,6 +1944,9 @@ Telnet：只有实验性终端。</string>
     <string name="and_helpPower6">显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是读取失败</string>
     <string name="and_opFailed">操作失败</string>
     <string name="and_jumpTunnelAddrUnusable">跳板机隧道地址不可用</string>
+    <string name="and_inputSshPwd">输入 SSH 密码</string>
+    <string name="and_checkUpdateFailNet">检查更新失败：%1$s。下一步：检查网络后重试，或直接打开 Releases 页。</string>
+    <string name="and_checkUpdateFailVer">检查更新失败：响应里没有可用的版本号。下一步：稍后重试，或直接打开 Releases 页。</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

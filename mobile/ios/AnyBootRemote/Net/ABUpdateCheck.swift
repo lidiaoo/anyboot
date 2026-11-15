@@ -33,9 +33,9 @@ enum ABUpdateCheck {
         var errorDescription: String? {
             switch self {
             case .network(let text):
-                return "检查更新失败：\(text)。下一步：检查网络后重试，或直接打开 Releases 页。"
+                return L("and.checkUpdateFailNet", text)
             case .noTag:
-                return "检查更新失败：响应里没有可用的版本号。下一步：稍后重试，或直接打开 Releases 页。"
+                return L("and.checkUpdateFailVer")
             }
         }
     }

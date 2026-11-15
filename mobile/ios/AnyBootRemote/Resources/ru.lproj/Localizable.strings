@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "«Не обнаружено» = на ПК нет соответствующего менеджера загрузки (rEFInd / GRUB / OpenCore / Clover / systemd-boot), а не ошибка чтения";
 "and.opFailed" = "Операция не удалась";
 "and.jumpTunnelAddrUnusable" = "Адрес туннеля узла недоступен";
+"and.inputSshPwd" = "Введите пароль SSH";
+"and.checkUpdateFailNet" = "Проверка обновлений не удалась: {x}. Далее: проверьте сеть и повторите или откройте страницу Releases.";
+"and.checkUpdateFailVer" = "Проверка обновлений не удалась: в ответе нет версии. Далее: повторите позже или откройте Releases.";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

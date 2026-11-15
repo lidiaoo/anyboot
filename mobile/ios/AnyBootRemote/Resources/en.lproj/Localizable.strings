@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "“Not detected” = this computer has no matching boot manager deployed (rEFInd / GRUB / OpenCore / Clover / systemd-boot), not a read failure";
 "and.opFailed" = "Operation failed";
 "and.jumpTunnelAddrUnusable" = "Jump host tunnel address unavailable";
+"and.inputSshPwd" = "Enter SSH password";
+"and.checkUpdateFailNet" = "Update check failed: {x}. Next: check the network and retry, or open the Releases page.";
+"and.checkUpdateFailVer" = "Update check failed: no usable version in the response. Next: retry later, or open the Releases page.";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

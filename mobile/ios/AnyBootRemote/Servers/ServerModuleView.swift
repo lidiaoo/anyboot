@@ -369,7 +369,7 @@ struct DeleteJumpDialog: View {
                                  + (via > 0 ? "\n\n注意：有 \(via) 台电脑配置了经由它连接，删除后这些电脑会退回直连。" : "")
                                  + (viaServers > 0 ? "\n\n另有 \(viaServers) 台服务器经由它中转，删除后退回直连。" : ""),
                                  color: ABColor.fg)
-                    ABDialogButtons(confirmTitle: "删除", confirmColor: ABColor.bad,
+                    ABDialogButtons(confirmTitle: L("common.delete"), confirmColor: ABColor.bad,
                                     onConfirm: {
                                         store.deleteTarget = nil
                                         SshSessionManager.shared.shutdown(jumpId: server.id)
@@ -402,7 +402,7 @@ struct ManualPasswordDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.manualPassword != nil,
                      onDismiss: { store.manualPassword = nil }) {
-            ABDialogCard("输入 SSH 密码") {
+            ABDialogCard(L("and.inputSshPwd")) {
                 if let request = store.manualPassword {
                     ManualPasswordBody(request: request,
                                        onDone: { store.manualPassword = nil })

@@ -1944,6 +1944,9 @@ Telnet：実験的端末のみ。</string>
     <string name="and_helpPower6">「未検出」= この PC に対応するブートマネージャ未導入（rEFInd / GRUB / OpenCore / Clover / systemd-boot）。読み取り失敗ではありません</string>
     <string name="and_opFailed">操作に失敗</string>
     <string name="and_jumpTunnelAddrUnusable">踏み台トンネルアドレス利用不可</string>
+    <string name="and_inputSshPwd">SSH パスワードを入力</string>
+    <string name="and_checkUpdateFailNet">更新確認失敗：%1$s。次：ネットワークを確認して再試行、または Releases ページを開く。</string>
+    <string name="and_checkUpdateFailVer">更新確認失敗：応答に有効なバージョンなし。次：後で再試行、または Releases ページ。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

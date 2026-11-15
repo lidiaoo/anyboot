@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "‘감지 안 됨’ = 이 PC에 해당 부트 매니저 미배포(rEFInd / GRUB / OpenCore / Clover / systemd-boot). 읽기 실패 아님";
 "and.opFailed" = "작업 실패";
 "and.jumpTunnelAddrUnusable" = "점프 호스트 터널 주소 사용 불가";
+"and.inputSshPwd" = "SSH 비밀번호 입력";
+"and.checkUpdateFailNet" = "업데이트 확인 실패: {x}. 다음: 네트워크 확인 후 재시도 또는 Releases 페이지.";
+"and.checkUpdateFailVer" = "업데이트 확인 실패: 응답에 유효 버전 없음. 다음: 나중에 재시도 또는 Releases 페이지.";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

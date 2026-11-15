@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "„Nicht erkannt“ = kein passender Bootmanager installiert (rEFInd / GRUB / OpenCore / Clover / systemd-boot), kein Lesefehler";
 "and.opFailed" = "Vorgang fehlgeschlagen";
 "and.jumpTunnelAddrUnusable" = "Sprungserver-Tunneladresse nicht verfügbar";
+"and.inputSshPwd" = "SSH-Passwort eingeben";
+"and.checkUpdateFailNet" = "Update-Prüfung fehlgeschlagen: {x}. Als Nächstes: Netzwerk prüfen und erneut, oder Releases-Seite öffnen.";
+"and.checkUpdateFailVer" = "Update-Prüfung fehlgeschlagen: keine gültige Version. Als Nächstes: später erneut oder Releases-Seite öffnen.";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

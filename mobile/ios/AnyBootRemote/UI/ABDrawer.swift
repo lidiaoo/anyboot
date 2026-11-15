@@ -57,19 +57,19 @@ struct ABDrawerOverlay: View {
                     //   「电脑列表」→ ComputerListActivity（卡片列表）
                     // 注意 ABPage 的 case 名是历史包袱，跟直观读法相反：
                     //   .computers = 电脑页（多标签） / .computer = 电脑列表
-                    navRow(.computers, "电脑") { tint, size in
+                    navRow(.computers, L("nav.computers")) { tint, size in
                         DrawnIcon.desktop(tint, size: size)
                     }
-                    navRow(.computer, "电脑列表") { tint, size in
+                    navRow(.computer, L("nav.computerList")) { tint, size in
                         DrawnIcon.serverStack(tint, size: size)
                     }
-                    navRow(.servers, "服务器") { tint, size in
+                    navRow(.servers, L("nav.servers")) { tint, size in
                         DrawnIcon.serverStack(tint, size: size)
                     }
-                    navRow(.backup, "备份与恢复") { tint, size in
+                    navRow(.backup, L("bk.titleFull")) { tint, size in
                         DrawnIcon.swapVertical(tint, size: size)
                     }
-                    navRow(.about, "关于") { tint, size in
+                    navRow(.about, L("nav.about")) { tint, size in
                         DrawnIcon.info(tint, size: size)
                     }
                     // 主题项是设计稿没有的既有功能，保留在导航末尾
@@ -117,7 +117,7 @@ struct ABDrawerOverlay: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("心跳 10s · 并发探测\nGitHub · lidiaoo/anyboot")
+            Text(L("and.drawerFooter"))
                 .font(.system(size: 10))
                 .lineSpacing(ABMetric.px(16) - 12)
                 .foregroundColor(ABColor.fgFaint)

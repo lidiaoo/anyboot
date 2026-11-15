@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "“Não detectado” = este PC não tem o gerenciador de boot correspondente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), não é falha de leitura";
 "and.opFailed" = "Operação falhou";
 "and.jumpTunnelAddrUnusable" = "Endereço do túnel do jump host indisponível";
+"and.inputSshPwd" = "Digite a senha SSH";
+"and.checkUpdateFailNet" = "Verificação de atualização falhou: {x}. A seguir: verifique a rede e tente de novo, ou abra a página Releases.";
+"and.checkUpdateFailVer" = "Verificação falhou: sem versão válida na resposta. A seguir: tente mais tarde ou abra Releases.";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

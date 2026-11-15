@@ -1907,6 +1907,9 @@
 "and.helpPower6" = "«No detectado» = este equipo no tiene el gestor de arranque correspondiente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), no es un fallo de lectura";
 "and.opFailed" = "La operación falló";
 "and.jumpTunnelAddrUnusable" = "Dirección del túnel del host de salto no disponible";
+"and.inputSshPwd" = "Introduce la contraseña SSH";
+"and.checkUpdateFailNet" = "Error al buscar actualizaciones: {x}. Luego: comprueba la red y reinténtalo, o abre la página Releases.";
+"and.checkUpdateFailVer" = "Error al buscar: sin versión válida en la respuesta. Luego: reintenta más tarde o abre Releases.";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

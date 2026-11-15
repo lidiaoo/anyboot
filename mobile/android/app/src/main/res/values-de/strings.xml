@@ -1944,6 +1944,9 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_helpPower6">„Nicht erkannt“ = kein passender Bootmanager installiert (rEFInd / GRUB / OpenCore / Clover / systemd-boot), kein Lesefehler</string>
     <string name="and_opFailed">Vorgang fehlgeschlagen</string>
     <string name="and_jumpTunnelAddrUnusable">Sprungserver-Tunneladresse nicht verfügbar</string>
+    <string name="and_inputSshPwd">SSH-Passwort eingeben</string>
+    <string name="and_checkUpdateFailNet">Update-Prüfung fehlgeschlagen: %1$s. Als Nächstes: Netzwerk prüfen und erneut, oder Releases-Seite öffnen.</string>
+    <string name="and_checkUpdateFailVer">Update-Prüfung fehlgeschlagen: keine gültige Version. Als Nächstes: später erneut oder Releases-Seite öffnen.</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

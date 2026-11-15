@@ -309,7 +309,7 @@ final class ABConfirmBus {
         case .light: alert.overrideUserInterfaceStyle = .light
         }
         // 不可点外面关 —— 必须明确选信任 / 取消（对齐 Android onDismissRequest = {}）
-        alert.addAction(UIAlertAction(title: displays[key]?.1 ?? "信任并连接",
+        alert.addAction(UIAlertAction(title: displays[key]?.1 ?? L("and.trustAndConnect"),
                                       style: .default) { [weak self] _ in
             self?.settle(key, true)
         })

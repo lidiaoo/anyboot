@@ -44,7 +44,7 @@ struct QRScannerView: View {
 
     private var titleBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "返回") { dismiss() }
+            ABBarIcon(text: "‹", description: L("and.back")) { dismiss() }
             Text(L("and.scanTitle"))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(ABColor.fg)
@@ -74,7 +74,7 @@ struct QRScannerView: View {
         VStack(spacing: 0) {
             QRCameraPreview(onCode: handle, onFailure: {
                 // 相机被占用 / 没有摄像头等：不闪退，提示后留在页面上（Android 同）
-                ABToastBus.shared.show("相机启动失败，可以手动粘贴配对串", seconds: 3.5)
+                ABToastBus.shared.show(L("and.camStartFail"), seconds: 3.5)
             })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: ABMetric.px(16), style: .continuous))
