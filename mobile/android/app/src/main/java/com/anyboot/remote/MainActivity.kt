@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -99,6 +100,10 @@ import kotlinx.coroutines.launch
  * 心跳、同一台电脑归并）与旧 View 实现逐段平移，界面层换成 Compose。
  */
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     companion object {
         private const val STATUS_UNKNOWN = 0

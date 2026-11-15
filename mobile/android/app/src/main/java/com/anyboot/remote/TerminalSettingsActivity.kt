@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.os.Bundle
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -46,6 +47,10 @@ import androidx.compose.ui.unit.sp
  * 在 onResume 时对齐这份设置，不用重开会话。
  */
 class TerminalSettingsActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

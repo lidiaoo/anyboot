@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.Intent
+import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -51,6 +52,10 @@ import org.json.JSONObject
  * 与 PC 的「远程管理 → 关于」同一套语义。Star 引导照旧：点卡片打开仓库网页 —— App 不代点。
  */
 class AboutActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     companion object {
         private const val REPO_URL = "https://github.com/lidiaoo/anyboot"

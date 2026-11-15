@@ -66,6 +66,10 @@ import androidx.compose.ui.window.DialogProperties
  * Jetpack Compose / Material 3 重写；会话生命周期照旧由 TerminalRegistry 静态持有。
  */
 class TerminalActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     private val bus = ConfirmBus()
 

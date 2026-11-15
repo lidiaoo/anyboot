@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import android.util.Size
 import android.widget.Toast
@@ -70,6 +71,10 @@ import java.util.concurrent.Executors
  * RESULT_CANCELED（宿主粘贴框保持原样，等价于取消）。
  */
 class ScanPairActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     companion object {
         const val EXTRA_TEXT = "text"

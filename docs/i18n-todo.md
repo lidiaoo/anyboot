@@ -75,8 +75,8 @@
 ## 二、Android（Compose / strings.xml）
 
 ### A0 基础设施
-- [ ] **A0.1** `res/values/strings.xml`（默认中文）与 `res/values-en/strings.xml` 建骨架（先只放 `common_*`、`app_name`）
-- [ ] **A0.2** `Theme.kt`/`Common.kt`：加 `AppLocale` 管理（SharedPreferences `anyboot.lang`；`setApplicationLocales`（API33+）/ 自管 `attachBaseContext` 包裹）
+- [x] **A0.1** 9 语言 strings.xml 骨架（95 key：common/nav/app/hub.state/hub.list；含 UTF/引号/% 转义）
+- [x] **A0.2** AppLocale.kt（SharedPreferences `anyboot/lang` + `wrap()` createConfigurationContext）+ 8 个 Activity 注入 `attachBaseContext`（编译通过）
 - [ ] **A0.3** `Drawer.kt`：抽屉菜单项与底部版本号
 - [ ] **A0.4** 语言设置入口：放在「关于」或设置面板（`AboutActivity.kt` 或 `TerminalSettingsActivity.kt` 旁的通用设置）
 

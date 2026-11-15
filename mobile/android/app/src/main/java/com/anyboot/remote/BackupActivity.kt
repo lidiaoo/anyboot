@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.net.Uri
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -68,6 +69,10 @@ import java.util.Locale
  * S2/S3/S4 以全屏覆盖层实现（对齐 iOS fullScreenCover 的层级语义）。
  */
 class BackupActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)

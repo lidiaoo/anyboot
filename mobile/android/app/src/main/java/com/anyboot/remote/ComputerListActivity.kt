@@ -113,6 +113,10 @@ import org.json.JSONObject
  * （[SshSessionManager.tunnelAddress]）。所有网络调用都在后台线程，结果回主线程写 Compose 状态。
  */
 class ComputerListActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     // ------------------------------------------------------------------
     // 状态

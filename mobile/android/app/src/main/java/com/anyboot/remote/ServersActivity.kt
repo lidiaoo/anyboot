@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -103,6 +104,10 @@ import java.util.Locale
  * Jetpack Compose / Material 3 重写，业务逻辑平移。
  */
 class ServersActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLocale.wrap(newBase))
+    }
+
 
     private val bus = ConfirmBus()
 
