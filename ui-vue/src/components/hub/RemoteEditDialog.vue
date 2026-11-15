@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useServersStore } from "@/stores/servers";
 import { useToastStore } from "@/stores/toast";
 import type { RemoteProfile } from "@/stores/remote";
@@ -27,7 +28,7 @@ const serversStore = useServersStore();
 const toast = useToastStore();
 /** 跳板机选项（旧版 jumpServerOptions：SSH 服务器列表） */
 const jumpOptions = computed(() =>
-  (serversStore.servers ?? []).filter((s) => s.protocol === "ssh").map((s) => ({ id: s.id, name: (s.name || "(未命名)") + "（" + s.host + ":" + (s.port || 22) + "）" })),
+  (serversStore.servers ?? []).filter((s) => s.protocol === "ssh").map((s) => ({ id: s.id, name: (s.name || t("server.untitled")) + " (" + s.host + ":" + (s.port || 22) + ")" })),
 );
 
 const props = defineProps<{
@@ -48,12 +49,12 @@ const quick = ref("");
 const PAIR_BLOCKS = [
   { id: "cloudflare", label: "Cloudflare" },
   { id: "ts", label: "Tailscale" },
-  { id: "tsnet", label: "Tailscale（内建）" },
+  { id: "tsnet", label: "remote.tsnetLabel" },
 ];
 const PAIR_MODES = [
-  { id: "parallel_first", long: "并发（首个）" },
-  { id: "parallel_all", long: "并发（全部）" },
-  { id: "serial", long: "串行" },
+  { id: "parallel_first", long: "remote.probeFirst" },
+  { id: "parallel_all", long: "remote.probeAll" },
+  { id: "serial", long: "remote.probeSerial" },
 ];
 const blockProbe = ref<Record<string, string>>({});
 const blockTimeouts = ref<Record<string, string>>({});
@@ -72,8 +73,8 @@ function setBlockTimeout(blockId: string, raw: string) {
 }
 
 const ROUTE_LABELS: Record<string, string> = {
-  lan: "直连", jump: "跳板机", tunnel: "Cloudflare 隧道",
-  ts: "Tailscale 直连", funnel: "Tailscale Funnel", tsnet: "Tailscale Funnel（内建）",
+  lan: "hub.route.lan", jump: "hub.route.jump", tunnel: "hub.route.tunnel",
+  ts: "hub.route.ts", funnel: "hub.route.funnel", tsnet: "hub.route.tsnet",
 };
 const ROUTE_IDS = ["lan", "jump", "tunnel", "ts", "funnel", "tsnet"];
 const routeOrder = ref<string[]>([...ROUTE_IDS]);
@@ -151,7 +152,7 @@ const routeProbeHidden = ref<string[]>([]);
 const PAIR_BLOCKS_UI = [
   { id: "cloudflare", label: "Cloudflare" },
   { id: "ts", label: "Tailscale" },
-  { id: "tsnet", label: "Tailscale（内建）" },
+  { id: "tsnet", label: "remote.tsnetLabel" },
 ];
 function pairsOf(kind: string) {
   return pairs.value.filter((p) => p.kind === kind);
@@ -161,7 +162,7 @@ function filledCount(kind: string) {
 }
 function addPair(kind: string) {
   if (pairs.value.length >= 32) {
-    toast.show("已达 32 条上限", "bad");
+    toast.show(t("remote.limit32"), "bad");
     return;
   }
   pairs.value.push({ kind, addr: "", note: "", token: "", probe_timeout_ms: 0, enabled: true, show_probe: true });
@@ -208,16 +209,16 @@ interface PowerRoute {
   retry: number;
 }
 const POWER_ACTIONS = [
-  { value: "wake", label: "唤醒" },
-  { value: "reboot", label: "重启" },
-  { value: "shutdown", label: "关机" },
-  { value: "sleep", label: "睡眠" },
+  { value: "wake", label: "hub.power.wake" },
+  { value: "reboot", label: "hub.power.restart" },
+  { value: "shutdown", label: "hub.power.shutdown" },
+  { value: "sleep", label: "hub.power.sleep" },
 ];
 const ROUTE_MODES = [
-  { value: "auto", label: "优先广播包" },
-  { value: "http_first", label: "优先 HTTP" },
-  { value: "http_only", label: "仅 HTTP" },
-  { value: "packet_only", label: "仅广播包" },
+  { value: "auto", label: "remote.powerAuto" },
+  { value: "http_first", label: "remote.httpFirst" },
+  { value: "http_only", label: "remote.httpOnly" },
+  { value: "packet_only", label: "remote.packetOnly" },
 ];
 const powerRoutes = ref<PowerRoute[]>([]);
 function newPowerRoute(): PowerRoute {
@@ -254,23 +255,23 @@ function remoteSplit() {
   const m = text.match(/https?:\/\/[^\s]+|anyboot:\/\/[^\s]+|\d+\.\d+\.\d+\.\d+(?::\d+)?/);
   if (m) {
     rows.value.push({ addr: m[0], macList: [], jump: "" });
-    remoteHint.value = "已识别并加入地址列表";
+    remoteHint.value = t("remote.hintAddedRecognized");
   } else {
-    remoteHint.value = "没识别出地址";
+    remoteHint.value = t("remote.hintNoAddr");
   }
 }
 async function remoteGet() {
   // 旧版：向第一个已填地址发起无凭据配对请求，对方点「同意」后回填（最多等 80 秒）
   const first = rows.value.map((r) => r.addr.trim()).filter(Boolean)[0];
   if (!first) {
-    editError.value = "先在上方添加对方的局域网地址，才能「从对方获取」";
+    editError.value = t("remote.needLanFirst");
     return;
   }
-  remoteHint.value = "正在向 " + first + " 发起配对请求 —— 请让对方在其屏幕上点「同意」（最多等 80 秒）…";
+  remoteHint.value = t("remote.pairing", { addr: first });
   try {
     const pair = (await call<string>("gateway_pair_fetch", { peer: first })) ?? "";
     remoteText.value = pair;
-    remoteHint.value = pair ? "已拿到配对码 —— 点「保存」生效" : "对方没有返回配对码";
+    remoteHint.value = pair ? t("remote.pairGot") : t("remote.pairNone");
   } catch (e) {
     remoteHint.value = "";
     editError.value = String(e);
@@ -289,11 +290,11 @@ async function copyToken() {
   }
 }
 async function doTest() {
-  testOut.value = "测试中…";
+  testOut.value = t("remote.testing");
   try {
     const { call } = await import("@/api/tauri");
     await call("remote_test_via", { serverId: props.remote?.id ?? "", address: null });
-    testOut.value = "连接正常";
+    testOut.value = t("remote.testOk");
   } catch (e) {
     editError.value = String(e);
     testOut.value = "";
@@ -426,19 +427,19 @@ function recognize() {
   if (!text) return;
   const match = text.match(/(\d+\.\d+\.\d+\.\d+(?::\d+)?)/);
   if (!match) {
-    hint.value = "没识别出地址，请手动填写";
+    hint.value = t("remote.hintNoAddrManual");
     return;
   }
   const addr = match[1]!;
   const exists = rows.value.some((r) => r.addr === addr);
   if (exists) {
-    hint.value = "这条地址已经加过了";
+    hint.value = t("remote.hintDup");
     return;
   }
   const empty = rows.value.find((r) => !r.addr);
   if (empty) empty.addr = addr;
   else rows.value.push({ addr, macList: [], jump: "" });
-  hint.value = "已加入地址列表";
+  hint.value = t("remote.hintAdded");
   quick.value = "";
 }
 
@@ -498,8 +499,8 @@ function submit() {
   <div v-if="open" id="rsEditOverlay" class="overlay">
     <div class="dialog rs-edit" role="dialog" aria-modal="true" aria-labelledby="rsEditTitle">
       <div class="dialog-head">
-        <h3 id="rsEditTitle">{{ remote?.id ? "编辑服务端" : "连接 AnyBoot 服务端" }}</h3>
-        <button type="button" class="icon-btn" id="rsEditClose" aria-label="关闭" @click="emit('close')">
+        <h3 id="rsEditTitle">{{ remote?.id ? t("remote.editTitle") : t("remote.connectTitle") }}</h3>
+        <button type="button" class="icon-btn" id="rsEditClose" :aria-label="t('common.close')" @click="emit('close')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
@@ -509,13 +510,13 @@ function submit() {
       <div class="dialog-body">
         <div class="field-row">
           <div class="field">
-            <label for="rsName">电脑名称</label>
-            <input id="rsName" v-model="name" type="text" placeholder="例如：书房台式机（留空用主机名兜底）" />
+            <label for="rsName">{{ t("remote.name") }}</label>
+            <input id="rsName" v-model="name" type="text" :placeholder="t('remote.namePh')" />
           </div>
         </div>
 
         <div class="field">
-          <label for="rsAddrQuick">快速识别（粘贴任意写法，自动拆出地址 / 端口 / MAC 加进下面）</label>
+          <label for="rsAddrQuick">{{ t("remote.quick") }}</label>
           <textarea
             id="rsAddrQuick"
             v-model="quick"
@@ -528,20 +529,20 @@ function submit() {
             @paste="onQuickPaste"
           />
           <div class="addr-quick-actions">
-            <button type="button" class="btn small" id="rsAddrRecognize" @click="recognize">识别并加入</button>
-            <span class="addr-quick-hint" id="rsAddrHint">换行 / 空格 / 逗号 / 分号都能分开；认不出的文字（备注、括号）自动忽略</span>
+            <button type="button" class="btn small" id="rsAddrRecognize" @click="recognize">{{ t("remote.recognize") }}</button>
+            <span class="addr-quick-hint" id="rsAddrHint">{{ t("remote.quickHint") }}</span>
           </div>
         </div>
 
         <div class="field">
-          <label>局域网地址（第一个用来连接；MAC 只用于局域网电源）</label>
+          <label>{{ t("remote.lanLabel") }}</label>
           <div id="rsAddrList" class="addr-list">
-            <p v-if="!rows.some((r) => r.addr)" class="addr-empty">还没加地址 —— 上面粘一段，或者下面手动填一个。</p>
+            <p v-if="!rows.some((r) => r.addr)" class="addr-empty">{{ t("remote.addrEmpty") }}</p>
             <div v-for="(row, i) in rows" :key="i" class="addr-row">
               <div class="addr-main">
-                <span class="addr-host">{{ row.addr || "（未填地址）" }}</span>
-                <span v-if="i === 0" class="addr-badge">连接用</span>
-                <button type="button" class="addr-del" aria-label="删掉这个地址" title="删掉这个地址" @click="removeRow(i)">✕</button>
+                <span class="addr-host">{{ row.addr || t("remote.addrUnfilled") }}</span>
+                <span v-if="i === 0" class="addr-badge">{{ t("remote.badgeConnect") }}</span>
+                <button type="button" class="addr-del" :aria-label="t('remote.delAddr')" :title="t('remote.delAddr')" @click="removeRow(i)">✕</button>
               </div>
               <div class="addr-macs">
                 <span class="route-macs-label">MAC</span>
@@ -551,48 +552,48 @@ function submit() {
                     :key="mac"
                     type="button"
                     class="mac-tag"
-                    title="点一下删掉这块网卡"
+                    :title="t('remote.delNic')"
                     @click="dropMac(i, mac)"
                   >{{ mac }} <i>✕</i></button>
                 </template>
-                <span v-else class="route-macs-label">没配 MAC —— 局域网电源发不出去</span>
+                <span v-else class="route-macs-label">{{ t("remote.noMac") }}</span>
               </div>
               <div class="addr-jump">
-                <span class="route-macs-label">跳板机</span>
-                <select v-model="row.jump" class="addr-jump-select" title="这个地址经由哪台跳板机中转（空 = 这个地址直连）">
-                  <option value="">直连</option>
+                <span class="route-macs-label">{{ t("remote.jumpLabel") }}</span>
+                <select v-model="row.jump" class="addr-jump-select" :title="t('remote.jumpSelectTitle')">
+                  <option value="">{{ t("server.direct") }}</option>
                   <option v-for="opt in jumpOptions" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
                 </select>
               </div>
             </div>
           </div>
           <div class="addr-add">
-            <input id="rsAddrHost" v-model="addrHost" type="text" spellcheck="false" placeholder="192.168.0.120 或 192.168.0.120:12300" @keydown.enter.prevent="addAddr" />
-            <input id="rsAddrMacs" v-model="addrMacs" type="text" spellcheck="false" placeholder="MAC（可多个，空格隔开）" @keydown.enter.prevent="addAddr" />
-            <button type="button" class="btn small" id="rsAddrAdd" @click="addAddr">添加</button>
+            <input id="rsAddrHost" v-model="addrHost" type="text" spellcheck="false" :placeholder="t('remote.hostPh')" @keydown.enter.prevent="addAddr" />
+            <input id="rsAddrMacs" v-model="addrMacs" type="text" spellcheck="false" :placeholder="t('remote.macsPh')" @keydown.enter.prevent="addAddr" />
+            <button type="button" class="btn small" id="rsAddrAdd" @click="addAddr">{{ t("common.add") }}</button>
           </div>
-          <p class="field-hint">没写端口按 12300 补。地址已存在时只把 MAC 追加进去；点 MAC 标签可以单独删掉那块网卡。</p>
+          <p class="field-hint">{{ t("remote.addrHelp") }}</p>
         </div>
 
         <div class="field">
-          <label for="rsRemote">远程接入（粘贴配对码 / 地址，按类型自动归入下面的区块）</label>
+          <label for="rsRemote">{{ t("remote.remoteLabel") }}</label>
           <textarea id="rsRemote" v-model="remoteText" rows="2" class="mono" spellcheck="false" placeholder="anyboot://pair?v=2&amp;mid=…&amp;type=cloudflare&amp;tunnel=…&amp;token=…&#10;https://xxx.trycloudflare.com / http://100.x.y.z:12300 / https://xxx.ts.net" />
           <div class="addr-quick-actions">
-            <button type="button" class="btn small" id="rsRemoteSplit" @click="remoteSplit">识别并加入</button>
-            <button type="button" class="btn small" id="rsRemoteGet" @click="remoteGet">从对方获取</button>
-            <button type="button" class="btn small" id="rsRemoteClear" @click="remoteClear">全部清空</button>
+            <button type="button" class="btn small" id="rsRemoteSplit" @click="remoteSplit">{{ t("remote.split") }}</button>
+            <button type="button" class="btn small" id="rsRemoteGet" @click="remoteGet">{{ t("remote.getFromPeer") }}</button>
+            <button type="button" class="btn small" id="rsRemoteClear" @click="remoteClear">{{ t("remote.clearAll") }}</button>
             <span class="addr-quick-hint" id="rsRemoteHint">{{ remoteHint }}</span>
           </div>
-          <p class="field-hint">三个区块各自可挂多条，全部保留、各自探测、各自超时 —— 一台电脑装了几个系统就配几条。同一系统同一区块再配一次 = 更新那一行（按 mid + 区块判定），不会多出一条。局域网地址优先使用，全连不上才走这里。</p>
-          <p class="field-hint">「从对方获取」：对方要在同一局域网且其本机服务在线，它屏幕上会弹确认框。</p>
+          <p class="field-hint">{{ t("remote.blockHelp1") }}</p>
+          <p class="field-hint">{{ t("remote.blockHelp2") }}</p>
           <div id="rsPairsBox" class="pair-blocks">
             <div v-for="block in PAIR_BLOCKS_UI" :key="block.id" class="pb-block">
               <div class="pb-head">
                 <span class="pb-title">{{ block.label }}</span>
-                <span class="pb-count">{{ filledCount(block.id) ? filledCount(block.id) + " 条" : "未配置" }}</span>
-                <button type="button" class="pb-add" @click="addPair(block.id)">+ 添加</button>
+                <span class="pb-count">{{ filledCount(block.id) ? t("remote.blockCount", { n: filledCount(block.id) }) : t("remote.blockUnset") }}</span>
+                <button type="button" class="pb-add" @click="addPair(block.id)">{{ t("remote.pairAdd") }}</button>
               </div>
-              <div v-if="!pairsOf(block.id).length" class="pb-empty">这个区块还没有配对 —— 在上面粘配对码，或点「+ 添加」手填地址</div>
+              <div v-if="!pairsOf(block.id).length" class="pb-empty">{{ t("remote.pairEmpty") }}</div>
               <div v-for="(pair, pi) in pairsOf(block.id)" :key="pi" :class="['pb-row', { 'pb-off': pair.enabled === false }]">
                 <!-- 第一行：地址 + 通道徽章 + 超时 + ↑↓✕ -->
                 <div class="pb-main">
@@ -617,15 +618,15 @@ function submit() {
                     @change="pair.probe_timeout_ms = Math.round(Math.min(30, Math.max(0.2, parseFloat(($event.target as HTMLInputElement).value) || 0)) * 1000)"
                   />
                   <span class="pb-act">
-                    <button type="button" class="rp-btn" title="上移" @click="movePair(pair, -1)">↑</button>
-                    <button type="button" class="rp-btn" title="下移" @click="movePair(pair, 1)">↓</button>
-                    <button type="button" class="rp-btn" title="删除这条配对" @click="removePairItem(pair)">✕</button>
+                    <button type="button" class="rp-btn" :title="t('remote.moveUp')" @click="movePair(pair, -1)">↑</button>
+                    <button type="button" class="rp-btn" :title="t('remote.moveDown')" @click="movePair(pair, 1)">↓</button>
+                    <button type="button" class="rp-btn" :title="t('remote.delPair')" @click="removePairItem(pair)">✕</button>
                   </span>
                 </div>
                 <!-- 第二行：备注 + 令牌 + 启用 / 展示 开关 -->
                 <div class="pb-meta">
-                  <input class="pb-note" type="text" placeholder="备注" :value="pair.note" @change="pair.note = ($event.target as HTMLInputElement).value.trim()" />
-                  <input class="pb-note mono" type="password" spellcheck="false" placeholder="令牌" :value="''" :title="pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌'" @change="pair.token = ($event.target as HTMLInputElement).value.trim()" />
+                  <input class="pb-note" type="text" :placeholder="t('remote.notePh')" :value="pair.note" @change="pair.note = ($event.target as HTMLInputElement).value.trim()" />
+                  <input class="pb-note mono" type="password" spellcheck="false" :placeholder="t('remote.tokenPh')" :value="''" :title="pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌'" @change="pair.token = ($event.target as HTMLInputElement).value.trim()" />
                   <span class="pb-swtag">
                     <label class="switch" title="停用后这条配对不参与探测与连接">
                       <input type="checkbox" :checked="pair.enabled !== false" @change="pair.enabled = !(pair.enabled !== false)" />

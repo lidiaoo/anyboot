@@ -41,7 +41,7 @@
 - [ ] **P2.3** 弹窗（`ComputerRow` 内 picker）：head（`{loader} · 选择下次启动`）、格式 chips（跟随电脑/极简/简易/中等/原始/复杂 + `条目文字格式（当前：…）`）、置顶「下次启动」、组头「{n} 项」、来源标签（默认项/折叠内核/macOS 诊断/辅助）、sub/note、取消
 - [ ] **P2.4** 通道弹窗（OC 行）：tag（类型 · 来源）词表、「辅助」、只读提示（`这一项不能直接启动（由 OC/固件接管）`）
 - [x] **P2.5** `pages/hub/HomePage.vue`：tabs（本机/未连接）、空态提示（选择上方标签…）、⋮ 菜单
-- [ ] **P2.6** `components/hub/RemoteListDialog.vue`、`RemoteEditDialog.vue`、`ServerEditDialog.vue`、`PairDialog.vue`、`TunnelDialog.vue`、`SystemInfoDialog.vue`、`LatencyTrend.vue`
+- [ ] **P2.6**（RemoteEditDialog 批 A 已完成：基础/地址/远程接入/配对块/功率与探测档位；连接策略长文待批 B） `components/hub/RemoteListDialog.vue`、`RemoteEditDialog.vue`、`ServerEditDialog.vue`、`PairDialog.vue`、`TunnelDialog.vue`、`SystemInfoDialog.vue`、`LatencyTrend.vue`
 
 ### P3 系统引导页
 - [ ] **P3.1** `components/boot/BootList.vue`：区块标题、空态、`showGroups`
