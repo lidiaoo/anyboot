@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 
 /**
@@ -103,8 +104,8 @@ function clearDone() {
 
 /** 状态徽章文案（旧版 .tx-badge） */
 function badgeText(item: TxItem): string {
-  if (item.state === "paused") return item.dir === "up" ? "↑ 已暂停" : "↓ 已暂停";
-  return item.dir === "up" ? "↑ 上传" : "↓ 下载";
+  if (item.state === "paused") return item.dir === "up" ? t("tx.pausedUp") : t("tx.pausedDown");
+  return item.dir === "up" ? t("tx.up") : t("tx.down");
 }
 function badgeClass(item: TxItem): string {
   if (item.state === "paused") return "paused";
@@ -136,18 +137,18 @@ function pct(item: TxItem): number {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px">
-    <h2>传输</h2>
+    <h2>{{ $t("nav.transfers") }}</h2>
     <span style="flex: 1" />
     <button type="button" id="txPauseAll" class="btn" @click="ctlAll('pause', (t) => t.state === 'running')">
-      全部暂停
+      {{ $t("tx.pauseAll") }}
     </button>
     <button type="button" id="txResumeAll" class="btn" @click="ctlAll('resume', (t) => t.state === 'paused')">
-      全部继续
+      {{ $t("tx.resumeAll") }}
     </button>
     <button type="button" id="txAbandonAll" class="btn" @click="ctlAll('abandon', (t) => t.state !== 'done')">
-      全部放弃
+      {{ $t("tx.abandonAll") }}
     </button>
-    <button type="button" id="txClearDone" class="btn" @click="clearDone">清空已完成</button>
+    <button type="button" id="txClearDone" class="btn" @click="clearDone">{{ $t("tx.clearDone") }}</button>
   </div>
 
   <div class="tx-list scroll-thin" id="txList">
@@ -155,8 +156,8 @@ function pct(item: TxItem): number {
 
     <!-- 空态（旧版 renderTransfers 的空态文案） -->
     <div v-else-if="!items.length && !history.length" class="act-card" style="margin: 8px 0">
-      <p class="t">当前没有传输任务</p>
-      <p class="s">在「文件」窗口上传 / 下载时，进度会实时汇总到这里；暂停的任务可从断点继续。</p>
+      <p class="t">{{ $t("tx.emptyTitle") }}</p>
+      <p class="s">{{ $t("tx.emptyHint") }}</p>
     </div>
 
     <template v-else>
@@ -167,10 +168,10 @@ function pct(item: TxItem): number {
           <span class="tx-name" :title="item.name">{{ item.name || "—" }}</span>
           <span class="tx-meta">{{ metaText(item) }}</span>
           <button type="button" class="tx-mini" @click="ctl(item.key, item.state === 'paused' ? 'resume' : 'pause')">
-            {{ item.state === "paused" ? "继续" : "暂停" }}
+            {{ item.state === "paused" ? $t("tx.resume") : $t("tx.pause") }}
           </button>
-          <button type="button" class="tx-mini danger" title="删除半截文件并清掉这条记录" @click="ctl(item.key, 'abandon')">
-            放弃
+          <button type="button" class="tx-mini danger" :title="$t('tx.abandonTitle')" @click="ctl(item.key, 'abandon')">
+            {{ $t("tx.abandon") }}
           </button>
         </div>
         <div :class="['tx-bar', { paused: item.state === 'paused' }]">
@@ -181,7 +182,7 @@ function pct(item: TxItem): number {
       <!-- 历史（已完成） -->
       <div v-for="(h, i) in history" :key="'h' + i" class="tx-card">
         <div class="tx-top">
-          <span class="tx-badge done">✓ 已完成</span>
+          <span class="tx-badge done">{{ $t("tx.done") }}</span>
           <span class="tx-name">{{ (h.dir === "up" ? "[↑] " : "[↓] ") + (h.name || "—") }}</span>
           <span class="tx-meta">{{ fmtSize(h.total) }}</span>
         </div>

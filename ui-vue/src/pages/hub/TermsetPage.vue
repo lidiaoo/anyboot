@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { t } from "@/i18n";
 
 /**
  * 终端设置页（原 `ui/hub.html` 的 `#page-termset`，3459 行）。
@@ -111,7 +112,7 @@ function apply() {
     .then(({ emit }) => emit("ab-term-settings-changed", payload))
     .catch(() => {});
   saved.value = true;
-  toastText.value = "已应用：已开的终端窗口与新会话均生效";
+  toastText.value = t("termset.applied");
 }
 
 function pickDownDir() {
@@ -126,15 +127,15 @@ function pickDownDir() {
 
 <template>
   <div class="page-head">
-    <h2>终端设置</h2>
+    <h2>{{ $t("nav.termSettings") }}</h2>
   </div>
 
   <div class="ts-wrap">
     <div class="ts-card">
       <div class="ts-row">
         <div>
-          <p class="ts-t">字号</p>
-          <p class="ts-s">终端字体大小</p>
+          <p class="ts-t">{{ $t("termset.fontSize") }}</p>
+          <p class="ts-s">{{ $t("termset.fontSizeNote") }}</p>
         </div>
         <span class="ts-val" id="tsFontVal">{{ settings.fontSize }} pt</span>
       </div>
@@ -146,15 +147,15 @@ function pickDownDir() {
         min="10"
         max="24"
         step="1"
-        aria-label="字号"
+        :aria-label="$t('termset.fontSizeAria')"
       />
     </div>
     <div class="ts-card">
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">光标闪烁</p>
-          <p class="ts-s">终端光标呼吸闪烁</p>
+          <p class="ts-t">{{ $t("termset.cursorBlink") }}</p>
+          <p class="ts-s">{{ $t("termset.cursorBlinkNote") }}</p>
         </div>
         <input id="tsCursor" v-model="settings.cursorBlink" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -162,8 +163,8 @@ function pickDownDir() {
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">选中即复制</p>
-          <p class="ts-s">划选文本自动进剪贴板</p>
+          <p class="ts-t">{{ $t("termset.copyOnSelect") }}</p>
+          <p class="ts-s">{{ $t("termset.copyOnSelectNote") }}</p>
         </div>
         <input id="tsCopy" v-model="settings.copyOnSelect" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -171,8 +172,8 @@ function pickDownDir() {
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">响铃提示</p>
-          <p class="ts-s">BEL 字符触发提示音</p>
+          <p class="ts-t">{{ $t("termset.bell") }}</p>
+          <p class="ts-s">{{ $t("termset.bellNote") }}</p>
         </div>
         <input id="tsBell" v-model="settings.bell" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -180,23 +181,23 @@ function pickDownDir() {
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">字体族</p>
-          <p class="ts-s">本机已装的等宽字体名（留空 = 内置等宽栈；字体缺失自动回落，不会坏）</p>
+          <p class="ts-t">{{ $t("termset.fontFamily") }}</p>
+          <p class="ts-s">{{ $t("termset.fontFamilyNote") }}</p>
         </div>
         <input
           id="tsFontFamily"
           v-model="settings.fontFamily"
           class="ts-num"
           type="text"
-          placeholder="内置等宽"
+          :placeholder="$t('termset.fontFamilyPh')"
           style="width: min(210px, 100%)"
         />
       </div>
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">滚动回滚行数</p>
-          <p class="ts-s">缓冲区保留的历史输出（500–100000）</p>
+          <p class="ts-t">{{ $t("termset.scrollback") }}</p>
+          <p class="ts-s">{{ $t("termset.scrollbackNote") }}</p>
         </div>
         <input
           id="tsScroll"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
+import { t } from "@/i18n";
 import { useServersStore } from "@/stores/servers";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
@@ -29,16 +30,16 @@ onMounted(async () => {
 });
 
 const hint = computed(() => {
-  if (!sshServers.value.length) return "还没有 SSH 服务器。先到「服务器」页添加一台，再回来打开终端。";
+  if (!sshServers.value.length) return t("term.noSsh");
   const s = sshServers.value.find((x) => x.id === selectedId.value);
-  if (!s) return "选一台 SSH 服务器后点「打开终端」（PTY + 系统 ssh，独立窗口）。";
-  return `当前选中：${store.displayAddr(s)}。点下方按钮打开终端（PTY + 系统 ssh，独立窗口）。`;
+  if (!s) return t("term.pickHint");
+  return t("term.selectedHint", { addr: store.displayAddr(s) });
 });
 
 /** 按钮文案（旧版：有选中时「打开终端 · 名称」） */
 const termBtnText = computed(() => {
   const s = sshServers.value.find((x) => x.id === selectedId.value);
-  return s ? `打开终端 · ${s.name || "(未命名)"}` : "打开终端";
+  return s ? t("term.openTitle", { name: s.name || t("server.untitled") }) : t("server.openTerm");
 });
 
 function goServers() {
@@ -50,7 +51,7 @@ function goServers() {
 async function openTerminal() {
   if (!isTauri()) {
     // 网页端：本机 HTTP 已提供 hub-term.html；带 token + serverId 在新标签打开
-    if (!selectedId.value) { toast.show("先在下方选一台 SSH 服务器", "bad"); return; }
+    if (!selectedId.value) { toast.show(t("term.pickFirst"), "bad"); return; }
     try {
       const { getAuthToken } = await import("@/api/http");
       const tok = encodeURIComponent(getAuthToken());
@@ -59,7 +60,7 @@ async function openTerminal() {
     return;
   }
   if (!selectedId.value) {
-    toast.show("先在「服务器」页选中一台 SSH 服务器", "bad");
+    toast.show(t("term.pickFirstSrv"), "bad");
     return;
   }
   // 旧版用的是专门的 hub_open_term_window（带 serverId 直接连）
@@ -69,7 +70,7 @@ async function openTerminal() {
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>终端</h2></div>
+    <div class="page-head"><h2>{{ $t("nav.terminal") }}</h2></div>
     <div class="hub-page-body">
       <div class="act-card">
         <svg
@@ -87,22 +88,22 @@ async function openTerminal() {
 
         <!-- 空状态：还没有任何 SSH 服务器 -->
         <template v-if="!sshServers.length">
-          <p class="t">还没有 SSH 服务器</p>
-          <p class="s" id="termPageHint">终端需要先添加一台 SSH 服务器。到左侧「服务器」页点「添加服务器」配好地址 / 账号 / 密码或密钥后，再回来打开终端。</p>
-          <button type="button" class="btn" @click="goServers">去「服务器」页添加</button>
+          <p class="t">{{ $t("term.emptyTitle") }}</p>
+          <p class="s" id="termPageHint">{{ $t("term.emptyHint") }}</p>
+          <button type="button" class="btn" @click="goServers">{{ $t("term.goServers") }}</button>
         </template>
 
         <!-- 有服务器：选一台 + 打开 -->
         <template v-else>
-          <p class="t">终端</p>
+          <p class="t">{{ $t("nav.terminal") }}</p>
           <select
             class="term-server-select"
-            aria-label="选择要连接的 SSH 服务器"
+            :aria-label="$t('term.selectAria')"
             :value="selectedId"
             @change="selectedId = ($event.target as HTMLSelectElement).value"
           >
             <option v-for="s in sshServers" :key="s.id" :value="s.id">
-              {{ s.name || "(未命名)" }} · {{ store.displayAddr(s) }}
+              {{ s.name || $t("server.untitled") }} · {{ store.displayAddr(s) }}
             </option>
           </select>
           <p class="s" id="termPageHint">{{ hint }}</p>

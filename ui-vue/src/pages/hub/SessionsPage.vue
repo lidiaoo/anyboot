@@ -117,52 +117,52 @@ const isEmpty = () =>
 
 <template>
   <div class="page-head">
-    <h2>会话</h2>
+    <h2>{{ $t("nav.sessions") }}</h2>
   </div>
 
   <div class="session-list scroll-thin" id="sessionList">
-    <p v-if="loading" class="field-hint">读取中…</p>
+    <p v-if="loading" class="field-hint">{{ $t("hub.state.reading") }}</p>
 
     <!-- 空态 -->
     <div v-else-if="isEmpty()" class="act-card" style="margin: 8px 0">
-      <p class="t">暂无会话</p>
-      <p class="s">在「服务器」页打开终端、或启动隧道后，这里会显示本窗口的真实会话记录。</p>
+      <p class="t">{{ $t("sess.emptyTitle") }}</p>
+      <p class="s">{{ $t("sess.emptyHint") }}</p>
     </div>
 
     <template v-else>
       <!-- ① 进行中的终端会话 -->
       <template v-if="sessions.length">
-        <p class="session-sec">进行中的终端会话</p>
+        <p class="session-sec">{{ $t("sess.secTerm") }}</p>
         <div v-for="m in sessions" :key="m.id" class="session-row">
           <div class="s-main">
-            <div>{{ m.server_name || "(未命名)" }}</div>
+            <div>{{ m.server_name || $t("server.untitled") }}</div>
             <div class="s-sub">{{ m.host_label || "" }}</div>
           </div>
-          <button type="button" class="btn" @click="focusTerminal">聚焦</button>
-          <button type="button" class="btn" @click="killSession(m.id)">断开</button>
+          <button type="button" class="btn" @click="focusTerminal">{{ $t("sess.focus") }}</button>
+          <button type="button" class="btn" @click="killSession(m.id)">{{ $t("sess.disconnect") }}</button>
         </div>
       </template>
 
       <!-- ② 历史 · 本窗口打开过 -->
       <template v-if="termLog.length">
-        <p class="session-sec">历史 · 本窗口打开过</p>
+        <p class="session-sec">{{ $t("sess.secHistory") }}</p>
         <div v-for="(t, i) in termLog" :key="i" class="session-row">
           <div class="s-main">
             <div>{{ t.name }}</div>
             <div class="s-sub">{{ t.host }}</div>
           </div>
           <span class="mono" style="font-size: 11px; color: rgb(var(--fg-faint))">{{ fmtTime(t.at) }}</span>
-          <button v-if="t.serverId" type="button" class="btn" @click="reconnect(t)">重连</button>
-          <button type="button" class="btn" @click="removeLog(i)">移除</button>
+          <button v-if="t.serverId" type="button" class="btn" @click="reconnect(t)">{{ $t("sess.reconnect") }}</button>
+          <button type="button" class="btn" @click="removeLog(i)">{{ $t("sess.remove") }}</button>
         </div>
       </template>
 
       <!-- ③ 运行中的隧道 -->
       <template v-if="runningTunnels.length">
-        <p class="session-sec">运行中的隧道</p>
+        <p class="session-sec">{{ $t("sess.secTunnels") }}</p>
         <div v-for="t in runningTunnels" :key="t.id" class="session-row">
           <div class="s-main">
-            <div>{{ t.name || "(未命名)" }}</div>
+            <div>{{ t.name || $t("server.untitled") }}</div>
             <div class="s-sub">{{ tunnelSub(t) }}</div>
           </div>
         </div>

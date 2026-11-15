@@ -55,7 +55,7 @@
 ### P4 其余功能页
 - [x] **P4.1** `pages/hub/ServersPage.vue` + `stores/servers.ts` 用户可见文案
 - [ ] **P4.2** `pages/hub/BackupPage.vue`、`pages/backup/index.vue`
-- [ ] **P4.3** `pages/hub/TermPage.vue`、`TermsetPage.vue`、`term/*`、`components/boot/SettingsPanel.vue`（终端设置段落，语言项已在 P0.6）
+- [ ] **P4.3**（TermsetPage 完成；TermWindow/SettingsPanel 终端段待） `pages/hub/TermPage.vue`、`TermsetPage.vue`、`term/*`、`components/boot/SettingsPanel.vue`（终端设置段落，语言项已在 P0.6）
 - [ ] **P4.4** `pages/hub/TransfersPage.vue`
 - [ ] **P4.5** `pages/hub/SessionsPage.vue`
 - [ ] **P4.6** `pages/hub/GatewayPage.vue`（远程接入/隧道/配对）
