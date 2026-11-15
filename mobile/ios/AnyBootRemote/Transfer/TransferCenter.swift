@@ -82,7 +82,7 @@ struct TransferTask: Identifiable, Codable, Hashable {
     /// 「已传 1.2 MB / 3.4 MB」
     var progressLabel: String {
         guard total > 0 else {
-            return "已\(direction == .upload ? "传" : "下") " + TransferTask.humanBytes(transferred)
+            return (direction == .upload ? L("and.uploadedShort") : L("and.downloadedShort")) + " " + TransferTask.humanBytes(transferred)
         }
         return "\(TransferTask.humanBytes(transferred)) / \(TransferTask.humanBytes(total))"
     }
@@ -335,7 +335,7 @@ final class TransferCenter: ObservableObject {
         if let clashing = pendingTask(direction: previous.direction,
                                       remotePath: previous.remotePath),
            clashing.id != previous.id {
-            return "这条已经在传了"
+            return L("and.alreadyTransferring")
         }
 
         var task = TransferTask(direction: previous.direction)
@@ -389,7 +389,7 @@ final class TransferCenter: ObservableObject {
         guard let previous = task(id), !previous.isPending else { return L("and.taskPending") }
         guard let jump = JumpStore.shared.jump(previous.serverId) else { return L("and.retryNoServer") }
         if pendingTask(direction: previous.direction, remotePath: previous.remotePath) != nil {
-            return "这条已经在传了"
+            return L("and.alreadyTransferring")
         }
         if previous.direction == .upload {
             guard FileManager.default.fileExists(atPath: previous.localPath) else {
@@ -605,11 +605,11 @@ final class TransferCenter: ObservableObject {
                                         message: pausedMessage(transferred: done, verb: "已下"))
                 } else {
                     try? FileManager.default.removeItem(atPath: snapshot.localPath)
-                    await center.finish(taskId, state: .cancelled, message: "已取消")
+                    await center.finish(taskId, state: .cancelled, message: L("and.cancelled"))
                 }
                 return
             }
-            await center.finish(taskId, state: .failed, message: reason(error, "下载失败"))
+            await center.finish(taskId, state: .failed, message: reason(error, L("and.dlFailShort")))
         }
     }
 
@@ -707,11 +707,11 @@ final class TransferCenter: ObservableObject {
                     await center.finish(taskId, state: .paused,
                                         message: pausedMessage(transferred: done, verb: "已传"))
                 } else {
-                    await center.finish(taskId, state: .cancelled, message: "已取消")
+                    await center.finish(taskId, state: .cancelled, message: L("and.cancelled"))
                 }
                 return
             }
-            await center.finish(taskId, state: .failed, message: reason(error, "上传失败"))
+            await center.finish(taskId, state: .failed, message: reason(error, L("and.uploadFail")))
         }
     }
 
@@ -720,7 +720,7 @@ final class TransferCenter: ObservableObject {
         let secured = source.startAccessingSecurityScopedResource()
         defer { if secured { source.stopAccessingSecurityScopedResource() } }
         guard let input = InputStream(url: source) else {
-            throw TransferError.message("打不开本地文件")
+            throw TransferError.message(L("and.cannotOpenLocalFile"))
         }
         input.open()
         defer { input.close() }
@@ -818,7 +818,7 @@ final class TransferCenter: ObservableObject {
     private nonisolated static func pausedMessage(transferred: Int64, verb: String) -> String {
         let size = transferred > 0
             ? "（\(verb) \(TransferTask.humanBytes(transferred))）" : ""
-        return "已暂停\(size)，点「继续」接着传"
+        return L("and.pausedResume", size)
     }
 
     private nonisolated static func cancelledMessage(transferred: Int64, verb: String, note: String) -> String {
@@ -831,7 +831,7 @@ final class TransferCenter: ObservableObject {
         if let error = error as? TransferError, case let .message(text) = error { return text }
         // 有 errorDescription 就用它：`"\(error)"` 会把自定义错误打成 `message("…")`
         let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        return text.isEmpty ? fallback : "\(fallback)：\(text)"
+        return text.isEmpty ? fallback : L("and.failReason", fallback, text)
     }
 }
 

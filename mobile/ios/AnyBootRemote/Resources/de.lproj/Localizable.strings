@@ -1917,6 +1917,9 @@
 "and.savePwd" = "Passwort speichern";
 "and.connectBtn" = "Verbinden";
 "and.pwdSaveFailKeychain" = "Passwort verschlüsselt speichern fehlgeschlagen (Keychain-Fehler); jetzt verbinden möglich, nächstes Mal erneut";
+"and.cannotOpenLocalFile" = "Lokale Datei kann nicht geöffnet werden";
+"and.pausedResume" = "Pausiert {size}; „Fortsetzen“ zum Weiter";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

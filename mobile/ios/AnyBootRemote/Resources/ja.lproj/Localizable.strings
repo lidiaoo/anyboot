@@ -1917,6 +1917,9 @@
 "and.savePwd" = "パスワードを保存";
 "and.connectBtn" = "接続";
 "and.pwdSaveFailKeychain" = "パスワードの暗号化保存に失敗（キーチェーン異常）。今回は接続可、次回は再入力が必要";
+"and.cannotOpenLocalFile" = "ローカルファイルを開けません";
+"and.pausedResume" = "一時停止 {size}。「再開」で続行";
+"and.failReason" = "{f}：{t}";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

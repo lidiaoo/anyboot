@@ -1954,6 +1954,9 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_savePwd">Passwort speichern</string>
     <string name="and_connectBtn">Verbinden</string>
     <string name="and_pwdSaveFailKeychain">Passwort verschlüsselt speichern fehlgeschlagen (Keychain-Fehler); jetzt verbinden möglich, nächstes Mal erneut</string>
+    <string name="and_cannotOpenLocalFile">Lokale Datei kann nicht geöffnet werden</string>
+    <string name="and_pausedResume">Pausiert %1$s; „Fortsetzen“ zum Weiter</string>
+    <string name="and_failReason">%1$s: %2$s</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

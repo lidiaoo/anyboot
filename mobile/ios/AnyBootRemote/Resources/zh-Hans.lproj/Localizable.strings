@@ -1917,6 +1917,9 @@
 "and.savePwd" = "保存密码";
 "and.connectBtn" = "连接";
 "and.pwdSaveFailKeychain" = "密码加密保存失败（钥匙串异常），本次仍可连接，下次需重输";
+"and.cannotOpenLocalFile" = "打不开本地文件";
+"and.pausedResume" = "已暂停{size}，点「继续」接着传";
+"and.failReason" = "{f}：{t}";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

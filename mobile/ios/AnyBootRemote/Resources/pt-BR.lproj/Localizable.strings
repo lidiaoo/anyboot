@@ -1917,6 +1917,9 @@
 "and.savePwd" = "Salvar senha";
 "and.connectBtn" = "Conectar";
 "and.pwdSaveFailKeychain" = "Falha ao salvar a senha criptografada (erro do keychain); conecta agora, mas pede de novo depois";
+"and.cannotOpenLocalFile" = "Não é possível abrir o arquivo local";
+"and.pausedResume" = "Pausado {size}; “Retomar” para continuar";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

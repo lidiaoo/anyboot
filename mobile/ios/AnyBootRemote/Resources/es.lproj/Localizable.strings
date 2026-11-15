@@ -1917,6 +1917,9 @@
 "and.savePwd" = "Guardar contraseña";
 "and.connectBtn" = "Conectar";
 "and.pwdSaveFailKeychain" = "Error al guardar la contraseña cifrada (llavero); ahora conecta, pero la pedirá de nuevo";
+"and.cannotOpenLocalFile" = "No se puede abrir el archivo local";
+"and.pausedResume" = "Pausado {size}; «Reanudar» para continuar";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

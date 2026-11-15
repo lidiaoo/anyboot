@@ -1917,6 +1917,9 @@
 "and.savePwd" = "Сохранить пароль";
 "and.connectBtn" = "Подключиться";
 "and.pwdSaveFailKeychain" = "Не удалось сохранить пароль (ошибка связки ключей); сейчас подключиться можно, в следующий раз вводите заново";
+"and.cannotOpenLocalFile" = "Не удаётся открыть локальный файл";
+"and.pausedResume" = "Пауза {size}; «Продолжить»";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

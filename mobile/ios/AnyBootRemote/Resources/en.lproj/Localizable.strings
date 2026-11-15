@@ -1917,6 +1917,9 @@
 "and.savePwd" = "Save password";
 "and.connectBtn" = "Connect";
 "and.pwdSaveFailKeychain" = "Failed to save the password encrypted (keychain error); you can still connect now but must re-enter next time";
+"and.cannotOpenLocalFile" = "Can't open the local file";
+"and.pausedResume" = "Paused {size}; tap “Resume” to continue";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

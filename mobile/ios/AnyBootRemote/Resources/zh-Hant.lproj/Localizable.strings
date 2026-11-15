@@ -1917,6 +1917,9 @@
 "and.savePwd" = "儲存密碼";
 "and.connectBtn" = "連線";
 "and.pwdSaveFailKeychain" = "密碼加密儲存失敗（鑰匙串異常），本次仍可連線，下次需重輸";
+"and.cannotOpenLocalFile" = "打不開本機檔案";
+"and.pausedResume" = "已暫停{size}，點「繼續」接著傳";
+"and.failReason" = "{f}：{t}";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

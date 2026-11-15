@@ -1917,6 +1917,9 @@
 "and.savePwd" = "비밀번호 저장";
 "and.connectBtn" = "연결";
 "and.pwdSaveFailKeychain" = "비밀번호 암호화 저장 실패(키체인 오류). 이번엔 연결 가능, 다음엔 다시 입력";
+"and.cannotOpenLocalFile" = "로컬 파일을 열 수 없음";
+"and.pausedResume" = "일시정지 {size}. ‘계속’으로 이어서";
+"and.failReason" = "{f}: {t}";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";
