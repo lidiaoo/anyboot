@@ -1859,6 +1859,23 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_openReleases">Abrir página Releases</string>
     <string name="and_iOSManualInstall">iOS requiere instalación manual: abre Releases, descarga el ipa, vuelve a firmar e instala encima (antes de la App Store, el sistema no permite autoinstalar).</string>
     <string name="and_iOSInstallNote">iOS instala por el sistema; sobrescribir conserva servidores/claves/ajustes.</string>
+    <string name="and_pairUnrecognized">Código no reconocido: se necesita anyboot://pair?v=2&amp;… o https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">El código no es una URL válida</string>
+    <string name="and_pairOldVersion">Código antiguo (falta v=2); vuelve a generarlo en el equipo</string>
+    <string name="and_pairVerUnsupported">Versión de código no compatible (v=%1$s); vuelve a generarlo</string>
+    <string name="and_pairTypeInvalid">type no válido en el código (%1$s); se espera cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">Sin dirección en el código (tunnel vacío): pide activar el canal y reemitir</string>
+    <string name="and_pairAddrUnrecognized">Dirección no reconocida</string>
+    <string name="and_noProfileErr">Sin perfil</string>
+    <string name="and_noChannelAvailable">Sin canal utilizable (dirección vacía o canales desactivados)</string>
+    <string name="and_jumpResolverMissing">Sin resolución de host de salto</string>
+    <string name="and_jumpUnavailable">Host de salto no disponible: %1$s</string>
+    <string name="and_jumpTunnelFail">Túnel del host de salto no creado</string>
+    <string name="and_allChannelsFail">Todos los canales inaccesibles: %1$s</string>
+    <string name="and_routeHybridSend">Híbrido (enviar ambos)</string>
+    <string name="and_routeTunnelShort">Túnel</string>
+    <string name="and_notDeployedRefind">rEFInd no instalado en este equipo (o sin próximo arranque)</string>
+    <string name="and_snapshotNoStatus">Sin status en la instantánea</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

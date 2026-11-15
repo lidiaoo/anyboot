@@ -1859,6 +1859,23 @@ Telnet：実験的端末のみ。</string>
     <string name="and_openReleases">Releases ページを開く</string>
     <string name="and_iOSManualInstall">iOS 版は手動インストール：Releases ページで ipa をダウンロードし再署名して上書き（App Store 掲載前はアプリ内自己インストール不可）。</string>
     <string name="and_iOSInstallNote">iOS 版はシステムがインストール。上書きしても保存済みサーバー/鍵/設定は保持。</string>
+    <string name="and_pairUnrecognized">ペアリングコード未認識 — anyboot://pair?v=2&amp;… か https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">ペアリングコードが不正な URL</string>
+    <string name="and_pairOldVersion">旧版のペアリングコード（v=2 欠落）。PC 側で再生成してください</string>
+    <string name="and_pairVerUnsupported">未対応のペアリングコード版（v=%1$s）。PC 側で再生成</string>
+    <string name="and_pairTypeInvalid">ペアリングコードの type が不正（%1$s）。cloudflare / ts / tsnet が必要</string>
+    <string name="and_pairNoAddr">ペアリングコードに有効なアドレスなし（tunnel 空）。相手にチャネルを開かせ再発行</string>
+    <string name="and_pairAddrUnrecognized">アドレス未認識</string>
+    <string name="and_noProfileErr">プロファイルなし</string>
+    <string name="and_noChannelAvailable">利用可能なチャネルなし（アドレス空、または全チャネル無効）</string>
+    <string name="and_jumpResolverMissing">踏み台リゾルバ未設定</string>
+    <string name="and_jumpUnavailable">踏み台利用不可：%1$s</string>
+    <string name="and_jumpTunnelFail">踏み台トンネル未確立</string>
+    <string name="and_allChannelsFail">全チャネル不通：%1$s</string>
+    <string name="and_routeHybridSend">ハイブリッド（同時送信）</string>
+    <string name="and_routeTunnelShort">トンネル</string>
+    <string name="and_notDeployedRefind">この PC に rEFInd 未導入（または次回起動未設定）</string>
+    <string name="and_snapshotNoStatus">スナップショットに status なし</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

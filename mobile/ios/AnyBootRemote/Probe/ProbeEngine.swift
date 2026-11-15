@@ -118,13 +118,13 @@ enum ProbeEngine {
                       onlyKinds: [String]?) async -> Result {
         var result = Result()
         guard let profile else {
-            result.error = "没有档案"
+            result.error = L("and.noProfileErr")
             return result
         }
         let candidates = expand(profile, onlyKinds: onlyKinds)
         if candidates.isEmpty {
             // 全通道路径要报错给用户看；限定通道的阶段性探测「没有候选」是正常情况
-            result.error = onlyKinds == nil ? "没有可用连接通道（地址为空，或通道都被停用）" : ""
+            result.error = onlyKinds == nil ? L("and.noChannelAvailable") : ""
             return result
         }
         let groups = group(profile, candidates)
@@ -346,17 +346,17 @@ enum ProbeEngine {
         if kind == ServerProfile.routeJump {
             guard let jump else {
                 return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
-                                error: "没配跳板机解析器")
+                                error: L("and.jumpResolverMissing"))
             }
             do {
                 target = try await jump(item.origin)
             } catch {
                 return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
-                                error: "跳板机不可用：\(error.localizedDescription)")
+                                error: L("and.jumpUnavailable", error.localizedDescription))
             }
             if target.trimmedAnyBoot.isEmpty {
                 return .failure(kind: kind, origin: rowOrigin, pairId: item.pairId,
-                                error: "跳板机隧道没建起来")
+                                error: L("and.jumpTunnelFail"))
             }
             remote = false
         }
@@ -401,7 +401,7 @@ enum ProbeEngine {
         let winner = hits.filter { $0.ok }.min { $0.ms < $1.ms }
         guard let winner else {
             if let firstError = hits.first(where: { !$0.error.isEmpty })?.error {
-                result.error = "所有通道都不通：\(firstError)"
+                result.error = L("and.allChannelsFail", firstError)
             } else {
                 result.error = "所有通道都不通"
             }

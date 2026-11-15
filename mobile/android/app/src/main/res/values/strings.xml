@@ -1859,6 +1859,23 @@ Telnet：只有实验性终端。</string>
     <string name="and_openReleases">打开 Releases 页</string>
     <string name="and_iOSManualInstall">iOS 版需要手动安装：打开 Releases 页下载 ipa，重签名后覆盖安装（未上架 App Store 前，系统不支持应用内直接自装）。</string>
     <string name="and_iOSInstallNote">iOS 版由系统安装，覆盖安装不改动已保存的服务器 / 密钥 / 设置。</string>
+    <string name="and_pairUnrecognized">没认出配对码 —— 要 anyboot://pair?v=2&amp;… 串，或 https://… / http://100.x.y.z:12300 地址</string>
+    <string name="and_pairNotUrl">配对码不是合法 URL</string>
+    <string name="and_pairOldVersion">这是旧版配对码（缺 v=2），请在电脑上重新生成一个</string>
+    <string name="and_pairVerUnsupported">配对码版本不支持（v=%1$s），请在电脑上重新生成一个</string>
+    <string name="and_pairTypeInvalid">配对码里的 type 非法（%1$s），要 cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">配对码里没有可用地址（tunnel 为空）—— 让对方先开启通道再重新出码</string>
+    <string name="and_pairAddrUnrecognized">没认出地址</string>
+    <string name="and_noProfileErr">没有档案</string>
+    <string name="and_noChannelAvailable">没有可用连接通道（地址为空，或通道都被停用）</string>
+    <string name="and_jumpResolverMissing">没配跳板机解析器</string>
+    <string name="and_jumpUnavailable">跳板机不可用：%1$s</string>
+    <string name="and_jumpTunnelFail">跳板机隧道没建起来</string>
+    <string name="and_allChannelsFail">所有通道都不通：%1$s</string>
+    <string name="and_routeHybridSend">混合（同时发）</string>
+    <string name="and_routeTunnelShort">隧道</string>
+    <string name="and_notDeployedRefind">这台电脑没部署 rEFInd（或还没设置过下次启动项）</string>
+    <string name="and_snapshotNoStatus">快照里没有 status</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

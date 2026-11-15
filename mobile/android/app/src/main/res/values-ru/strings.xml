@@ -1859,6 +1859,23 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_openReleases">Открыть страницу Releases</string>
     <string name="and_iOSManualInstall">iOS — ручная установка: откройте страницу Releases, скачайте ipa, переподпишите и установите поверх (до публикации в App Store система не разрешает установку из приложения).</string>
     <string name="and_iOSInstallNote">iOS устанавливается системой; переустановка поверх сохраняет серверы/ключи/настройки.</string>
+    <string name="and_pairUnrecognized">Код не распознан — нужен anyboot://pair?v=2&amp;… или https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">Код не является URL</string>
+    <string name="and_pairOldVersion">Старый код сопряжения (нет v=2); создайте заново на ПК</string>
+    <string name="and_pairVerUnsupported">Неподдерживаемая версия кода (v=%1$s); создайте заново на ПК</string>
+    <string name="and_pairTypeInvalid">Неверный type в коде (%1$s); нужен cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">Нет адреса в коде (tunnel пуст) — попросите включить канал и перевыпустить</string>
+    <string name="and_pairAddrUnrecognized">Адрес не распознан</string>
+    <string name="and_noProfileErr">Нет профиля</string>
+    <string name="and_noChannelAvailable">Нет доступного канала (адрес пуст или все каналы отключены)</string>
+    <string name="and_jumpResolverMissing">Не задан резолвер узла</string>
+    <string name="and_jumpUnavailable">Узел недоступен: %1$s</string>
+    <string name="and_jumpTunnelFail">Туннель узла не создан</string>
+    <string name="and_allChannelsFail">Все каналы недоступны: %1$s</string>
+    <string name="and_routeHybridSend">Гибрид (оба сразу)</string>
+    <string name="and_routeTunnelShort">Туннель</string>
+    <string name="and_notDeployedRefind">rEFInd не установлен на этом компьютере (или не задана следующая загрузка)</string>
+    <string name="and_snapshotNoStatus">В снимке нет status</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

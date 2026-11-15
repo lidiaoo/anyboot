@@ -1859,6 +1859,23 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_openReleases">Open Releases page</string>
     <string name="and_iOSManualInstall">iOS needs manual install: open the Releases page, download the ipa, re-sign, then overwrite-install (before App Store listing, the system disallows in-app self-install).</string>
     <string name="and_iOSInstallNote">iOS installs via the system; overwrite-install keeps saved servers / keys / settings.</string>
+    <string name="and_pairUnrecognized">Unrecognized pairing code — need an anyboot://pair?v=2&amp;… string, or an https://… / http://100.x.y.z:12300 address</string>
+    <string name="and_pairNotUrl">Pairing code isn\'t a valid URL</string>
+    <string name="and_pairOldVersion">This is an old pairing code (missing v=2); regenerate one on the computer</string>
+    <string name="and_pairVerUnsupported">Unsupported pairing code version (v=%1$s); regenerate on the computer</string>
+    <string name="and_pairTypeInvalid">Invalid type in pairing code (%1$s); expected cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">No usable address in the pairing code (tunnel empty) — have the other side enable the channel and reissue</string>
+    <string name="and_pairAddrUnrecognized">Unrecognized address</string>
+    <string name="and_noProfileErr">No profile</string>
+    <string name="and_noChannelAvailable">No usable channel (address empty, or all channels disabled)</string>
+    <string name="and_jumpResolverMissing">No jump host resolver configured</string>
+    <string name="and_jumpUnavailable">Jump host unavailable: %1$s</string>
+    <string name="and_jumpTunnelFail">Jump host tunnel not established</string>
+    <string name="and_allChannelsFail">All channels unreachable: %1$s</string>
+    <string name="and_routeHybridSend">Hybrid (send both)</string>
+    <string name="and_routeTunnelShort">Tunnel</string>
+    <string name="and_notDeployedRefind">rEFInd not deployed on this computer (or no next boot set)</string>
+    <string name="and_snapshotNoStatus">No status in snapshot</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

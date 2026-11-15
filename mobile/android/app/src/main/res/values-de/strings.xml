@@ -1859,6 +1859,23 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_openReleases">Releases-Seite öffnen</string>
     <string name="and_iOSManualInstall">iOS erfordert manuelle Installation: Releases-Seite öffnen, ipa laden, neu signieren, überschreiben (vor App-Store-Listung kein In-App-Selbstinstall).</string>
     <string name="and_iOSInstallNote">iOS wird vom System installiert; Überschreiben behält Server/Schlüssel/Einstellungen.</string>
+    <string name="and_pairUnrecognized">Kopplungscode nicht erkannt – anyboot://pair?v=2&amp;… oder https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">Kopplungscode ist keine gültige URL</string>
+    <string name="and_pairOldVersion">Alter Kopplungscode (v=2 fehlt); am Computer neu erzeugen</string>
+    <string name="and_pairVerUnsupported">Nicht unterstützte Kopplungscode-Version (v=%1$s); am PC neu erzeugen</string>
+    <string name="and_pairTypeInvalid">Ungültiger type im Kopplungscode (%1$s); erwartet cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">Keine nutzbare Adresse im Code (tunnel leer) – Gegenseite Kanal aktivieren und neu ausstellen</string>
+    <string name="and_pairAddrUnrecognized">Adresse nicht erkannt</string>
+    <string name="and_noProfileErr">Kein Profil</string>
+    <string name="and_noChannelAvailable">Kein nutzbarer Kanal (Adresse leer oder alle Kanäle deaktiviert)</string>
+    <string name="and_jumpResolverMissing">Kein Sprungserver-Resolver</string>
+    <string name="and_jumpUnavailable">Sprungserver nicht verfügbar: %1$s</string>
+    <string name="and_jumpTunnelFail">Sprungserver-Tunnel nicht aufgebaut</string>
+    <string name="and_allChannelsFail">Alle Kanäle nicht erreichbar: %1$s</string>
+    <string name="and_routeHybridSend">Hybrid (beides senden)</string>
+    <string name="and_routeTunnelShort">Tunnel</string>
+    <string name="and_notDeployedRefind">rEFInd auf diesem Computer nicht installiert (oder kein nächster Start)</string>
+    <string name="and_snapshotNoStatus">Kein status im Snapshot</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

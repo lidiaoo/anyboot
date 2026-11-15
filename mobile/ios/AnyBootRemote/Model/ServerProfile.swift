@@ -422,7 +422,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         switch kind {
         case routeLan: return L("hub.conn.lan")
         case routeJump: return L("remote.jumpLabel")
-        case routeTunnel: return "隧道"
+        case routeTunnel: return L("and.routeTunnelShort")
         case routeTS: return L("and.tsDirectShort")
         case routeFunnel: return "TS Funnel"
         case routeTSNet: return L("and.builtinFunnel")
@@ -634,12 +634,12 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         let value = raw.trimmedAnyBoot
         var out = ParsedPair()
         if value.isEmpty {
-            out.error = "没认出配对码 —— 要 anyboot://pair?v=2&… 串，或 https://… / http://100.x.y.z:12300 地址"
+            out.error = L("and.pairUnrecognized")
             return out
         }
         if value.lowercased().hasPrefix("anyboot://pair?") {
             guard let components = URLComponents(string: value) else {
-                out.error = "配对码不是合法 URL"
+                out.error = L("and.pairNotUrl")
                 return out
             }
             let items = components.queryItems ?? []
@@ -648,16 +648,16 @@ struct ServerProfile: Identifiable, Hashable, Codable {
             }
             let version = item("v")
             if version.isEmpty {
-                out.error = "这是旧版配对码（缺 v=2），请在电脑上重新生成一个"
+                out.error = L("and.pairOldVersion")
                 return out
             }
             if version != "2" {
-                out.error = "配对码版本不支持（v=\(version)），请在电脑上重新生成一个"
+                out.error = L("and.pairVerUnsupported", version)
                 return out
             }
             let type = item("type").lowercased()
             guard RemotePair.isBlockId(type) else {
-                out.error = "配对码里的 type 非法（\(type.isEmpty ? "缺失" : type)），要 cloudflare / ts / tsnet"
+                out.error = L("and.pairTypeInvalid", type.isEmpty ? "?" : type)
                 return out
             }
             out.kind = type
@@ -670,14 +670,14 @@ struct ServerProfile: Identifiable, Hashable, Codable {
             if out.token.isEmpty { out.token = item("ab_token") }
             out.tunnelId = item("tunnel_id")
             if out.tunnel.isEmpty {
-                out.error = "配对码里没有可用地址（tunnel 为空）—— 让对方先开启通道再重新出码"
+                out.error = L("and.pairNoAddr")
             }
             return out
         }
         // 直接粘 URL / 裸 host：挖 ab_token / token 参数，类型按地址形态判
         let origin = normalizeRemoteOrigin(value)
         if origin.isEmpty {
-            out.error = "没认出地址"
+            out.error = L("and.pairAddrUnrecognized")
             return out
         }
         out.tunnel = origin
@@ -889,7 +889,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         case "http_first": return L("remote.httpFirst")
         case "http_only": return L("remote.httpOnly")
         case "packet_only": return L("remote.packetOnly")
-        case "hybrid": return "混合（同时发）"
+        case "hybrid": return L("and.routeHybridSend")
         default: return L("remote.powerAuto")
         }
     }

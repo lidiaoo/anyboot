@@ -1859,6 +1859,23 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_openReleases">Abrir página Releases</string>
     <string name="and_iOSManualInstall">iOS precisa de instalação manual: abra Releases, baixe o ipa, reassine e instale por cima (antes da App Store, o sistema não permite auto-instalação).</string>
     <string name="and_iOSInstallNote">O iOS instala pelo sistema; sobrescrever mantém servidores/chaves/configurações.</string>
+    <string name="and_pairUnrecognized">Código não reconhecido — precisa de anyboot://pair?v=2&amp;… ou https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">O código não é uma URL válida</string>
+    <string name="and_pairOldVersion">Código antigo (sem v=2); gere novamente no computador</string>
+    <string name="and_pairVerUnsupported">Versão de código não suportada (v=%1$s); gere novamente</string>
+    <string name="and_pairTypeInvalid">type inválido no código (%1$s); esperado cloudflare / ts / tsnet</string>
+    <string name="and_pairNoAddr">Sem endereço no código (tunnel vazio) — peça para ativar o canal e reemitir</string>
+    <string name="and_pairAddrUnrecognized">Endereço não reconhecido</string>
+    <string name="and_noProfileErr">Sem perfil</string>
+    <string name="and_noChannelAvailable">Sem canal utilizável (endereço vazio ou canais desativados)</string>
+    <string name="and_jumpResolverMissing">Sem resolvedor de jump host</string>
+    <string name="and_jumpUnavailable">Jump host indisponível: %1$s</string>
+    <string name="and_jumpTunnelFail">Túnel do jump host não criado</string>
+    <string name="and_allChannelsFail">Todos os canais sem conexão: %1$s</string>
+    <string name="and_routeHybridSend">Híbrido (enviar ambos)</string>
+    <string name="and_routeTunnelShort">Túnel</string>
+    <string name="and_notDeployedRefind">rEFInd não instalado neste computador (ou sem próxima inicialização)</string>
+    <string name="and_snapshotNoStatus">Sem status no snapshot</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

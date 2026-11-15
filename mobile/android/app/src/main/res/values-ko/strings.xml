@@ -1859,6 +1859,23 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_openReleases">Releases 페이지 열기</string>
     <string name="and_iOSManualInstall">iOS는 수동 설치: Releases 페이지에서 ipa 다운로드 후 재서명하여 덮어쓰기(App Store 등록 전엔 앱 내 자동 설치 불가).</string>
     <string name="and_iOSInstallNote">iOS는 시스템이 설치. 덮어써도 저장된 서버/키/설정 유지.</string>
+    <string name="and_pairUnrecognized">페어링 코드 인식 실패 — anyboot://pair?v=2&amp;… 또는 https://… / http://100.x.y.z:12300</string>
+    <string name="and_pairNotUrl">페어링 코드가 유효한 URL이 아님</string>
+    <string name="and_pairOldVersion">구버전 페어링 코드(v=2 누락). 컴퓨터에서 다시 생성하세요</string>
+    <string name="and_pairVerUnsupported">지원되지 않는 페어링 코드 버전(v=%1$s). 컴퓨터에서 다시 생성</string>
+    <string name="and_pairTypeInvalid">페어링 코드 type 오류(%1$s). cloudflare / ts / tsnet 필요</string>
+    <string name="and_pairNoAddr">페어링 코드에 사용 가능한 주소 없음(tunnel 비어 있음). 상대가 채널 켠 뒤 재발급</string>
+    <string name="and_pairAddrUnrecognized">주소 인식 실패</string>
+    <string name="and_noProfileErr">프로필 없음</string>
+    <string name="and_noChannelAvailable">사용 가능한 채널 없음(주소 비었거나 모든 채널 중지)</string>
+    <string name="and_jumpResolverMissing">점프 호스트 리졸버 미설정</string>
+    <string name="and_jumpUnavailable">점프 호스트 사용 불가: %1$s</string>
+    <string name="and_jumpTunnelFail">점프 호스트 터널 미설정</string>
+    <string name="and_allChannelsFail">모든 채널 불통: %1$s</string>
+    <string name="and_routeHybridSend">하이브리드(동시 전송)</string>
+    <string name="and_routeTunnelShort">터널</string>
+    <string name="and_notDeployedRefind">이 컴퓨터에 rEFInd 미배포(또는 다음 부팅 미설정)</string>
+    <string name="and_snapshotNoStatus">스냅샷에 status 없음</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

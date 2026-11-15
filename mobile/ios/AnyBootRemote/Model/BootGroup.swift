@@ -242,7 +242,7 @@ enum BootParser {
             current: current,
             next: current,
             saved: current,
-            note: options.isEmpty ? "这台电脑没部署 rEFInd（或还没设置过下次启动项）" : "",
+            note: options.isEmpty ? L("and.notDeployedRefind") : "",
             options: options)
     }
 
@@ -286,7 +286,7 @@ enum BootParser {
         let note: String
         if options.isEmpty {
             let reported = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
-            note = reported.isEmpty ? "这台电脑没部署 GRUB（或还没同步 grub.cfg）" : reported
+            note = reported.isEmpty ? L("and.notDeployedGrub") : reported
         } else {
             note = ""
         }
@@ -707,7 +707,7 @@ enum BootService {
 
         // ② 慢路径：完整探测重新选路（离线接管）
         guard let choice = await chooseEndpoint(profile) else {
-            return .offline("", "这台电脑还没有可用地址")
+            return .offline("", L("error.noAddress"))
         }
         guard choice.alive else {
             setCachedEndpoint(profile.id, nil)
@@ -811,10 +811,10 @@ enum BootService {
         } else if let status = state["status"] as? [String: Any] {
             refindGroup = BootParser.parseRefind(status)
         } else {
-            errors.append("快照里没有 status")
+            errors.append(L("and.snapshotNoStatus"))
             refindGroup = BootGroup(kind: BootKind.refind, title: "rEFInd", available: false,
                                     current: "", next: "", saved: "",
-                                    note: "快照里没有 status", options: [])
+                                    note: L("and.snapshotNoStatus"), options: [])
         }
 
         let grubGroup: BootGroup
