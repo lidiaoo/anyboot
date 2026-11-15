@@ -3730,11 +3730,11 @@ class ComputerListActivity : ComponentActivity() {
      */
     private fun endpointOf(profile: ServerProfile, address: String = profile.host()): String {
         val host = ServerProfile.normalizeHost(address)
-        if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
+        if (host.isEmpty()) throw Exception(getString(R.string.error_noAddress))
         val jumpId = profile.jumpForAddress(host)
         if (jumpId.isEmpty()) return host
         val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-            ?: throw Exception("跳板机不存在（可能已删除）")
+            ?: throw Exception(getString(R.string.and_jumpNotExist))
         return SshSessionManager.shared().tunnelAddress(this, jump, host, prompt())
     }
 
@@ -3850,17 +3850,17 @@ class ComputerListActivity : ComponentActivity() {
         try {
             val status = connection.responseCode
             if (status == 401) {
-                throw Exception("这台电脑不认这个 token（401）—— 到「服务器」里核对访问令牌")
+                throw Exception(getString(R.string.and_tokenRejected401))
             }
             val stream = if (status >= 400) connection.errorStream else connection.inputStream
             val body = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
             val json = try {
                 JSONObject(body.trim())
             } catch (error: Exception) {
-                throw Exception("这台电脑返回的不是合法 JSON（$status）：${error.message ?: ""}")
+                throw Exception(getString(R.string.and_invalidJson, status, error.message ?: ""))
             }
             if (status >= 400) {
-                throw Exception(json.optString("message", "").ifEmpty { "请求被拒绝" })
+                throw Exception(json.optString("message", "").ifEmpty { getString(R.string.and_requestRejected) })
             }
             return json
         } finally {
@@ -3889,19 +3889,19 @@ class ComputerListActivity : ComponentActivity() {
         try {
             val status = connection.responseCode
             if (status == 401) {
-                throw Exception("这台电脑不认这个 token（401）—— 到「服务器」里核对访问令牌")
+                throw Exception(getString(R.string.and_tokenRejected401))
             }
             if (status == 404) {
-                throw Exception("这台电脑的 AnyBoot 版本太旧，没有引导器通道接口")
+                throw Exception(getString(R.string.and_oldAnyboot))
             }
             val stream = if (status >= 400) connection.errorStream else connection.inputStream
             val body = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
             val array = try {
                 JSONArray(body.trim())
             } catch (error: Exception) {
-                throw Exception("这台电脑返回的不是 JSON 数组（$status）：${error.message ?: ""}")
+                throw Exception(getString(R.string.and_notJsonArray, status, error.message ?: ""))
             }
-            if (status >= 400) throw Exception("请求被拒绝（HTTP $status）")
+            if (status >= 400) throw Exception(getString(R.string.and_rejectedHttp, status))
             return array
         } finally {
             connection.disconnect()
@@ -3939,11 +3939,11 @@ class ComputerListActivity : ComponentActivity() {
                 parseRefindSim(state.optJSONObject("refindSim") ?: JSONObject(), KIND_REFIND, "rEFInd")
             }
         } catch (error: Exception) {
-            errors.add(error.message ?: "读取失败")
+            errors.add(error.message ?: getString(R.string.and_readFailed))
             BootGroup(
                 kind = KIND_REFIND, title = "rEFInd", available = false,
                 current = "", next = "", saved = "",
-                note = error.message ?: "读取失败", options = emptyList(),
+                note = error.message ?: getString(R.string.and_readFailed), options = emptyList(),
             )
         }
         // RefindPlus 通道（与 refindMode 同一套 auto/manual 分流）：
@@ -3957,7 +3957,7 @@ class ComputerListActivity : ComponentActivity() {
             BootGroup(
                 kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
                 current = "", next = "", saved = "",
-                note = "对端 anyboot 版本较旧，不支持 RefindPlus 通道", options = emptyList(),
+                note = getString(R.string.and_remoteOlderRefindplus), options = emptyList(),
             )
         } else {
             try {
@@ -3976,7 +3976,7 @@ class ComputerListActivity : ComponentActivity() {
                 BootGroup(
                     kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
                     current = "", next = "", saved = "",
-                    note = error.message ?: "读取失败", options = emptyList(),
+                    note = error.message ?: getString(R.string.and_readFailed), options = emptyList(),
                 )
             }
         }
@@ -3989,11 +3989,11 @@ class ComputerListActivity : ComponentActivity() {
                 parseGrub(state.optJSONObject("linuxGrub") ?: JSONObject())
             }
         } catch (error: Exception) {
-            errors.add(error.message ?: "读取失败")
+            errors.add(error.message ?: getString(R.string.and_readFailed))
             BootGroup(
                 kind = KIND_GRUB, title = "GRUB", available = false,
                 current = "", next = "", saved = "",
-                note = error.message ?: "读取失败", options = emptyList(),
+                note = error.message ?: getString(R.string.and_readFailed), options = emptyList(),
             )
         }
         val channels = try {
@@ -4025,8 +4025,8 @@ class ComputerListActivity : ComponentActivity() {
      */
     private fun channelToBootGroup(c: ChannelRow): BootGroup {
         val options = c.menuPreview.map { row ->
-            val srcLabel = when (row.source) { "bootorder"->"OC 私有 OCBtOrder"; "bless"->"bless 扫描"; "preboot"->"APFS Preboot"; "protocol"->"协议驱动"; else->"" }
-            val kindTxt = when (row.kind) { "macos"->"macOS"; "windows"->"Windows"; "linux"->"Linux"; "tool"->"工具项"; "generic"->"泛型"; else->row.kind }
+            val srcLabel = when (row.source) { "bootorder"->getString(R.string.hub_oc_private); "bless"->getString(R.string.oc_blessScan); "preboot"->"APFS Preboot"; "protocol"->getString(R.string.oc_protocolDriver); else->"" }
+            val kindTxt = when (row.kind) { "macos"->"macOS"; "windows"->"Windows"; "linux"->"Linux"; "tool"->getString(R.string.hub_class_tool); "generic"->getString(R.string.hub_class_generic); else->row.kind }
             BootOption(
                 value = row.spec,
                 label = row.title,
@@ -4214,7 +4214,7 @@ class ComputerListActivity : ComponentActivity() {
             current = current,
             next = current,
             saved = current,
-            note = if (options.isEmpty()) "这台电脑没部署 $title（或还没设置过下次启动项）" else "",
+            note = if (options.isEmpty()) getString(R.string.and_notDeployedLoader, title) else "",
             options = options,
         )
     }
@@ -4272,7 +4272,7 @@ class ComputerListActivity : ComponentActivity() {
             }
         }
         val note = if (options.isEmpty()) {
-            optStr(json, "error").trim().ifEmpty { "这台电脑没部署 GRUB（或还没同步 grub.cfg）" }
+            optStr(json, "error").trim().ifEmpty { getString(R.string.and_notDeployedGrub) }
         } else {
             ""
         }
@@ -4370,7 +4370,7 @@ class ComputerListActivity : ComponentActivity() {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "下次启动",
+                    getString(R.string.hub_picker_pinned),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = palette.onAccent,
@@ -4396,8 +4396,8 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     private fun childSourceLabel(source: String): String = when (source) {
-        "default" -> "默认项"; "options" -> "refind_linux.conf"; "kernel" -> "折叠内核"
-        "macos" -> "macOS 诊断"; "stanza" -> "submenuentry"; else -> ""
+        "default" -> getString(R.string.hub_child_default); "options" -> "refind_linux.conf"; "kernel" -> getString(R.string.hub_child_kernel)
+        "macos" -> getString(R.string.hub_child_macosDiag); "stanza" -> "submenuentry"; else -> ""
     }
 
 
@@ -4414,17 +4414,17 @@ class ComputerListActivity : ComponentActivity() {
             val parts = mutableListOf<String>()
             if (format == "raw") {
                 // 原始格式不折叠；变体数用解析期并进的 grubVariants
-                if (option.grubVariants > 1) parts.add("${option.grubVariants} 个变体")
+                if (option.grubVariants > 1) parts.add(getString(R.string.grub_variantsN, option.grubVariants))
             } else {
                 if (!emitted.add(label)) return
                 val variants = counts[label] ?: 1
-                if (variants > 1) parts.add("$variants 个变体")
+                if (variants > 1) parts.add(getString(R.string.grub_variantsN, variants))
             }
             if (format == "raw" || format == "detailed") {
                 val tag = when {
                     option.grubKernels.any { it.isNotBlank() } ->
                         option.grubKernels.first { it.isNotBlank() }
-                    option.grubChainloader -> "转交引导"
+                    option.grubChainloader -> getString(R.string.grub_handoff)
                     else -> option.grubClassRaw
                 }
                 if (tag.isNotBlank()) parts.add(tag)
@@ -4450,7 +4450,7 @@ class ComputerListActivity : ComponentActivity() {
             ""
         } else {
             val parts = mutableListOf<String>()
-            if (group.grubEfiDir.isNotBlank()) parts.add("位于${group.grubEfiDir}")
+            if (group.grubEfiDir.isNotBlank()) parts.add(getString(R.string.and_locatedAt, group.grubEfiDir))
             if (group.grubPartuuid.isNotBlank()) parts.add("UUID=${group.grubPartuuid}")
             if (parts.isEmpty()) "" else " · " + parts.joinToString(" ")
         }
@@ -4468,7 +4468,7 @@ class ComputerListActivity : ComponentActivity() {
             if (!emittedGroups.add(submenuId)) return@forEach
             val title = names[submenuId]?.takeIf { it.isNotBlank() } ?: submenuId
             val count = children.count { it.grubSubmenuId == submenuId }
-            rows.add(GrubRow(null, "▾ ${grubOsIcon(null, title)}$title", true, trailing = "${count} 项$location"))
+            rows.add(GrubRow(null, "▾ ${grubOsIcon(null, title)}$title", true, trailing = getString(R.string.grub_itemsN, count) + location))
             val groupChildren = children.filter { it.grubSubmenuId == submenuId }
             val counts = grubCollapse(format, groupChildren)
             val emitted = mutableSetOf<String>()
@@ -4515,9 +4515,9 @@ class ComputerListActivity : ComponentActivity() {
         Thread({
             val outcome = runCatching {
                 val choice = chooseEndpoint(profile)
-                    ?: throw Exception("这台电脑还没有可用地址")
+                    ?: throw Exception(getString(R.string.error_noAddress))
                 httpJson(choice.url, choice.token, "/api/pending-cancel", method = "POST")
-                    .optString("message", "").ifEmpty { "已撤销挂起的切换请求" }
+                    .optString("message", "").ifEmpty { getString(R.string.and_undoPendingDone) }
             }
             runOnUiThread {
                 busy.remove(id)
@@ -4527,7 +4527,7 @@ class ComputerListActivity : ComponentActivity() {
                     pendingSwitchSummary.remove(id)
                     reloadBoot(profile)
                 }.onFailure { error ->
-                    toast("撤销失败：${error.message ?: "未知错误"}")
+                    toast(getString(R.string.and_undoPendingFail, error.message ?: getString(R.string.gw_unknownErr)))
                 }
             }
         }, "anyboot-pending-cancel").start()
@@ -4537,15 +4537,15 @@ class ComputerListActivity : ComponentActivity() {
         val id = profile.id
         if (busy[id] != null) return
         if (value.isEmpty()) {
-            toast("没有可切换的目标启动项")
+            toast(getString(R.string.and_noSwitchTargetBoot))
             return
         }
         busy[id] = "boot:$kind"
         Thread({
             val outcome = runCatching {
                 val choice = chooseEndpoint(profile)
-                    ?: throw Exception("这台电脑还没有可用地址")
-                if (!choice.alive) throw Exception("电脑离线（局域网与远程都没通）")
+                    ?: throw Exception(getString(R.string.error_noAddress))
+                if (!choice.alive) throw Exception(getString(R.string.error_hostOffline))
                 // RefindPlus 走独立通道参数 channel=refindplus；value 是组 options
                 // 里的原文（自动模式是菜单标题原文，末尾可能带空格，不要 trim），
                 // URLEncoder 只做传输层转义、不改内容
@@ -4558,8 +4558,8 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 val json = httpJson(choice.url, choice.token, path)
                 json.optString("message", "").ifEmpty {
-                    if (json.optBoolean("ok", true)) "已设置下次启动项"
-                    else json.optString("error", "请求被拒绝")
+                    if (json.optBoolean("ok", true)) getString(R.string.and_nextBootSet)
+                    else json.optString("error", getString(R.string.and_requestRejected))
                 }
             }
             runOnUiThread {
@@ -4568,7 +4568,7 @@ class ComputerListActivity : ComponentActivity() {
                     toast(message)
                     reloadBoot(profile)
                 }.onFailure { error ->
-                    toast("$verb 失败：${error.message ?: "未知错误"}")
+                    toast(getString(R.string.and_verbFail, verb, error.message ?: getString(R.string.gw_unknownErr)))
                 }
             }
         }, "anyboot-boot-switch").start()
@@ -4587,14 +4587,14 @@ class ComputerListActivity : ComponentActivity() {
             channelName = "sdboot"
             target = entry.id.trim()
             if (target.isEmpty()) {
-                toast("没有可切换的目标条目")
+                toast(getString(R.string.and_noSwitchTargetEntry))
                 return
             }
         } else {
             channelName = entry.id.trim()
             target = ""
             if (channelName.isEmpty()) {
-                toast("没有可执行的动作")
+                toast(getString(R.string.and_noActionAvailable))
                 return
             }
         }
@@ -4611,10 +4611,10 @@ class ComputerListActivity : ComponentActivity() {
         val spec = row.spec.trim()
         val sep = spec.indexOf(':')
         if (spec.isEmpty() || sep <= 0 || sep == spec.length - 1) {
-            toast("这一项不支持设为默认")
+            toast(getString(R.string.and_cannotSetDefault))
             return
         }
-        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), "设为默认", row.title)
+        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), getString(R.string.and_setDefault), row.title)
     }
 
     /** 通道切换的公共请求体（busy 键 boot:ch-<通道 id>，通道按钮据此转圈） */
@@ -4632,8 +4632,8 @@ class ComputerListActivity : ComponentActivity() {
         Thread({
             val outcome = runCatching {
                 val choice = chooseEndpoint(profile)
-                    ?: throw Exception("这台电脑还没有可用地址")
-                if (!choice.alive) throw Exception("电脑离线（局域网与远程都没通）")
+                    ?: throw Exception(getString(R.string.error_noAddress))
+                if (!choice.alive) throw Exception(getString(R.string.error_hostOffline))
                 var path = "/api/boot-channel-switch?channel=" + URLEncoder.encode(channelName, "UTF-8")
                 if (target.isNotEmpty()) {
                     path += "&target=" + URLEncoder.encode(target, "UTF-8")
@@ -4644,8 +4644,8 @@ class ComputerListActivity : ComponentActivity() {
                 }
                 val json = httpJson(choice.url, choice.token, path)
                 json.optString("message", "").ifEmpty {
-                    if (json.optBoolean("ok", true)) "已设置下次启动项"
-                    else json.optString("error", "请求被拒绝")
+                    if (json.optBoolean("ok", true)) getString(R.string.and_nextBootSet)
+                    else json.optString("error", getString(R.string.and_requestRejected))
                 }
             }
             runOnUiThread {
@@ -4654,7 +4654,7 @@ class ComputerListActivity : ComponentActivity() {
                     toast(message)
                     reloadBoot(profile)
                 }.onFailure { error ->
-                    toast("$verb 失败：${error.message ?: "未知错误"}")
+                    toast(getString(R.string.and_verbFail, verb, error.message ?: getString(R.string.gw_unknownErr)))
                 }
             }
         }, "anyboot-channel-switch").start()
@@ -4696,8 +4696,7 @@ class ComputerListActivity : ComponentActivity() {
                     }, if (action == POWER_WAKE) 1700L else 1400L)
                 }.onFailure { error ->
                     toast(
-                        "${ServerProfile.powerActionLabel(action)}没发出去：" +
-                            (error.message ?: "未知错误")
+                        getString(R.string.and_powerNotSent, ServerProfile.powerActionLabel(action), error.message ?: getString(R.string.gw_unknownErr))
                     )
                 }
             }
@@ -4733,10 +4732,10 @@ class ComputerListActivity : ComponentActivity() {
 
         if (routes.isEmpty()) return packets()
         return when (mode) {
-            "http_only" -> "（仅 HTTP 模式）" + http()
+            "http_only" -> getString(R.string.and_httpOnlyMode) + http()
 
             "http_first" -> try {
-                "（优先 HTTP 模式）" + http()
+                getString(R.string.and_httpFirstMode) + http()
             } catch (httpError: Exception) {
                 try {
                     "HTTP 没通（${httpError.message ?: "未知错误"}），已改发广播包：" + packets()
@@ -4817,7 +4816,7 @@ class ComputerListActivity : ComponentActivity() {
      * 行为一致（连接失败，而不是编造一条远程失败）。
      */
     private fun powerTarget(profile: ServerProfile): Pair<String, String> {
-        val choice = chooseEndpoint(profile) ?: throw Exception("这台电脑还没有可用地址")
+        val choice = chooseEndpoint(profile) ?: throw Exception(getString(R.string.error_noAddress))
         return if (choice.alive) {
             Pair(choice.url, choice.token)
         } else {
