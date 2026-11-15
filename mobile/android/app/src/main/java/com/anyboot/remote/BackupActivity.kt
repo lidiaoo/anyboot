@@ -751,7 +751,7 @@ private fun PasswordDialog(
             ) { Text(stringResource(R.string.and_confirmBtn)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
@@ -850,15 +850,15 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     FieldInput("https://dav.jianguoyun.com/dav/", serverUrl,
                         { serverUrl = it }, KeyboardType.Uri)
                     BkFieldLabel(stringResource(R.string.server_kUser))
-                    FieldInput("账号 / 邮箱", username, { username = it }, KeyboardType.Email)
-                    BkFieldLabel("密码")
-                    FieldInput("WebDAV 密码", password, { password = it },
+                    FieldInput(stringResource(R.string.and_accountEmail), username, { username = it }, KeyboardType.Email)
+                    BkFieldLabel(stringResource(R.string.and_password))
+                    FieldInput(stringResource(R.string.and_webdavPwdPh), password, { password = it },
                         KeyboardType.Password)
-                    BkFieldLabel("远端同步目录")
+                    BkFieldLabel(stringResource(R.string.and_remoteSyncDir))
                     FieldInput("AnyBoot", directory, { directory = it }, KeyboardType.Uri)
-                    BkFieldLabel("同步周期")
+                    BkFieldLabel(stringResource(R.string.and_syncPeriod))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf(0 to "手动", 15 to "15 分钟", 30 to "30 分钟", 60 to "60 分钟")
+                        listOf(0 to stringResource(R.string.and_manual), 15 to stringResource(R.string.and_minN, 15), 30 to stringResource(R.string.and_minN, 30), 60 to stringResource(R.string.and_minN, 60))
                             .forEach { (minutes, label) ->
                                 val selected = periodMinutes == minutes
                                 Text(
@@ -878,8 +878,8 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("记录变化时就同步", fontSize = 14.sp, color = palette.fg)
-                            Text("建议只在自有 WebDAV 服务器时开启，防止快速占用服务商限额。",
+                            Text(stringResource(R.string.and_syncOnChange), fontSize = 14.sp, color = palette.fg)
+                            Text(stringResource(R.string.and_syncOnChangeHint),
                                 fontSize = 12.sp, color = palette.fgFaint)
                         }
                         Switch(
@@ -899,7 +899,7 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                 }
                 Spacer(Modifier.height(12.dp))
                 Card {
-                    BkFieldLabel("同步的数据类型")
+                    BkFieldLabel(stringResource(R.string.and_syncDataTypes))
                     BackupManager.CATEGORIES.forEach { cat ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -924,13 +924,13 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                         }
                     }
                     if (categories.contains("keys") && !encrypt) {
-                        InfoBar("建议开启加密，私钥将以明文存放于 WebDAV 服务器", warn = true)
+                        InfoBar(stringResource(R.string.and_encryptWarn), warn = true)
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 Card {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("同步文件加密", fontSize = 14.sp, color = palette.fg,
+                        Text(stringResource(R.string.and_syncFileEncrypt), fontSize = 14.sp, color = palette.fg,
                             modifier = Modifier.weight(1f))
                         Switch(
                             checked = encrypt,
@@ -945,19 +945,19 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                         )
                     }
                     if (encrypt) {
-                        BkFieldLabel("同步口令（≥6 位）")
-                        FieldInput("同步口令", encryptPassword, { encryptPassword = it },
+                        BkFieldLabel(stringResource(R.string.and_syncPwdHint))
+                        FieldInput(stringResource(R.string.and_syncPwdPh), encryptPassword, { encryptPassword = it },
                             KeyboardType.Password)
-                        FieldInput("再次输入同步口令", encryptAgain, { encryptAgain = it },
+                        FieldInput(stringResource(R.string.and_syncPwdAgainPh), encryptAgain, { encryptAgain = it },
                             KeyboardType.Password)
                         if (encryptAgain.isNotEmpty() && encryptPassword != encryptAgain) {
-                            Text("两次输入不一致", fontSize = 12.sp, color = palette.bad)
+                            Text(stringResource(R.string.bk_pwMismatch), fontSize = 12.sp, color = palette.bad)
                         }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
                 // L9 测试连接
-                SecondaryButton(if (testing) "测试中…" else "测试连接") {
+                SecondaryButton(if (testing) stringResource(R.string.and_testing) else stringResource(R.string.server_test)) {
                     if (!formValid) return@SecondaryButton
                     testing = true
                     testMessage = ""
@@ -969,9 +969,9 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     SyncManager.testConnection(context, probe) { status, error ->
                         testing = false
                         when (status) {
-                            "ok" -> { testOk = true; testMessage = "连接成功" }
+                            "ok" -> { testOk = true; testMessage = context.getString(R.string.and_connOk) }
                             "notFound" -> confirmCreate = true
-                            else -> { testOk = false; testMessage = error ?: "连接失败" }
+                            else -> { testOk = false; testMessage = error ?: context.getString(R.string.and_connFail) }
                         }
                     }
                 }
@@ -982,8 +982,8 @@ private fun WebDavOverlay(onClose: () -> Unit) {
     if (confirmCreate) {
         AlertDialog(
             onDismissRequest = { confirmCreate = false },
-            title = { Text("目录不存在") },
-            text = { Text("远端目录不存在，是否自动创建？") },
+            title = { Text(stringResource(R.string.and_dirNotExist)) },
+            text = { Text(stringResource(R.string.and_dirNotExistCreate)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmCreate = false
@@ -996,12 +996,12 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     SyncManager.createDirectory(context, probe) { error ->
                         testing = false
                         testOk = error == null
-                        testMessage = if (error == null) "目录已创建，连接成功" else error
+                        testMessage = if (error == null) context.getString(R.string.and_dirCreated) else error
                     }
-                }) { Text("创建") }
+                }) { Text(stringResource(R.string.fb_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmCreate = false }) { Text("取消") }
+                TextButton(onClick = { confirmCreate = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1076,12 +1076,12 @@ private fun ImportPreviewOverlay(
                     .padding(horizontal = 12.dp)
                     .height(52.dp),
             ) {
-                Text("‹ 取消", fontSize = 14.sp, color = palette.fgDim,
+                Text("‹ " + stringResource(R.string.common_cancel), fontSize = 14.sp, color = palette.fgDim,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(enabled = !importing) { onClose() }
                         .padding(8.dp))
-                Text("导入预览", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                Text(stringResource(R.string.and_importPreview), fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     color = palette.fg)
             }
             Column(
@@ -1093,13 +1093,13 @@ private fun ImportPreviewOverlay(
             ) {
                 // 来源行
                 Card {
-                    Text("来自 ${platformName(summary.optString("platform", ""))}",
+                    Text(stringResource(R.string.and_fromPlatform, platformName(summary.optString("platform", ""))),
                         fontSize = 13.sp, fontWeight = FontWeight.Medium, color = palette.fg)
                     Text(
                         BackupManager.isoNow().let { now ->
                             val exported = summary.optString("exportedAt", "")
                             (if (exported.isEmpty()) now else exported) +
-                                    " · AnyBoot " + summary.optString("app", "?")
+                                    stringResource(R.string.and_anybootVer, summary.optString("app", "?"))
                         },
                         fontSize = 12.sp, color = palette.fgDim,
                     )
@@ -1132,12 +1132,12 @@ private fun ImportPreviewOverlay(
                                 Text(BackupManager.labelOf(cat), fontSize = 14.sp,
                                     color = palette.fg, modifier = Modifier.weight(1f))
                                 Text(
-                                    "备份 ${row.optInt("backup")} 条 · 本机 ${row.optInt("local")} 条",
+                                    stringResource(R.string.and_backupLocalCount, row.optInt("backup"), row.optInt("local")),
                                     fontSize = 12.sp, color = palette.fgDim,
                                 )
                             }
                             if (cat == "terminal") {
-                                Text("将覆盖本机当前设置", fontSize = 11.sp, color = palette.fgFaint,
+                                Text(stringResource(R.string.and_willOverwrite), fontSize = 11.sp, color = palette.fgFaint,
                                     modifier = Modifier.padding(start = 40.dp, bottom = 6.dp))
                             }
                         }
@@ -1146,7 +1146,7 @@ private fun ImportPreviewOverlay(
                 Spacer(Modifier.height(12.dp))
                 // 合并策略
                 Card {
-                    BkFieldLabel("合并策略")
+                    BkFieldLabel(stringResource(R.string.and_mergeStrategy))
                     Row(verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().clickable {
                             strategy = "skipExisting"
@@ -1160,7 +1160,7 @@ private fun ImportPreviewOverlay(
                                     .putString("backup_import_strategy", "skipExisting").apply()
                             },
                             colors = RadioButtonDefaults.colors(selectedColor = palette.accent))
-                        Text("跳过本机已有", fontSize = 14.sp, color = palette.fg)
+                        Text(stringResource(R.string.and_skipExisting), fontSize = 14.sp, color = palette.fg)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth().clickable {
@@ -1175,17 +1175,17 @@ private fun ImportPreviewOverlay(
                                     .putString("backup_import_strategy", "overwrite").apply()
                             },
                             colors = RadioButtonDefaults.colors(selectedColor = palette.accent))
-                        Text("备份覆盖本机", fontSize = 14.sp, color = palette.fg)
+                        Text(stringResource(R.string.and_backupOverwrite), fontSize = 14.sp, color = palette.fg)
                     }
                     if (strategy == "overwrite") {
-                        Text("本机所选分类现有数据将被替换", fontSize = 12.sp, color = palette.bad)
+                        Text(stringResource(R.string.and_replaceWarn), fontSize = 12.sp, color = palette.bad)
                     }
                 }
                 // 警示条
                 val missing = summary.optInt("missingJumpRefs", 0)
                 if (missing > 0) {
                     Spacer(Modifier.height(12.dp))
-                    InfoBar("$missing 台电脑关联的跳板机不在本备份中", warn = true)
+                    InfoBar(stringResource(R.string.and_missJumpNotInBackup, missing), warn = true)
                 }
             }
         }
@@ -1198,17 +1198,17 @@ private fun ImportPreviewOverlay(
                 .padding(16.dp)
         ) {
             if (importing) {
-                Text("正在导入…", fontSize = 12.sp, color = palette.fgDim)
+                Text(stringResource(R.string.and_importingNow), fontSize = 12.sp, color = palette.fgDim)
                 LinearProgressIndicator(
                     color = palette.accent,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryButton("取消", onClick = onClose,
+                SecondaryButton(stringResource(R.string.common_cancel), onClick = onClose,
                     enabled = !importing, modifier = Modifier.weight(1f))
                 PrimaryButton(
-                    text = "导入所选（${selected.size} 类）",
+                    text = stringResource(R.string.and_importSelectedN, selected.size),
                     enabled = selected.isNotEmpty() && !importing,
                     loading = importing,
                     onClick = {
