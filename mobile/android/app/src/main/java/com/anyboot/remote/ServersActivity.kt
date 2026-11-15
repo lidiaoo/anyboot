@@ -2506,7 +2506,7 @@ class ServersActivity : ComponentActivity() {
             try {
                 SftpOps.mkdir(applicationContext, server, target, sftpPrompt())
             } catch (error: Exception) {
-                throw Exception(sftpReason("新建目录", name, error))
+                throw Exception(sftpReason(getString(R.string.fb_newDir), name, error))
             }
         }
     }
@@ -2518,18 +2518,18 @@ class ServersActivity : ComponentActivity() {
             try {
                 SftpOps.rename(applicationContext, server, from, to, sftpPrompt())
             } catch (error: Exception) {
-                throw Exception(sftpReason("重命名", entry.name, error))
+                throw Exception(sftpReason(getString(R.string.fb_rename), entry.name, error))
             }
         }
     }
 
     private fun deleteEntry(server: JumpServer, entry: SftpOps.Entry) {
         val path = SftpOps.join(sftpPath, entry.name)
-        sftpRun("删除") {
+        sftpRun(getString(R.string.fb_delete)) {
             try {
                 SftpOps.delete(applicationContext, server, path, sftpPrompt())
             } catch (error: Exception) {
-                throw Exception(sftpReason("删除", entry.name, error))
+                throw Exception(sftpReason(getString(R.string.fb_delete), entry.name, error))
             }
         }
     }
@@ -2605,7 +2605,7 @@ class ServersActivity : ComponentActivity() {
                         SftpOps.copy(applicationContext, server, source, target, sftpPrompt())
                     }
                 } catch (error: Exception) {
-                    throw Exception(sftpReason(if (request.cut) "移动" else "复制", name, error))
+                    throw Exception(sftpReason(if (request.cut) getString(R.string.and_move) else getString(R.string.fb_copy), name, error))
                 }
             }
             if (request.cut) {
@@ -2626,13 +2626,13 @@ class ServersActivity : ComponentActivity() {
                 return candidate
             }
         }
-        throw Exception("同名副本太多了（已经到 99 个）")
+        throw Exception(getString(R.string.and_tooManyCopies))
     }
 
     /** 打开这台服务器的终端，并让它 cd 到指定目录（终端页读 cdPath，会话一连上就打进去） */
     private fun openTerminalAt(server: JumpServer, dir: String) {
         if (!server.isSsh()) {
-            toast("Telnet 只有终端，没有文件功能")
+            toast(getString(R.string.and_telnetNoFile))
             return
         }
         val intent = Intent(this, TerminalActivity::class.java)
@@ -2660,21 +2660,21 @@ class ServersActivity : ComponentActivity() {
                     val detail = SftpOps.detail(applicationContext, server, path) { title, message ->
                         bus.confirm(title, message)
                     }
-                    rows.add("名称" to detail.name)
-                    rows.add("类型" to detail.typeLabel)
-                    rows.add("完整路径" to detail.path)
+                    rows.add(getString(R.string.and_detailName) to detail.name)
+                    rows.add(getString(R.string.and_detailType) to detail.typeLabel)
+                    rows.add(getString(R.string.and_detailPath) to detail.path)
                     if (!detail.dir) {
                         rows.add("大小" to (humanSize(detail.size) + "（" + detail.size + " 字节）"))
                     }
-                    rows.add("修改时间" to timeText(detail.mtime))
-                    rows.add("访问时间" to timeText(detail.atime))
-                    rows.add("权限" to detail.permissions.ifEmpty { "-" })
-                    rows.add("属主" to (detail.uid.toString() + " : " + detail.gid))
+                    rows.add(getString(R.string.and_detailMtime) to timeText(detail.mtime))
+                    rows.add(getString(R.string.and_detailAtime) to timeText(detail.atime))
+                    rows.add(getString(R.string.and_detailPerm) to detail.permissions.ifEmpty { "-" })
+                    rows.add(getString(R.string.and_detailOwner) to (detail.uid.toString() + " : " + detail.gid))
                     if (detail.linkTarget.isNotEmpty()) {
-                        rows.add("指向" to detail.linkTarget)
+                        rows.add(getString(R.string.and_detailLink) to detail.linkTarget)
                     }
                 } catch (e: Exception) {
-                    failure = sftpReason("读取详情", entry.name, e)
+                    failure = sftpReason(getString(R.string.and_readDetail), entry.name, e)
                 }
                 val done = rows
                 val message = failure
@@ -2685,7 +2685,7 @@ class ServersActivity : ComponentActivity() {
         }
         AlertDialog(
             onDismissRequest = { sftpAskDetail = null },
-            title = { Text("文件详情") },
+            title = { Text(stringResource(R.string.and_fileDetailTitle)) },
             text = {
                 Column {
                     val errorText = error
@@ -2925,7 +2925,7 @@ class ServersActivity : ComponentActivity() {
                         ) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
-                            SecondaryText("读取中 …")
+                            SecondaryText(stringResource(R.string.hub_state_reading))
                         }
                         error.isNotEmpty() -> SecondaryText(error,
                             Modifier.padding(vertical = 8.dp))
@@ -3120,7 +3120,7 @@ class ServersActivity : ComponentActivity() {
     private fun progressText(task: TransferManager.Task): String {
         if (task.total <= 0) {
             // 总量未知（有的 provider 不给长度）：只报已传多少 + 速度，不假装有百分比
-            return "已传 ${TransferManager.humanBytes(task.transferred)} · ${speedText(task)}"
+            return getString(R.string.and_uploadedWithSpeed, TransferManager.humanBytes(task.transferred), speedText(task))
         }
         val done = TransferManager.humanBytes(task.transferred)
         val total = TransferManager.humanBytes(task.total)
@@ -3130,11 +3130,11 @@ class ServersActivity : ComponentActivity() {
     /** 暂停行不报速度：那是「停下来那一刻的均值」，续传过、或重启后装回来的都没有意义 */
     private fun pausedText(task: TransferManager.Task): String {
         val size = if (task.total <= 0) {
-            "已传 ${TransferManager.humanBytes(task.transferred)}"
+            getString(R.string.and_uploadedSize, TransferManager.humanBytes(task.transferred))
         } else {
             "${TransferManager.humanBytes(task.transferred)} / ${TransferManager.humanBytes(task.total)}"
         }
-        return "已暂停 · $size"
+        return getString(R.string.and_pausedSize, size)
     }
 
     private fun speedText(task: TransferManager.Task): String {
