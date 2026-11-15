@@ -19,7 +19,7 @@ struct KeysPage: View {
                     KeyCardRow(entry: entry)
                     Spacer().frame(height: ABMetric.px(10))
                 }
-                ABDashedHint("公钥需追加到服务器 ~/.ssh/authorized_keys\n私钥加密存本机，永不上传")
+                ABDashedHint(L("and.pubkeyHint"))
                 Spacer().frame(height: ABMetric.px(12))
             }
             .padding(.horizontal, ABMetric.px(20))
@@ -40,7 +40,7 @@ struct KeysPage: View {
             ABDialogCard(L("keysWin.delKey")) {
                 if let entry = store.deleteKeyTarget {
                     ABDialogNote(L("and.delKeyConfirm", entry.name), color: ABColor.fg)
-                    ABDialogButtons(confirmTitle: "删除", confirmColor: ABColor.bad,
+                    ABDialogButtons(confirmTitle: L("common.delete"), confirmColor: ABColor.bad,
                                     onConfirm: {
                                         store.deleteKeyTarget = nil
                                         JumpStore.shared.removeKey(entry.id)
@@ -77,7 +77,7 @@ struct KeyCardRow: View {
 
                 VStack(alignment: .leading, spacing: ABMetric.px(2)) {
                     HStack(spacing: ABMetric.px(6)) {
-                        Text(entry.name.isEmpty ? "未命名密钥" : entry.name)
+                        Text(entry.name.isEmpty ? L("and.unnamedKey") : entry.name)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
@@ -179,10 +179,10 @@ struct GenerateKeyDialog: View {
                     HStack(spacing: ABMetric.px(8)) {
                         ProgressView().scaleEffect(0.7)
                             .frame(width: ABMetric.px(16), height: ABMetric.px(16))
-                        ABSecondaryText("正在生成 …")
+                        ABSecondaryText(L("and.generating"))
                     }
                 }
-                ABDialogButtons(confirmTitle: "生成",
+                ABDialogButtons(confirmTitle: L("and.generate"),
                                 onConfirm: {
                                     let title = name.trimmingCharacters(in: .whitespaces)
                                     store.generateKeyOpen = false
@@ -221,7 +221,7 @@ struct GenerateKeyDialog: View {
                             + " authorized_keys", long: true)
             } catch {
                 busy = false
-                store.toast("生成失败：" + error.localizedDescription, long: true)
+                store.toast(L("and.genFailMsg", error.localizedDescription), long: true)
             }
         }
     }

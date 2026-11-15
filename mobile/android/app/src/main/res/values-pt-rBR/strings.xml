@@ -1876,6 +1876,12 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_routeTunnelShort">Túnel</string>
     <string name="and_notDeployedRefind">rEFInd não instalado neste computador (ou sem próxima inicialização)</string>
     <string name="and_snapshotNoStatus">Sem status no snapshot</string>
+    <string name="and_generating">Gerando…</string>
+    <string name="and_calculating">Calculando…</string>
+    <string name="and_genFailMsg">Falha ao gerar: %1$s</string>
+    <string name="and_uploadToShort">Enviar para </string>
+    <string name="and_downloadFromShort">Baixar de </string>
+    <string name="and_connectedShort">Conectado </string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

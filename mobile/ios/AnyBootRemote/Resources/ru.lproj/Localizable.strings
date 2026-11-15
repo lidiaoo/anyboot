@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "Туннель";
 "and.notDeployedRefind" = "rEFInd не установлен на этом компьютере (или не задана следующая загрузка)";
 "and.snapshotNoStatus" = "В снимке нет status";
+"and.generating" = "Генерация…";
+"and.calculating" = "Вычисление…";
+"and.genFailMsg" = "Ошибка генерации: {x}";
+"and.uploadToShort" = "Загрузка на ";
+"and.downloadFromShort" = "Скачать с ";
+"and.connectedShort" = "Подключено ";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "トンネル";
 "and.notDeployedRefind" = "この PC に rEFInd 未導入（または次回起動未設定）";
 "and.snapshotNoStatus" = "スナップショットに status なし";
+"and.generating" = "生成中…";
+"and.calculating" = "計算中…";
+"and.genFailMsg" = "生成失敗：{x}";
+"and.uploadToShort" = "アップロード ";
+"and.downloadFromShort" = "ダウンロード ";
+"and.connectedShort" = "接続済み ";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

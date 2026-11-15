@@ -29,7 +29,7 @@ struct SessionsPage: View {
                                         .font(.system(size: 15))
                                         .foregroundColor(ABColor.fg)
                                         .lineLimit(1)
-                                    ABSecondaryText("已连接 "
+                                    ABSecondaryText(L("and.connectedShort")
                                         + ABFormat.duration(Int64(Date().timeIntervalSince(session.startedAt) * 1000)))
                                 }
                                 Spacer(minLength: 0)
@@ -51,7 +51,7 @@ struct SessionsPage: View {
                 }
                 ForEach(history) { entry in
                     VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                        Text(entry.serverName.isEmpty ? "服务器" : entry.serverName)
+                        Text(entry.serverName.isEmpty ? L("nav.servers") : entry.serverName)
                             .font(.system(size: 15))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
@@ -98,7 +98,7 @@ struct SessionsPage: View {
             ABDialogCard(L("and.endSessionTitle")) {
                 if let session = store.killTarget {
                     ABDialogNote(L("and.endSessionConfirm", session.server.displayName), color: ABColor.fg)
-                    ABDialogButtons(confirmTitle: "结束",
+                    ABDialogButtons(confirmTitle: L("and.end"),
                                     onConfirm: {
                                         store.killTarget = nil
                                         TerminalSessionsRegistry.kill(session)

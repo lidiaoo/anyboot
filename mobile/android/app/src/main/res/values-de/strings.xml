@@ -1876,6 +1876,12 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_routeTunnelShort">Tunnel</string>
     <string name="and_notDeployedRefind">rEFInd auf diesem Computer nicht installiert (oder kein nächster Start)</string>
     <string name="and_snapshotNoStatus">Kein status im Snapshot</string>
+    <string name="and_generating">Wird erzeugt…</string>
+    <string name="and_calculating">Berechne…</string>
+    <string name="and_genFailMsg">Erzeugen fehlgeschlagen: %1$s</string>
+    <string name="and_uploadToShort">Hochladen nach </string>
+    <string name="and_downloadFromShort">Herunterladen von </string>
+    <string name="and_connectedShort">Verbunden </string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

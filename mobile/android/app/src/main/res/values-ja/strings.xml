@@ -1876,6 +1876,12 @@ Telnet：実験的端末のみ。</string>
     <string name="and_routeTunnelShort">トンネル</string>
     <string name="and_notDeployedRefind">この PC に rEFInd 未導入（または次回起動未設定）</string>
     <string name="and_snapshotNoStatus">スナップショットに status なし</string>
+    <string name="and_generating">生成中…</string>
+    <string name="and_calculating">計算中…</string>
+    <string name="and_genFailMsg">生成失敗：%1$s</string>
+    <string name="and_uploadToShort">アップロード </string>
+    <string name="and_downloadFromShort">ダウンロード </string>
+    <string name="and_connectedShort">接続済み </string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

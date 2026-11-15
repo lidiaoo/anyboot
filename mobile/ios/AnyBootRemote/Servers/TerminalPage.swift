@@ -82,7 +82,7 @@ struct TerminalPage: View {
 
     private var topBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "返回") { dismiss() }
+            ABBarIcon(text: "‹", description: L("and.back")) { dismiss() }
 
             ZStack {
                 RoundedRectangle(cornerRadius: ABMetric.px(10), style: .continuous)
@@ -110,7 +110,7 @@ struct TerminalPage: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            ABBarIcon(text: "🌓", description: "切换终端主题") {
+            ABBarIcon(text: "🌓", description: L("and.switchTermTheme")) {
                 jumps.setTerminalDark(!jumps.terminalDark)
             }
 
@@ -147,7 +147,7 @@ struct TerminalPage: View {
                 }
             }
 
-            ABBarIcon(text: "⌨", description: "弹出/收起键盘") {
+            ABBarIcon(text: "⌨", description: L("and.toggleKeyboard")) {
                 NotificationCenter.default.post(name: .init("anyboot-term-focus"), object: nil)
             }
         }
@@ -182,7 +182,7 @@ struct TerminalPage: View {
     private var statusText: String {
         if let statusMessage { return statusMessage }
         guard let session else { return L("hub.state.notConnected") }
-        return "已连接 · " + ABFormat.duration(Int64(Date().timeIntervalSince(session.startedAt) * 1000))
+        return L("and.connectedFor", ABFormat.duration(Int64(Date().timeIntervalSince(session.startedAt) * 1000)))
     }
 
     // MARK: - 会话 pill 行

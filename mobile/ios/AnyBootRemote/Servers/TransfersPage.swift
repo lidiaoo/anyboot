@@ -74,9 +74,9 @@ struct TransferRow: View {
                         .font(.system(size: 15))
                         .foregroundColor(ABColor.fg)
                         .lineLimit(1)
-                    ABSecondaryText((uploading ? "上传到 " : "下载自 ")
+                    ABSecondaryText((uploading ? L("and.uploadToShort") : L("and.downloadFromShort"))
                                     + task.serverName + " · " + task.remoteDir
-                                    + (task.resumed ? " · 续传" : ""))
+                                    + (task.resumed ? L("and.resumedTag") : ""))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, ABMetric.px(8))
@@ -151,7 +151,7 @@ struct TransferRow: View {
 
     private var progressText: String {
         if task.total <= 0 {
-            return "已传 \(TransferTask.humanBytes(task.transferred)) · \(speedText)"
+            return L("and.uploadedWithSpeed", TransferTask.humanBytes(task.transferred), speedText)
         }
         return "\(TransferTask.humanBytes(task.transferred)) / \(TransferTask.humanBytes(task.total))"
             + " · \(speedText)"
@@ -160,14 +160,14 @@ struct TransferRow: View {
     /// 暂停行不报速度：那是「停下来那一刻的均值」，续传过、或重启后装回来的都没有意义
     private var pausedText: String {
         let size = task.total <= 0
-            ? "已传 \(TransferTask.humanBytes(task.transferred))"
+            ? L("and.uploadedSize", TransferTask.humanBytes(task.transferred))
             : "\(TransferTask.humanBytes(task.transferred)) / \(TransferTask.humanBytes(task.total))"
         return L("and.pausedSize", size)
     }
 
     private var speedText: String {
         let speed = task.bytesPerSecond
-        if speed <= 0 { return "计算中 …" }
+        if speed <= 0 { return L("and.calculating") }
         return TransferTask.humanBytes(speed) + "/s"
     }
 

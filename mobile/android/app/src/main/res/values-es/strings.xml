@@ -1876,6 +1876,12 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_routeTunnelShort">Túnel</string>
     <string name="and_notDeployedRefind">rEFInd no instalado en este equipo (o sin próximo arranque)</string>
     <string name="and_snapshotNoStatus">Sin status en la instantánea</string>
+    <string name="and_generating">Generando…</string>
+    <string name="and_calculating">Calculando…</string>
+    <string name="and_genFailMsg">Error al generar: %1$s</string>
+    <string name="and_uploadToShort">Subir a </string>
+    <string name="and_downloadFromShort">Descargar de </string>
+    <string name="and_connectedShort">Conectado </string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

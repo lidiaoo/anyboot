@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "通道";
 "and.notDeployedRefind" = "這台電腦沒部署 rEFInd（或還沒設定過下次啟動項）";
 "and.snapshotNoStatus" = "快照裡沒有 status";
+"and.generating" = "正在產生 …";
+"and.calculating" = "計算中 …";
+"and.genFailMsg" = "產生失敗：{x}";
+"and.uploadToShort" = "上傳到 ";
+"and.downloadFromShort" = "下載自 ";
+"and.connectedShort" = "已連線 ";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

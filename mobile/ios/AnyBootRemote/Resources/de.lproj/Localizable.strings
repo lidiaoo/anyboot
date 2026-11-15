@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "Tunnel";
 "and.notDeployedRefind" = "rEFInd auf diesem Computer nicht installiert (oder kein nächster Start)";
 "and.snapshotNoStatus" = "Kein status im Snapshot";
+"and.generating" = "Wird erzeugt…";
+"and.calculating" = "Berechne…";
+"and.genFailMsg" = "Erzeugen fehlgeschlagen: {x}";
+"and.uploadToShort" = "Hochladen nach ";
+"and.downloadFromShort" = "Herunterladen von ";
+"and.connectedShort" = "Verbunden ";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

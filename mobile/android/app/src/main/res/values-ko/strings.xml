@@ -1876,6 +1876,12 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_routeTunnelShort">터널</string>
     <string name="and_notDeployedRefind">이 컴퓨터에 rEFInd 미배포(또는 다음 부팅 미설정)</string>
     <string name="and_snapshotNoStatus">스냅샷에 status 없음</string>
+    <string name="and_generating">생성 중…</string>
+    <string name="and_calculating">계산 중…</string>
+    <string name="and_genFailMsg">생성 실패: %1$s</string>
+    <string name="and_uploadToShort">업로드 </string>
+    <string name="and_downloadFromShort">다운로드 </string>
+    <string name="and_connectedShort">연결됨 </string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

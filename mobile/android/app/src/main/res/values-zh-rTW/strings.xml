@@ -1876,6 +1876,12 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_routeTunnelShort">通道</string>
     <string name="and_notDeployedRefind">這台電腦沒部署 rEFInd（或還沒設定過下次啟動項）</string>
     <string name="and_snapshotNoStatus">快照裡沒有 status</string>
+    <string name="and_generating">正在產生 …</string>
+    <string name="and_calculating">計算中 …</string>
+    <string name="and_genFailMsg">產生失敗：%1$s</string>
+    <string name="and_uploadToShort">上傳到 </string>
+    <string name="and_downloadFromShort">下載自 </string>
+    <string name="and_connectedShort">已連線 </string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

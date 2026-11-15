@@ -1876,6 +1876,12 @@ Telnet：只有实验性终端。</string>
     <string name="and_routeTunnelShort">隧道</string>
     <string name="and_notDeployedRefind">这台电脑没部署 rEFInd（或还没设置过下次启动项）</string>
     <string name="and_snapshotNoStatus">快照里没有 status</string>
+    <string name="and_generating">正在生成 …</string>
+    <string name="and_calculating">计算中 …</string>
+    <string name="and_genFailMsg">生成失败：%1$s</string>
+    <string name="and_uploadToShort">上传到 </string>
+    <string name="and_downloadFromShort">下载自 </string>
+    <string name="and_connectedShort">已连接 </string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

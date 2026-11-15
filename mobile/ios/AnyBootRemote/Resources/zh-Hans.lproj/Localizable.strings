@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "隧道";
 "and.notDeployedRefind" = "这台电脑没部署 rEFInd（或还没设置过下次启动项）";
 "and.snapshotNoStatus" = "快照里没有 status";
+"and.generating" = "正在生成 …";
+"and.calculating" = "计算中 …";
+"and.genFailMsg" = "生成失败：{x}";
+"and.uploadToShort" = "上传到 ";
+"and.downloadFromShort" = "下载自 ";
+"and.connectedShort" = "已连接 ";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

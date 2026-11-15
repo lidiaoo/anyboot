@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "Tunnel";
 "and.notDeployedRefind" = "rEFInd not deployed on this computer (or no next boot set)";
 "and.snapshotNoStatus" = "No status in snapshot";
+"and.generating" = "Generating…";
+"and.calculating" = "Calculating…";
+"and.genFailMsg" = "Generation failed: {x}";
+"and.uploadToShort" = "Upload to ";
+"and.downloadFromShort" = "Download from ";
+"and.connectedShort" = "Connected ";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

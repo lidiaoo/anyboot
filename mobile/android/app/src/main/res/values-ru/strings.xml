@@ -1876,6 +1876,12 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_routeTunnelShort">Туннель</string>
     <string name="and_notDeployedRefind">rEFInd не установлен на этом компьютере (или не задана следующая загрузка)</string>
     <string name="and_snapshotNoStatus">В снимке нет status</string>
+    <string name="and_generating">Генерация…</string>
+    <string name="and_calculating">Вычисление…</string>
+    <string name="and_genFailMsg">Ошибка генерации: %1$s</string>
+    <string name="and_uploadToShort">Загрузка на </string>
+    <string name="and_downloadFromShort">Скачать с </string>
+    <string name="and_connectedShort">Подключено </string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

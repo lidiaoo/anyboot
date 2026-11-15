@@ -1839,6 +1839,12 @@
 "and.routeTunnelShort" = "터널";
 "and.notDeployedRefind" = "이 컴퓨터에 rEFInd 미배포(또는 다음 부팅 미설정)";
 "and.snapshotNoStatus" = "스냅샷에 status 없음";
+"and.generating" = "생성 중…";
+"and.calculating" = "계산 중…";
+"and.genFailMsg" = "생성 실패: {x}";
+"and.uploadToShort" = "업로드 ";
+"and.downloadFromShort" = "다운로드 ";
+"and.connectedShort" = "연결됨 ";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";
