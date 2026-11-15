@@ -829,36 +829,36 @@ class ServersActivity : ComponentActivity() {
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoCell("用户", if (JumpStore.text(server.username).isEmpty()) "root" else server.username,
+                    InfoCell(stringResource(R.string.server_kUser), if (JumpStore.text(server.username).isEmpty()) "root" else server.username,
                         Modifier.weight(1f))
-                    InfoCell("认证", server.authLabel(), Modifier.weight(1f))
-                    InfoCell("端口", server.port().toString(), Modifier.weight(1f))
+                    InfoCell(stringResource(R.string.and_authShort), server.authLabel(), Modifier.weight(1f))
+                    InfoCell(stringResource(R.string.server_kPort), server.port().toString(), Modifier.weight(1f))
                 }
                 if (JumpStore.text(server.note).isNotEmpty()) {
-                    SecondaryText("备注：" + server.note, Modifier.padding(top = 8.dp))
+                    SecondaryText(stringResource(R.string.and_noteWith, server.note), Modifier.padding(top = 8.dp))
                 }
                 if (server.isSsh()) {
                     SecondaryText(
-                        "经由此服务器的电脑：" + JumpStore.computersVia(this@ServersActivity, server.id) + " 台",
+                        stringResource(R.string.and_computersVia, JumpStore.computersVia(this@ServersActivity, server.id)),
                         Modifier.padding(top = 2.dp),
                     )
                 }
                 if (server.isSsh() && up) {
-                    SecondaryText("SSH 会话在线（隧道与终端共享）", Modifier.padding(top = 2.dp))
+                    SecondaryText(stringResource(R.string.and_sshOnlineShared), Modifier.padding(top = 2.dp))
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (server.isSsh()) {
-                        CardAction("终端", filled = true, Modifier.weight(1f)) { openTerminal(server) }
-                        CardAction("文件", filled = false, Modifier.weight(1f)) {
+                        CardAction(stringResource(R.string.nav_terminal), filled = true, Modifier.weight(1f)) { openTerminal(server) }
+                        CardAction(stringResource(R.string.nav_files), filled = false, Modifier.weight(1f)) {
                             currentPage = 2
                             sftpServerId = server.id
                             // 走统一的切目录入口：它会顺手把「加载中」点亮，免得闪一下「（空目录）」
                             gotoDir("/", true)
                         }
                     }
-                    CardAction("测试", filled = false, Modifier.weight(1f)) { testConnection(server) }
-                    CardAction("编辑", filled = false, Modifier.weight(1f)) { editTarget = server; editOpen = true }
+                    CardAction(stringResource(R.string.and_test), filled = false, Modifier.weight(1f)) { testConnection(server) }
+                    CardAction(stringResource(R.string.common_edit), filled = false, Modifier.weight(1f)) { editTarget = server; editOpen = true }
                 }
             }
         }
@@ -939,7 +939,7 @@ class ServersActivity : ComponentActivity() {
             manualPassword = ManualPwdRequest(server) { testConnection(server) }
             return
         }
-        toast("正在测试 ${server.addressLabel()} …")
+        toast(getString(R.string.and_testingAddr, server.addressLabel()))
         val appContext = applicationContext
         Thread({
             var result: String
@@ -956,12 +956,12 @@ class ServersActivity : ComponentActivity() {
                         )
                     }
                 }
-                result = "连接成功（${System.currentTimeMillis() - started}ms）"
+                result = getString(R.string.and_connOkMs, System.currentTimeMillis() - started)
                 server.lastRttMs = System.currentTimeMillis() - started
                 server.lastSeen = System.currentTimeMillis()
                 JumpStore.saveJumps(this, jumps)
             } catch (error: Exception) {
-                result = "连接失败：" + (error.message ?: error.javaClass.simpleName)
+                result = getString(R.string.and_connFailMsg, error.message ?: error.javaClass.simpleName)
             }
             val message = result
             runOnUiThread {
@@ -977,12 +977,12 @@ class ServersActivity : ComponentActivity() {
         val viaServers = jumps.count { it.id != server.id && it.jumpServerId == server.id }
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("删除服务器") },
+            title = { Text(stringResource(R.string.server_deleteAria)) },
             text = {
                 Text(
-                    "确定删除「" + JumpStore.text(server.name) + "」吗？"
-                            + (if (via > 0) "\n\n注意：有 $via 台电脑配置了经由它连接，删除后这些电脑会退回直连。" else "")
-                            + (if (viaServers > 0) "\n\n另有 $viaServers 台服务器经由它中转，删除后退回直连。" else "")
+                    getString(R.string.and_delServerConfirm, JumpStore.text(server.name))
+                            + (if (via > 0) "\n\n" + getString(R.string.and_delServerVia, via) else "")
+                            + (if (viaServers > 0) "\n\n" + getString(R.string.and_delServerViaServers, viaServers) else "")
                 )
             },
             confirmButton = {
@@ -991,7 +991,7 @@ class ServersActivity : ComponentActivity() {
                     SshSessionManager.shared().shutdown(server.id)
                     val session = TerminalRegistry.get(server.id)
                     if (session != null) {
-                        session.close("服务器已删除")
+                        session.close(getString(R.string.and_serverDeleted))
                         TerminalRegistry.remove(server.id)
                     }
                     jumps.remove(server)
@@ -1002,10 +1002,10 @@ class ServersActivity : ComponentActivity() {
                         }
                     }
                     JumpStore.saveJumps(this, jumps)
-                }) { Text("删除", color = LocalPalette.current.bad) }
+                }) { Text(stringResource(R.string.common_delete), color = LocalPalette.current.bad) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1095,7 +1095,7 @@ class ServersActivity : ComponentActivity() {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        if (editing) "编辑服务器" else "添加服务器",
+                        if (editing) stringResource(R.string.server_editAria) else stringResource(R.string.server_add),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.fg,
@@ -1103,7 +1103,7 @@ class ServersActivity : ComponentActivity() {
                     )
                     Icon(
                         Icons.Filled.Close,
-                        contentDescription = "关闭",
+                        contentDescription = stringResource(R.string.common_close),
                         tint = palette.fgDim,
                         modifier = Modifier
                             .size(32.dp)
@@ -1113,30 +1113,30 @@ class ServersActivity : ComponentActivity() {
                 }
                 Spacer(Modifier.height(12.dp))
 
-                FieldLabel("名称")
+                FieldLabel(stringResource(R.string.tunnel_name))
                 OutlinedTextField(
                     value = name, onValueChange = { name = it }, singleLine = true,
-                    placeholder = { Text("例如：pve / 家里路由器", fontSize = 12.sp) },
+                    placeholder = { Text(stringResource(R.string.and_namePh), fontSize = 12.sp) },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                FieldLabel("协议")
-                Segmented(listOf("SSH", "Telnet（实验性）"), if (isTelnet) 1 else 0) {
+                FieldLabel(stringResource(R.string.srvEdit_proto))
+                Segmented(listOf("SSH", stringResource(R.string.and_telnetExperimental)), if (isTelnet) 1 else 0) {
                     isTelnet = it == 1
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f)) {
-                        FieldLabel("地址")
+                        FieldLabel(stringResource(R.string.srvEdit_addr))
                         OutlinedTextField(
                             value = hostInput, onValueChange = { hostInput = it }, singleLine = true,
-                            placeholder = { Text("host 或 user@host", fontSize = 12.sp) },
+                            placeholder = { Text(stringResource(R.string.and_addrPh2), fontSize = 12.sp) },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
                     Column(Modifier.width(88.dp)) {
-                        FieldLabel("端口")
+                        FieldLabel(stringResource(R.string.srvEdit_port))
                         OutlinedTextField(
                             value = portInput, onValueChange = { portInput = it.filter { c -> c.isDigit() } },
                             singleLine = true,
@@ -1147,15 +1147,15 @@ class ServersActivity : ComponentActivity() {
                         )
                     }
                 }
-                FieldLabel("用户名")
+                FieldLabel(stringResource(R.string.server_kUser))
                 OutlinedTextField(
                     value = username, onValueChange = { username = it }, singleLine = true,
                     placeholder = { Text("root", fontSize = 12.sp) },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                FieldLabel("认证方式")
-                Segmented(listOf("密码", "密钥"), if (authKey) 1 else 0) {
+                FieldLabel(stringResource(R.string.server_kAuth))
+                Segmented(listOf(stringResource(R.string.srvEdit_authPassword), stringResource(R.string.srvEdit_authKey)), if (authKey) 1 else 0) {
                     authKey = it == 1
                 }
                 if (!authKey) {
@@ -1166,12 +1166,12 @@ class ServersActivity : ComponentActivity() {
                         placeholder = {
                             Text(
                                 when {
-                                    savedPassword.isNotEmpty() -> "已保存密码（可改）"
+                                    savedPassword.isNotEmpty() -> getString(R.string.and_pwdSavedEditable)
                                     // 有密文却解不开：密钥库那把钥匙换过（老版本每次调用都覆盖），
                                     // 留空保存只会把这份坏密文继续留着，必须提示重输
                                     JumpStore.text(existing?.passwordEnc).isNotEmpty() ->
-                                        "已存密码已失效，请重新输入一次"
-                                    else -> "留空保持原密码不变"
+                                        getString(R.string.and_pwdExpired)
+                                    else -> getString(R.string.and_pwdKeepBlank)
                                 },
                                 fontSize = 12.sp,
                             )
@@ -1196,9 +1196,9 @@ class ServersActivity : ComponentActivity() {
                     ) {
                         Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
                         Column(Modifier.padding(top = 2.dp)) {
-                            Text("保存密码 / 凭据", fontSize = 14.sp, color = palette.fg)
+                            Text(stringResource(R.string.and_saveCred), fontSize = 14.sp, color = palette.fg)
                             Text(
-                                "加密存本机（Keystore），连接免输；不勾则清除已存凭据",
+                                stringResource(R.string.and_saveCredHint),
                                 fontSize = 11.sp,
                                 color = palette.fgFaint,
                                 modifier = Modifier.padding(top = 2.dp),
@@ -1206,10 +1206,10 @@ class ServersActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    FieldLabel("密钥")
+                    FieldLabel(stringResource(R.string.srvEdit_authKey))
                     Box {
                         OutlinedTextField(
-                            value = if (keys.isEmpty()) "（还没有密钥，先到「密钥」页导入/生成）"
+                            value = if (keys.isEmpty()) stringResource(R.string.srvEdit_noKeys)
                             else keys[keyIndex.coerceIn(0, keys.size - 1)].let {
                                 JumpStore.text(it.name) + "（" + it.algorithm + "）"
                             },
@@ -1236,7 +1236,7 @@ class ServersActivity : ComponentActivity() {
                         value = passphrase,
                         onValueChange = { passphrase = it },
                         singleLine = true,
-                        placeholder = { Text("密钥口令（可空）", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.and_keyPassPh), fontSize = 12.sp) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         shape = RoundedCornerShape(12.dp),
@@ -1246,25 +1246,25 @@ class ServersActivity : ComponentActivity() {
                     )
                 }
                 // 终端启动路径 / shell（可选）：目录打不通时终端里报错、照常落家目录
-                FieldLabel("终端启动路径（可选）")
+                FieldLabel(stringResource(R.string.and_termPathOpt))
                 OutlinedTextField(
                     value = termPath, onValueChange = { termPath = it }, singleLine = true,
-                    placeholder = { Text("如 /data/logs，留空 = 远端家目录", fontSize = 12.sp) },
+                    placeholder = { Text(stringResource(R.string.srvEdit_termPathPh), fontSize = 12.sp) },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                FieldLabel("终端 shell（可选）")
+                FieldLabel(stringResource(R.string.and_termShellOpt))
                 OutlinedTextField(
                     value = termShell, onValueChange = { termShell = it }, singleLine = true,
-                    placeholder = { Text("/bin/bash /bin/zsh 等，留空 = 登录 shell", fontSize = 12.sp) },
-                    supportingText = { Text("预设 shell 自动带 -l；也可填自定义命令原样执行（如 tmux attach）", fontSize = 11.sp) },
+                    placeholder = { Text(stringResource(R.string.and_termShellPh2), fontSize = 12.sp) },
+                    supportingText = { Text(stringResource(R.string.and_termShellHint), fontSize = 11.sp) },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                FieldLabel("备注")
+                FieldLabel(stringResource(R.string.srvEdit_notes))
                 OutlinedTextField(
                     value = note, onValueChange = { note = it }, singleLine = true,
-                    placeholder = { Text("可选", fontSize = 12.sp) },
+                    placeholder = { Text(stringResource(R.string.srvEdit_notesPh), fontSize = 12.sp) },
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth(),
                 )

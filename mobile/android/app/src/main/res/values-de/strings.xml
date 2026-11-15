@@ -1329,6 +1329,31 @@ Telnet: nur experimentelles Terminal.</string>
     <string name="and_addServerPlus">＋ Server hinzufügen</string>
     <string name="and_experimentalTerminal">(experimentelles Terminal)</string>
     <string name="and_experimental">Experimentell</string>
+    <string name="and_authShort">Auth</string>
+    <string name="and_noteWith">Notiz: %1$s</string>
+    <string name="and_computersVia">Computer über diesen Server: %1$d</string>
+    <string name="and_sshOnlineShared">SSH-Sitzung online (von Tunneln und Terminal geteilt)</string>
+    <string name="and_test">Test</string>
+    <string name="and_testingAddr">Teste %1$s…</string>
+    <string name="and_connOkMs">Verbunden (%1$sms)</string>
+    <string name="and_connFailMsg">Verbindung fehlgeschlagen: %1$s</string>
+    <string name="and_delServerConfirm">„%1$s“ löschen?</string>
+    <string name="and_delServerVia">Hinweis: %1$d Computer verbinden darüber; nach dem Löschen zurück auf direkt.</string>
+    <string name="and_delServerViaServers">Weitere %1$d Server leiten darüber; nach dem Löschen zurück auf direkt.</string>
+    <string name="and_serverDeleted">Server gelöscht</string>
+    <string name="and_namePh">z. B. pve / Heimrouter</string>
+    <string name="and_addrPh2">host oder user@host</string>
+    <string name="and_telnetExperimental">Telnet (experimentell)</string>
+    <string name="and_pwdSavedEditable">Passwort gespeichert (änderbar)</string>
+    <string name="and_pwdExpired">Gespeichertes Passwort ungültig; erneut eingeben</string>
+    <string name="and_pwdKeepBlank">Leer lassen, um das Passwort zu behalten</string>
+    <string name="and_saveCred">Passwort / Anmeldedaten speichern</string>
+    <string name="and_saveCredHint">Lokal verschlüsselt (Keystore), keine Eingabe beim Verbinden; aus = gespeicherte Daten löschen</string>
+    <string name="and_keyPassPh">Schlüssel-Passphrase (optional)</string>
+    <string name="and_termPathOpt">Terminal-Startpfad (optional)</string>
+    <string name="and_termShellOpt">Terminal-Shell (optional)</string>
+    <string name="and_termShellPh2">/bin/bash /bin/zsh usw.; leer = Login-Shell</string>
+    <string name="and_termShellHint">Voreingestellte Shell fügt -l hinzu; eigener Befehl wird unverändert ausgeführt (z. B. tmux attach)</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>
