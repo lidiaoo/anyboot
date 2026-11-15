@@ -90,6 +90,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import java.net.HttpURLConnection
 import java.net.URL
@@ -409,20 +410,20 @@ class ComputerListActivity : ComponentActivity() {
                     .height(54.dp)
                     .padding(start = 6.dp, end = 8.dp),
             ) {
-                TopBarIcon("侧边栏", { drawerOpen = true }) {
+                TopBarIcon(stringResource(R.string.topbar_sidebar), { drawerOpen = true }) {
                     MenuIcon(tint = palette.fg, size = 20.dp)
                 }
                 Spacer(Modifier.width(6.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        "电脑列表",
+                        stringResource(R.string.hub_list_title),
                         fontSize = 16.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.fg,
                         maxLines = 1,
                     )
                     Text(
-                        "远程管理 - 电脑 · 点卡片即可发电源指令或切引导项",
+                        stringResource(R.string.hub_list_subtitle),
                         fontSize = 11.sp,
                         color = palette.fgFaint,
                         maxLines = 1,
@@ -437,11 +438,11 @@ class ComputerListActivity : ComponentActivity() {
                         )
                     }
                 } else {
-                    TopBarIcon("刷新", { refreshAll() }) {
+                    TopBarIcon(stringResource(R.string.common_refresh), { refreshAll() }) {
                         RefreshIcon(tint = palette.fgDim, size = 19.dp)
                     }
                 }
-                TopBarIcon("操作说明", { sheetRequest = SheetRequest("", KIND_HELP) }) {
+                TopBarIcon(stringResource(R.string.hub_list_help), { sheetRequest = SheetRequest("", KIND_HELP) }) {
                     HelpIcon(tint = palette.fgDim, size = 19.dp)
                 }
                 OverflowMenu()
@@ -463,12 +464,12 @@ class ComputerListActivity : ComponentActivity() {
                 ) {
                     val online = rows.count { it.state == STATE_ONLINE }
                     val pending = rows.count { grubPending(it.grub) }
-                    StatChip("全部", rows.size, filter == FILTER_ALL, false) { filter = FILTER_ALL }
-                    StatChip("在线", online, filter == FILTER_ONLINE, false) { filter = FILTER_ONLINE }
-                    StatChip("离线", rows.size - online, filter == FILTER_OFFLINE, false) {
+                    StatChip(stringResource(R.string.hub_list_all), rows.size, filter == FILTER_ALL, false) { filter = FILTER_ALL }
+                    StatChip(stringResource(R.string.hub_list_online), online, filter == FILTER_ONLINE, false) { filter = FILTER_ONLINE }
+                    StatChip(stringResource(R.string.hub_list_offline), rows.size - online, filter == FILTER_OFFLINE, false) {
                         filter = FILTER_OFFLINE
                     }
-                    StatChip("待生效", pending, filter == FILTER_PENDING, true) {
+                    StatChip(stringResource(R.string.hub_list_pending), pending, filter == FILTER_PENDING, true) {
                         filter = FILTER_PENDING
                     }
                 }
@@ -501,7 +502,7 @@ class ComputerListActivity : ComponentActivity() {
         val palette = LocalPalette.current
         var open by remember { mutableStateOf(false) }
         Box {
-            TopBarIcon("更多", { open = true }) {
+            TopBarIcon(stringResource(R.string.menu_more), { open = true }) {
                 Text("⋮", fontSize = 19.sp, color = palette.fgDim)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
