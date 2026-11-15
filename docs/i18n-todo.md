@@ -60,7 +60,7 @@
 - [ ] **P4.5** `pages/hub/SessionsPage.vue`
 - [ ] **P4.6** `pages/hub/GatewayPage.vue`（远程接入/隧道/配对）
 - [x] **P4.7** KeysPage + KeysWindow 已完成 `pages/hub/KeysPage.vue`、`keys/*`
-- [ ] **P4.8** FilesPage 已完成；FilesWindow 待（复用 fb.*）
+- [x] **P4.8** FilesPage + FilesWindow 均完成（共享 fb.*）
 - [x] **P4.9** `pages/hub/AboutPage.vue`
 - [ ] **P4.10** 更新流程文案：`stores/update.ts`（或等价）+ 更新面板按钮/进度/错误
 
