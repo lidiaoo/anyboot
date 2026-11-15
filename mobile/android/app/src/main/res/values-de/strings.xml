@@ -2023,6 +2023,7 @@ Unbekannt (kein System gewählt)</string>
     <string name="and_noVisibleMenu">Keine sichtbaren Menüpunkte (durch Regeln ausgeblendet)</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s Einträge%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s Kernel)</string>
+    <string name="and_language">Sprache</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

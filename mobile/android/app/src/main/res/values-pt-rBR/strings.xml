@@ -2023,6 +2023,7 @@ Desconhecido (nenhum sistema)</string>
     <string name="and_noVisibleMenu">Sem itens visíveis (ocultos por regras)</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s itens%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s kernels)</string>
+    <string name="and_language">Idioma</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>
