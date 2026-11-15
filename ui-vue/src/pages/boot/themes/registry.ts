@@ -37,11 +37,11 @@ export function effectiveLayout(theme: string, saved: LayoutMode | undefined): L
 
 /** 主题中文名（与旧 `THEMES` 数组一致） */
 export const THEME_LABELS: { key: ThemeKey | "K"; label: string }[] = [
-  { key: "K", label: "不套用主题" },
-  { key: "A", label: "A 卡片流" },
-  { key: "B", label: "B 左栏通道" },
-  { key: "C", label: "C 顶部固定" },
-  { key: "G", label: "G 命令面板" },
-  { key: "I", label: "I Bento" },
-  { key: "J", label: "J 三栏" },
+  { key: "K", label: "menu.themeNone" },
+  { key: "A", label: "menu.schemeA" },
+  { key: "B", label: "menu.schemeB" },
+  { key: "C", label: "menu.schemeC" },
+  { key: "G", label: "menu.schemeG" },
+  { key: "I", label: "menu.schemeI" },
+  { key: "J", label: "menu.schemeJ" },
 ];

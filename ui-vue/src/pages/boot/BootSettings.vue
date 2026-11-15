@@ -520,7 +520,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
               :title="item.key === 'K' ? $t('bs.themeKTitle') : $t('bs.themeTitle', { k: item.key })"
               @click="adv.setTheme(item.key)"
             >
-              {{ item.label }}
+              {{ $t(item.label) }}
             </button>
           </div>
           <span class="hint">{{ $t("bs.themeHint") }}</span>
