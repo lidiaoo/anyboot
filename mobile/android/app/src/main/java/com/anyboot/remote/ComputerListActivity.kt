@@ -2324,7 +2324,8 @@ class ComputerListActivity : ComponentActivity() {
         val work = busy[row.profile.id]
         val working = work != null && work.startsWith("boot:")
         val pending = kind == KIND_GRUB && grubPending(group)
-        val usable = group.available && row.state == STATE_ONLINE && work == null
+        // busy(自动刷新/切换中)不阻止打开弹窗 —— 否则 2s 轮询窗口里按钮几乎恒 disabled，点击全被吞（穿透到卡片跳电脑页）
+        val usable = group.available && row.state == STATE_ONLINE
 
         val valueLabel: String
         val dot: String
@@ -2782,18 +2783,7 @@ class ComputerListActivity : ComponentActivity() {
     private fun ChannelPickerContent(profile: ServerProfile, channel: ChannelRow) {
         val palette = LocalPalette.current
         Column {
-            // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
-            val ocNote = if (channel.id == "opencore")
-                "点预演行 = 设为默认，等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
-            else ""
-            val nvramNote = if (channel.permission == "nvram")
-                "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
-            else ""
-            ChannelNoteDisclosure(
-                detail = channel.detail.trim(),
-                issues = channel.health,
-                extra = listOf(nvramNote, ocNote).filter { it.isNotEmpty() }.joinToString("\n"),
-            )
+            // PC 电脑列表 OC 弹窗无提示区/提示词（用户 2026-11-15：提示按钮和提示词在本系统不可见）
             // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
             // 排序与 PC 网页端一致：**可选中的（spec 非空）一组在前，不可选中的一组在后**，
             // 只按 spec 分组、与是否选中无关 → 顺序恒定，选中只在原位高亮，不跳变。
@@ -2801,7 +2791,9 @@ class ComputerListActivity : ComponentActivity() {
             // （稳定分区：两组内部各自保持后端 menuPreview 原序。）
             val previewRows = if (channel.id == "opencore") {
                 val src = channel.menuPreview
-                src.filter { it.spec.trim().isNotEmpty() } + src.filter { it.spec.trim().isEmpty() }
+                // 置顶(default)行已在弹窗顶部悬浮展示，列表内不再重复
+                (src.filter { it.spec.trim().isNotEmpty() } + src.filter { it.spec.trim().isEmpty() })
+                    .filter { !it.isDefault }
             } else emptyList()
             if (previewRows.isNotEmpty()) {
                 previewRows.forEach { row ->
@@ -3042,6 +3034,14 @@ class ComputerListActivity : ComponentActivity() {
         }
         val channel = if (request.kind == KIND_CHANNEL) request.channel else null
 
+        // 数据计算提到固定区之前：pinned（悬浮置顶）渲染在滚动列表外，对齐 PC sticky。
+        val grubAllRows = if (group != null && request.kind == KIND_GRUB) grubDisplayRows(group) else emptyList()
+        val grubPinned = grubAllRows.firstOrNull { it.pinned }
+        val grubRows = grubAllRows.filter { !it.pinned }
+        val refindAllRows = if (group != null && (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS)) refindSheetRows(group) else emptyList()
+        val refindPinned = refindAllRows.firstOrNull { it.pinned }
+        val refindRows = refindAllRows.filter { !it.pinned }
+        val ocPinnedRow = channel?.menuPreview?.firstOrNull { it.isDefault }
         // 居中卡片弹窗（与 PC 网页端一致：宽=屏宽-24、四角圆角14、内容滚动、底部「取消」）。
         // 用自定义 overlay（Box scrim + 居中卡片），不用 Compose Dialog——本项目里 Dialog 会出现点不开的问题。
         Box(
@@ -3103,6 +3103,38 @@ class ComputerListActivity : ComponentActivity() {
                     }
                 }
 
+                // —— 固定区：格式 chips + 悬浮置顶（滚动不动，对齐 PC sticky）——
+                if (request.kind == KIND_GRUB && group != null) {
+                    grubFormatChips(group)
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (grubPinned != null) PinnedBootRowFixed(grubPinned, palette)
+                if (refindPinned != null) PinnedBootRowFixed(refindPinned, palette)
+                if (ocPinnedRow != null) {
+                    val dp = ocPinnedRow
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(palette.accent.copy(alpha = 0.14f))
+                            .padding(horizontal = 9.dp, vertical = 7.dp),
+                    ) {
+                        Text("下次启动", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = palette.accent,
+                            modifier = Modifier.background(palette.accent.copy(alpha = 0.14f), RoundedCornerShape(5.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row {
+                                Text(dp.title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = palette.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (dp.auxiliary) { Spacer(Modifier.width(5.dp)); Text("辅助", fontSize = 10.sp, color = palette.fgFaint) }
+                            }
+                            val pathText = if (dp.volume.isNotEmpty() && dp.volume != "—") "${dp.volume} · ${dp.path}" else dp.path
+                            Text(pathText, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        CheckIcon(tint = palette.accent, size = 16.dp)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
                 Column(
                     Modifier
                         .fillMaxWidth()
@@ -3124,16 +3156,10 @@ class ComputerListActivity : ComponentActivity() {
                         ChannelPickerContent(profile, channel)
                     } else if (group != null && group.options.isNotEmpty() && profile != null) {
                         val rid = profile
-                        if (request.kind == KIND_GRUB) {
-                            grubFormatChips(group)
-                            Spacer(Modifier.height(6.dp))
-                        }
-                        // rEFInd / RefindPlus 直接列条目（与 PC 端一致）——不能走 GRUB 拼装：
-                        // 只有 label 没有 grubName/kernels，塞进去会被折叠成一行「· N 个变体」
                         val rows = if (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS) {
-                            refindSheetRows(group)
+                            refindRows
                         } else {
-                            grubDisplayRows(group)
+                            grubRows
                         }
                         rows.forEach { row ->
                             // 组头行（「▸ 组名（N 项…）」）不可选，渲染成小标题 —— 托盘同构
@@ -4386,6 +4412,41 @@ class ComputerListActivity : ComponentActivity() {
      * * 原始/复杂在行尾附内核名（或「转交引导」/class）。
      */
 
+    /** 悬浮置顶行（固定在弹窗列表上方，滚动不动；对齐 PC sticky 置顶副本） */
+    @Composable
+    private fun PinnedBootRowFixed(row: GrubRow, palette: Palette) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(palette.accent.copy(alpha = 0.14f))
+                .padding(horizontal = 9.dp, vertical = 7.dp),
+        ) {
+            Text(
+                "下次启动",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.accent,
+                modifier = Modifier
+                    .background(palette.accent.copy(alpha = 0.14f), RoundedCornerShape(5.dp))
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                row.label,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.accent,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            CheckIcon(tint = palette.accent, size = 16.dp)
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+
     private fun childSourceLabel(source: String): String = when (source) {
         "default" -> "默认项"; "options" -> "refind_linux.conf"; "kernel" -> "折叠内核"
         "macos" -> "macOS 诊断"; "stanza" -> "submenuentry"; else -> ""
@@ -4395,6 +4456,14 @@ class ComputerListActivity : ComponentActivity() {
     private fun refindSheetRows(group: BootGroup): List<GrubRow> {
         val opts = group.options
         val rows = mutableListOf<GrubRow>()
+        // 悬浮置顶副本：当前项命中子项（value=父条目名）→「组名 › 子名」；命中顶层项 → 原名
+        opts.firstOrNull { !it.header && it.value.isNotBlank() && it.value == group.current }?.let { p ->
+            val idx = opts.indexOf(p)
+            var gname = ""
+            for (k in idx - 1 downTo 0) if (opts[k].header) { gname = opts[k].label.replace(Regex("^[▾▸\\s]+"), "").trim(); break }
+            val label = if (gname.isNotEmpty()) "$gname › ${p.label}" else p.label
+            rows.add(GrubRow(p, "${grubOsIcon(label)}$label", false, pinned = true))
+        }
         var i = 0
         while (i < opts.size) {
             val o = opts[i]
