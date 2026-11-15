@@ -206,7 +206,17 @@ async function openPicker(kind: string) {
         }
         const value = String(o.value ?? "").trim();
         const isFixed = Boolean(o.fixed) || !value;
-        items.push({ value, label: String(o.label ?? value).trim(), cls: o.class, header: false, fixed: isFixed, submenuId: groupLabel && (isGrubKind || isRefindKind) ? groupLabel : "" });
+        items.push({
+          value,
+          label: String(o.label ?? value).trim(),
+          cls: o.class,
+          header: false,
+          fixed: isFixed,
+          submenuId: groupLabel && (isGrubKind || isRefindKind) ? groupLabel : "",
+          tag: String(o.tag ?? ""),
+          sub: String(o.sub ?? ""),
+          note: String(o.note ?? ""),
+        });
       }
       src = { title: (group as { title?: string })?.title ?? localTitle(kind), current, groupTitles, hasGroups: hasGroups && !(isChannelKind), items };
     }
@@ -227,7 +237,7 @@ async function openPicker(kind: string) {
       if (it.kernels) e.kernels = it.kernels;
       if (it.variants) e.variants = it.variants;
       if (it.chainloader !== undefined) e.chainloader = it.chainloader;
-      if (it.tag) e.tags = [it.tag];
+      if (it.tag) { e.tags = [it.tag]; e.tag = it.tag; }
       if (it.submenuId) e.submenu = src.groupTitles[it.submenuId] || it.submenuId;
       if (it.fixed) e.readonly = true;
       entries.push(e);

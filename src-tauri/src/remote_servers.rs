@@ -3511,6 +3511,15 @@ pub struct BootOption {
     /// 的照样由 `current`（标题兜底）选中打勾。
     #[serde(default)]
     pub fixed: bool,
+    /// 行右侧灰字标签（rEFInd 子项来源 / OC 的「类型 · 来源」）—— 统一 GRUB 行样式
+    #[serde(default)]
+    pub tag: String,
+    /// 行下小字：卷 · 路径（OC 等有说明内容的引导器）
+    #[serde(default)]
+    pub sub: String,
+    /// 行下小字：备注
+    #[serde(default)]
+    pub note: String,
 }
 
 /// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
@@ -3798,12 +3807,11 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
         let class = refind_row_class(&title, &title, kind).to_string();
         let is_last = entry.get("lastBoot").and_then(|v| v.as_bool()).unwrap_or(false);
         // 折叠的内核子项（source=kernel）
-        let mut kernels: Vec<String> = Vec::new();
+        // (内核名, 来源标签) —— 标签对齐 PC simRows 的 CHILD_SOURCE（默认项/折叠内核/macOS 诊断…）
+        let mut kernels: Vec<(String, String)> = Vec::new();
         if let Some(children) = entry.get("children").and_then(|v| v.as_array()) {
             for child in children {
-                if child.get("source").and_then(|v| v.as_str()) != Some("kernel") {
-                    continue;
-                }
+                let src = child.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let ct = child
                     .get("title")
                     .and_then(|v| v.as_str())
@@ -3814,7 +3822,15 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
                 }
                 // 子项 title 可能是「内核名: refind_linux.conf 标签」，只取内核名
                 let cname = ct.split(':').next().unwrap_or(ct).trim().to_string();
-                kernels.push(if cname.is_empty() { ct.to_string() } else { cname });
+                let tag = match src {
+                    "default" => "默认项",
+                    "options" => "refind_linux.conf",
+                    "kernel" => "折叠内核",
+                    "macos" => "macOS 诊断",
+                    "stanza" => "submenuentry",
+                    _ => "",
+                };
+                kernels.push((if cname.is_empty() { ct.to_string() } else { cname }, tag.to_string()));
             }
         }
         if kernels.is_empty() {
@@ -3825,6 +3841,7 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
                 class: class.clone(),
                 header: false,
                 fixed: false,
+                ..Default::default()
             });
             if is_last && current.is_empty() {
                 current = title.clone();
@@ -3837,8 +3854,9 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
                 class: class.clone(),
                 header: true,
                 fixed: true,
+                ..Default::default()
             });
-            for cname in &kernels {
+            for (cname, child_tag) in &kernels {
                 options.push(BootOption {
                     value: title.clone(),
                     // 子项只显示内核名 —— 组头（header 行）已经是父条目全名，重复拼接
@@ -3847,6 +3865,8 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
                     class: class.clone(),
                     header: false,
                     fixed: false,
+                    tag: child_tag.clone(),
+                    ..Default::default()
                 });
             }
             if is_last && current.is_empty() {
@@ -3924,7 +3944,8 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
             label,
             header: false,
             fixed: false,
-        });
+                ..Default::default()
+            });
     }
     BootGroup {
         kind: "refind".to_string(),
@@ -4096,32 +4117,98 @@ fn mirror_fixed_preview_rows(
             class: channel_class(&entry.kind),
             header: false,
             fixed: true,
-        });
+                ..Default::default()
+            });
     }
 }
 
 /// 本机通道视图 → BootGroup。
-fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
-    // 行来源与托盘 / 下次启动同一份（`channel_switch_rows` 已经把 OpenCore 的
-    // 菜单预演合进来了；只读 `entries` 的话 OC 那列永远是空的）。
-    let rows = crate::menu_model::channel_switch_rows(channel);
-    let mut options: Vec<BootOption> = rows
+/// 对端 `/api/boot-channels` 的 menuPreview.entries 一条 → MenuEntry
+/// （统一化：volume/path/note/source/kind 全部带上，远程与本机数据一致）。
+fn menu_entry_from_json(item: &serde_json::Value) -> channels::oc_menu::MenuEntry {
+    let get = |k: &str| item.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    channels::oc_menu::MenuEntry {
+        title: get("title"),
+        kind: get("kind"),
+        source: get("source"),
+        volume: get("volume"),
+        path: get("path"),
+        auxiliary: item.get("auxiliary").and_then(|v| v.as_bool()).unwrap_or(false),
+        default: item.get("default").and_then(|v| v.as_bool()).unwrap_or(false),
+        note: item
+            .get("note")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        spec: item
+            .get("spec")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+    }
+}
+
+/// MenuEntry 列表 → 统一 BootOption（可切在前、只读在后；带 tag/sub/note）。
+/// GRUB/rEFInd/OC 四端共用的唯一行构建。
+fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuEntry]) -> Vec<BootOption> {
+    let kind_label = |k: &str| match k {
+        "macos" => "macOS".to_string(),
+        "windows" => "Windows".to_string(),
+        "linux" => "Linux".to_string(),
+        "tool" => "工具项".to_string(),
+        "generic" => "泛型".to_string(),
+        other => other.to_string(),
+    };
+    let source_label = |s: &str| match s {
+        "bootorder" => "OC 私有 OCBtOrder".to_string(),
+        "bless" => "bless 扫描".to_string(),
+        "preboot" => "APFS Preboot".to_string(),
+        "protocol" => "协议驱动".to_string(),
+        _ => String::new(),
+    };
+    let mut switchable: Vec<&channels::oc_menu::MenuEntry> = entries
         .iter()
-        .map(|row| BootOption {
-            value: row.spec.clone(),
-            label: row.title.clone(),
-            class: channel_class(&row.class),
-            header: false,
-            fixed: false,
-        })
+        .filter(|e| e.spec.as_deref().map(str::trim).map(str::len).unwrap_or(0) > 0)
         .collect();
-    // 预演里**没有值域**的行也要列进来（与托盘 `channel_loader_nodes` 的镜像块
-    // 同一条规则）：macOS 默认项在 Preboot 卷上没有 `opencore-default:` 值域、
-    // 协议驱动、Reset NVRAM 这类工具 —— 缺了它们，电脑列表与托盘的条目就对不上
-    // （用户 2026-10-31 报的「OC 两边列表对不上」）。fixed 行只展示不可切；
-    // 默认项由 `raw_current` 的标题兜底选中。
-    mirror_fixed_preview_rows(channel.menu_preview.as_ref(), &mut options);
-    let note = channel_note(
+    let readonly: Vec<&channels::oc_menu::MenuEntry> = entries
+        .iter()
+        .filter(|e| e.spec.as_deref().map(str::trim).map(str::len).unwrap_or(0) == 0)
+        .collect();
+    let mut options: Vec<BootOption> = Vec::new();
+    for e in switchable.drain(..).chain(readonly.into_iter()) {
+        let tag = [kind_label(&e.kind), source_label(&e.source)]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let sub = if !e.volume.is_empty() && e.volume != "—" {
+            format!("{} · {}", e.volume, e.path)
+        } else {
+            e.path.clone()
+        };
+        options.push(BootOption {
+            value: e.spec.clone().unwrap_or_default(),
+            label: e.title.clone(),
+            class: channel_class(&e.kind),
+            header: false,
+            fixed: e.spec.is_none(),
+            tag,
+            sub,
+            note: e.note.clone().unwrap_or_default(),
+        });
+    }
+    options
+}
+
+/// 对端 `/api/boot-channels` 的 menuPreview.entries 一条 → MenuEntry
+fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
+    let options = if let Some(preview) = channel.menu_preview.as_ref() {
+        boot_options_from_menu_entries(&preview.entries)
+    } else {
+        Vec::new()
+    };
+let note = channel_note(
         channel.label,
         channel.detected,
         !options.is_empty(),
@@ -4142,9 +4229,11 @@ fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
         .filter(|text| !text.is_empty())
         .map(str::to_string)
         .or_else(|| {
-            rows.iter()
-                .find(|row| row.is_default)
-                .map(|row| row.spec.clone())
+            channel
+                .menu_preview
+                .as_ref()
+                .and_then(|preview| preview.entries.iter().find(|e| e.default))
+                .and_then(|e| e.spec.clone())
         })
         .or_else(|| crate::menu_model::channel_default_title(channel))
         .unwrap_or_default();
@@ -4227,78 +4316,30 @@ fn channel_from_json(value: &serde_json::Value) -> BootGroup {
             class: channel_class(&entry.icon),
             header: false,
             fixed: false,
-        });
-    }
-    if let Some(entries) = value
-        .get("menuPreview")
-        .and_then(|preview| preview.get("entries"))
-        .and_then(|entries| entries.as_array())
-    {
-        for item in entries {
-            let spec = item
-                .get("spec")
-                .and_then(|field| field.as_str())
-                .map(str::trim)
-                .filter(|text| !text.is_empty());
-            let Some(spec) = spec else { continue };
-            let title = item
-                .get("title")
-                .and_then(|field| field.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if title.is_empty() || options.iter().any(|option| option.value == spec) {
-                continue;
-            }
-            options.push(BootOption {
-                value: spec.to_string(),
-                label: title,
-                class: channel_class(
-                    item.get("kind")
-                        .and_then(|field| field.as_str())
-                        .unwrap_or(""),
-                ),
-                header: false,
-                fixed: false,
+                ..Default::default()
             });
-        }
     }
-    // 与 `channel_from_view` / 托盘同一条镜像规则：预演里没有值域的行
-    // （macOS 默认项、协议驱动、Reset NVRAM…）也要列出来，只展示不可切。
+    // 统一化：menuPreview 全量行（含 fixed/卷·路径/备注/来源）→ MenuEntry → 统一 BootOption，
+    // 与本机 channel_from_view 同一套构建（远程与本机数据一致）。
     if let Some(entries) = value
         .get("menuPreview")
         .and_then(|preview| preview.get("entries"))
         .and_then(|entries| entries.as_array())
     {
-        for item in entries {
-            let has_spec = item
-                .get("spec")
-                .and_then(|field| field.as_str())
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .is_some();
-            let title = item
-                .get("title")
-                .and_then(|field| field.as_str())
-                .map(str::trim)
-                .unwrap_or("");
-            if has_spec
-                || title.is_empty()
-                || options.iter().any(|option| option.label == title)
+        let menu_entries: Vec<channels::oc_menu::MenuEntry> =
+            entries.iter().map(menu_entry_from_json).collect();
+        let built = boot_options_from_menu_entries(&menu_entries);
+        for option in built {
+            // 去重：同 value（或同 label 的 fixed 行）不重复
+            if options
+                .iter()
+                .any(|existing| !existing.value.is_empty() && existing.value == option.value)
+                || (option.value.is_empty()
+                    && options.iter().any(|existing| existing.label == option.label))
             {
                 continue;
             }
-            options.push(BootOption {
-                value: String::new(),
-                label: title.to_string(),
-                class: channel_class(
-                    item.get("kind")
-                        .and_then(|field| field.as_str())
-                        .unwrap_or(""),
-                ),
-                header: false,
-                fixed: true,
-            });
+            options.push(option);
         }
     }
     let health: Vec<channels::HealthIssue> = value
@@ -4452,7 +4493,8 @@ fn push_grub_option(
         ),
         header: false,
             fixed: false,
-    });
+                ..Default::default()
+            });
 }
 
 /// GRUB 子菜单的 id → 组名。
@@ -4633,7 +4675,8 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
                     class: String::new(),
                     header: true,
                     fixed: false,
-                });
+                ..Default::default()
+            });
                 let counts = crate::menu_model::grub_collapse(
                     format,
                     children_of.get(submenu_id).into_iter().flatten().copied(),
