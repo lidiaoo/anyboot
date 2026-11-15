@@ -134,7 +134,7 @@ struct ComputerTabsView: View {
         failReloadTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(FailReloadPref.sec) * 1_000_000_000)
             guard !Task.isCancelled, activeTab?.status == .failed else { return }
-            ABToastBus.shared.show("连接失败，自动重载中…")
+            ABToastBus.shared.show(L("and.connFailAutoReload"))
             center.reloadActive()
         }
     }
@@ -283,7 +283,7 @@ struct ComputerTabsView: View {
                 if let current = activeProfile {
                     editorTarget = ComputerEditorTarget(profile: current)
                 } else {
-                    ABToastBus.shared.show("还没有当前电脑 —— 点标签或卡片右侧 ⋮ 编辑某一台")
+                    ABToastBus.shared.show(L("and.noCurrentEdit"))
                 }
             }
             Button(L("nav.computerList")) { serverListOpen = true }
@@ -291,7 +291,7 @@ struct ComputerTabsView: View {
                 if let current = activeProfile {
                     SystemInfoCenter.shared.show(current)
                 } else {
-                    ABToastBus.shared.show("还没有当前电脑 —— 先点一个标签")
+                    ABToastBus.shared.show(L("and.noCurrentTapTab"))
                 }
             }
             Button(L("and.reloadPage")) { center.reloadActive() }
@@ -304,12 +304,12 @@ struct ComputerTabsView: View {
             }
             Button(failReloadSec > 0
                    ? L("and.failReloadOnN", failReloadSec)
-                   : "连不上时自动重载（已关闭）") {
+                   : L("and.failReloadOff")) {
                 failReloadOpen = true
             }
             Button(dataRefreshSec > 0
                    ? L("and.dataRefreshOnN", dataRefreshSec)
-                   : "数据刷新（已关闭）") {
+                   : L("and.dataRefreshOff")) {
                 dataRefreshOpen = true
             }
             Button(L("and.transportWith", transportLabel)) { transportOpen = true }
@@ -376,18 +376,14 @@ struct ComputerTabsView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("顺手检查这几点：\n"
-                     + "· 目标电脑的 AnyBoot 是否在跑，设置里「HTTP 服务」是否显示正在监听；\n"
-                     + "· 这里填的地址端口，和目标机设置里的端口是否一致；\n"
-                     + "· 那个端口是否被别的程序占用 —— 被占用时目标机的服务根本起不来；\n"
-                     + "· 目标机防火墙是否放行了这个端口。")
+                Text(L("and.checkList"))
                     .font(.system(size: 12))
                     .lineSpacing(ABMetric.px(5))
                     .foregroundColor(ABColor.fgFaint)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(failReloadSec > 0
                      ? L("and.autoRetryN", failReloadSec)
-                     : "自动重试已关闭（⋮ 里可改）")
+                     : L("and.autoRetryOff"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                 ABButton(title: L("common.retry"), kind: .primary) { tab.reload() }
@@ -449,7 +445,7 @@ struct ComputerTabsView: View {
                                                remoteActive: activeTab?.usingRemote == true))
                 powerChip(profile, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionSleep,
-                                               fallback: "挂起到内存",
+                                               fallback: L("hub.power.hibernate"),
                                                remoteActive: activeTab?.usingRemote == true))
                 powerChip(profile, action: PowerRoute.actionShutdown, label: L("hub.power.shutdown"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionShutdown,
@@ -540,7 +536,7 @@ struct ComputerTabsView: View {
                 await MainActor.run {
                     powerBusy = false
                     let text = (error as? RemoteHttpError)?.message ?? error.localizedDescription
-                    ABToastBus.shared.show("\(ServerProfile.powerActionLabel(action))没发出去：\(text)")
+                    ABToastBus.shared.show(L("__MISS__", ServerProfile.powerActionLabel(action), text))
                 }
             }
         }
@@ -551,10 +547,10 @@ struct ComputerTabsView: View {
     @ViewBuilder
     private var helpOverlay: some View {
         ABDialogHost(isPresented: helpOpen, onDismiss: { helpOpen = false }) {
-            ABDialogCard("电源 · 睡眠与唤醒") {
+            ABDialogCard(L("hub.home.fabHelpTitle")) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: ABMetric.px(10)) {
-                        Text("电源按钮点了**立即执行**，不再弹确认框 —— 各动作的后果都在这里：")
+                        Text(L("and.powerIntro"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                             .fixedSize(horizontal: false, vertical: true)
