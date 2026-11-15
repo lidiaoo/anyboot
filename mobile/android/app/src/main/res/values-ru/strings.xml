@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB (свободно %2$.1f GB)</string>
     <string name="and_kProcessor">Процессор</string>
     <string name="and_cpuWithCores">%1$s (%2$d ядер)</string>
+    <string name="and_genKeypair">Создать пару ключей</string>
+    <string name="and_importKeyFile">Импорт файла ключа</string>
+    <string name="and_nOnline">%1$d в сети</string>
+    <string name="and_sftpReady">SFTP готов</string>
+    <string name="and_noActiveSession">Нет активных сеансов — откройте «Серверы» и нажмите «Терминал»</string>
+    <string name="and_ongoing">Активные</string>
+    <string name="and_noActiveSessionHint">Нет активных сеансов. В «Серверах» нажмите «▶ Открыть терминал».</string>
+    <string name="and_connectedFor">Подключено %1$s</string>
+    <string name="and_end">Завершить</string>
+    <string name="and_history">История</string>
+    <string name="and_noHistory">Истории сеансов пока нет.</string>
+    <string name="and_durationWith"> · длительность %1$s</string>
+    <string name="and_clearHistory">Очистить историю</string>
+    <string name="and_endSessionTitle">Завершить сеанс</string>
+    <string name="and_endSessionConfirm">Завершить сеанс терминала «%1$s»?</string>
+    <string name="and_userEnded">Завершено пользователем</string>
+    <string name="and_search">Поиск</string>
+    <string name="and_noServersHint">Серверов нет.
+
+SSH-узел: обычный путь извне домой — телефон входит по SSH и получает доступ к anyboot-ПК в LAN.
+Telnet: только экспериментальный терминал.</string>
+    <string name="and_addServerPlus">＋ Добавить сервер</string>
+    <string name="and_experimentalTerminal">(экспериментальный терминал)</string>
+    <string name="and_experimental">Экспериментальный</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

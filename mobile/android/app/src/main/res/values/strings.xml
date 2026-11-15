@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB（可用 %2$.1f GB）</string>
     <string name="and_kProcessor">处理器</string>
     <string name="and_cpuWithCores">%1$s（%2$d 核）</string>
+    <string name="and_genKeypair">生成密钥对</string>
+    <string name="and_importKeyFile">导入私钥文件</string>
+    <string name="and_nOnline">%1$d 在线</string>
+    <string name="and_sftpReady">SFTP 就绪</string>
+    <string name="and_noActiveSession">没有进行中的会话 —— 到「服务器」页点「终端」开始</string>
+    <string name="and_ongoing">进行中</string>
+    <string name="and_noActiveSessionHint">没有进行中的会话。到「服务器」页点「▶ 打开终端」开始。</string>
+    <string name="and_connectedFor">已连接 %1$s</string>
+    <string name="and_end">结束</string>
+    <string name="and_history">历史</string>
+    <string name="and_noHistory">还没有会话历史。</string>
+    <string name="and_durationWith"> · 时长 %1$s</string>
+    <string name="and_clearHistory">清空历史</string>
+    <string name="and_endSessionTitle">结束会话</string>
+    <string name="and_endSessionConfirm">结束「%1$s」的终端会话吗？</string>
+    <string name="and_userEnded">用户结束</string>
+    <string name="and_search">搜索</string>
+    <string name="and_noServersHint">还没有服务器。
+
+SSH 跳板机：外网连家里的必经之路 —— 手机先 SSH 登录它，再由它访问局域网内的 anyboot 电脑。
+Telnet：只有实验性终端。</string>
+    <string name="and_addServerPlus">＋ 添加服务器</string>
+    <string name="and_experimentalTerminal">（实验性终端）</string>
+    <string name="and_experimental">实验性</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

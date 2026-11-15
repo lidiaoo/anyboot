@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB (%2$.1f GB libre)</string>
     <string name="and_kProcessor">CPU</string>
     <string name="and_cpuWithCores">%1$s (%2$d núcleos)</string>
+    <string name="and_genKeypair">Generar par de claves</string>
+    <string name="and_importKeyFile">Importar archivo de clave privada</string>
+    <string name="and_nOnline">%1$d en línea</string>
+    <string name="and_sftpReady">SFTP listo</string>
+    <string name="and_noActiveSession">Sin sesiones activas: abre «Servidores» y pulsa «Terminal»</string>
+    <string name="and_ongoing">Activas</string>
+    <string name="and_noActiveSessionHint">Sin sesiones activas. En «Servidores», pulsa «▶ Abrir terminal».</string>
+    <string name="and_connectedFor">Conectado %1$s</string>
+    <string name="and_end">Finalizar</string>
+    <string name="and_history">Historial</string>
+    <string name="and_noHistory">Aún sin historial de sesiones.</string>
+    <string name="and_durationWith"> · duración %1$s</string>
+    <string name="and_clearHistory">Borrar historial</string>
+    <string name="and_endSessionTitle">Finalizar sesión</string>
+    <string name="and_endSessionConfirm">¿Finalizar la sesión de terminal de «%1$s»?</string>
+    <string name="and_userEnded">Finalizado por el usuario</string>
+    <string name="and_search">Buscar</string>
+    <string name="and_noServersHint">Sin servidores.
+
+Host de salto SSH: el camino habitual de fuera a casa — el móvil entra por SSH y accede a PCs anyboot en la LAN.
+Telnet: solo terminal experimental.</string>
+    <string name="and_addServerPlus">＋ Añadir servidor</string>
+    <string name="and_experimentalTerminal">(terminal experimental)</string>
+    <string name="and_experimental">Experimental</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

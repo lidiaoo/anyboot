@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB (%2$.1f GB free)</string>
     <string name="and_kProcessor">CPU</string>
     <string name="and_cpuWithCores">%1$s (%2$d cores)</string>
+    <string name="and_genKeypair">Generate key pair</string>
+    <string name="and_importKeyFile">Import private key file</string>
+    <string name="and_nOnline">%1$d online</string>
+    <string name="and_sftpReady">SFTP ready</string>
+    <string name="and_noActiveSession">No active sessions — open “Servers” and tap “Terminal” to start</string>
+    <string name="and_ongoing">Active</string>
+    <string name="and_noActiveSessionHint">No active sessions. Open “Servers” and tap “▶ Open terminal” to start.</string>
+    <string name="and_connectedFor">Connected %1$s</string>
+    <string name="and_end">End</string>
+    <string name="and_history">History</string>
+    <string name="and_noHistory">No session history yet.</string>
+    <string name="and_durationWith"> · duration %1$s</string>
+    <string name="and_clearHistory">Clear history</string>
+    <string name="and_endSessionTitle">End session</string>
+    <string name="and_endSessionConfirm">End the terminal session of “%1$s”?</string>
+    <string name="and_userEnded">Ended by user</string>
+    <string name="and_search">Search</string>
+    <string name="and_noServersHint">No servers yet.
+
+SSH jump host: the usual path from outside to home — the phone SSH-es into it, then reaches anyboot computers on the LAN.
+Telnet: experimental terminal only.</string>
+    <string name="and_addServerPlus">＋ Add server</string>
+    <string name="and_experimentalTerminal">(experimental terminal)</string>
+    <string name="and_experimental">Experimental</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.annotation.SuppressLint
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -274,10 +275,10 @@ class ServersActivity : ComponentActivity() {
                 .background(palette.base)
                 .padding(start = 4.dp, top = 10.dp, end = 20.dp, bottom = 8.dp),
         ) {
-            BarIcon("☰", "侧边栏") { drawerOpen = true }
+            BarIcon("☰", stringResource(R.string.topbar_sidebar)) { drawerOpen = true }
             Text(
                 when (currentPage) {
-                    1 -> "密钥"; 2 -> "文件"; 3 -> "会话"; 4 -> "传输"; else -> "服务器"
+                    1 -> stringResource(R.string.nav_keys); 2 -> stringResource(R.string.nav_files); 3 -> stringResource(R.string.nav_sessions); 4 -> stringResource(R.string.nav_transfers); else -> stringResource(R.string.nav_servers)
                 },
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
@@ -289,7 +290,7 @@ class ServersActivity : ComponentActivity() {
             // 齿轮每页都在：终端设置是全局入口，别只在服务器页给（用户 2026-11-01 定案）
             Icon(
                 Icons.Filled.Settings,
-                contentDescription = "终端设置",
+                contentDescription = stringResource(R.string.nav_termSettings),
                 tint = palette.fgDim,
                 modifier = Modifier
                     .size(36.dp)
@@ -317,12 +318,12 @@ class ServersActivity : ComponentActivity() {
                                 }
                             },
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Filled.Add, "添加", tint = palette.onAccent, modifier = Modifier.size(20.dp)) }
+                    ) { Icon(Icons.Filled.Add, stringResource(R.string.common_add), tint = palette.onAccent, modifier = Modifier.size(20.dp)) }
                     DropdownMenu(expanded = fabMenuOpen, onDismissRequest = { fabMenuOpen = false }) {
-                        DropdownMenuItem(text = { Text("生成密钥对") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.and_genKeypair)) }, onClick = {
                             fabMenuOpen = false; generateKeyOpen = true
                         })
-                        DropdownMenuItem(text = { Text("导入私钥文件") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.and_importKeyFile)) }, onClick = {
                             fabMenuOpen = false
                             importLauncher.launch(arrayOf("*/*"))
                         })
@@ -340,9 +341,9 @@ class ServersActivity : ComponentActivity() {
             0 -> {
                 tick
                 val online = jumps.count { it.isSsh() && SshSessionManager.shared().isUp(it.id) }
-                PillText("$online 在线")
+                PillText(stringResource(R.string.and_nOnline, online))
             }
-            1 -> PillText("${keys.size} 把")
+            1 -> PillText(stringResource(R.string.keysWin_count, keys.size))
             2 -> {
                 val up = sftpServerId.isNotEmpty() && SshSessionManager.shared().isUp(sftpServerId)
                 Row(
@@ -360,7 +361,7 @@ class ServersActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        if (up) "SFTP 就绪" else "未连接",
+                        if (up) stringResource(R.string.and_sftpReady) else stringResource(R.string.hub_state_notConnected),
                         fontSize = 10.sp,
                         color = if (up) palette.accent else palette.fgDim,
                     )
@@ -407,27 +408,27 @@ class ServersActivity : ComponentActivity() {
                 .navigationBarsPadding()
                 .padding(top = 8.dp, bottom = 6.dp),
         ) {
-            NavItem("服务器", active = currentPage == 0, onClick = { currentPage = 0 },
+            NavItem(stringResource(R.string.nav_servers), active = currentPage == 0, onClick = { currentPage = 0 },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 ServerStackIcon(tint, size)
             }
-            NavItem("终端", active = false, onClick = { openLatestSession() },
+            NavItem(stringResource(R.string.nav_terminal), active = false, onClick = { openLatestSession() },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 TermIcon(tint, size)
             }
-            NavItem("会话", active = currentPage == 3, onClick = { currentPage = 3 },
+            NavItem(stringResource(R.string.nav_sessions), active = currentPage == 3, onClick = { currentPage = 3 },
                 modifier = Modifier.weight(1f), badge = liveCount) { tint, size ->
                 SessionIcon(tint, size)
             }
-            NavItem("密钥", active = currentPage == 1, onClick = { currentPage = 1 },
+            NavItem(stringResource(R.string.nav_keys), active = currentPage == 1, onClick = { currentPage = 1 },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 KeyIcon(tint, size)
             }
-            NavItem("文件", active = currentPage == 2, onClick = { currentPage = 2 },
+            NavItem(stringResource(R.string.nav_files), active = currentPage == 2, onClick = { currentPage = 2 },
                 modifier = Modifier.weight(1f)) { tint, size ->
                 FolderIcon(tint, size)
             }
-            NavItem("传输", active = currentPage == 4, onClick = { currentPage = 4 },
+            NavItem(stringResource(R.string.nav_transfers), active = currentPage == 4, onClick = { currentPage = 4 },
                 modifier = Modifier.weight(1f), badge = transferCount) { tint, size ->
                 TransferIcon(tint, size)
             }
@@ -482,7 +483,7 @@ class ServersActivity : ComponentActivity() {
     private fun openLatestSession() {
         val live = TerminalRegistry.all()
         if (live.isEmpty()) {
-            toast("没有进行中的会话 —— 到「服务器」页点「终端」开始", long = true)
+            toast(getString(R.string.and_noActiveSession), long = true)
             return
         }
         val intent = Intent(this, TerminalActivity::class.java)
@@ -546,7 +547,7 @@ class ServersActivity : ComponentActivity() {
             Spacer(Modifier.width(10.dp))
             Text(
                 when {
-                    task.state == TransferManager.STATE_PAUSED -> "暂停"
+                    task.state == TransferManager.STATE_PAUSED -> stringResource(R.string.tx_pause)
                     task.total <= 0 -> "…"
                     else -> "${(fraction * 100).toInt()}%"
                 },
@@ -565,10 +566,10 @@ class ServersActivity : ComponentActivity() {
     private fun SessionsPage() {
         tick // 订阅会话注册表变化
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            SectionTitle("进行中")
+            SectionTitle(stringResource(R.string.and_ongoing))
             val live = TerminalRegistry.all()
             if (live.isEmpty()) {
-                EmptyHint("没有进行中的会话。到「服务器」页点「▶ 打开终端」开始。")
+                EmptyHint(stringResource(R.string.and_noActiveSessionHint))
             }
             for (session in live) {
                 Row(
@@ -585,16 +586,16 @@ class ServersActivity : ComponentActivity() {
                     Text("●", color = LocalPalette.current.ok)
                     Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         PrimaryText(session.server.name)
-                        SecondaryText("已连接 " + humanDuration(System.currentTimeMillis() - session.startedAt))
+                        SecondaryText(stringResource(R.string.and_connectedFor, humanDuration(System.currentTimeMillis() - session.startedAt)))
                     }
-                    ChipButton("结束") { killTarget = session }
+                    ChipButton(stringResource(R.string.and_end)) { killTarget = session }
                 }
             }
 
-            SectionTitle("历史")
+            SectionTitle(stringResource(R.string.and_history))
             val history = JumpStore.loadHistory(this@ServersActivity)
             if (history.isEmpty()) {
-                EmptyHint("还没有会话历史。")
+                EmptyHint(stringResource(R.string.and_noHistory))
             }
             val format = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
             for (entry in history) {
@@ -606,9 +607,9 @@ class ServersActivity : ComponentActivity() {
                         .padding(start = 12.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
                 ) {
                     Column(Modifier.weight(1f)) {
-                        PrimaryText(if (JumpStore.text(entry.serverName).isEmpty()) "服务器" else entry.serverName)
+                        PrimaryText(if (JumpStore.text(entry.serverName).isEmpty()) stringResource(R.string.nav_servers) else entry.serverName)
                         val duration = Math.max(0, entry.endedAt - Math.max(entry.startedAt, 0))
-                        SecondaryText(format.format(Date(entry.startedAt)) + " · 时长 " + humanDuration(duration))
+                        SecondaryText(format.format(Date(entry.startedAt)) + stringResource(R.string.and_durationWith, humanDuration(duration)))
                     }
                 }
             }
@@ -620,7 +621,7 @@ class ServersActivity : ComponentActivity() {
                         tick++
                     },
                     modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) { Text("清空历史") }
+                ) { Text(stringResource(R.string.and_clearHistory)) }
             }
         }
     }
@@ -630,17 +631,17 @@ class ServersActivity : ComponentActivity() {
     private fun KillDialog(session: TerminalSession) {
         AlertDialog(
             onDismissRequest = { killTarget = null },
-            title = { Text("结束会话") },
-            text = { Text("结束「${session.server.name}」的终端会话吗？") },
+            title = { Text(stringResource(R.string.and_endSessionTitle)) },
+            text = { Text(stringResource(R.string.and_endSessionConfirm, session.server.name)) },
             confirmButton = {
                 TextButton(onClick = {
                     killTarget = null
-                    session.close("用户结束")
+                    session.close(getString(R.string.and_userEnded))
                     TerminalRegistry.remove(session.server.id)
                     tick++
-                }) { Text("结束") }
+                }) { Text(stringResource(R.string.and_end)) }
             },
-            dismissButton = { TextButton(onClick = { killTarget = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { killTarget = null }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 
@@ -655,8 +656,8 @@ class ServersActivity : ComponentActivity() {
                 value = search,
                 onValueChange = { search = it.trim() },
                 singleLine = true,
-                placeholder = { Text("搜索名称 / 地址", fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Filled.Search, "搜索", tint = LocalPalette.current.fgFaint) },
+                placeholder = { Text(stringResource(R.string.server_searchPh), fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, stringResource(R.string.and_search), tint = LocalPalette.current.fgFaint) },
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -665,13 +666,12 @@ class ServersActivity : ComponentActivity() {
 
             if (jumps.isEmpty()) {
                 EmptyHint(
-                    "还没有服务器。\n\nSSH 跳板机：外网连家里的必经之路 —— 手机先 SSH 登录它，"
-                            + "再由它访问局域网内的 anyboot 电脑。\nTelnet：只有实验性终端。"
+                    stringResource(R.string.and_noServersHint)
                 )
                 TextButton(
                     onClick = { editTarget = null; editOpen = true },
                     modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) { Text("＋ 添加服务器") }
+                ) { Text(stringResource(R.string.and_addServerPlus)) }
                 return@Column
             }
             while (expanded.size < jumps.size) expanded.add(false)
@@ -764,14 +764,14 @@ class ServersActivity : ComponentActivity() {
                     // 名称没填时主标题已经是地址了，副行别再重复一遍 —— 换成用户/端口摘要
                     val subtitle = buildString {
                         if (name.isEmpty()) {
-                            append("用户 ")
+                            append(stringResource(R.string.server_kUser) + " ")
                             append(if (JumpStore.text(server.username).isEmpty()) "root" else server.username)
-                            append(" · 端口 ")
+                            append(" · " + stringResource(R.string.server_kPort) + " ")
                             append(server.port())
                         } else {
                             append(server.addressLabel())
                         }
-                        if (!server.isSsh()) append("（实验性终端）")
+                        if (!server.isSsh()) append(stringResource(R.string.and_experimentalTerminal))
                     }
                     Text(
                         subtitle,
@@ -802,9 +802,9 @@ class ServersActivity : ComponentActivity() {
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val (dotColor, label) = when {
-                            server.isSsh() && up -> palette.accent to "在线"
-                            !server.isSsh() -> palette.warn to "实验性"
-                            else -> palette.fgFaint to "未连接"
+                            server.isSsh() && up -> palette.accent to stringResource(R.string.hub_state_online)
+                            !server.isSsh() -> palette.warn to stringResource(R.string.and_experimental)
+                            else -> palette.fgFaint to stringResource(R.string.hub_state_notConnected)
                         }
                         Box(
                             Modifier

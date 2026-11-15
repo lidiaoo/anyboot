@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB (사용 가능 %2$.1f GB)</string>
     <string name="and_kProcessor">CPU</string>
     <string name="and_cpuWithCores">%1$s (%2$d 코어)</string>
+    <string name="and_genKeypair">키 쌍 생성</string>
+    <string name="and_importKeyFile">개인 키 파일 가져오기</string>
+    <string name="and_nOnline">%1$d 온라인</string>
+    <string name="and_sftpReady">SFTP 준비됨</string>
+    <string name="and_noActiveSession">진행 중인 세션 없음 — ‘서버’에서 ‘터미널’을 눌러 시작</string>
+    <string name="and_ongoing">진행 중</string>
+    <string name="and_noActiveSessionHint">진행 중인 세션 없음. ‘서버’에서 ‘▶ 터미널 열기’를 누르세요.</string>
+    <string name="and_connectedFor">연결됨 %1$s</string>
+    <string name="and_end">종료</string>
+    <string name="and_history">기록</string>
+    <string name="and_noHistory">세션 기록이 없습니다.</string>
+    <string name="and_durationWith"> · 시간 %1$s</string>
+    <string name="and_clearHistory">기록 지우기</string>
+    <string name="and_endSessionTitle">세션 종료</string>
+    <string name="and_endSessionConfirm">‘%1$s’의 터미널 세션을 종료할까요?</string>
+    <string name="and_userEnded">사용자 종료</string>
+    <string name="and_search">검색</string>
+    <string name="and_noServersHint">서버가 없습니다.
+
+SSH 점프 호스트: 외부→집의 일반 경로 — 휴대폰이 SSH로 로그인 후 LAN의 anyboot PC 접근.
+Telnet: 실험적 터미널만.</string>
+    <string name="and_addServerPlus">＋ 서버 추가</string>
+    <string name="and_experimentalTerminal">(실험적 터미널)</string>
+    <string name="and_experimental">실험적</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

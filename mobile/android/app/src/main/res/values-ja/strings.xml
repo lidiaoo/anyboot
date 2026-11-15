@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB（空き %2$.1f GB）</string>
     <string name="and_kProcessor">CPU</string>
     <string name="and_cpuWithCores">%1$s（%2$d コア）</string>
+    <string name="and_genKeypair">キーペアを生成</string>
+    <string name="and_importKeyFile">秘密鍵ファイルを取り込む</string>
+    <string name="and_nOnline">%1$d オンライン</string>
+    <string name="and_sftpReady">SFTP 準備完了</string>
+    <string name="and_noActiveSession">進行中のセッションなし — 「サーバー」で「端末」をタップして開始</string>
+    <string name="and_ongoing">進行中</string>
+    <string name="and_noActiveSessionHint">進行中のセッションなし。「サーバー」で「▶ 端末を開く」をタップ。</string>
+    <string name="and_connectedFor">接続済み %1$s</string>
+    <string name="and_end">終了</string>
+    <string name="and_history">履歴</string>
+    <string name="and_noHistory">セッション履歴はまだありません。</string>
+    <string name="and_durationWith"> · 時間 %1$s</string>
+    <string name="and_clearHistory">履歴を消去</string>
+    <string name="and_endSessionTitle">セッション終了</string>
+    <string name="and_endSessionConfirm">「%1$s」の端末セッションを終了しますか？</string>
+    <string name="and_userEnded">ユーザーが終了</string>
+    <string name="and_search">検索</string>
+    <string name="and_noServersHint">サーバーがありません。
+
+SSH 踏み台：外部→自宅の定番ルート — スマホが SSH でログインし、LAN 内の anyboot PC に到達。
+Telnet：実験的端末のみ。</string>
+    <string name="and_addServerPlus">＋ サーバー追加</string>
+    <string name="and_experimentalTerminal">（実験的端末）</string>
+    <string name="and_experimental">実験的</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

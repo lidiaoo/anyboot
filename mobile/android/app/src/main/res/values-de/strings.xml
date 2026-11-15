@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB (%2$.1f GB frei)</string>
     <string name="and_kProcessor">CPU</string>
     <string name="and_cpuWithCores">%1$s (%2$d Kerne)</string>
+    <string name="and_genKeypair">Schlüsselpaar erzeugen</string>
+    <string name="and_importKeyFile">Privaten Schlüssel importieren</string>
+    <string name="and_nOnline">%1$d online</string>
+    <string name="and_sftpReady">SFTP bereit</string>
+    <string name="and_noActiveSession">Keine aktiven Sitzungen – „Server“ öffnen und „Terminal“ antippen</string>
+    <string name="and_ongoing">Aktiv</string>
+    <string name="and_noActiveSessionHint">Keine aktiven Sitzungen. Unter „Server“ „▶ Terminal öffnen“ antippen.</string>
+    <string name="and_connectedFor">Verbunden %1$s</string>
+    <string name="and_end">Beenden</string>
+    <string name="and_history">Verlauf</string>
+    <string name="and_noHistory">Noch kein Sitzungsverlauf.</string>
+    <string name="and_durationWith"> · Dauer %1$s</string>
+    <string name="and_clearHistory">Verlauf leeren</string>
+    <string name="and_endSessionTitle">Sitzung beenden</string>
+    <string name="and_endSessionConfirm">Terminal-Sitzung von „%1$s“ beenden?</string>
+    <string name="and_userEnded">Vom Benutzer beendet</string>
+    <string name="and_search">Suchen</string>
+    <string name="and_noServersHint">Noch keine Server.
+
+SSH-Sprungserver: der übliche Weg von außen nach Hause – das Handy meldet sich per SSH an und erreicht anyboot-PCs im LAN.
+Telnet: nur experimentelles Terminal.</string>
+    <string name="and_addServerPlus">＋ Server hinzufügen</string>
+    <string name="and_experimentalTerminal">(experimentelles Terminal)</string>
+    <string name="and_experimental">Experimentell</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

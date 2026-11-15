@@ -1305,6 +1305,30 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_memGbFree">%1$.1f GB（可用 %2$.1f GB）</string>
     <string name="and_kProcessor">處理器</string>
     <string name="and_cpuWithCores">%1$s（%2$d 核）</string>
+    <string name="and_genKeypair">產生金鑰對</string>
+    <string name="and_importKeyFile">匯入私鑰檔案</string>
+    <string name="and_nOnline">%1$d 線上</string>
+    <string name="and_sftpReady">SFTP 就緒</string>
+    <string name="and_noActiveSession">沒有進行中的工作階段 —— 到「伺服器」頁點「終端機」開始</string>
+    <string name="and_ongoing">進行中</string>
+    <string name="and_noActiveSessionHint">沒有進行中的工作階段。到「伺服器」頁點「▶ 開啟終端機」開始。</string>
+    <string name="and_connectedFor">已連線 %1$s</string>
+    <string name="and_end">結束</string>
+    <string name="and_history">歷史</string>
+    <string name="and_noHistory">還沒有工作階段歷史。</string>
+    <string name="and_durationWith"> · 時長 %1$s</string>
+    <string name="and_clearHistory">清空歷史</string>
+    <string name="and_endSessionTitle">結束工作階段</string>
+    <string name="and_endSessionConfirm">結束「%1$s」的終端機工作階段嗎？</string>
+    <string name="and_userEnded">使用者結束</string>
+    <string name="and_search">搜尋</string>
+    <string name="and_noServersHint">還沒有伺服器。
+
+SSH 跳板機：外網連家裡的必經之路 —— 手機先 SSH 登入它，再由它存取區域網路內的 anyboot 電腦。
+Telnet：只有實驗性終端機。</string>
+    <string name="and_addServerPlus">＋ 新增伺服器</string>
+    <string name="and_experimentalTerminal">（實驗性終端機）</string>
+    <string name="and_experimental">實驗性</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>
