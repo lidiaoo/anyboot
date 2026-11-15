@@ -51,7 +51,7 @@ enum WakeOnLan {
     static func magicPacket(_ mac: String) throws -> Data {
         let hex = ServerProfile.normalizeMac(mac).replacingOccurrences(of: ":", with: "")
         guard hex.count == 12 else {
-            throw PowerError.message("MAC 格式不对：\(mac)")
+            throw PowerError.message(L("and.macFormatWrong", mac))
         }
         var packet = Data(repeating: 0xFF, count: 6)
         var bytes: [UInt8] = []
@@ -105,7 +105,7 @@ enum WakeOnLan {
         for route in routes {
             let macs = profile.routeMacs(route)
             if macs.isEmpty {
-                problems.append("这条路由没配 MAC，标准魔术包发不出去")
+                problems.append(L("and.routeNoMac"))
                 continue
             }
             let targets = route.target.trimmedAnyBoot.isEmpty
@@ -133,7 +133,7 @@ enum WakeOnLan {
             }
             let summary = targets.joined(separator: " / ")
             let counts = waking
-                ? "（\(macs.count) 个 MAC × \(route.effectiveBurst) 包 / 重试 \(route.effectiveRetry) 次）"
+                ? L("and.nMacsBurstRetry", macs.count, route.effectiveBurst, route.effectiveRetry)
                 : "（\(route.effectiveBurst) 包 / 重试 \(route.effectiveRetry) 次）"
             described.append("\(ServerProfile.powerActionLabel(wanted)) → \(summary):\(route.effectivePort)\(counts)")
         }
@@ -154,7 +154,7 @@ enum WakeOnLan {
                 throw PowerError.message("跳板机不存在（可能已删除），请到「服务器」页检查")
             }
             guard jump.isSsh else {
-                throw PowerError.message("跳板机是 Telnet，发不了局域网电源包 —— 换一台 SSH 服务器")
+                throw PowerError.message(L("and.jumpIsTelnetPower"))
             }
             let maxRetry = deliveries.map(\.retry).max() ?? 0
             var done = false
@@ -174,7 +174,7 @@ enum WakeOnLan {
                 }
             }
             if !done {
-                throw lastError ?? PowerError.message("跳板机没能发出电源包")
+                throw lastError ?? PowerError.message(L("and.jumpNotSend"))
             }
             let label = jump.name.trimmedAnyBoot.isEmpty ? jump.host : jump.name
             whereFrom = "跳板机「\(label)」"
@@ -202,8 +202,7 @@ enum WakeOnLan {
     static func wake(profile: ServerProfile) async throws -> String {
         let macs = profile.allMacs()
         guard !macs.isEmpty else {
-            throw PowerError.message("这台电脑还没配 MAC —— 编辑里在地址后面跟上网卡 MAC"
-                + "（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）")
+            throw PowerError.message(L("and.noMacEdit"))
         }
         // 同上：唤醒包走首选地址那台跳板机
         let jumpId = profile.primaryJumpServerId
@@ -229,9 +228,9 @@ enum WakeOnLan {
             }
         }
         if sent == 0 {
-            throw PowerError.message("局域网广播失败：手机和这台电脑不在同一网段时用不了，请配跳板机")
+            throw PowerError.message(L("and.lanBroadcastFail"))
         }
-        return "已向局域网广播唤醒包（\(macs.count) 个 MAC），等 10~30 秒看它能不能连上"
+        return L("and.broadcastedWake", macs.count)
     }
 
     private static func wakeViaJump(profile: ServerProfile, macs: [String],
@@ -240,7 +239,7 @@ enum WakeOnLan {
             throw PowerError.message("跳板机不存在（可能已删除），请到「服务器」页检查")
         }
         guard jump.isSsh else {
-            throw PowerError.message("跳板机是 Telnet，发不了唤醒命令 —— 换一台 SSH 服务器")
+            throw PowerError.message(L("and.jumpIsTelnetWake"))
         }
         let targets = broadcastTargets(profile.host)
         let broadcast = targets.count > 1 ? targets[1] : "255.255.255.255"
@@ -331,7 +330,7 @@ enum WakeOnLan {
         }
         guard let range = output.range(of: "ANYBOOT-POWER-OK") else {
             let detail = truncate(output, 160)
-            throw PowerError.message("跳板机没能发出电源包" + (detail.isEmpty ? "" : "：\(detail)"))
+            throw PowerError.message(L("and.jumpNotSend") + (detail.isEmpty ? "" : "：\(detail)"))
         }
         let rest = String(output[range.upperBound...]).trimmedAnyBoot
         return Int(rest.split(separator: " ").first.map(String.init) ?? "") ?? 1
