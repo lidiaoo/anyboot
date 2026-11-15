@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "(기본)";
 "and.jumpDeletedParen" = "(점프 호스트 삭제됨)";
 "and.noBrowserApp2" = "사용 가능한 브라우저 없음";
+"and.clipCopiedShort" = "복사됨";
+"and.clipCutShort" = "잘라냄";
+"and.addedNTransfers" = "{n}개 전송 작업 추가";
+"and.cutPrefix" = "잘라냄: ";
+"and.copyPrefix" = "복사됨: ";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

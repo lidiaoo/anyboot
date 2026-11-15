@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "(padrão)";
 "and.jumpDeletedParen" = "(jump host excluído)";
 "and.noBrowserApp2" = "Nenhum navegador disponível";
+"and.clipCopiedShort" = "Copiado";
+"and.clipCutShort" = "Recortado";
+"and.addedNTransfers" = "Adicionadas {n} transferências";
+"and.cutPrefix" = "Recortado: ";
+"and.copyPrefix" = "Copiado: ";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "（默认）";
 "and.jumpDeletedParen" = "（跳板机已删除）";
 "and.noBrowserApp2" = "没有可用的浏览器";
+"and.clipCopiedShort" = "已复制";
+"and.clipCutShort" = "已剪切";
+"and.addedNTransfers" = "已加入 {n} 个传输任务";
+"and.cutPrefix" = "已剪切：";
+"and.copyPrefix" = "已复制：";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

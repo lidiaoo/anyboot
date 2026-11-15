@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "(Standard)";
 "and.jumpDeletedParen" = "(Sprungserver gelöscht)";
 "and.noBrowserApp2" = "Kein Browser verfügbar";
+"and.clipCopiedShort" = "Kopiert";
+"and.clipCutShort" = "Ausgeschnitten";
+"and.addedNTransfers" = "{n} Übertragungsaufgaben hinzugefügt";
+"and.cutPrefix" = "Ausgeschnitten: ";
+"and.copyPrefix" = "Kopiert: ";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

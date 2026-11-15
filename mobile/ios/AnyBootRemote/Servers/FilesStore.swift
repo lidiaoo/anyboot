@@ -214,7 +214,7 @@ final class FilesStore: ObservableObject {
             added += 1
         }
         if added > 0 {
-            toast(added == 1 ? "已加入传输：\(urls[0].lastPathComponent)" : "已加入 \(added) 个传输任务")
+            toast(added == 1 ? L("and.addedTransfer", urls[0].lastPathComponent) : L("and.addedNTransfers", added))
         }
     }
 
@@ -325,7 +325,7 @@ final class FilesStore: ObservableObject {
         clipServer = serverId
         clipPaths = [SftpOps.join(path, entry.name)]
         clipNames = entry.name
-        toast((mode == .cut ? "已剪切：" : "已复制：") + entry.name)
+        toast((mode == .cut ? L("and.cutPrefix") : L("and.copyPrefix")) + entry.name)
     }
 
     func clearClip() {

@@ -351,7 +351,7 @@ struct TerminalPage: View {
         }
         target.onClosed = { reason in
             statusMessage = L("and.sessionEnded") + (reason.isEmpty ? "" : "：\(reason)")
-            ServerModuleStore.shared.toast("会话结束" + (reason.isEmpty ? "" : "：\(reason)"),
+            ServerModuleStore.shared.toast(L("and.sessionEndToast") + (reason.isEmpty ? "" : "：" + reason),
                                            long: true)
         }
         statusMessage = nil
@@ -371,7 +371,7 @@ struct TerminalPage: View {
             ABDialogCard(L("and.endSessionTitle")) {
                 if let item = killTarget {
                     ABDialogNote(L("and.endSessionConfirm", item.server.displayName), color: ABColor.fg)
-                    ABDialogButtons(confirmTitle: "结束",
+                    ABDialogButtons(confirmTitle: L("and.end"),
                                     onConfirm: {
                                         killTarget = nil
                                         if item.server.id == currentId {
@@ -389,7 +389,7 @@ struct TerminalPage: View {
         }
 
         ABDialogHost(isPresented: manualPassword != nil, onDismiss: { manualPassword = nil }) {
-            ABDialogCard("输入 SSH 密码") {
+            ABDialogCard(L("and.inputSshPwd")) {
                 if let request = manualPassword {
                     ManualPasswordBody(request: request, onDone: { manualPassword = nil })
                         .id(request.id)
@@ -411,7 +411,7 @@ struct TerminalSettingsSheet: View {
             VStack(spacing: 0) {
                 // 顶部色栏（TerminalSettingsActivity:64-85）
                 HStack(spacing: 0) {
-                    ABBarIcon(text: "‹", description: "返回") {
+                    ABBarIcon(text: "‹", description: L("and.back")) {
                         store.terminalSettingsOpen = false
                     }
                     Text(L("nav.termSettings"))

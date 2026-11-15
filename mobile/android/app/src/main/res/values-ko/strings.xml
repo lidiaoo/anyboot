@@ -1993,6 +1993,11 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_defaultParen">(기본)</string>
     <string name="and_jumpDeletedParen">(점프 호스트 삭제됨)</string>
     <string name="and_noBrowserApp2">사용 가능한 브라우저 없음</string>
+    <string name="and_clipCopiedShort">복사됨</string>
+    <string name="and_clipCutShort">잘라냄</string>
+    <string name="and_addedNTransfers">%1$d개 전송 작업 추가</string>
+    <string name="and_cutPrefix">잘라냄: </string>
+    <string name="and_copyPrefix">복사됨: </string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

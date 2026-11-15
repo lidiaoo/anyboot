@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "（既定）";
 "and.jumpDeletedParen" = "（踏み台削除済み）";
 "and.noBrowserApp2" = "利用可能なブラウザなし";
+"and.clipCopiedShort" = "コピー済み";
+"and.clipCutShort" = "切り取り済み";
+"and.addedNTransfers" = "{n} 件の転送を追加";
+"and.cutPrefix" = "切り取り：";
+"and.copyPrefix" = "コピー：";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

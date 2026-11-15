@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "(default)";
 "and.jumpDeletedParen" = "(jump host deleted)";
 "and.noBrowserApp2" = "No browser available";
+"and.clipCopiedShort" = "Copied";
+"and.clipCutShort" = "Cut";
+"and.addedNTransfers" = "Added {n} transfer tasks";
+"and.cutPrefix" = "Cut: ";
+"and.copyPrefix" = "Copied: ";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

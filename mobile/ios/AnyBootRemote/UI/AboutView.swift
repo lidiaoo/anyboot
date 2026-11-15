@@ -459,7 +459,7 @@ struct AboutView: View {
     private func open(_ url: String) {
         guard let url = URL(string: url) else { return }
         UIApplication.shared.open(url) { ok in
-            if !ok { ABToastBus.shared.show("没有可用的浏览器") }
+            if !ok { ABToastBus.shared.show(L("and.noBrowserApp2")) }
         }
     }
 }

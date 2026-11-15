@@ -1993,6 +1993,11 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_defaultParen">(padrão)</string>
     <string name="and_jumpDeletedParen">(jump host excluído)</string>
     <string name="and_noBrowserApp2">Nenhum navegador disponível</string>
+    <string name="and_clipCopiedShort">Copiado</string>
+    <string name="and_clipCutShort">Recortado</string>
+    <string name="and_addedNTransfers">Adicionadas %1$d transferências</string>
+    <string name="and_cutPrefix">Recortado: </string>
+    <string name="and_copyPrefix">Copiado: </string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

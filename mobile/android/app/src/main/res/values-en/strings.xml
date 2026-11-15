@@ -1993,6 +1993,11 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_defaultParen">(default)</string>
     <string name="and_jumpDeletedParen">(jump host deleted)</string>
     <string name="and_noBrowserApp2">No browser available</string>
+    <string name="and_clipCopiedShort">Copied</string>
+    <string name="and_clipCutShort">Cut</string>
+    <string name="and_addedNTransfers">Added %1$d transfer tasks</string>
+    <string name="and_cutPrefix">Cut: </string>
+    <string name="and_copyPrefix">Copied: </string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

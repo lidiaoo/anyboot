@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "（預設）";
 "and.jumpDeletedParen" = "（跳板機已刪除）";
 "and.noBrowserApp2" = "沒有可用的瀏覽器";
+"and.clipCopiedShort" = "已複製";
+"and.clipCutShort" = "已剪下";
+"and.addedNTransfers" = "已加入 {n} 個傳輸任務";
+"and.cutPrefix" = "已剪下：";
+"and.copyPrefix" = "已複製：";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

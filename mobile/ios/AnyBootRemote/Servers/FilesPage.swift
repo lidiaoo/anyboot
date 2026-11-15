@@ -31,7 +31,7 @@ struct FilesPage: View {
                     if !store.opLabel.isEmpty { opRow }
                     if store.clip != .none { clipRow }
                     if !store.isUp {
-                        ABSecondaryText("　（先在「服务器」页连上这台服务器，或点行内「终端」—— SFTP 复用同一条 SSH 会话）")
+                        ABSecondaryText("　" + L("and.sftpNeedsSession"))
                     }
                     if store.error.isEmpty && !store.busy && !store.entries.isEmpty { tableHeader }
                     listing
@@ -285,7 +285,7 @@ struct FilesPage: View {
 
     private var clipRow: some View {
         HStack(spacing: ABMetric.px(6)) {
-            Text((store.clip == .copy ? "📋 已复制 " : "✂️ 已剪切 ") + store.clipNames)
+            Text((store.clip == .copy ? "📋 " + L("and.clipCopiedShort") : "✂️ " + L("and.clipCutShort")) + store.clipNames)
                 .font(.system(size: 12))
                 .foregroundColor(ABColor.fgDim)
                 .lineLimit(1)
@@ -330,9 +330,9 @@ struct FilesPage: View {
             }
             .padding(ABMetric.px(16))
         } else if store.entries.isEmpty {
-            ABSecondaryText("　（空目录）").padding(ABMetric.px(16))
+            ABSecondaryText("　" + L("and.emptyDirParen")).padding(ABMetric.px(16))
         } else if shown.isEmpty {
-            ABSecondaryText("　（没有匹配的项）").padding(ABMetric.px(16))
+            ABSecondaryText("　" + L("and.noMatch")).padding(ABMetric.px(16))
         } else {
             VStack(spacing: 0) {
                 ForEach(shown) { entry in

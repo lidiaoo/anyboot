@@ -1956,6 +1956,11 @@
 "and.defaultParen" = "(по умолчанию)";
 "and.jumpDeletedParen" = "(узел удалён)";
 "and.noBrowserApp2" = "Нет браузера";
+"and.clipCopiedShort" = "Скопировано";
+"and.clipCutShort" = "Вырезано";
+"and.addedNTransfers" = "Добавлено задач: {n}";
+"and.cutPrefix" = "Вырезано: ";
+"and.copyPrefix" = "Скопировано: ";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

@@ -1993,6 +1993,11 @@ Telnet：只有实验性终端。</string>
     <string name="and_defaultParen">（默认）</string>
     <string name="and_jumpDeletedParen">（跳板机已删除）</string>
     <string name="and_noBrowserApp2">没有可用的浏览器</string>
+    <string name="and_clipCopiedShort">已复制</string>
+    <string name="and_clipCutShort">已剪切</string>
+    <string name="and_addedNTransfers">已加入 %1$d 个传输任务</string>
+    <string name="and_cutPrefix">已剪切：</string>
+    <string name="and_copyPrefix">已复制：</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

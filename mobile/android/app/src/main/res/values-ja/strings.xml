@@ -1993,6 +1993,11 @@ Telnet：実験的端末のみ。</string>
     <string name="and_defaultParen">（既定）</string>
     <string name="and_jumpDeletedParen">（踏み台削除済み）</string>
     <string name="and_noBrowserApp2">利用可能なブラウザなし</string>
+    <string name="and_clipCopiedShort">コピー済み</string>
+    <string name="and_clipCutShort">切り取り済み</string>
+    <string name="and_addedNTransfers">%1$d 件の転送を追加</string>
+    <string name="and_cutPrefix">切り取り：</string>
+    <string name="and_copyPrefix">コピー：</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

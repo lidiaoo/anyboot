@@ -1993,6 +1993,11 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_defaultParen">(predeterminado)</string>
     <string name="and_jumpDeletedParen">(host de salto eliminado)</string>
     <string name="and_noBrowserApp2">Ningún navegador disponible</string>
+    <string name="and_clipCopiedShort">Copiado</string>
+    <string name="and_clipCutShort">Cortado</string>
+    <string name="and_addedNTransfers">Añadidas %1$d transferencias</string>
+    <string name="and_cutPrefix">Cortado: </string>
+    <string name="and_copyPrefix">Copiado: </string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

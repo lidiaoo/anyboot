@@ -183,7 +183,7 @@ struct JumpEditSheet: View {
                             }
                         }
 
-                        hintLine("选中后先登录跳板机，再由它转发到这台服务器（外网连内网机器）；Telnet 不支持")
+                        hintLine(L("and.jumpSelectHint"))
                         hintLine("SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
                                  + "Telnet：只有终端，明文传输，仅实验。")
 
@@ -330,7 +330,7 @@ struct JumpEditSheet: View {
     }
 
     private var keysLabel: String {
-        if jumps.keys.isEmpty { return "（还没有密钥，先到「密钥」页导入/生成）" }
+        if jumps.keys.isEmpty { return L("and.noKeysHint") }
         let entry = jumps.keys[min(keyIndex, jumps.keys.count - 1)]
         return entry.name + "（" + entry.algorithm + "）"
     }
@@ -389,7 +389,7 @@ struct JumpEditSheet: View {
     private func persist() -> JumpServer? {
         // 跳板机只对 SSH 有意义：Telnet 选了跳板机直接拦下（表单提示里写明了）
         if isTelnet && !jumpId.isEmpty {
-            store.toast("Telnet 服务器不支持经由跳板机连接，请改回直连", long: true)
+            store.toast(L("and.telnetNoJump"), long: true)
             return nil
         }
         var target = store.editTarget ?? JumpServer()
@@ -415,7 +415,7 @@ struct JumpEditSheet: View {
             // 写不进钥匙串就拒绝保存（对齐 Android：「密码加密保存失败…」且对话框不关），
             // 否则用户填了密码却等于白填，下次连接又弹应急框
             guard KeyVault.save(password, account: ref) else {
-                store.toast("密码加密保存失败（钥匙串异常），请重试一次", long: true)
+                store.toast(L("and.pwdSaveFail"), long: true)
                 return nil
             }
             target.passwordRef = ref
