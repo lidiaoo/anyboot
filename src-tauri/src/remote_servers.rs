@@ -3527,6 +3527,10 @@ pub struct BootOption {
 pub struct BootGroup {
     /// refind / grub
     pub kind: String,
+    /// 对端原始 JSON（/api/grub 或 /api/refind-sim 原样透传）——前端用它走与本机
+    /// **完全同一套**转换（电脑列表回显/弹窗一字不差）；BootGroup 中间转换仅兜底。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<serde_json::Value>,
     /// 界面上显示的名字：rEFInd / GRUB
     pub title: String,
     /// 这台电脑上是否真的部署了它（false = 显示「未检测到」）
@@ -3895,6 +3899,7 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
             String::new()
         },
         options,
+        raw: Some(sim.clone()),
     }
 }
 
@@ -3960,6 +3965,7 @@ fn refind_from_status(value: &serde_json::Value) -> BootGroup {
             String::new()
         },
         options,
+        ..Default::default()
     }
 }
 
@@ -4083,6 +4089,7 @@ fn channel_group(
         saved: current,
         note,
         options,
+        ..Default::default()
     }
 }
 
@@ -4697,6 +4704,7 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
         saved,
         note,
         options,
+        raw: Some(value.clone()),
     }
 }
 
@@ -5002,7 +5010,8 @@ fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteB
                 saved: String::new(),
                 note: "对端 anyboot 版本较旧，不支持 RefindPlus 通道".to_string(),
                 options: Vec::new(),
-            }
+        ..Default::default()
+    }
         } else if refindplus_manual {
             // 手动模式：refindplusVariables 是裸数组，包成 AppStatus 形状复用解析
             let wrapped = serde_json::json!({

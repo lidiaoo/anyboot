@@ -190,7 +190,40 @@ async function openPicker(kind: string) {
     const group = kind === "refind" ? info?.refind : kind === "refindplus" ? info?.refindplus
       : kind === "grub" ? info?.grub
       : (info?.channels ?? []).find((c: any) => c.kind === kind);
-    if (!group) { src = null; } else {
+    // 统一化：对端原始 JSON 透传（group.raw）→ 与本机**同一套映射**（回显/弹窗一字不差）
+    const rawJson = (group as any)?.raw;
+    if (rawJson && isGrubKind) {
+      const g: any = rawJson;
+      src = {
+        title: "GRUB",
+        current: String(g?.nextEntry || g?.savedEntry || "").trim(),
+        groupTitles: Object.fromEntries(((g?.groups ?? []) as any[]).filter((x) => x.id).map((x) => [x.id, x.name ?? ""])),
+        hasGroups: true,
+        items: ((g?.entries ?? []) as any[]).map((e) => ({ value: e.selector, label: e.name, cls: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenuId: e.submenu })),
+      };
+    } else if (rawJson && isRefindKind) {
+      const sim: any = rawJson;
+      const items: PickerSource["items"] = [];
+      const groupTitles: Record<string, string> = {};
+      let current = "";
+      for (const e of (sim?.entries ?? []) as any[]) {
+        if (e.hidden) continue;
+        const rawTitle = e.title || "";
+        const children = e.children || [];
+        if (children.length > 1) {
+          groupTitles[rawTitle] = rawTitle;
+          items.push({ value: "", label: rawTitle, cls: e.kind, header: true, submenuId: rawTitle });
+          for (const c of children) {
+            const cname = String(c.title || rawTitle).split(":")[0].trim();
+            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] || "", fixed: false });
+          }
+        } else {
+          items.push({ value: rawTitle, label: rawTitle, cls: e.kind, fixed: false });
+        }
+        if (e.lastBoot) current = rawTitle;
+      }
+      src = { title: kind === "refind" ? "rEFInd" : "RefindPlus", current: current.trim(), groupTitles, hasGroups: true, items };
+    } else if (!group) { src = null; } else {
       const opts = ((group as { options?: any[] })?.options ?? []) as any[];
       const current = String((group as { current?: string })?.current ?? "").trim();
       // remote options：GRUB/rEFInd 带组结构（header=组头，其后为子项）；OC 平铺（fixed 行）
