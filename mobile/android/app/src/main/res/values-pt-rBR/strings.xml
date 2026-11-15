@@ -1474,6 +1474,27 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
 ③ MAC na linha de endereço certa em “Editar servidor” (ex. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ Broadcast/porta da rota corretos (iguais ao listener do sol);
 ⑤ Destino e celular na mesma sub-rede (broadcast LAN só nela).</string>
+    <string name="and_addServerTitle">Adicionar servidor</string>
+    <string name="and_switchServerTitle">Trocar servidor (segure a aba para editar)</string>
+    <string name="and_noServers">Sem servidores.</string>
+    <string name="and_mergedRecords">Mesclados %1$d registros duplicados — uma aba por computador</string>
+    <string name="and_noMergeNeeded">Nada a mesclar: já tem um registro ou os nomes de grupo diferem</string>
+    <string name="and_mergeAddrs">Mesclar endereços do mesmo computador</string>
+    <string name="and_transportSelectedReload">“%1$s” selecionado: vale após recarregar (também na página)</string>
+    <string name="and_bootThemeSelectedReload">“%1$s” selecionado: vale após recarregar</string>
+    <string name="and_delServerTitle">Excluir servidor</string>
+    <string name="and_delServerConfirm2">Excluir “%1$s”? Só este registro no celular é removido.</string>
+    <string name="and_tunnelBuildFail">Falha ao criar o túnel</string>
+    <string name="and_jumpConnFail">Falha na conexão via jump host: %1$s</string>
+    <string name="and_lastLoadFail">Último carregamento falhou</string>
+    <string name="and_allAddrsFail">Nenhum endereço conecta</string>
+    <string name="and_connOkShort"> conectado %1$s ms</string>
+    <string name="and_connFailShort"> falhou</string>
+    <string name="and_ipConnOk">ip %1$s conectado %2$s ms</string>
+    <string name="and_errDetailServer">Servidor: %1$s</string>
+    <string name="and_errDetailAddr">Endereço: %1$s</string>
+    <string name="and_errDetailAllTried">Todos os %1$d endereços deste computador foram tentados:</string>
+    <string name="and_errDetailConfirm">Verifique:</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

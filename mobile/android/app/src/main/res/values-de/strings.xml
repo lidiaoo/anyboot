@@ -1474,6 +1474,27 @@ Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Her
 ③ MAC in der passenden Adresszeile unter „Server bearbeiten“ (z. B. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ Broadcast/Port der Route korrekt (passend zum sol-Listener);
 ⑤ Ziel und Handy im selben Subnetz (LAN-Broadcast nur dort).</string>
+    <string name="and_addServerTitle">Server hinzufügen</string>
+    <string name="and_switchServerTitle">Server wechseln (Tab lange drücken zum Bearbeiten)</string>
+    <string name="and_noServers">Noch keine Server.</string>
+    <string name="and_mergedRecords">%1$d doppelte Datensätze zusammengeführt – ein Tab pro Computer</string>
+    <string name="and_noMergeNeeded">Nichts zu führen: schon ein Datensatz oder Gruppennamen unterschiedlich</string>
+    <string name="and_mergeAddrs">Adressen desselben Computers zusammenführen</string>
+    <string name="and_transportSelectedReload">„%1$s“ gewählt: nach Neuladen wirksam (auch auf der Seite umschaltbar)</string>
+    <string name="and_bootThemeSelectedReload">„%1$s“ gewählt: nach Neuladen wirksam</string>
+    <string name="and_delServerTitle">Server löschen</string>
+    <string name="and_delServerConfirm2">„%1$s“ löschen? Nur dieser Eintrag auf dem Handy wird entfernt.</string>
+    <string name="and_tunnelBuildFail">Tunnel-Aufbau fehlgeschlagen</string>
+    <string name="and_jumpConnFail">Verbindung über Sprungserver fehlgeschlagen: %1$s</string>
+    <string name="and_lastLoadFail">Letztes Laden fehlgeschlagen</string>
+    <string name="and_allAddrsFail">Keine Adresse erreichbar</string>
+    <string name="and_connOkShort"> verbunden %1$s ms</string>
+    <string name="and_connFailShort"> fehlgeschlagen</string>
+    <string name="and_ipConnOk">ip %1$s verbunden %2$s ms</string>
+    <string name="and_errDetailServer">Server: %1$s</string>
+    <string name="and_errDetailAddr">Adresse: %1$s</string>
+    <string name="and_errDetailAllTried">Alle %1$d Adressen dieses Computers wurden versucht:</string>
+    <string name="and_errDetailConfirm">Bitte prüfen:</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

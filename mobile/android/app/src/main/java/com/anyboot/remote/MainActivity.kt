@@ -1150,9 +1150,9 @@ class MainActivity : ComponentActivity() {
             title = {
                 Text(
                     when {
-                        form.editing -> "编辑服务端"
-                        request.firstRun -> "连接 AnyBoot 服务端"
-                        else -> "添加服务端"
+                        form.editing -> stringResource(R.string.remote_editTitle)
+                        request.firstRun -> stringResource(R.string.remote_connectTitle)
+                        else -> stringResource(R.string.and_addServerTitle)
                     }
                 )
             },
@@ -1162,18 +1162,18 @@ class MainActivity : ComponentActivity() {
                     if (saveServer(request, form)) {
                         editRequest = null
                     }
-                }) { Text("保存") }
+                }) { Text(stringResource(R.string.common_save)) }
             },
             dismissButton = {
                 Row {
                     if (form.editing) {
                         TextButton(onClick = { request.profile?.let { confirmDelete(it) } }) {
-                            Text("删除", color = palette.bad)
+                            Text(stringResource(R.string.common_delete), color = palette.bad)
                         }
                     }
                     // 首次运行也给「取消」（原先只在非 firstRun 时给），
                     // 让这个弹窗任何时候都关得掉。
-                    TextButton(onClick = { editRequest = null }) { Text("取消") }
+                    TextButton(onClick = { editRequest = null }) { Text(stringResource(R.string.common_cancel)) }
                 }
             },
         )
@@ -1200,7 +1200,7 @@ class MainActivity : ComponentActivity() {
         val target = result.target
         editRequest = null
         if (result.mergedExisting) {
-            toast("已并入同一台电脑：" + target.label())
+            toast(getString(R.string.and_mergedName, target.label()))
         }
         val changed = previousAddresses != target.addresses
                 || previousToken != ServerProfile.text(target.token)
@@ -1217,11 +1217,11 @@ class MainActivity : ComponentActivity() {
         val palette = LocalPalette.current
         AlertDialog(
             onDismissRequest = { serverListOpen = false },
-            title = { Text("切换服务端（长按标签也能编辑）") },
+            title = { Text(stringResource(R.string.and_switchServerTitle)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (servers.isEmpty()) {
-                        EmptyHint("还没有服务端。")
+                        EmptyHint(stringResource(R.string.and_noServers))
                     }
                     servers.forEach { profile ->
                         Text(
@@ -1244,18 +1244,18 @@ class MainActivity : ComponentActivity() {
                 TextButton(onClick = {
                     serverListOpen = false
                     editRequest = EditRequest(null, false)
-                }) { Text("添加") }
+                }) { Text(stringResource(R.string.common_add)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     serverListOpen = false
                     val removed = mergeSameMachine()
                     toast(
-                        if (removed > 0) "已合并 $removed 条重复记录 —— 同一台电脑只留一个标签"
-                        else "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同",
+                        if (removed > 0) getString(R.string.and_mergedRecords, removed)
+                        else getString(R.string.and_noMergeNeeded),
                         long = true,
                     )
-                }) { Text("合并同一台电脑的地址") }
+                }) { Text(stringResource(R.string.and_mergeAddrs)) }
             },
         )
     }
@@ -1264,13 +1264,13 @@ class MainActivity : ComponentActivity() {
     private fun TransportDialog() {
         val values = listOf("auto", "ws", "http")
         val labels = listOf(
-            "自动（推送优先，连不上退回轮询）",
-            "推送（WebSocket）",
-            "轮询（HTTP，间隔见「数据刷新」）",
+            stringResource(R.string.and_transportAuto),
+            stringResource(R.string.and_transportPush),
+            stringResource(R.string.and_transportPoll),
         )
         AlertDialog(
             onDismissRequest = { transportOpen = false },
-            title = { Text("传输方式") },
+            title = { Text(stringResource(R.string.and_transportLabel)) },
             text = {
                 Column {
                     values.forEachIndexed { index, value ->
@@ -1282,7 +1282,7 @@ class MainActivity : ComponentActivity() {
                                     transport = value
                                     ServerStore.setTransport(this@MainActivity, value)
                                     transportOpen = false
-                                    toast("已选择「${transportLabel()}」：重载页面后生效（页面上也能即切）")
+                                    toast(getString(R.string.and_transportSelectedReload, transportLabel()))
                                 }
                                 .padding(vertical = 6.dp),
                         ) {
@@ -1290,7 +1290,7 @@ class MainActivity : ComponentActivity() {
                                 transport = value
                                 ServerStore.setTransport(this@MainActivity, value)
                                 transportOpen = false
-                                toast("已选择「${transportLabel()}」：重载页面后生效（页面上也能即切）")
+                                toast(getString(R.string.and_transportSelectedReload, transportLabel()))
                             })
                             // 最长一条「自动（推送优先，连不上退回轮询）」在 14sp 下已接近本行可用宽度，
                             // 系统字体一放大就会复现「末尾 Text 被压成 0 宽逐字换行」那种崩坏，提前上 weight
@@ -1301,22 +1301,22 @@ class MainActivity : ComponentActivity() {
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { transportOpen = false }) { Text("取消") }
+                TextButton(onClick = { transportOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
 
     /** 菜单上那一条「传输方式（…）」给人看的说法 */
     private fun transportLabel(): String = when (transport) {
-        "ws" -> "推送"
-        "http" -> "轮询"
-        else -> "自动"
+        "ws" -> getString(R.string.and_shortPush)
+        "http" -> getString(R.string.and_shortPoll)
+        else -> getString(R.string.and_shortAuto)
     }
 
     /** 菜单上那一条「引导页主题（…）」给人看的说法 */
     private fun bootThemeLabel(): String = when (bootTheme) {
-        "" -> "跟随电脑"
-        "K" -> "不套用"
+        "" -> getString(R.string.and_shortFollow)
+        "K" -> getString(R.string.and_shortNone)
         else -> bootTheme
     }
 
@@ -1329,7 +1329,7 @@ class MainActivity : ComponentActivity() {
     private fun BootThemeDialog() {
         AlertDialog(
             onDismissRequest = { bootThemeOpen = false },
-            title = { Text("引导页主题") },
+            title = { Text(stringResource(R.string.and_bootThemeTitle)) },
             text = {
                 Column {
                     ServerProfile.BOOT_THEMES.forEach { value ->
@@ -1341,7 +1341,7 @@ class MainActivity : ComponentActivity() {
                                     bootTheme = value
                                     ServerProfile.setGuestBootTheme(this@MainActivity, value)
                                     bootThemeOpen = false
-                                    toast("已选择「${bootThemeLabel()}」：重载页面后生效")
+                                    toast(getString(R.string.and_bootThemeSelectedReload, bootThemeLabel()))
                                 }
                                 .padding(vertical = 6.dp),
                         ) {
@@ -1349,13 +1349,13 @@ class MainActivity : ComponentActivity() {
                                 bootTheme = value
                                 ServerProfile.setGuestBootTheme(this@MainActivity, value)
                                 bootThemeOpen = false
-                                toast("已选择「${bootThemeLabel()}」：重载页面后生效")
+                                toast(getString(R.string.and_bootThemeSelectedReload, bootThemeLabel()))
                             })
                             Text(
                                 when (value) {
-                                    "" -> "跟随电脑（不带回退）"
-                                    "K" -> "不套用主题"
-                                    else -> "方案 $value"
+                                    "" -> stringResource(R.string.menu_themeFollow)
+                                    "K" -> stringResource(R.string.menu_themeNone)
+                                    else -> stringResource(R.string.and_bootThemeScheme, value)
                                 },
                                 fontSize = 14.sp, modifier = Modifier.weight(1f, fill = false),
                             )
@@ -1365,7 +1365,7 @@ class MainActivity : ComponentActivity() {
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { bootThemeOpen = false }) { Text("取消") }
+                TextButton(onClick = { bootThemeOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1378,8 +1378,8 @@ class MainActivity : ComponentActivity() {
     private fun DeleteServerDialog(profile: ServerProfile) {
         AlertDialog(
             onDismissRequest = { editRequest = null },
-            title = { Text("删除服务端") },
-            text = { Text("确定删除「${profile.label()}」吗？只会删掉手机上的这条记录。") },
+            title = { Text(stringResource(R.string.and_delServerTitle)) },
+            text = { Text(stringResource(R.string.and_delServerConfirm2, profile.label())) },
             confirmButton = {
                 TextButton(onClick = {
                     editRequest = null
@@ -1397,10 +1397,10 @@ class MainActivity : ComponentActivity() {
                         activeId = servers[0].id
                     }
                     activate(activeId)
-                }) { Text("删除", color = LocalPalette.current.bad) }
+                }) { Text(stringResource(R.string.common_delete), color = LocalPalette.current.bad) }
             },
             dismissButton = {
-                TextButton(onClick = { deleteServerTarget = null }) { Text("取消") }
+                TextButton(onClick = { deleteServerTarget = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1509,14 +1509,14 @@ class MainActivity : ComponentActivity() {
             try {
                 // 这个地址自己那台跳板机（一址一跳板机，不是档案级的单值字段）
                 val jumpId = tab.profile.jumpForAddress(destAddress)
-                if (jumpId.isEmpty()) throw Exception("这个地址没有配跳板机")
+                if (jumpId.isEmpty()) throw Exception(getString(R.string.and_addrNoJump))
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-                    ?: throw Exception("跳板机不存在，请到「服务器」页检查")
+                    ?: throw Exception(getString(R.string.and_jumpNotExistCheck))
                 localAddress = SshSessionManager.shared().tunnelAddress(
                     this, jump, destAddress
                 ) { title, message -> bus.confirm(title, message) }
             } catch (error: Exception) {
-                val message = error.message ?: "隧道建立失败"
+                val message = error.message ?: getString(R.string.and_tunnelBuildFail)
                 runOnUiThread {
                     // 还有备用地址（跳板机视角）就继续换；全试完才算失败
                     if (!advanceAddress(tab)) {
@@ -1524,7 +1524,7 @@ class MainActivity : ComponentActivity() {
                         tab.status = STATUS_FAIL
                         chipTick++
                         if (tab.profile.id == activeId) {
-                            showErrorFor(tab.profile, "经由跳板机连接失败：$message")
+                            showErrorFor(tab.profile, getString(R.string.and_jumpConnFail, message))
                         }
                     }
                 }
@@ -1669,7 +1669,7 @@ class MainActivity : ComponentActivity() {
         chipTick++
         val tab = tabs[id]
         if (tab != null && tab.status == STATUS_FAIL) {
-            showErrorFor(profile, "上一次加载失败")
+            showErrorFor(profile, getString(R.string.and_lastLoadFail))
         } else {
             errorInfo = null
             loading = tab != null && tab.status == STATUS_LOADING
@@ -1779,18 +1779,18 @@ class MainActivity : ComponentActivity() {
             tab.status = STATUS_FAIL
             chipTick++
             if (profile.id == activeId) {
-                showErrorFor(profile, "全部地址都连不上")
+                showErrorFor(profile, getString(R.string.and_allAddrsFail))
             }
             return
         }
         if (profile.id == activeId) {
             if (mode == ServerProfile.PROBE_PARALLEL_ALL) {
                 toast(result.outcomes.joinToString("\n") { o ->
-                    o.address + if (o.ok) " 连接成功 ${o.ms} ms" else " 连接失败"
+                    o.address + if (o.ok) getString(R.string.and_connOkShort, o.ms) else getString(R.string.and_connFailShort)
                 })
             } else {
                 val ms = result.outcomes.firstOrNull { it.address == winner }?.ms ?: 0L
-                toast("ip $winner 连接成功 $ms ms")
+                toast(getString(R.string.and_ipConnOk, winner, ms))
             }
         }
         val index = profile.addresses.indexOf(winner)
@@ -1879,14 +1879,14 @@ class MainActivity : ComponentActivity() {
         }
         val count = profile.addressCount()
         val detail = buildString {
-            append("服务端：").append(profile.label()).append('\n')
-            append("地址：").append(profile.addressSummary()).append("\n\n")
+            append(getString(R.string.and_errDetailServer, profile.label())).append('\n')
+            append(getString(R.string.and_errDetailAddr, profile.addressSummary())).append("\n\n")
             append(description)
             if (count > 1) {
-                append("\n\n这台电脑的 ").append(count).append(" 个地址都试过了：\n  ")
+                append("\n\n" + getString(R.string.and_errDetailAllTried, count) + "\n  ")
                 append(profile.addresses.joinToString("\n  "))
             }
-            append("\n\n请确认：\n")
+            append("\n\n" + getString(R.string.and_errDetailConfirm) + "\n")
             append("· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网\n")
             append("· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）")
         }

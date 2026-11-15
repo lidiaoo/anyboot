@@ -1474,6 +1474,27 @@ Telnet：只有实验性终端。</string>
 ③ MAC 填在「编辑服务端」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
 ④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；
 ⑤ 目标机与手机是否在同一网段（局域网广播仅在同网段生效）。</string>
+    <string name="and_addServerTitle">添加服务端</string>
+    <string name="and_switchServerTitle">切换服务端（长按标签也能编辑）</string>
+    <string name="and_noServers">还没有服务端。</string>
+    <string name="and_mergedRecords">已合并 %1$d 条重复记录 —— 同一台电脑只留一个标签</string>
+    <string name="and_noMergeNeeded">没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同</string>
+    <string name="and_mergeAddrs">合并同一台电脑的地址</string>
+    <string name="and_transportSelectedReload">已选择「%1$s」：重载页面后生效（页面上也能即切）</string>
+    <string name="and_bootThemeSelectedReload">已选择「%1$s」：重载页面后生效</string>
+    <string name="and_delServerTitle">删除服务端</string>
+    <string name="and_delServerConfirm2">确定删除「%1$s」吗？只会删掉手机上的这条记录。</string>
+    <string name="and_tunnelBuildFail">隧道建立失败</string>
+    <string name="and_jumpConnFail">经由跳板机连接失败：%1$s</string>
+    <string name="and_lastLoadFail">上一次加载失败</string>
+    <string name="and_allAddrsFail">全部地址都连不上</string>
+    <string name="and_connOkShort"> 连接成功 %1$s ms</string>
+    <string name="and_connFailShort"> 连接失败</string>
+    <string name="and_ipConnOk">ip %1$s 连接成功 %2$s ms</string>
+    <string name="and_errDetailServer">服务端：%1$s</string>
+    <string name="and_errDetailAddr">地址：%1$s</string>
+    <string name="and_errDetailAllTried">这台电脑的 %1$d 个地址都试过了：</string>
+    <string name="and_errDetailConfirm">请确认：</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

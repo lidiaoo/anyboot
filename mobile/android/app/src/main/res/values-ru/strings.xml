@@ -1474,6 +1474,27 @@ Telnet: только экспериментальный терминал.</strin
 ③ MAC в нужной строке адреса в «Изменить сервер» (напр. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ Broadcast/порт маршрута верны (совпадают со слушателем sol);
 ⑤ Цель и телефон в одной подсети (LAN-broadcast только там).</string>
+    <string name="and_addServerTitle">Добавить сервер</string>
+    <string name="and_switchServerTitle">Сменить сервер (долгое нажатие вкладки — редактировать)</string>
+    <string name="and_noServers">Серверов нет.</string>
+    <string name="and_mergedRecords">Объединено дублей: %1$d — один компьютер = одна вкладка</string>
+    <string name="and_noMergeNeeded">Нечего объединять: уже одна запись или разные имена групп</string>
+    <string name="and_mergeAddrs">Объединить адреса одного компьютера</string>
+    <string name="and_transportSelectedReload">Выбрано «%1$s»: после перезагрузки (можно и на странице)</string>
+    <string name="and_bootThemeSelectedReload">Выбрано «%1$s»: после перезагрузки</string>
+    <string name="and_delServerTitle">Удалить сервер</string>
+    <string name="and_delServerConfirm2">Удалить «%1$s»? Удаляется только эта запись на телефоне.</string>
+    <string name="and_tunnelBuildFail">Не удалось создать туннель</string>
+    <string name="and_jumpConnFail">Ошибка подключения через узел: %1$s</string>
+    <string name="and_lastLoadFail">Прошлая загрузка не удалась</string>
+    <string name="and_allAddrsFail">Ни один адрес не подключается</string>
+    <string name="and_connOkShort"> подключено %1$s мс</string>
+    <string name="and_connFailShort"> сбой</string>
+    <string name="and_ipConnOk">ip %1$s подключено %2$s мс</string>
+    <string name="and_errDetailServer">Сервер: %1$s</string>
+    <string name="and_errDetailAddr">Адрес: %1$s</string>
+    <string name="and_errDetailAllTried">Все %1$d адресов этого компьютера проверены:</string>
+    <string name="and_errDetailConfirm">Проверьте:</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

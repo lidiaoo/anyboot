@@ -1474,6 +1474,27 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
 ③ MAC entered on the matching address row in “Edit server” (e.g. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ Broadcast address/port in the route correct (matching sol\'s listener);
 ⑤ Target and phone on the same subnet (LAN broadcast only works within it).</string>
+    <string name="and_addServerTitle">Add server</string>
+    <string name="and_switchServerTitle">Switch server (long-press a tab to edit)</string>
+    <string name="and_noServers">No servers yet.</string>
+    <string name="and_mergedRecords">Merged %1$d duplicate records — one tab per computer</string>
+    <string name="and_noMergeNeeded">Nothing to merge: the computer already has one record, or the group names differ</string>
+    <string name="and_mergeAddrs">Merge addresses of the same computer</string>
+    <string name="and_transportSelectedReload">Selected “%1$s”: takes effect after reload (switchable on the page too)</string>
+    <string name="and_bootThemeSelectedReload">Selected “%1$s”: takes effect after reload</string>
+    <string name="and_delServerTitle">Delete server</string>
+    <string name="and_delServerConfirm2">Delete “%1$s”? Only this record on the phone is removed.</string>
+    <string name="and_tunnelBuildFail">Tunnel setup failed</string>
+    <string name="and_jumpConnFail">Connection via jump host failed: %1$s</string>
+    <string name="and_lastLoadFail">Last load failed</string>
+    <string name="and_allAddrsFail">None of the addresses connect</string>
+    <string name="and_connOkShort"> connected %1$s ms</string>
+    <string name="and_connFailShort"> failed</string>
+    <string name="and_ipConnOk">ip %1$s connected %2$s ms</string>
+    <string name="and_errDetailServer">Server: %1$s</string>
+    <string name="and_errDetailAddr">Address: %1$s</string>
+    <string name="and_errDetailAllTried">All %1$d addresses of this computer were tried:</string>
+    <string name="and_errDetailConfirm">Please check:</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

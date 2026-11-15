@@ -1474,6 +1474,27 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
 ③ MAC en la fila de dirección correcta en «Editar servidor» (p. ej. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ Broadcast/puerto de la ruta correctos (coinciden con el listener de sol);
 ⑤ Destino y móvil en la misma subred (el broadcast LAN solo funciona ahí).</string>
+    <string name="and_addServerTitle">Añadir servidor</string>
+    <string name="and_switchServerTitle">Cambiar servidor (mantén la pestaña para editar)</string>
+    <string name="and_noServers">Sin servidores.</string>
+    <string name="and_mergedRecords">Fusionados %1$d registros duplicados: una pestaña por equipo</string>
+    <string name="and_noMergeNeeded">Nada que fusionar: ya tiene un registro o los nombres de grupo difieren</string>
+    <string name="and_mergeAddrs">Fusionar direcciones del mismo equipo</string>
+    <string name="and_transportSelectedReload">«%1$s» seleccionado: se aplica tras recargar (también en la página)</string>
+    <string name="and_bootThemeSelectedReload">«%1$s» seleccionado: se aplica tras recargar</string>
+    <string name="and_delServerTitle">Eliminar servidor</string>
+    <string name="and_delServerConfirm2">¿Eliminar «%1$s»? Solo se quita este registro del móvil.</string>
+    <string name="and_tunnelBuildFail">Error al crear el túnel</string>
+    <string name="and_jumpConnFail">Error al conectar vía host de salto: %1$s</string>
+    <string name="and_lastLoadFail">La última carga falló</string>
+    <string name="and_allAddrsFail">Ninguna dirección conecta</string>
+    <string name="and_connOkShort"> conectado %1$s ms</string>
+    <string name="and_connFailShort"> falló</string>
+    <string name="and_ipConnOk">ip %1$s conectado %2$s ms</string>
+    <string name="and_errDetailServer">Servidor: %1$s</string>
+    <string name="and_errDetailAddr">Dirección: %1$s</string>
+    <string name="and_errDetailAllTried">Se probaron las %1$d direcciones de este equipo:</string>
+    <string name="and_errDetailConfirm">Comprueba:</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

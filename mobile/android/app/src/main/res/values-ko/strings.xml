@@ -1474,6 +1474,27 @@ Telnet: 실험적 터미널만.</string>
 ③ MAC은 ‘서버 편집’의 해당 주소 행에(예 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
 ④ 라우트의 브로드캐스트/포트가 올바른지(sol과 일치);
 ⑤ 대상과 휴대폰이 같은 서브넷인지(LAN 브로드캐스트는 동일 서브넷만).</string>
+    <string name="and_addServerTitle">서버 추가</string>
+    <string name="and_switchServerTitle">서버 전환 (탭 길게 눌러 편집)</string>
+    <string name="and_noServers">서버가 없습니다.</string>
+    <string name="and_mergedRecords">%1$d개 중복 병합 — 컴퓨터당 탭 하나</string>
+    <string name="and_noMergeNeeded">병합할 것 없음: 이미 하나이거나 그룹 이름이 다름</string>
+    <string name="and_mergeAddrs">같은 컴퓨터 주소 병합</string>
+    <string name="and_transportSelectedReload">‘%1$s’ 선택: 새로 고침 후 적용(페이지에서도 전환 가능)</string>
+    <string name="and_bootThemeSelectedReload">‘%1$s’ 선택: 새로 고침 후 적용</string>
+    <string name="and_delServerTitle">서버 삭제</string>
+    <string name="and_delServerConfirm2">‘%1$s’을(를) 삭제할까요? 휴대폰의 이 기록만 삭제.</string>
+    <string name="and_tunnelBuildFail">터널 설정 실패</string>
+    <string name="and_jumpConnFail">점프 호스트 경유 연결 실패: %1$s</string>
+    <string name="and_lastLoadFail">이전 로드 실패</string>
+    <string name="and_allAddrsFail">모든 주소 연결 불가</string>
+    <string name="and_connOkShort"> 연결 성공 %1$s ms</string>
+    <string name="and_connFailShort"> 실패</string>
+    <string name="and_ipConnOk">ip %1$s 연결 성공 %2$s ms</string>
+    <string name="and_errDetailServer">서버: %1$s</string>
+    <string name="and_errDetailAddr">주소: %1$s</string>
+    <string name="and_errDetailAllTried">이 컴퓨터의 주소 %1$d개를 모두 시도했습니다:</string>
+    <string name="and_errDetailConfirm">확인하세요:</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

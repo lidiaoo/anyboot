@@ -1474,6 +1474,27 @@ Telnet：只有實驗性終端機。</string>
 ③ MAC 填在「編輯伺服器」裡對應位址那一列（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
 ④ 路由裡的廣播位址和埠對不對（要和 sol 側監聽的一致）；
 ⑤ 目標機與手機是否在同一網段（區域網路廣播僅在同網段生效）。</string>
+    <string name="and_addServerTitle">新增伺服器</string>
+    <string name="and_switchServerTitle">切換伺服器（長按標籤也能編輯）</string>
+    <string name="and_noServers">還沒有伺服器。</string>
+    <string name="and_mergedRecords">已合併 %1$d 條重複記錄 —— 同一台電腦只留一個標籤</string>
+    <string name="and_noMergeNeeded">沒有需要合併的：同一台電腦要嘛已經只有一條，要嘛分組名不同</string>
+    <string name="and_mergeAddrs">合併同一台電腦的位址</string>
+    <string name="and_transportSelectedReload">已選擇「%1$s」：重新載入頁面後生效（頁面上也能即切）</string>
+    <string name="and_bootThemeSelectedReload">已選擇「%1$s」：重新載入頁面後生效</string>
+    <string name="and_delServerTitle">刪除伺服器</string>
+    <string name="and_delServerConfirm2">確定刪除「%1$s」嗎？只會刪掉手機上的這條記錄。</string>
+    <string name="and_tunnelBuildFail">通道建立失敗</string>
+    <string name="and_jumpConnFail">經由跳板機連線失敗：%1$s</string>
+    <string name="and_lastLoadFail">上一次載入失敗</string>
+    <string name="and_allAddrsFail">全部位址都連不上</string>
+    <string name="and_connOkShort"> 連線成功 %1$s ms</string>
+    <string name="and_connFailShort"> 連線失敗</string>
+    <string name="and_ipConnOk">ip %1$s 連線成功 %2$s ms</string>
+    <string name="and_errDetailServer">伺服器：%1$s</string>
+    <string name="and_errDetailAddr">位址：%1$s</string>
+    <string name="and_errDetailAllTried">這台電腦的 %1$d 個位址都試過了：</string>
+    <string name="and_errDetailConfirm">請確認：</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

@@ -1474,6 +1474,27 @@ Telnet：実験的端末のみ。</string>
 ③ MAC は「サーバーを編集」の該当アドレス行に（例 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
 ④ ルートのブロードキャスト/ポートが正しいか（sol 側と一致）；
 ⑤ 対象とスマホが同じサブネットか（LAN ブロードキャストは同サブネットのみ）。</string>
+    <string name="and_addServerTitle">サーバーを追加</string>
+    <string name="and_switchServerTitle">サーバー切替（タブ長押しで編集可）</string>
+    <string name="and_noServers">サーバーがありません。</string>
+    <string name="and_mergedRecords">%1$d 件の重複を統合 — 同一 PC は 1 タブのみ</string>
+    <string name="and_noMergeNeeded">統合不要：既に 1 件か、グループ名が異なります</string>
+    <string name="and_mergeAddrs">同一 PC のアドレスを統合</string>
+    <string name="and_transportSelectedReload">「%1$s」を選択：再読み込み後に有効（ページ上でも切替可）</string>
+    <string name="and_bootThemeSelectedReload">「%1$s」を選択：再読み込み後に有効</string>
+    <string name="and_delServerTitle">サーバーを削除</string>
+    <string name="and_delServerConfirm2">「%1$s」を削除しますか？このスマホ上の記録のみ削除。</string>
+    <string name="and_tunnelBuildFail">トンネル確立に失敗</string>
+    <string name="and_jumpConnFail">踏み台経由の接続に失敗：%1$s</string>
+    <string name="and_lastLoadFail">前回の読み込み失敗</string>
+    <string name="and_allAddrsFail">全アドレスに接続できません</string>
+    <string name="and_connOkShort"> 接続成功 %1$s ms</string>
+    <string name="and_connFailShort"> 接続失敗</string>
+    <string name="and_ipConnOk">ip %1$s 接続成功 %2$s ms</string>
+    <string name="and_errDetailServer">サーバー：%1$s</string>
+    <string name="and_errDetailAddr">アドレス：%1$s</string>
+    <string name="and_errDetailAllTried">この PC の %1$d 個のアドレスを全て試しました：</string>
+    <string name="and_errDetailConfirm">確認してください：</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
