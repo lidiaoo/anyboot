@@ -257,6 +257,7 @@ fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
         token: token_value,
         source: source.clone(),
         source_is_loopback: is_loopback(&source),
+        lang: crate::i18n::Lang::from_accept_language(header_value(&headers, "Accept-Language").as_deref()),
     };
     let reply = handle_remote_request(app, &remote_request);
     send(request, &reply);

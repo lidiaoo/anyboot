@@ -919,8 +919,10 @@ fn menu_status_text(text: &str, max_chars: usize) -> String {
 
 /// HTTP / CLI 转发共用的唯一入口：鉴权 → 路由 → 立即执行或转成待执行请求。
 pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) -> RemoteReply {
+    // 请求级语言：移动端按自己的 Accept-Language 得到本地化 message/note
+    crate::i18n::set_current(request.lang);
     if !matches!(request.method.as_str(), "GET" | "POST") {
-        return RemoteReply::error(405, "method_not_allowed", "只支持 GET / POST");
+        return RemoteReply::error(405, "method_not_allowed", crate::t!(request.lang, "只支持 GET / POST", "只支援 GET / POST", "Only GET / POST supported", "GET / POST のみ対応", "GET / POST만 지원", "Nur GET / POST unterstützt", "Поддерживаются только GET / POST", "Apenas GET / POST", "Solo GET / POST"));
     }
     // 静态页面在鉴权之前（见 static_ui_reply 注释）
     if request.method == "GET" {
@@ -5663,6 +5665,7 @@ mod core_tests {
                 "192.168.1.20".to_string()
             },
             source_is_loopback,
+            lang: crate::i18n::Lang::ZhCn,
         }
     }
 

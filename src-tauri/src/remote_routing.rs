@@ -50,6 +50,8 @@ pub(crate) struct RemoteRequest {
     pub(crate) token: Option<String>,
     pub(crate) source: String,
     pub(crate) source_is_loopback: bool,
+    /// 请求期望语言（Accept-Language 解析）
+    pub(crate) lang: crate::i18n::Lang,
 }
 
 impl RemoteRequest {
