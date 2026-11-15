@@ -2329,6 +2329,7 @@ class ComputerListActivity : ComponentActivity() {
 
         val valueLabel: String
         val dot: String
+        var iconOverride: String = ""
         if (!group.available) {
             valueLabel = when {
                 row.state == STATE_UNKNOWN -> "读取中…"
@@ -2344,10 +2345,15 @@ class ComputerListActivity : ComponentActivity() {
             // label 自带 grub_os_icon 图标 —— 卡片左侧已画图标，回显文字要去掉行首图标，
             // 否则一行两个（用户 2026-11-15 报「图标重复了 残留」）。
             val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
-            valueLabel = (hit?.label ?: group.current.ifEmpty { "未设置" })
+            val rawLabel = (hit?.label ?: group.current.ifEmpty { "未设置" })
+            // 图标识别 100% GRUB 同源：拼装 label 的行首 emoji 就是 grub_os_icon 的产物
+            // （按条目名/组名关键字识别），卡片直接用它 —— 不再走 kind→platformEmoji 的旧映射。
+            val iconChar = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
+            valueLabel = rawLabel
                 .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
                 .trim()
             dot = hit?.option?.kind ?: "linux"
+            iconOverride = iconChar
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -2409,9 +2415,12 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
+                } else if (iconOverride.isNotEmpty()) {
+                    // GRUB 同源图标（grub_os_icon 按名字识别的产物），rEFInd/RefindPlus 也用它
+                    Text(iconOverride, fontSize = 12.5.sp)
+                    Spacer(Modifier.width(7.dp))
                 } else if (dot.isNotEmpty() && kind != KIND_GRUB) {
-                    // 平台图标（emoji）。GRUB 的当前项 label 已按条目名带图标，再画
-                    // 一个就是一行两个（用户定案：GRUB 只留 label 里的）
+                    // 兜底：GRUB 数据缺失时走 kind→platformEmoji 旧映射
                     Text(platformEmoji(dot), fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
                 }
