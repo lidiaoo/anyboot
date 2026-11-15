@@ -23,7 +23,7 @@ use crate::hub::{
 };
 
 /// 没有可用凭据时给用户的话（与 sftp 那句同一风格）
-const NO_CRED: &str = "这台服务器没有可用的自动认证凭据：请在「编辑」里改用密钥或保存密码（交互模式没法在后台跑命令）";
+fn no_cred() -> &'static str { crate::t!(crate::i18n::current(),"这台服务器没有可用的自动认证凭据：请在「编辑」里改用密钥或保存密码（交互模式没法在后台跑命令）","這台伺服器沒有可用的自動認證憑證：請在「編輯」裡改用金鑰或儲存密碼（互動模式沒法在背景跑命令）","No usable auto-auth credentials for this server: use a key or saved password in “Edit” (interactive mode can't run commands in the background)","このサーバーに自動認証情報がありません。「編集」で鍵か保存パスワードに変更してください（対話モードはバックグラウンド実行不可）","이 서버에 자동 인증 자격 증명이 없습니다. ‘편집’에서 키 또는 저장된 비밀번호로 변경하세요(대화형 모드는 백그라운드 실행 불가)","Keine nutzbaren Auto-Auth-Daten für diesen Server: in „Bearbeiten“ Schlüssel oder gespeichertes Passwort nutzen (interaktiver Modus kann nicht im Hintergrund laufen)","Нет учётных данных для авто-входа: используйте ключ или сохранённый пароль в «Изменить» (интерактивный режим не работает в фоне)","Sem credenciais de auto-autenticação: use uma chave ou senha salva em “Editar” (modo interativo não roda em segundo plano)","Sin credenciales de autenticación automática: usa una clave o contraseña guardada en «Editar» (el modo interactivo no corre en segundo plano)") }
 
 /// 跳板机 shell 握手标记（OK / NOTOOL）：只出现在命令输出里，**不进包体**。
 /// 包体永远是最标准的 102 字节魔术包，端口即指令，不多一个字节。
@@ -52,10 +52,10 @@ pub(crate) fn power_log(app: &AppHandle, message: &str) {
 
 pub(crate) fn action_label(action: &str) -> &'static str {
     match action {
-        POWER_REBOOT => "重启",
-        POWER_SHUTDOWN => "关机",
-        POWER_SLEEP => "睡眠",
-        _ => "唤醒",
+        POWER_REBOOT => crate::t!(crate::i18n::current(),"重启","重新啟動","Restart","再起動","재시작","Neustart","Перезагрузка","Reiniciar","Reiniciar"),
+        POWER_SHUTDOWN => crate::t!(crate::i18n::current(),"关机","關機","Shut down","シャットダウン","종료","Herunterfahren","Выключение","Desligar","Apagar"),
+        POWER_SLEEP => crate::t!(crate::i18n::current(),"睡眠","睡眠","Sleep","スリープ","잠자기","Ruhezustand","Сон","Suspender","Suspender"),
+        _ => crate::t!(crate::i18n::current(),"唤醒","喚醒","Wake","スリープ解除","깨우기","Aufwecken","Пробуждение","Acordar","Despertar"),
     }
 }
 
@@ -175,7 +175,7 @@ pub(crate) fn send_plan(
 ) -> Result<(usize, String), String> {
     if plan.deliveries.is_empty() {
         let detail = if plan.problems.is_empty() {
-            "这些路由都被关掉了（启用勾选框）".to_string()
+            crate::t!(crate::i18n::current(),"这些路由都被关掉了（启用勾选框）","這些路由都被關掉了（啟用勾選框）","These routes are all disabled (enable checkbox)","これらのルートは無効です（有効化チェック）","이 라우트들은 모두 꺼졌습니다(사용 체크)","Diese Routen sind alle deaktiviert (Aktivierungshaken)","Эти маршруты отключены (галочка включения)","Estas rotas estão desativadas (caixa de ativação)","Estas rutas están desactivadas (casilla de activación)").to_string()
         } else {
             plan.problems.join("；")
         };
@@ -282,7 +282,7 @@ fn send_via_jump(
     deliveries: &[Delivery],
 ) -> Result<(usize, String), String> {
     if jump.protocol != "ssh" {
-        return Err("跳板机是 Telnet，发不了局域网电源包 —— 换一台 SSH 服务器".to_string());
+        return Err(crate::t!(crate::i18n::current(),"跳板机是 Telnet，发不了局域网电源包 —— 换一台 SSH 服务器","跳板機是 Telnet，發不了區域網路電源封包 —— 換一台 SSH 伺服器","The jump host is Telnet; can't send LAN power packets — use an SSH server","踏み台が Telnet。LAN 電源パケット送信不可 — SSH サーバーに変更","점프 호스트가 Telnet. LAN 전원 패킷 전송 불가 — SSH 서버로","Sprungserver ist Telnet; keine LAN-Energiepakete – SSH-Server nutzen","Узел Telnet; нельзя слать пакеты питания LAN — используйте SSH","O jump host é Telnet; não envia pacotes de energia LAN — use SSH","El host de salto es Telnet; no envía paquetes de energía LAN — usa SSH").to_string());
     }
 
     // 计划表用 base64(JSON) 传：包体是二进制，命令行里只能放十六进制
@@ -313,7 +313,7 @@ fn send_via_jump(
         format!("{}@{}", jump.username, jump.host)
     };
     let mut ssh = crate::command("ssh");
-    crate::hub_tunnel::apply_auth(app, &jump, &mut ssh, NO_CRED)?;
+    crate::hub_tunnel::apply_auth(app, &jump, &mut ssh, no_cred())?;
     ssh.args(["-p", &jump.effective_port().to_string()])
         .args(["-o", "ConnectTimeout=8"])
         .arg(&target)
