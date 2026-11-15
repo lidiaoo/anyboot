@@ -91,12 +91,12 @@ struct ComputerEditorView: View {
 
     /// Android ROUTE_LABELS_ZH（编辑器里通道名的口径与列表页不同，以此为准）
     private static let routeNames: [String: String] = [
-        ServerProfile.routeLan: "直连",
-        ServerProfile.routeJump: "跳板机",
-        ServerProfile.routeTunnel: "Cloudflare 隧道",
-        ServerProfile.routeTS: "Tailscale 直连",
+        ServerProfile.routeLan: L("hub.conn.lan"),
+        ServerProfile.routeJump: L("remote.jumpLabel"),
+        ServerProfile.routeTunnel: L("and.routeTunnel"),
+        ServerProfile.routeTS: L("gw.tsDirect"),
         ServerProfile.routeFunnel: "Tailscale Funnel",
-        ServerProfile.routeTSNet: "Tailscale Funnel（内建）",
+        ServerProfile.routeTSNet: L("and.routeTsnet"),
     ]
 
     init(profile: ServerProfile?, firstRun: Bool = false,
@@ -336,7 +336,7 @@ struct ComputerEditorView: View {
                         .foregroundColor(ABColor.accent)
                 }
                 .buttonStyle(.plain)
-                Text(quickHint.isEmpty ? "换行 / 空格 / 逗号都能分开；认不出的备注自动忽略" : quickHint)
+                Text(quickHint.isEmpty ? L("and.detectHint") : quickHint)
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -436,7 +436,7 @@ struct ComputerEditorView: View {
                         .foregroundColor(ABColor.fgDim)
                 }
                 .buttonStyle(.plain)
-                Text(remoteHint.isEmpty ? "扫码或粘贴后自动加入对应区块；同一条会更新而不是重复" : remoteHint)
+                Text(remoteHint.isEmpty ? L("and.scanOrPasteHint") : remoteHint)
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -448,8 +448,7 @@ struct ComputerEditorView: View {
             ForEach(RemotePair.blockIds, id: \.self) { block in
                 blockCard(block)
             }
-            Text("保存后每个区块里的配对各自独立探测、各自计时；清空全部保存 = 解除配对。"
-                + "配对码等同密码，别转发给别人。")
+            Text(L("and.pairSaveHint"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 6)
@@ -548,7 +547,7 @@ struct ComputerEditorView: View {
         }
         let macCount = parsed.macs.values.reduce(0) { $0 + $1.count }
         quickHint = L("and.recognizedN", parsed.hosts.count, macCount)
-            + (added < parsed.hosts.count ? "（其余本来就有，只并了 MAC）" : "")
+            + (added < parsed.hosts.count ? L("and.restOnlyMac") : "")
         // 整条 URL 粘进来时顺手把 token 收了
         let found = ServerProfile.token(fromURL: raw)
         if !found.isEmpty && token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -612,7 +611,7 @@ struct ComputerEditorView: View {
         }
         let parsed = ServerProfile.parsePair(raw)
         guard parsed.ok else {
-            remoteHint = parsed.error.isEmpty ? "没认出配对码" : parsed.error
+            remoteHint = parsed.error.isEmpty ? L("and.unrecognizedCode") : parsed.error
             return
         }
         let existed = draft.pairs.contains { $0.key == RemotePair(kind: parsed.kind, addr: parsed.tunnel).key }
@@ -781,40 +780,37 @@ struct ComputerEditorView: View {
             ForEach(Array(order.enumerated()), id: \.element) { index, kind in
                 routeRow(kind: kind, index: index, total: order.count)
             }
-            Text("探活与接口请求按此顺序逐通道试，第一个通的就走谁；每个通道可以单独设探测超时"
-                + "（局域网 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒）。"
-                + "跳板机需先在下方选好档案；电源唤醒不走此排序 —— 魔术包只能在局域网内广播。")
+            Text(L("and.routeOrderHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
             fieldLabel(L("remote.priorityProbeLabel"))
             HStack(spacing: 0) {
-                probeChoice("并发·首个", draft.routeProbeMode == ServerProfile.probeParallelFirst) {
+                probeChoice(L("and.probeParallelFirst"), draft.routeProbeMode == ServerProfile.probeParallelFirst) {
                     draft.routeProbeMode = ServerProfile.probeParallelFirst
                 }
-                probeChoice("并发·全部", draft.routeProbeMode == ServerProfile.probeParallelAll) {
+                probeChoice(L("and.probeParallelAll"), draft.routeProbeMode == ServerProfile.probeParallelAll) {
                     draft.routeProbeMode = ServerProfile.probeParallelAll
                 }
-                probeChoice("串行", draft.routeProbeMode == ServerProfile.probeSerial) {
+                probeChoice(L("remote.probeSerial"), draft.routeProbeMode == ServerProfile.probeSerial) {
                     draft.routeProbeMode = ServerProfile.probeSerial
                 }
             }
-            Text("并发·首个：全部通道同时发出，谁先成功用谁；并发·全部：等全部返回，逐行报每个通道的成败与耗时；"
-                + "串行：按上面的优先级逐个通道试，第一个通就停。")
+            Text(L("and.routeProbeHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
             fieldLabel(L("remote.multiNicLabel"))
             HStack(spacing: 0) {
-                probeChoice("并发·首个", draft.probeMode == ServerProfile.probeParallelFirst) {
+                probeChoice(L("and.probeParallelFirst"), draft.probeMode == ServerProfile.probeParallelFirst) {
                     draft.probeMode = ServerProfile.probeParallelFirst
                 }
-                probeChoice("并发·全部", draft.probeMode == ServerProfile.probeParallelAll) {
+                probeChoice(L("and.probeParallelAll"), draft.probeMode == ServerProfile.probeParallelAll) {
                     draft.probeMode = ServerProfile.probeParallelAll
                 }
-                probeChoice("串行", draft.probeMode == ServerProfile.probeSerial) {
+                probeChoice(L("remote.probeSerial"), draft.probeMode == ServerProfile.probeSerial) {
                     draft.probeMode = ServerProfile.probeSerial
                 }
             }
@@ -829,8 +825,7 @@ struct ComputerEditorView: View {
             ForEach(RemotePair.blockIds, id: \.self) { block in
                 blockPolicyRow(block)
             }
-            Text("并发·首个：同区块全部同时发出，先成功的不一定是最前面那条；串行：严格按区块内的行序试。"
-                + "每条配对还能在它自己那行再设一个超时（条目 → 区块 → 全局默认）。")
+            Text(L("and.blockProbeHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
@@ -848,13 +843,13 @@ struct ComputerEditorView: View {
 
             fieldLabel(L("and.probeMethodLabel"))
             HStack(spacing: 10) {
-                probeChoice("并发·首个", draft.probeMode == ServerProfile.probeParallelFirst) {
+                probeChoice(L("and.probeParallelFirst"), draft.probeMode == ServerProfile.probeParallelFirst) {
                     draft.probeMode = ServerProfile.probeParallelFirst
                 }
-                probeChoice("并发·全部", draft.probeMode == ServerProfile.probeParallelAll) {
+                probeChoice(L("and.probeParallelAll"), draft.probeMode == ServerProfile.probeParallelAll) {
                     draft.probeMode = ServerProfile.probeParallelAll
                 }
-                probeChoice("串行", draft.probeMode == ServerProfile.probeSerial) {
+                probeChoice(L("remote.probeSerial"), draft.probeMode == ServerProfile.probeSerial) {
                     draft.probeMode = ServerProfile.probeSerial
                 }
             }
@@ -865,7 +860,7 @@ struct ComputerEditorView: View {
 
             fieldLabel(L("remote.defaultTimeoutLabel"))
             HStack(spacing: 10) {
-                timeoutTextField("秒",
+                timeoutTextField(L("gw.seconds"),
                                  text: Binding(
                                     get: { probeTimeoutText },
                                     set: { probeTimeoutText = Self.cleanedTimeout($0) }),
@@ -892,7 +887,7 @@ struct ComputerEditorView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(available ? ABColor.fg : ABColor.fgFaint)
                 HStack(spacing: 6) {
-                    Text(routeSub(kind) + (available ? "" : "（不可用）"))
+                    Text(routeSub(kind) + (available ? "" : L("and.unavailable")))
                         .font(.system(size: 10))
                         .foregroundColor(ABColor.fgFaint)
                         .lineLimit(1)
@@ -1030,13 +1025,13 @@ struct ComputerEditorView: View {
                                    enabled: count > 0)
             }
             HStack(spacing: 0) {
-                probeChoice("并发·首个", mode.wrappedValue == ServerProfile.probeParallelFirst) {
+                probeChoice(L("and.probeParallelFirst"), mode.wrappedValue == ServerProfile.probeParallelFirst) {
                     mode.wrappedValue = ServerProfile.probeParallelFirst
                 }
                 probeChoice("全部", mode.wrappedValue == ServerProfile.probeParallelAll) {
                     mode.wrappedValue = ServerProfile.probeParallelAll
                 }
-                probeChoice("串行", mode.wrappedValue == ServerProfile.probeSerial) {
+                probeChoice(L("remote.probeSerial"), mode.wrappedValue == ServerProfile.probeSerial) {
                     mode.wrappedValue = ServerProfile.probeSerial
                 }
             }
