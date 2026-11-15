@@ -1,4 +1,5 @@
 import { createApp } from "vue";
+import { installI18n } from "@/i18n";
 import { createPinia } from "pinia";
 import Page from "@/pages/keys/index.vue";
 import "@/styles/win-keys.css";
@@ -8,4 +9,6 @@ import "@/styles/win-keys.css";
  *
  * Rust 侧用 `WebviewUrl::App("hub-keys.html")` 打开 —— **文件名不可改**。
  */
-createApp(Page).use(createPinia()).mount("#app");
+const app = createApp(Page);
+installI18n(app);
+app.use(createPinia()).mount("#app");

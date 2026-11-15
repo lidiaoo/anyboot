@@ -1,0 +1,14 @@
+key	zh-CN	zh-TW	en-US	ja-JP	ko-KR	de-DE	ru-RU	pt-BR	es-ES
+brand(不翻译)	
+# —— 品牌/技术词：一律不翻译 ——
+brand	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)	(不翻译)
+# —— 高频概念词：统一译法 ——
+boot entry	启动项	啟動項	Boot entry	起動項目	부팅 항목	Starteintrag	Запись загрузки	Entrada de inicialização	Entrada de arranque
+next boot	下次启动	下次啟動	Next boot	次回起動	다음 부팅	Nächster Start	Следующая загрузка	Próxima inicialização	Próximo arranque
+pending	待生效	待生效	Pending	保留中	대기 중	Ausstehend	Ожидает	Pendente	Pendiente
+undo	撤销	復原	Undo	元に戻す	실행 취소	Rückgängig	Отменить	Desfazer	Deshacer
+online	在线	線上	Online	オンライン	온라인	Online	В сети	Online	En línea
+offline	离线	離線	Offline	オフライン	오프라인	Offline	Не в сети	Offline	Sin conexión
+probe	探测	探測	Probe	検出	감지	Prüfung	Проверка	Sondagem	Sondeo
+token	令牌	權杖	Token	トークン	토큰	Token	Токен	Token	Token
+entry text format	条目文字格式	項目文字格式	Entry text format	項目テキスト形式	항목 텍스트 형식	Textformat der Einträge	Формат текста записей	Formato do texto	Formato de texto

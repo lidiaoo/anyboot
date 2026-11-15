@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useToastStore } from "@/stores/toast";
 import { useRemoteStore } from "@/stores/remote";
@@ -39,24 +40,25 @@ import TermsetPage from "./TermsetPage.vue";
  *       section.page
  */
 
+const { t } = useI18n();
 const toast = useToastStore();
 const ui = useUiStateStore();
 const remote = useRemoteStore();
 const servers = useServersStore();
 
 const NAV = [
-  { id: "home", label: "电脑", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>' },
-  { id: "computers", label: "电脑列表", svg: '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="1.4" fill="currentColor" stroke="none"/>' },
-  { id: "servers", label: "服务器", svg: '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>' },
-  { id: "gateway", label: "远程接入", svg: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M3.5 15.5a3.5 3.5 0 0 1 3.4-4.4 5 5 0 0 1 9.6-1.2A4 4 0 0 1 19 18H7a3.5 3.5 0 0 1-3.5-2.5z"/><path d="M12 18v3"/>' },
-  { id: "term", label: "终端", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/>' },
-  { id: "sessions", label: "会话", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
-  { id: "transfers", label: "传输", svg: '<path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/>' },
-  { id: "files", label: "文件", svg: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' },
-  { id: "keys", label: "密钥", svg: '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/>' },
-  { id: "backup", label: "备份", svg: '<path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/>' },
-  { id: "termset", label: "终端设置", svg: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>' },
-  { id: "about", label: "关于", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>' },
+  { id: "home", label: "nav.computer", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>' },
+  { id: "computers", label: "nav.computerList", svg: '<path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="8" cy="18" r="1.4" fill="currentColor" stroke="none"/>' },
+  { id: "servers", label: "nav.servers", svg: '<rect x="2" y="3" width="20" height="7" rx="2"/><rect x="2" y="14" width="20" height="7" rx="2"/><path d="M6 6.5h.01M6 17.5h.01"/>' },
+  { id: "gateway", label: "nav.gateway", svg: '<path d="M5 12a7 7 0 0 1 14 0"/><path d="M3.5 15.5a3.5 3.5 0 0 1 3.4-4.4 5 5 0 0 1 9.6-1.2A4 4 0 0 1 19 18H7a3.5 3.5 0 0 1-3.5-2.5z"/><path d="M12 18v3"/>' },
+  { id: "term", label: "nav.terminal", svg: '<rect x="2" y="4" width="20" height="14" rx="2"/><path d="M6 9l3 3-3 3"/>' },
+  { id: "sessions", label: "nav.sessions", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: "transfers", label: "nav.transfers", svg: '<path d="M7 4v12M4 13l3 3 3-3M17 20V8M14 11l3-3 3 3"/>' },
+  { id: "files", label: "nav.files", svg: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>' },
+  { id: "keys", label: "nav.keys", svg: '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 20 3M17 6l2.5 2.5"/>' },
+  { id: "backup", label: "nav.backup", svg: '<path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/>' },
+  { id: "termset", label: "nav.termSettings", svg: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>' },
+  { id: "about", label: "nav.about", svg: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/>' },
 ] as const;
 
 type PageId = (typeof NAV)[number]["id"];
@@ -118,8 +120,8 @@ try { if (typeof window !== "undefined" && window.innerWidth <= 720) navCollapse
  */
 // 多配色主题：dark / light / nord / dracula / solarized（后三套参考开源配色）
 const THEME_LIST = [
-  { id: "light", label: "亮色" },
-  { id: "dark", label: "暗色" },
+  { id: "light", label: "theme.light" },
+  { id: "dark", label: "theme.dark" },
   { id: "nord", label: "Nord" },
   { id: "dracula", label: "Dracula" },
   { id: "solarized", label: "Solarized" },
@@ -185,7 +187,7 @@ function toggleTheme() {
   void import("@/api/tauri").then(({ call }) =>
     call("set_theme", { theme: isDarkTheme(next) ? "dark" : "light" }).catch(() => {}),
   );
-  try { toast.show("主题：" + (THEME_LIST.find((x) => x.id === next)?.label ?? next)); } catch { /* 忽略 */ }
+  try { toast.show(t("theme.toast", { name: THEME_LIST.find((x) => x.id === next)?.label ?? next })); } catch { /* 忽略 */ }
 }
 
 /* 侧栏拖拽调宽（旧版 `#sideSplit` 的行为） */
@@ -302,7 +304,7 @@ onUnmounted(() => {
 
 <template>
   <div class="shell" :class="{ 'nav-collapsed': navCollapsed }">
-    <aside class="side" :class="{ collapsed: navCollapsed }" id="hubSide" aria-label="远程管理导航">
+    <aside class="side" :class="{ collapsed: navCollapsed }" id="hubSide" :aria-label="t('nav.brandAria')">
       <div class="side-head">
         <span class="side-logo" aria-hidden="true">A</span>
         <span class="side-name">
@@ -313,8 +315,8 @@ onUnmounted(() => {
         <button
           id="sideHome"
           class="icon-btn side-toggle"
-          title="主界面（系统引导）"
-          aria-label="打开主界面（系统引导）"
+          :title="t('nav.homeTitle')"
+          :aria-label="t('nav.homeTitle')"
           @click="goMain"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -326,8 +328,8 @@ onUnmounted(() => {
         <button
           id="sideToggle"
           class="icon-btn side-toggle"
-          :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
-          :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
+          :title="navCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')"
+          :aria-label="navCollapsed ? t('nav.expandSidebar') : t('nav.collapseSidebar')"
           @click="toggleNav"
         >
           <svg
@@ -346,7 +348,7 @@ onUnmounted(() => {
         </span>
       </div>
 
-      <nav class="side-nav" id="hubSideNav" aria-label="导航">
+      <nav class="side-nav" id="hubSideNav" :aria-label="t('nav.navAria')">
         <button
           v-for="item in NAV"
           :key="item.id"
@@ -367,7 +369,7 @@ onUnmounted(() => {
             aria-hidden="true"
             v-html="item.svg"
           />
-          <span class="s-label">{{ item.label }}</span>
+          <span class="s-label">{{ t(item.label) }}</span>
         </button>
       </nav>
 
@@ -375,18 +377,18 @@ onUnmounted(() => {
         type="button"
         id="themeToggle"
         class="snav"
-        title="切换亮暗主题"
-        aria-label="切换亮暗主题"
+        :title="t('theme.switchTitle')"
+        :aria-label="t('theme.switchTitle')"
         @click="toggleTheme"
       >
         <span id="themeIcon" aria-hidden="true" style="width: 18px; text-align: center; flex: none">{{
           dark ? "☀️" : "🌙"
         }}</span>
-        <span class="s-label">主题</span>
+        <span class="s-label">{{ t("nav.theme") }}</span>
       </button>
 
       <div class="side-foot mono">
-        <span class="s-label">GitHub · lidiaoo/anyboot<br />MIT · 心跳 10s · 并发探测</span>
+        <span class="s-label">GitHub · lidiaoo/anyboot<br />{{ t("app.footnote") }}</span>
       </div>
     </aside>
 
@@ -395,8 +397,8 @@ onUnmounted(() => {
       class="side-split"
       role="separator"
       aria-orientation="vertical"
-      aria-label="拖动调整侧栏宽度"
-      title="拖动调整侧栏宽度"
+      :aria-label="t('nav.dragSidebar')"
+      :title="t('nav.dragSidebar')"
       @pointerdown="startDrag"
       @pointermove="onDrag"
       @pointerup="endDrag"
@@ -406,7 +408,7 @@ onUnmounted(() => {
     <button
       type="button"
       class="mobile-menu-btn"
-      aria-label="打开导航菜单"
+      :aria-label="t('nav.openMenu')"
       @click="toggleNav"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

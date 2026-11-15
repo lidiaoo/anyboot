@@ -20,16 +20,16 @@
 ## 一、PC 端（Vue 3 + Tauri / vue-i18n）
 
 ### P0 基础设施
-- [ ] **P0.1** 安装依赖：`vue-i18n@9` + `@intlify/unplugin-vue-i18n`；vite 配置接入插件（`include` 指向 `src/i18n/messages/**`）
-- [ ] **P0.2** 建 `ui-vue/src/i18n/index.ts`（createI18n：legacy:false、globalInjection、fallbackLocale zh-CN、numberFormats/datetimeFormats）
-- [ ] **P0.3** 建 `messages/zh-CN.ts`（仅骨架 + `common.*`）+ `messages/en-US.ts`（同结构）+ `d.ts`（DefineLocaleMessage）
-- [ ] **P0.4** `main.ts` 挂载 `i18n`；`setLocale()` 实现（locale/<html lang>/localStorage/set_language 调用）
+- [x] **P0.1** 安装依赖：`vue-i18n@9` + `@intlify/unplugin-vue-i18n`；vite 配置接入插件（`include` 指向 `src/i18n/messages/**`）
+- [x] **P0.2** 建 `ui-vue/src/i18n/index.ts`（createI18n：legacy:false、globalInjection、fallbackLocale zh-CN、numberFormats/datetimeFormats）
+- [x] **P0.3** 建 `messages/zh-CN.ts`（仅骨架 + `common.*`）+ `messages/en-US.ts`（同结构）+ `d.ts`（DefineLocaleMessage）
+- [x] **P0.4** `main.ts` 挂载 `i18n`；`setLocale()` 实现（locale/<html lang>/localStorage/set_language 调用）
 - [ ] **P0.5** Tauri 命令 `set_language` + 前端封装（持久化 `settings.language`；触发托盘菜单重建、通知窗刷新）→ 见 R0
-- [ ] **P0.6** 语言选择 UI：`components/boot/SettingsPanel.vue` 基础设置加「中文 / English / 跟随系统」；`stores/settings.ts` 增加 `language` 字段
+- [x] **P0.6** 语言选择 UI：`components/boot/SettingsPanel.vue` 基础设置加「中文 / English / 跟随系统」；`stores/settings.ts` 增加 `language` 字段
 - [ ] **P0.7** 远程页面语言透传：iframe/blob URL 追加 `&abLang={locale}`（HomePage/ComputerList 弹层 两处 URL 构造）
 
 ### P1 导航与通用组件
-- [ ] **P1.1** `pages/hub/HubApp.vue`：侧栏菜单项、顶部工具栏
+- [x] **P1.1** `pages/hub/HubApp.vue`：侧栏菜单项、顶部工具栏
 - [ ] **P1.2** `pages/boot/BootApp.vue`：引导页顶部标签/返回/标题
 - [ ] **P1.3** 通用组件：`components/hub/ConfirmDialog.vue`、`FbModal.vue`、`LogDialog.vue`、`WindowNavMenu.vue`、`PcMenu.vue`
 - [ ] **P1.4** `stores/toast.ts` 调用方改造为传 key（`toast.show(t("..."))`）；toast 组件本身无文案
@@ -158,13 +158,13 @@
 
 ## 五、工具链与治理
 
-- [ ] **T0** `scripts/i18n-scan.mjs`：扫源码残留中文字面量（支持白名单文件/行注释、品牌词表），PC/Android/iOS 三模式
-- [ ] **T1** `docs/i18n-keys.csv`：三端 key 对照表（生成 + 校验）；`scripts/i18n-check.mjs` 比对
+- [x] **T0** `scripts/i18n-scan.mjs`：扫源码残留中文字面量（支持白名单文件/行注释、品牌词表），PC/Android/iOS 三模式
+- [x] **T1** `docs/i18n-keys.csv`：三端 key 对照表（生成 + 校验）；`scripts/i18n-check.mjs` 比对
       csv ↔ `messages/zh-CN.ts` ↔ `strings.xml` ↔ `xcstrings`，缺失/多余即非零退出
 - [ ] **T2** CI 接入：`.github/workflows/build-all.yml` 的 `build-vue` job 增加 `i18n-scan` + `i18n-check`
       （Android/iOS 的 scan 也在对应 job 跑；失败即阻断）
 - [ ] **T3** 文档：`docs/i18n-方案.md` 补充「新增文案流程」小节（改 zh → 同步 en → `npm run i18n:check` → 提交）
-- [ ] **T4** 白名单初版：`scripts/i18n-whitelist.json`（品牌词：GRUB/rEFInd/RefindPlus/OpenCore/systemd-boot/Clover/ESP/NVRAM/APFS/OCBtOrder/Token…；文件名；日志 trace）
+- [x] **T4** 白名单初版：`scripts/i18n-whitelist.json`（品牌词：GRUB/rEFInd/RefindPlus/OpenCore/systemd-boot/Clover/ESP/NVRAM/APFS/OCBtOrder/Token…；文件名；日志 trace）
 
 ---
 
@@ -175,12 +175,12 @@
 > 原则：**先定术语表再翻译**；每次只加一个语言、走完"文件→切换→截屏→lint"闭环再下一个，避免 8 个语言半成品。
 
 ### L0 语言包前置（一次做，所有语言共用）
-- [ ] **L0.1** 术语表 `docs/i18n-glossary.tsv`：固定 30 个高频术语的统一译法
+- [x] **L0.1** 术语表 `docs/i18n-glossary.tsv`：固定 30 个高频术语的统一译法
       （boot entry / ESP / NVRAM / next boot / pending / undo / loader 名 / 在线离线 / 探测 / 令牌…），
       品牌词列入"不翻译"列（GRUB/rEFInd/RefindPlus/OpenCore/systemd-boot/Clover/ESP/NVRAM/APFS/OCBtOrder）
-- [ ] **L0.2** 语言清单与回退链落到代码常量（`SUPPORTED_LOCALES` + `FALLBACK_CHAIN`）：
+- [x] **L0.2** 语言清单与回退链落到代码常量（`SUPPORTED_LOCALES` + `FALLBACK_CHAIN`）：
       `zh-HK → zh-TW → zh-CN → en-US`；`pt-PT → pt-BR → en-US`；其余 `→ en-US`
-- [ ] **L0.3** PC：`ui-vue/src/i18n/messages/{locale}.ts` 按语言一文件；英文/es/pt 用**同一 key 树**，缺失即 lint 报错
+- [x] **L0.3** PC：`ui-vue/src/i18n/messages/{locale}.ts` 按语言一文件；英文/es/pt 用**同一 key 树**，缺失即 lint 报错
 - [ ] **L0.4** Android：`values-<locale>/strings.xml`（`values-zh-rTW`、`values-ja`、`values-ko`、`values-de`、`values-ru`、`values-pt-rBR`、`values-es`）
 - [ ] **L0.5** iOS：`Localizable.xcstrings` 内新增 8 个语言（Source Language = zh-Hans）
 - [ ] **L0.6** 伪本地化（pseudo-locale）开关：`en-XA`（PC/Android/iOS），用来自查"是否有文案没走 t()"

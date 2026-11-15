@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useUiStateStore } from "@/stores/uiState";
+import { SUPPORTED_LOCALES, LOCALE_LABELS, currentPref, setLocale, type LangPref } from "@/i18n";
 import {
   call,
   setAutostart,
@@ -165,11 +166,33 @@ const guestUiTheme = (() => {
   }
 })();
 const isGuestUi = computed(() => guestUiTheme !== "");
+/** 语言偏好：'auto' = 跟随系统 */
+const langPref = ref<LangPref>(currentPref());
+function onLangChange(e: Event) {
+  const v = (e.target as HTMLSelectElement).value as LangPref;
+  langPref.value = v;
+  setLocale(v);
+}
+const LANG_OPTIONS = [
+  { v: "auto" as LangPref, label: "跟随系统 / Auto" },
+  ...SUPPORTED_LOCALES.map((loc) => ({ v: loc as LangPref, label: LOCALE_LABELS[loc] })),
+];
 </script>
 
 <template>
   <section aria-label="应用设置" class="settings">
     <h2>应用设置</h2>
+
+    <!-- 语言 / Language（i18n：Tier0 + Tier1 共 9 种，'auto' 跟随系统） -->
+    <label class="setting">
+      <span class="setting-text">
+        <strong>语言 / Language</strong>
+        <small>界面语言；选择「跟随系统」则随系统语言自动切换</small>
+      </span>
+      <select id="app-language" :value="langPref" @change="onLangChange">
+        <option v-for="o in LANG_OPTIONS" :key="o.v" :value="o.v">{{ o.label }}</option>
+      </select>
+    </label>
 
     <!-- 开机启动 -->
     <label class="setting">
