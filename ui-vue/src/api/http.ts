@@ -12,11 +12,12 @@
  */
 
 import type { UiState } from "./types";
+import { t } from "@/i18n";
 
 export const API_BASE = "";
 
 export class AuthError extends Error {
-  constructor(message = "访问令牌无效（401）") {
+  constructor(message = t("api.invalidToken")) {
     super(message);
     this.name = "AuthError";
   }

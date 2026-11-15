@@ -6,6 +6,7 @@
  */
 
 import { computed } from "vue";
+import { t } from "@/i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import {
   TRANSPORT_AUTO,
@@ -21,13 +22,13 @@ export function useTransport() {
   const label = computed(() => {
     switch (ui.activeTransport) {
       case "ipc":
-        return "本机直连";
+        return t("ts.local");
       case "ws":
-        return "推送中";
+        return t("ts.pushing");
       case "http":
-        return "轮询中";
+        return t("ts.polling");
       default:
-        return ui.pushError || "未连接";
+        return ui.pushError || t("hub.state.notConnected");
     }
   });
 
@@ -38,11 +39,11 @@ export function useTransport() {
   const modeLabel = computed(() => {
     switch (ui.transportMode) {
       case TRANSPORT_PUSH:
-        return "推送（WebSocket）";
+        return t("ts.pushWs");
       case TRANSPORT_POLL:
-        return "轮询（HTTP）";
+        return t("ts.pollHttp");
       default:
-        return "自动（推送优先，失败回落轮询）";
+        return t("ts.auto");
     }
   });
 

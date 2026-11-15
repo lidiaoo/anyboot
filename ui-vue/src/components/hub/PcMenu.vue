@@ -182,7 +182,7 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
       <button role="menuitem" type="button" id="pcConnectAllItem" :class="{ 'is-on': connectAll }" @click="toggleConnectAll">
         <span id="pcConnectAllText">{{ $t("menu.connectAll") }}</span>
       </button>
-      <button role="menuitem" type="button" data-act="transport" disabled title="PC 端经系统浏览器内核直连服务端页面，无需选择传输方式（手机端才需要）">{{ $t("menu.transport") }}</button>
+      <button role="menuitem" type="button" data-act="transport" disabled :title="$t('menu.transportTip')">{{ $t("menu.transport") }}</button>
       <div class="divider" />
 
       <div class="caption">{{ $t("menu.capGuest") }}</div>

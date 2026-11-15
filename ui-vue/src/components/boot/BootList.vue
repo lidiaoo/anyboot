@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { t } from "@/i18n";
 import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
 import { useUiStateStore } from "@/stores/uiState";
@@ -92,7 +93,7 @@ async function switchEntry(selector: string) {
       await call("switch_boot_channel", { target: spec, title: rowTitle });
     }
   } catch (e) {
-    toast.show("切换失败：" + e, "bad");
+    toast.show(t("boot.switchFailToast", { msg: String(e) }), "bad");
   }
 }
 
@@ -187,14 +188,14 @@ const grubEntries = computed<EntryData[]>(() => {
 
 // 旧版 boot-list-view.js 的 OC 菜单标签映射
 const OC_KIND_LABEL: Record<string, string> = {
-  macos: "macOS", windows: "Windows", generic: "泛型", linux: "Linux", tool: "工具项", unknown: "未知",
+  macos: "macOS", windows: "Windows", generic: "hub.class.generic", linux: "Linux", tool: "hub.class.tool", unknown: "boot.unknown",
 };
 const OC_SOURCE_LABEL: Record<string, string> = {
-  bootorder: "固件 BootOrder", bless: "bless 扫描", preboot: "APFS Preboot", protocol: "协议驱动",
+  bootorder: "hub.oc.firmware", bless: "oc.blessScan", preboot: "APFS Preboot", protocol: "oc.protocolDriver",
 };
 function ocSourceLabel(source: string, orderSource: string): string {
-  if (source === "bootorder") return orderSource === "private" ? "OC 私有 OCBtOrder" : "固件 BootOrder";
-  return OC_SOURCE_LABEL[source] || source;
+  if (source === "bootorder") return orderSource === "private" ? t("hub.oc.private") : t("hub.oc.firmware");
+  return OC_SOURCE_LABEL[source] ? t(OC_SOURCE_LABEL[source]) : source;
 }
 /** 三通道的条目（OpenCore 的动作行在 menuPreview 里） */
 const channelEntries = computed<EntryData[]>(() => {
@@ -224,7 +225,7 @@ const channelEntries = computed<EntryData[]>(() => {
       class: row.kind,
       submenu: null,
       // 旧版 ocMenuRow：类型标签 + 来源标签 + 卷·路径 + 备注
-      tags: [OC_KIND_LABEL[row.kind] || row.kind, ocSourceLabel(row.source, orderSource)].filter(Boolean),
+      tags: [OC_KIND_LABEL[row.kind] ? t(OC_KIND_LABEL[row.kind]) : row.kind, ocSourceLabel(row.source, orderSource)].filter(Boolean),
       sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : row.path,
       note: row.note || undefined,
     }));
@@ -297,7 +298,7 @@ const emit = defineEmits<{
       :disabled="disabled"
       @select="(selector) => { switchEntry(selector); emit('select', selector); }"
     />
-    <p v-if="!entries.length" class="boot-list-empty">没有可用条目</p>
+    <p v-if="!entries.length" class="boot-list-empty">{{ $t("boot.listEmpty") }}</p>
   </div>
 </template>
 

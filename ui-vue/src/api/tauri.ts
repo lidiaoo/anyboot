@@ -12,6 +12,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "@/i18n";
 
 /** 是否跑在 Tauri 里（浏览器调试时为 false） */
 export function isTauri(): boolean {
@@ -55,7 +56,7 @@ async function httpCall<T>(command: string, args?: Record<string, unknown>): Pro
   });
   const json = (await resp.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; message?: string };
   if (!resp.ok || json.ok === false) {
-    throw new Error(json.message || `命令失败：${command}`);
+    throw new Error(json.message || t("api.commandFailed", { command }));
   }
   return json.result as T;
 }

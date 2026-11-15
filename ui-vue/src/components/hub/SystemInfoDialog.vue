@@ -136,8 +136,8 @@ function fmtUptime(sec: number): string {
         </template>
       </div>
       <div class="dialog-foot">
-        <button type="button" class="btn" id="sysInfoCopy" @click="copyAll">复制</button>
-        <button type="button" class="btn primary" id="sysInfoOk" @click="emit('close')">关闭</button>
+        <button type="button" class="btn" id="sysInfoCopy" @click="copyAll">{{ $t("common.copy") }}</button>
+        <button type="button" class="btn primary" id="sysInfoOk" @click="emit('close')">{{ $t("common.close") }}</button>
       </div>
     </div>
   </div>

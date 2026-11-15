@@ -53,11 +53,11 @@ const path = computed(() => {
 <template>
   <div class="latency">
     <div class="head">
-      <span class="lbl">延迟趋势</span>
+      <span class="lbl">{{ $t("lat.title") }}</span>
       <span v-if="stats" class="stats">
-        最近 <b>{{ stats.last }}</b> ms · 均 {{ stats.avg }} · 低 {{ stats.min }} · 高 {{ stats.max }}
+        {{ $t("lat.stats", { last: stats.last, avg: stats.avg, min: stats.min, max: stats.max }) }}
       </span>
-      <span v-else class="stats dim">还没有采样 —— 点「测试连接」开始</span>
+      <span v-else class="stats dim">{{ $t("lat.noSample") }}</span>
     </div>
     <svg v-if="path" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
       <path :d="path" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />

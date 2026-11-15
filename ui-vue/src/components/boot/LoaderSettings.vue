@@ -27,7 +27,7 @@ const open = ref(Boolean(props.defaultOpen));
     >
       <span class="gear" aria-hidden="true" style="margin-right: 4px">⚙</span>
       <span class="grow">
-        <span>引导器设置</span>
+        <span>{{ $t("boot.loaderSettings") }}</span>
       </span>
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
