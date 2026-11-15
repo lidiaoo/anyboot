@@ -1888,6 +1888,17 @@
 "and.connClosed" = "Connection closed";
 "and.ptyClosed" = "Terminal channel closed right after opening (server may disallow PTY)";
 "and.retryBackoff" = "Connection failed; retry in {n}s (auto backoff)";
+"and.connOkMsShort" = "OK {ms}ms";
+"and.channelBoot" = "{x} entries";
+"and.pairUpdated" = "Updated the same pairing in “{x}”: ";
+"and.pairAddedP" = "Added to “{x}”: ";
+"and.confirmDelComputer" = "Delete this computer?";
+"and.probeAllShort" = "Parallel all";
+"and.probeFirstShort" = "Parallel first";
+"and.localFileReadFail" = "Local file unreadable (may be deleted)";
+"and.noteServerBigger" = "(server file larger than expected; switched to re-upload)";
+"and.uploadedToP" = "Uploaded to {x}{n}";
+"and.channelWord" = "Channel";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

@@ -1925,6 +1925,17 @@ Telnet：実験的端末のみ。</string>
     <string name="and_connClosed">接続が閉じられました</string>
     <string name="and_ptyClosed">端末チャネルが開幕直後に閉じました（PTY 不許可の可能性）</string>
     <string name="and_retryBackoff">接続失敗。%1$d 秒後に再試行（自動バックオフ）</string>
+    <string name="and_connOkMsShort">OK %1$sms</string>
+    <string name="and_channelBoot">%1$s 起動項目</string>
+    <string name="and_pairUpdated">「%1$s」の同じペアリングを更新：</string>
+    <string name="and_pairAddedP">「%1$s」に追加：</string>
+    <string name="and_confirmDelComputer">この PC を削除しますか？</string>
+    <string name="and_probeAllShort">並行全て</string>
+    <string name="and_probeFirstShort">並行最初</string>
+    <string name="and_localFileReadFail">ローカルファイルを読めません（削除された可能性）</string>
+    <string name="and_noteServerBigger">（サーバーのファイルが想定より大きい。再アップロードに切替）</string>
+    <string name="and_uploadedToP">%1$s にアップロード%2$d</string>
+    <string name="and_channelWord">チャネル</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

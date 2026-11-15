@@ -1888,6 +1888,17 @@
 "and.connClosed" = "连接已关闭";
 "and.ptyClosed" = "终端通道刚建立就关闭了（服务器可能不允许分配 PTY）";
 "and.retryBackoff" = "连接失败过，{n} 秒后再试（自动退避）";
+"and.connOkMsShort" = "通 {ms}ms";
+"and.channelBoot" = "{x} 启动项";
+"and.pairUpdated" = "已更新「{x}」里的同一条配对：";
+"and.pairAddedP" = "已加入「{x}」：";
+"and.confirmDelComputer" = "确定删除这台电脑吗？";
+"and.probeAllShort" = "并发全部";
+"and.probeFirstShort" = "并发首个";
+"and.localFileReadFail" = "本地文件读不到（可能已被删除）";
+"and.noteServerBigger" = "（服务器上的文件比预期大，已改为重新上传）";
+"and.uploadedToP" = "已上传到 {x}{n}";
+"and.channelWord" = "通道";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

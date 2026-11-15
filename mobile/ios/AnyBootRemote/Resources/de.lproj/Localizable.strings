@@ -1888,6 +1888,17 @@
 "and.connClosed" = "Verbindung geschlossen";
 "and.ptyClosed" = "Terminalkanal schloss direkt nach Öffnen (PTY evtl. verboten)";
 "and.retryBackoff" = "Verbindung fehlgeschlagen; in {n}s erneut (Auto-Backoff)";
+"and.connOkMsShort" = "OK {ms}ms";
+"and.channelBoot" = "{x}-Einträge";
+"and.pairUpdated" = "Dieselbe Kopplung in „{x}“ aktualisiert: ";
+"and.pairAddedP" = "Zu „{x}“ hinzugefügt: ";
+"and.confirmDelComputer" = "Diesen Computer löschen?";
+"and.probeAllShort" = "Parallel alle";
+"and.probeFirstShort" = "Parallel erster";
+"and.localFileReadFail" = "Lokale Datei nicht lesbar (evtl. gelöscht)";
+"and.noteServerBigger" = "(Serverdatei größer als erwartet; auf Neu-Upload)";
+"and.uploadedToP" = "Hochgeladen nach {x}{n}";
+"and.channelWord" = "Kanal";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

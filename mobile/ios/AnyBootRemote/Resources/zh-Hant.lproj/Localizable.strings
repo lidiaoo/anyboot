@@ -1888,6 +1888,17 @@
 "and.connClosed" = "連線已關閉";
 "and.ptyClosed" = "終端機通道剛建立就關閉了（伺服器可能不允許分配 PTY）";
 "and.retryBackoff" = "連線失敗過，{n} 秒後再試（自動退避）";
+"and.connOkMsShort" = "通 {ms}ms";
+"and.channelBoot" = "{x} 啟動項";
+"and.pairUpdated" = "已更新「{x}」裡的同一條配對：";
+"and.pairAddedP" = "已加入「{x}」：";
+"and.confirmDelComputer" = "確定刪除這台電腦嗎？";
+"and.probeAllShort" = "並行全部";
+"and.probeFirstShort" = "並行首個";
+"and.localFileReadFail" = "本機檔案讀不到（可能已被刪除）";
+"and.noteServerBigger" = "（伺服器上的檔案比預期大，已改為重新上傳）";
+"and.uploadedToP" = "已上傳到 {x}{n}";
+"and.channelWord" = "通道";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

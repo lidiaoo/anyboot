@@ -1925,6 +1925,17 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_connClosed">Connection closed</string>
     <string name="and_ptyClosed">Terminal channel closed right after opening (server may disallow PTY)</string>
     <string name="and_retryBackoff">Connection failed; retry in %1$ds (auto backoff)</string>
+    <string name="and_connOkMsShort">OK %1$sms</string>
+    <string name="and_channelBoot">%1$s entries</string>
+    <string name="and_pairUpdated">Updated the same pairing in “%1$s”: </string>
+    <string name="and_pairAddedP">Added to “%1$s”: </string>
+    <string name="and_confirmDelComputer">Delete this computer?</string>
+    <string name="and_probeAllShort">Parallel all</string>
+    <string name="and_probeFirstShort">Parallel first</string>
+    <string name="and_localFileReadFail">Local file unreadable (may be deleted)</string>
+    <string name="and_noteServerBigger">(server file larger than expected; switched to re-upload)</string>
+    <string name="and_uploadedToP">Uploaded to %1$s%2$d</string>
+    <string name="and_channelWord">Channel</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

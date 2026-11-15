@@ -1925,6 +1925,17 @@ Telnet：只有实验性终端。</string>
     <string name="and_connClosed">连接已关闭</string>
     <string name="and_ptyClosed">终端通道刚建立就关闭了（服务器可能不允许分配 PTY）</string>
     <string name="and_retryBackoff">连接失败过，%1$d 秒后再试（自动退避）</string>
+    <string name="and_connOkMsShort">通 %1$sms</string>
+    <string name="and_channelBoot">%1$s 启动项</string>
+    <string name="and_pairUpdated">已更新「%1$s」里的同一条配对：</string>
+    <string name="and_pairAddedP">已加入「%1$s」：</string>
+    <string name="and_confirmDelComputer">确定删除这台电脑吗？</string>
+    <string name="and_probeAllShort">并发全部</string>
+    <string name="and_probeFirstShort">并发首个</string>
+    <string name="and_localFileReadFail">本地文件读不到（可能已被删除）</string>
+    <string name="and_noteServerBigger">（服务器上的文件比预期大，已改为重新上传）</string>
+    <string name="and_uploadedToP">已上传到 %1$s%2$d</string>
+    <string name="and_channelWord">通道</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

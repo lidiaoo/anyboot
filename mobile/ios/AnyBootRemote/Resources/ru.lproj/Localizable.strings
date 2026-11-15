@@ -1888,6 +1888,17 @@
 "and.connClosed" = "Соединение закрыто";
 "and.ptyClosed" = "Канал терминала закрылся сразу после открытия (возможно, PTY запрещён)";
 "and.retryBackoff" = "Сбой подключения; повтор через {n} с (авто-откат)";
+"and.connOkMsShort" = "OK {ms}мс";
+"and.channelBoot" = "Записи {x}";
+"and.pairUpdated" = "Обновлено то же сопряжение в «{x}»: ";
+"and.pairAddedP" = "Добавлено в «{x}»: ";
+"and.confirmDelComputer" = "Удалить этот компьютер?";
+"and.probeAllShort" = "Параллельно все";
+"and.probeFirstShort" = "Параллельно первый";
+"and.localFileReadFail" = "Локальный файл не читается (возможно, удалён)";
+"and.noteServerBigger" = "(файл на сервере больше ожидаемого; повторная загрузка)";
+"and.uploadedToP" = "Загружено в {x}{n}";
+"and.channelWord" = "Канал";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

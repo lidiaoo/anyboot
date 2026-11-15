@@ -681,7 +681,7 @@ struct ComputerListView: View {
     /// 完整失败原因走 [probeReason]，垫在地址行下面。
     private func probeStateText(_ hit: ProbeEngine.Hit?) -> String {
         guard let hit else { return L("and.notProbed") }
-        if hit.ok { return "通 \(hit.ms)ms" }
+        if hit.ok { return L("and.connOkMsShort", hit.ms) }
         if hit.error.contains("未测出") || hit.error.contains("未探测") { return L("hub.conn.fail") }
         return L("hub.conn.fail")
     }
@@ -1223,7 +1223,7 @@ struct ComputerListView: View {
             }
             // 未检测到的收进一行折叠提示（PC 端「OpenCore（未检测到）」同款语义）
             if !missing.isEmpty {
-                Text(missing.map { $0.label }.joined(separator: "、") + "（未检测到）")
+                Text(missing.map { $0.label }.joined(separator: "、") + L("and.notDetectedParen"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                     .lineLimit(1)
@@ -1725,10 +1725,10 @@ struct ComputerListView: View {
                 VStack(spacing: 0) {
                     // 标题行
                     HStack(spacing: 0) {
-                        Text(help ? "操作说明"
+                        Text(help ? L("hub.list.help")
                              : request.kind == Kind.channel
-                                ? "\(request.channel?.label ?? "通道") 启动项"
-                                : (request.kind == Kind.refind ? "rEFInd 启动项" : "GRUB 启动项"))
+                                ? L("and.channelBoot", request.channel?.label ?? L("and.channelWord"))
+                                : (request.kind == Kind.refind ? L("and.channelBoot", "rEFInd") : L("and.channelBoot", "GRUB")))
                             .font(.system(size: 14.5, weight: .bold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)

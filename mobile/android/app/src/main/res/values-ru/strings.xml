@@ -1925,6 +1925,17 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_connClosed">Соединение закрыто</string>
     <string name="and_ptyClosed">Канал терминала закрылся сразу после открытия (возможно, PTY запрещён)</string>
     <string name="and_retryBackoff">Сбой подключения; повтор через %1$d с (авто-откат)</string>
+    <string name="and_connOkMsShort">OK %1$sмс</string>
+    <string name="and_channelBoot">Записи %1$s</string>
+    <string name="and_pairUpdated">Обновлено то же сопряжение в «%1$s»: </string>
+    <string name="and_pairAddedP">Добавлено в «%1$s»: </string>
+    <string name="and_confirmDelComputer">Удалить этот компьютер?</string>
+    <string name="and_probeAllShort">Параллельно все</string>
+    <string name="and_probeFirstShort">Параллельно первый</string>
+    <string name="and_localFileReadFail">Локальный файл не читается (возможно, удалён)</string>
+    <string name="and_noteServerBigger">(файл на сервере больше ожидаемого; повторная загрузка)</string>
+    <string name="and_uploadedToP">Загружено в %1$s%2$d</string>
+    <string name="and_channelWord">Канал</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

@@ -634,7 +634,7 @@ final class TransferCenter: ObservableObject {
             }
             let localTotal = partialSize(path: localPath)
             guard localTotal > 0 else {
-                throw TransferError.message("本地文件读不到（可能已被删除）")
+                throw TransferError.message(L("and.localFileReadFail"))
             }
             await center.applyBaseline(id: taskId, total: localTotal,
                                        remoteSize: nil, remoteMTime: nil)
@@ -650,7 +650,7 @@ final class TransferCenter: ObservableObject {
             if resume && recorded >= 0 && startAt > recorded {
                 // 远端比我们记录的多 —— 有别人往里写过，接着追加会拼出一个内容错位的文件
                 startAt = 0
-                note = "（服务器上的文件比预期大，已改为重新上传）"
+                note = L("and.noteServerBigger")
             }
             if startAt > localTotal { startAt = 0 }
 
@@ -697,7 +697,7 @@ final class TransferCenter: ObservableObject {
             }
             await center.applyProgress(id: taskId, transferred: localTotal, total: localTotal)
             await center.finish(taskId, state: .done,
-                                message: "已上传到 \(snapshot.remotePath)\(note)")
+                                message: L("and.uploadedToP", snapshot.remotePath, note))
         } catch {
             let stopped = box.value
             if stopped != .none {

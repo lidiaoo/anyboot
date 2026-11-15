@@ -1925,6 +1925,17 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_connClosed">連線已關閉</string>
     <string name="and_ptyClosed">終端機通道剛建立就關閉了（伺服器可能不允許分配 PTY）</string>
     <string name="and_retryBackoff">連線失敗過，%1$d 秒後再試（自動退避）</string>
+    <string name="and_connOkMsShort">通 %1$sms</string>
+    <string name="and_channelBoot">%1$s 啟動項</string>
+    <string name="and_pairUpdated">已更新「%1$s」裡的同一條配對：</string>
+    <string name="and_pairAddedP">已加入「%1$s」：</string>
+    <string name="and_confirmDelComputer">確定刪除這台電腦嗎？</string>
+    <string name="and_probeAllShort">並行全部</string>
+    <string name="and_probeFirstShort">並行首個</string>
+    <string name="and_localFileReadFail">本機檔案讀不到（可能已被刪除）</string>
+    <string name="and_noteServerBigger">（伺服器上的檔案比預期大，已改為重新上傳）</string>
+    <string name="and_uploadedToP">已上傳到 %1$s%2$d</string>
+    <string name="and_channelWord">通道</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

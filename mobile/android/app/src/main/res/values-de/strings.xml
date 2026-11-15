@@ -1925,6 +1925,17 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_connClosed">Verbindung geschlossen</string>
     <string name="and_ptyClosed">Terminalkanal schloss direkt nach Öffnen (PTY evtl. verboten)</string>
     <string name="and_retryBackoff">Verbindung fehlgeschlagen; in %1$ds erneut (Auto-Backoff)</string>
+    <string name="and_connOkMsShort">OK %1$sms</string>
+    <string name="and_channelBoot">%1$s-Einträge</string>
+    <string name="and_pairUpdated">Dieselbe Kopplung in „%1$s“ aktualisiert: </string>
+    <string name="and_pairAddedP">Zu „%1$s“ hinzugefügt: </string>
+    <string name="and_confirmDelComputer">Diesen Computer löschen?</string>
+    <string name="and_probeAllShort">Parallel alle</string>
+    <string name="and_probeFirstShort">Parallel erster</string>
+    <string name="and_localFileReadFail">Lokale Datei nicht lesbar (evtl. gelöscht)</string>
+    <string name="and_noteServerBigger">(Serverdatei größer als erwartet; auf Neu-Upload)</string>
+    <string name="and_uploadedToP">Hochgeladen nach %1$s%2$d</string>
+    <string name="and_channelWord">Kanal</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

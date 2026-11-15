@@ -1925,6 +1925,17 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_connClosed">Conexión cerrada</string>
     <string name="and_ptyClosed">El canal del terminal se cerró al abrir (PTY quizá no permitido)</string>
     <string name="and_retryBackoff">Fallo de conexión; reintentar en %1$ds (retroceso auto)</string>
+    <string name="and_connOkMsShort">OK %1$sms</string>
+    <string name="and_channelBoot">Entradas %1$s</string>
+    <string name="and_pairUpdated">Actualizado el mismo emparejamiento en «%1$s»: </string>
+    <string name="and_pairAddedP">Añadido a «%1$s»: </string>
+    <string name="and_confirmDelComputer">¿Eliminar este equipo?</string>
+    <string name="and_probeAllShort">Paralelo todos</string>
+    <string name="and_probeFirstShort">Paralelo primero</string>
+    <string name="and_localFileReadFail">Archivo local ilegible (quizá eliminado)</string>
+    <string name="and_noteServerBigger">(archivo del servidor mayor de lo esperado; volver a subir)</string>
+    <string name="and_uploadedToP">Subido a %1$s%2$d</string>
+    <string name="and_channelWord">Canal</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

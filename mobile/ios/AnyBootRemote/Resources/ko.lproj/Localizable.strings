@@ -1888,6 +1888,17 @@
 "and.connClosed" = "연결이 닫힘";
 "and.ptyClosed" = "터미널 채널이 열리자마자 닫힘(PTY 불가 가능)";
 "and.retryBackoff" = "연결 실패. {n}초 후 재시도(자동 백오프)";
+"and.connOkMsShort" = "정상 {ms}ms";
+"and.channelBoot" = "{x} 부팅 항목";
+"and.pairUpdated" = "‘{x}’의 같은 페어링 업데이트: ";
+"and.pairAddedP" = "‘{x}’에 추가: ";
+"and.confirmDelComputer" = "이 컴퓨터를 삭제할까요?";
+"and.probeAllShort" = "병렬 전체";
+"and.probeFirstShort" = "병렬 첫 번째";
+"and.localFileReadFail" = "로컬 파일 읽기 불가(삭제되었을 수 있음)";
+"and.noteServerBigger" = "(서버 파일이 예상보다 큼. 다시 업로드로 전환)";
+"and.uploadedToP" = "{x}에 업로드{n}";
+"and.channelWord" = "채널";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

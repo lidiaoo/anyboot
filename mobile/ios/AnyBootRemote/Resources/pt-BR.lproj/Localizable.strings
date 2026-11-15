@@ -1888,6 +1888,17 @@
 "and.connClosed" = "Conexão fechada";
 "and.ptyClosed" = "Canal do terminal fechou logo após abrir (PTY talvez proibido)";
 "and.retryBackoff" = "Falha na conexão; tentar em {n}s (backoff auto)";
+"and.connOkMsShort" = "OK {ms}ms";
+"and.channelBoot" = "Entradas {x}";
+"and.pairUpdated" = "Atualizado o mesmo pareamento em “{x}”: ";
+"and.pairAddedP" = "Adicionado a “{x}”: ";
+"and.confirmDelComputer" = "Excluir este computador?";
+"and.probeAllShort" = "Paralelo todos";
+"and.probeFirstShort" = "Paralelo primeiro";
+"and.localFileReadFail" = "Arquivo local ilegível (talvez excluído)";
+"and.noteServerBigger" = "(arquivo no servidor maior que o esperado; reenviar)";
+"and.uploadedToP" = "Enviado para {x}{n}";
+"and.channelWord" = "Canal";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

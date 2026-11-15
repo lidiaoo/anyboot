@@ -1925,6 +1925,17 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_connClosed">연결이 닫힘</string>
     <string name="and_ptyClosed">터미널 채널이 열리자마자 닫힘(PTY 불가 가능)</string>
     <string name="and_retryBackoff">연결 실패. %1$d초 후 재시도(자동 백오프)</string>
+    <string name="and_connOkMsShort">정상 %1$sms</string>
+    <string name="and_channelBoot">%1$s 부팅 항목</string>
+    <string name="and_pairUpdated">‘%1$s’의 같은 페어링 업데이트: </string>
+    <string name="and_pairAddedP">‘%1$s’에 추가: </string>
+    <string name="and_confirmDelComputer">이 컴퓨터를 삭제할까요?</string>
+    <string name="and_probeAllShort">병렬 전체</string>
+    <string name="and_probeFirstShort">병렬 첫 번째</string>
+    <string name="and_localFileReadFail">로컬 파일 읽기 불가(삭제되었을 수 있음)</string>
+    <string name="and_noteServerBigger">(서버 파일이 예상보다 큼. 다시 업로드로 전환)</string>
+    <string name="and_uploadedToP">%1$s에 업로드%2$d</string>
+    <string name="and_channelWord">채널</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

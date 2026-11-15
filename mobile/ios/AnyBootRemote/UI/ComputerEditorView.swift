@@ -290,7 +290,7 @@ struct ComputerEditorView: View {
         .presentationDragIndicator(.hidden)
         // 允许下滑关闭（首次运行也允许：只有「保存」按钮时滑不掉就等于卡死）
         .interactiveDismissDisabled(false)
-        .confirmationDialog("确定删除这台电脑吗？", isPresented: $showDelete, titleVisibility: .visible) {
+        .confirmationDialog(L("and.confirmDelComputer"), isPresented: $showDelete, titleVisibility: .visible) {
             Button(L("common.delete"), role: .destructive) {
                 if let id = profile?.id { onFinish(.delete(id)) }
                 dismiss()
@@ -620,7 +620,7 @@ struct ComputerEditorView: View {
             return
         }
         let label = RemotePair.blockLabel(parsed.kind)
-        remoteHint = (existed ? "已更新「\(label)」里的同一条配对：" : "已加入「\(label)」：") + parsed.tunnel
+        remoteHint = (existed ? L("and.pairUpdated", label) : L("and.pairAddedP", label)) + parsed.tunnel
         remoteText = ""
     }
 
@@ -767,9 +767,9 @@ struct ComputerEditorView: View {
     /// 探测模式的短标签（折叠头摘要用）
     private func probeShort(_ mode: String) -> String {
         switch mode {
-        case ServerProfile.probeParallelAll: return "并发全部"
+        case ServerProfile.probeParallelAll: return L("and.probeAllShort")
         case ServerProfile.probeSerial: return L("remote.probeSerial")
-        default: return "并发首个"
+        default: return L("and.probeFirstShort")
         }
     }
 
