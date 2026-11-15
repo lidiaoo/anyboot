@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
 
@@ -45,11 +46,11 @@ interface SyncState {
  * 用错 key 会让导出的备份文件与手机端 / 旧版本互不兼容。
  */
 const CATEGORIES = [
-  { id: "servers", name: "电脑列表", desc: "电脑档案与连接配置" },
-  { id: "jumps", name: "SSH 服务器", desc: "跳板机 / 服务器档案（含密码明文）" },
-  { id: "keys", name: "SSH 密钥", desc: "私钥与公钥（导出含私钥明文）" },
-  { id: "terminal", name: "偏好设置", desc: "终端与传输偏好（跨端共同子集）" },
-  { id: "history", name: "连接记录", desc: "会话历史与信任指纹" },
+  { id: "servers", name: "bk.catServers", desc: "bk.descServers" },
+  { id: "jumps", name: "bk.catJumps", desc: "bk.descJumps" },
+  { id: "keys", name: "bk.catKeys", desc: "bk.descKeys" },
+  { id: "terminal", name: "bk.catTerminal", desc: "bk.descTerminal" },
+  { id: "history", name: "bk.catHistory", desc: "bk.descHistory" },
 ] as const;
 
 const sync = ref<SyncState | null>(null);
@@ -69,9 +70,9 @@ const exportDisabled = computed(() => Boolean(busy.value) || (exportIncludeKeys.
 /** 旧版 exportNote 文案 */
 const exportNoteText = computed(() => {
   if (exportIncludeKeys.value) {
-    return exportPasswordValid() ? "将加密导出（含密钥明文）" : "勾选了 SSH 密钥 —— 必须设置口令（≥4 位，两次一致）";
+    return exportPasswordValid() ? t("bk.exportEncryptWithKeys") : t("bk.needPwForKeys");
   }
-  return exportPw1.value ? "将加密导出" : "不加密导出";
+  return exportPw1.value ? t("bk.exportEncrypted") : t("bk.exportPlain");
 });
 // 旧版默认：五类全选（exportChecked = Set(["servers","jumps","keys","terminal","history"])）
 const exportCats = ref<string[]>(["servers", "jumps", "keys", "terminal", "history"]);
@@ -92,7 +93,7 @@ const syncEncryptErr = ref("");
 /** 同步是否被锁定（旧版 #syncLockInfo：导入/导出进行中） */
 const locked = computed(() => Boolean(busy.value));
 /** 预览来源行（旧版 #prevSrc） */
-const previewSrc = computed(() => (importPath.value ? `来源：${importPath.value}` : ""));
+const previewSrc = computed(() => (importPath.value ? t("bk.srcPreview", { path: importPath.value }) : ""));
 /** 加密备份口令弹层（旧版 #pwModal） */
 const pwOpen = ref(false);
 const importPw = ref("");
@@ -101,7 +102,7 @@ const pwAttempts = ref(0);
 
 async function submitPw() {
   if (!importPw.value.trim()) {
-    importPwErr.value = "请输入口令";
+    importPwErr.value = t("bk.needPw");
     return;
   }
   try {
@@ -115,7 +116,7 @@ async function submitPw() {
     pwAttempts.value += 1;
     const msg = String(error);
     importPwErr.value = msg.includes("口令错误")
-      ? `口令不对（已试 ${pwAttempts.value} 次）`
+      ? t("bk.pwWrong", { n: pwAttempts.value })
       : msg;
   }
 }
@@ -134,7 +135,7 @@ function fillPreview(preview: Record<string, unknown>) {
   const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
   previewWarn.value =
     totalConflicts > 0
-      ? `备份中有 ${totalConflicts} 条与本机同 ID 的条目 —— 选「跳过已存在」保持不变，选「覆盖」则替换。`
+      ? t("bk.conflictHint", { n: totalConflicts })
       : "";
   importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
   // 旧版 ab-import-strategy：记住上次用的导入策略
@@ -214,8 +215,8 @@ const pwStrengthColor = computed(() => {
 const pwError = computed(() => {
   const a = exportPw1.value;
   const b = exportPw2.value;
-  if (a && a.length < 4) return "口令至少 4 位";
-  if (b && a !== b) return "两次输入不一致";
+  if (a && a.length < 4) return t("bk.pwMin");
+  if (b && a !== b) return t("bk.pwMismatch");
   return "";
 });
 
@@ -231,15 +232,15 @@ function toggleCat(which: "export" | "sync" | "import", id: string) {
 
 async function doExport() {
   if (!exportCats.value.length) {
-    showToast("至少选择一个分类");
+    showToast(t("bk.selectOneCat"));
     return;
   }
   if (exportPw1.value !== exportPw2.value) {
-    errorText.value = "两次口令不一致";
+    errorText.value = t("bk.pwMismatch");
     return;
   }
   if (exportIncludeKeys.value && (exportPw1.value.length < 4 || exportPw1.value !== exportPw2.value)) {
-    showToast("请先把口令设置好（≥4 位，两次一致）");
+    showToast(t("bk.pwNotSet"));
     return;
   }
   // 旧版流程：先挑保存路径（backup_pick_export_path），用户取消就不导出
@@ -259,7 +260,7 @@ async function doExport() {
       : exportCats.value,
     password: usePw ? exportPw1.value : null,
   })) || "";
-  showToast(msg ? `${msg} — ${path}` : `备份文件已导出 — ${path}`);
+  showToast(msg ? t("bk.exportedMsg", { msg, path }) : t("bk.exported", { path }));
 }
 
 /**
@@ -292,7 +293,7 @@ async function doImport() {
     const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
     previewWarn.value =
       totalConflicts > 0
-        ? `备份中有 ${totalConflicts} 条与本机同 ID 的条目 —— 选「跳过已存在」保持不变，选「覆盖」则替换。`
+        ? t("bk.conflictHint", { n: totalConflicts })
         : "";
     importCats.value = ["servers", "jumps", "keys", "terminal", "history"];
     importStrategy.value = "skipExisting";
@@ -307,7 +308,7 @@ function startImport() {
   previewOpen.value = false;
   const totalConflicts = previewRows.value.reduce((sum, row) => sum + row.conflicts, 0);
   if (importStrategy.value === "overwrite" && totalConflicts > 0) {
-    confirmBody.value = `备份中有 ${totalConflicts} 条与本机同 ID 的条目，将以备份内容整条覆盖。本机独有的条目保留。`;
+    confirmBody.value = t("bk.overwriteBody", { n: totalConflicts });
     confirmOpen.value = true;
     return;
   }
@@ -326,7 +327,7 @@ async function executeImport() {
   confirmOpen.value = false;
   pendingMkdir.value = false;
   if (busy.value) return;
-  busy.value = "导入";
+  busy.value = t("bk.importBusy");
   message.value = "";
   errorText.value = "";
   try {
@@ -356,12 +357,12 @@ function normalizeDavUrl(raw: string): string {
 
 async function saveSync(silent = false) {
   if (!syncUrl.value.trim()) {
-    showToast("请先填写服务器地址并保存配置");
+    showToast(t("bk.fillServerAddr"));
     return;
   }
   // 旧版 collectAndSaveConfig：分类空校验 / 加密口令校验 / 条件字段
   if (!syncCats.value.length && !silent) {
-    showToast("至少选择一个同步分类");
+    showToast(t("bk.selectSyncCat"));
     throw new Error("no-categories");
   }
   const cfg: Record<string, unknown> = {
@@ -378,14 +379,14 @@ async function saveSync(silent = false) {
   if (syncPass.value) cfg.password = syncPass.value; // 留空 = 保持已存
   if (syncEncryptPw.value) cfg.encryptPassword = syncEncryptPw.value;
   if (syncEncrypt.value && !syncEncryptPw.value && !sync.value?.hasEncryptPassword) {
-    syncEncryptErr.value = "开启加密需设置同步口令";
+    syncEncryptErr.value = t("bk.syncNeedPw");
     throw new Error("need-encrypt-password");
   }
   await call("backup_sync_save_config", { config: cfg });
   syncPass.value = "";
   syncEncryptPw.value = "";
   await refreshSync();
-  if (!silent) showToast("配置已保存");
+  if (!silent) showToast(t("bk.configSaved"));
 }
 
 function toggleSync() {
@@ -395,7 +396,7 @@ function toggleSync() {
     try {
       if (on) await saveSync(true); // 开同步 = 顺手把表单存了（旧版语义）
       await call("backup_sync_set_enabled", { enabled: on });
-      showToast(on ? "云同步已开启" : "云同步已关闭");
+      showToast(on ? t("bk.syncOn") : t("bk.syncOff"));
       await refreshSync();
     } catch (error) {
       syncEnabled.value = !on;
@@ -406,7 +407,7 @@ function toggleSync() {
 
 function testWebdav() {
   if (!syncUrl.value.trim()) {
-    showToast("请先填写服务器地址并保存配置");
+    showToast(t("bk.fillServerAddr"));
     return;
   }
   void (async () => {
@@ -414,15 +415,15 @@ function testWebdav() {
       await saveSync(true); // 先存再测（旧版语义）
       const result = await call<string>("backup_webdav_test", { config: {} });
       if (result === "ok") {
-        showToast("连接成功 ✓");
+        showToast(t("bk.connOk"));
       } else if (result === "notFound") {
         // 远端目录不存在 → 询问是否创建（旧版 openMkdirConfirm）
-        confirmBody.value = `服务器上还没有 ${syncDir.value.trim() || "AnyBoot"} 目录，要现在创建吗？`;
+        confirmBody.value = t("bk.mkdirAsk", { dir: syncDir.value.trim() || "AnyBoot" });
         confirmOpen.value = true;
         pendingMkdir.value = true;
       }
     } catch (error) {
-      showToast("测试失败：" + error);
+      showToast(t("bk.testFail", { msg: String(error) }));
     }
   })();
 }
@@ -434,9 +435,9 @@ async function createWebdavDir() {
   pendingMkdir.value = false;
   try {
     await call("backup_webdav_mkdir", { config: {} });
-    showToast("目录已创建 ✓");
+    showToast(t("bk.dirCreated"));
   } catch (error) {
-    showToast("创建目录失败：" + error);
+    showToast(t("bk.mkdirFail", { msg: String(error) }));
   }
 }
 
@@ -445,10 +446,10 @@ function syncNow() {
   void (async () => {
     try {
       // 旧版：toast 显示后端返回的同步结果消息
-      const msg = (await call<string>("backup_sync_now")) || "同步完成";
+      const msg = (await call<string>("backup_sync_now")) || t("bk.syncDone");
       showToast(msg);
     } catch (error) {
-      showToast("同步失败：" + error);
+      showToast(t("bk.syncFail", { msg: String(error) }));
     }
     await refreshSync(); // 成败都刷状态（last_sync_ms / last_error）
   })();
@@ -461,7 +462,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>备份</h2></div>
+    <div class="page-head"><h2>{{ $t("bk.title") }}</h2></div>
     <div class="hub-page-body">
       <div class="bk-bk-scroll bk-bk-scroll-thin">
       <!-- ===== 导出 ===== -->
@@ -472,8 +473,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
           </span>
-          <h2>导出备份</h2>
-          <span class="bk-sub">导出为 .json 备份文件，可在手机 / 电脑间互导</span>
+          <h2>{{ $t("bk.exportTitle") }}</h2>
+          <span class="bk-sub">{{ $t("bk.exportSub") }}</span>
         </div>
 
         <div class="bk-cats" id="exportCats">
@@ -493,19 +494,19 @@ useEscape(resultOpen, () => { resultOpen.value = false });
             <circle cx="12" cy="12" r="9" />
             <path d="M12 8v5M12 16h.01" />
           </svg>
-          <span>导出包含 <b>SSH 私钥明文</b>，请设置口令加密，并妥善保管备份文件。</span>
+          <span>{{ $t("bk.exportKeyWarn") }}</span>
         </div>
 
         <div v-if="exportIncludeKeys || exportPw1 || exportPw2" class="bk-pw-zone" id="exportPwZone">
           <div class="bk-pw-grid" id="exportPwGrid">
             <div class="bk-field">
-              <label for="expPw1">备份口令</label>
-              <input id="expPw1" v-model="exportPw1" type="password" placeholder="至少 4 位" autocomplete="new-password" />
+              <label for="expPw1">{{ $t("bk.exportPw") }}</label>
+              <input id="expPw1" v-model="exportPw1" type="password" :placeholder="$t('bk.pwPhMin')" autocomplete="new-password" />
               <div class="bk-strength"><i id="expStrength" :style="{ width: pwStrengthPercent + '%', background: pwStrengthColor }" /></div>
             </div>
             <div class="bk-field">
-              <label for="expPw2">再输一次</label>
-              <input id="expPw2" v-model="exportPw2" type="password" placeholder="两次需一致" autocomplete="new-password" />
+              <label for="expPw2">{{ $t("bk.retype") }}</label>
+              <input id="expPw2" v-model="exportPw2" type="password" :placeholder="$t('bk.pwPhMatch')" autocomplete="new-password" />
               <div class="bk-err" id="expPwErr">{{ pwError }}</div>
             </div>
           </div>
@@ -513,7 +514,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
         <div class="bk-row-actions">
           <button type="button" id="exportBtn" class="bk-btn bk-primary" :disabled="exportDisabled" @click="doExport">
-            导出备份文件
+            {{ $t("bk.exportBtn") }}
           </button>
           <span class="bk-note" id="exportNote">{{ exportNoteText }}</span>
         </div>
@@ -527,14 +528,14 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
           </span>
-          <h2>导入备份</h2>
-          <span class="bk-sub">从 .json 备份文件恢复（手机导出的备份同样可用）</span>
+          <h2>{{ $t("bk.importTitle") }}</h2>
+          <span class="bk-sub">{{ $t("bk.importSub") }}</span>
         </div>
         <div class="bk-row-actions">
           <button type="button" id="importBtn" class="bk-btn bk-primary" :disabled="!!busy" @click="doImport">
-            选择备份文件…
+            {{ $t("bk.pickFile") }}
           </button>
-          <span class="bk-note">导入前会先预览差异，再让你确认</span>
+          <span class="bk-note">{{ $t("bk.importNote") }}</span>
         </div>
       </section>
 
@@ -548,8 +549,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M20 7h-9l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
             </svg>
           </span>
-          <h2>WebDAV 云同步</h2>
-          <label class="bk-switch" style="margin-left: auto" title="开启 / 关闭同步">
+          <h2>{{ $t("bk.syncTitle") }}</h2>
+          <label class="bk-switch" style="margin-left: auto" :title="$t('bk.syncToggleTitle')">
             <input type="checkbox" id="syncEnabled" :checked="syncEnabled" @change="toggleSync" />
             <i />
           </label>
@@ -558,27 +559,27 @@ useEscape(resultOpen, () => { resultOpen.value = false });
         <div class="bk-form-grid" id="syncForm">
           <div class="bk-form-row">
             <div class="bk-field" style="flex: 2 1 280px">
-              <label for="syncUrl">服务器地址</label>
+              <label for="syncUrl">{{ $t("bk.serverUrl") }}</label>
               <input id="syncUrl" v-model="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off" />
             </div>
             <div class="bk-field">
-              <label for="syncDir">目录</label>
+              <label for="syncDir">{{ $t("bk.dir") }}</label>
               <input id="syncDir" v-model="syncDir" placeholder="AnyBoot" autocomplete="off" />
             </div>
           </div>
 
           <div class="bk-form-row">
             <div class="bk-field">
-              <label for="syncUser">账号</label>
-              <input id="syncUser" v-model="syncUser" placeholder="WebDAV 账号" autocomplete="off" />
+              <label for="syncUser">{{ $t("bk.account") }}</label>
+              <input id="syncUser" v-model="syncUser" :placeholder="$t('bk.accountPh')" autocomplete="off" />
             </div>
             <div class="bk-field">
-              <label for="syncPass">密码 / 应用密码</label>
+              <label for="syncPass">{{ $t("bk.pwdLabel") }}</label>
               <input
                 id="syncPass"
                 v-model="syncPass"
                 type="password"
-                :placeholder="sync?.hasPassword ? '已保存，留空则不修改' : 'WebDAV 密码'"
+                :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.pwdPh')"
                 autocomplete="new-password"
               />
             </div>
@@ -586,14 +587,14 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
           <div class="bk-form-row">
             <div class="bk-field">
-              <label>自动同步频率</label>
+              <label>{{ $t("bk.autoFreq") }}</label>
               <div class="bk-seg" id="syncPeriod">
                 <button
                   v-for="opt in [
-                    { v: 15, label: '15 分钟' },
-                    { v: 30, label: '30 分钟' },
-                    { v: 60, label: '60 分钟' },
-                    { v: 0, label: '手动' },
+                    { v: 15, label: 'bk.min15' },
+                    { v: 30, label: 'bk.min30' },
+                    { v: 60, label: 'bk.min60' },
+                    { v: 0, label: 'bk.manual' },
                   ]"
                   :key="opt.v"
                   type="button"
@@ -609,22 +610,22 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
           <label class="bk-checkline">
             <input id="syncOnChange" v-model="syncOnChange" type="checkbox" />
-            有变化时自动同步（改动后约 30 秒内推送）
+            {{ $t("bk.autoSyncHint") }}
           </label>
 
           <!-- 云端备份加密（旧版 #syncEncryptZone） -->
           <div class="bk-pw-zone" id="syncEncryptZone">
             <label class="bk-checkline">
               <input id="syncEncrypt" v-model="syncEncrypt" type="checkbox" />
-              云端备份加密（推荐 —— 同步文件含密钥明文）
+              {{ $t("bk.encryptCloud") }}
             </label>
             <div id="syncEncryptPwField" class="bk-field" :hidden="!syncEncrypt" style="max-width: 320px">
-              <label for="syncEncryptPw">同步口令</label>
+              <label for="syncEncryptPw">{{ $t("bk.syncPw") }}</label>
               <input
                 id="syncEncryptPw"
                 v-model="syncEncryptPw"
                 type="password"
-                :placeholder="sync?.hasPassword ? '已保存，留空则不修改' : '同步口令'"
+                :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.syncPw')"
                 autocomplete="new-password"
               />
               <span id="syncEncryptErr" class="bk-err">{{ syncEncryptErr }}</span>
@@ -646,22 +647,22 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
         <div class="bk-sync-status" id="syncStatus">
           <span v-if="sync?.last_error" class="bk-err">{{ sync.last_error }}</span>
-          <span v-else-if="sync?.last_sync_ms">上次同步：{{ new Date(sync.last_sync_ms).toLocaleString() }}</span>
-            <span v-else>还没有同步过</span>
+          <span v-else-if="sync?.last_sync_ms">{{ $t("bk.lastSync", { t: new Date(sync.last_sync_ms).toLocaleString() }) }}</span>
+            <span v-else>{{ $t("bk.neverSynced") }}</span>
         </div>
         <div v-if="locked" id="syncLockInfo" class="bk-info">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 8v5M12 16h.01" />
           </svg>
-          <span>导入 / 导出进行中，同步暂时锁定。</span>
+          <span>{{ $t("bk.lockedDuringTransfer") }}</span>
         </div>
 
         <div class="bk-row-actions">
-          <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">测试连接</button>
-          <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">保存配置</button>
+          <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">{{ $t("bk.testConn") }}</button>
+          <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">{{ $t("bk.saveCfg") }}</button>
           <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
-            立即同步
+            {{ $t("bk.syncNow") }}
           </button>
         </div>
       </section>
@@ -671,19 +672,19 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="pwOpen" id="pwModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
         <div class="bk-modal-card">
           <div class="bk-modal-head">
-            <h3 id="pwTitle">此备份已加密</h3>
-            <button type="button" id="pwClose" aria-label="关闭" @click="pwOpen = false">✕</button>
+            <h3 id="pwTitle">{{ $t("bk.pwTitle") }}</h3>
+            <button type="button" id="pwClose" :aria-label="$t('common.close')" @click="pwOpen = false">✕</button>
           </div>
           <form id="pwForm" class="bk-modal-body" @submit.prevent="submitPw">
             <div class="bk-field">
-              <label for="importPw">备份口令</label>
+              <label for="importPw">{{ $t("bk.pwLabel2") }}</label>
               <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
               <div id="importPwErr" class="bk-err">{{ importPwErr }}</div>
             </div>
-            <p class="bk-modal-note">口令错误 3 次后提示：口令由导出方设置，本机无法找回。</p>
+            <p class="bk-modal-note">{{ $t("bk.pwNote") }}</p>
             <div class="bk-modal-foot" style="border: 0; padding: 4px 0 0">
-              <button type="button" id="pwCancel" class="bk-btn bk-plain" @click="pwOpen = false">取消</button>
-              <button type="submit" class="bk-btn bk-primary">解锁预览</button>
+              <button type="button" id="pwCancel" class="bk-btn bk-plain" @click="pwOpen = false">{{ $t("common.cancel") }}</button>
+              <button type="submit" class="bk-btn bk-primary">{{ $t("bk.unlockPreview") }}</button>
             </div>
           </form>
         </div>
@@ -693,18 +694,18 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="previewOpen" id="previewModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
         <div class="bk-modal-card bk-wide">
           <div class="bk-modal-head">
-            <h3 id="prevTitle">导入预览</h3>
-            <button type="button" id="prevClose" aria-label="关闭" @click="previewOpen = false">✕</button>
+            <h3 id="prevTitle">{{ $t("bk.prevTitle") }}</h3>
+            <button type="button" id="prevClose" :aria-label="$t('common.close')" @click="previewOpen = false">✕</button>
           </div>
           <div class="bk-modal-body">
             <div class="bk-src-line" id="prevSrc">{{ previewSrc }}</div>
             <table class="bk-prev">
               <thead>
                 <tr>
-                  <th>分类</th>
-                  <th style="text-align: right">备份内</th>
-                  <th style="text-align: right">本机现有</th>
-                  <th>同 ID 冲突</th>
+                  <th>{{ $t("bk.thCat") }}</th>
+                  <th style="text-align: right">{{ $t("bk.thInBackup") }}</th>
+                  <th style="text-align: right">{{ $t("bk.thLocal") }}</th>
+                  <th>{{ $t("bk.thConflict") }}</th>
                 </tr>
               </thead>
               <tbody id="prevRows">
@@ -713,12 +714,12 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                   <td class="bk-num" style="text-align: right">{{ row.inBackup }}</td>
                   <td class="bk-num" style="text-align: right">{{ row.local }}</td>
                   <td>
-                    <span v-if="row.conflicts" class="bk-chip bk-conflict">{{ row.conflicts }} 个同 ID</span>
+                    <span v-if="row.conflicts" class="bk-chip bk-conflict">{{ $t("bk.sameIdCount", { n: row.conflicts }) }}</span>
                     <span v-else class="bk-chip">—</span>
                   </td>
                 </tr>
                 <tr v-if="!previewRows.length">
-                  <td colspan="4" class="bk-note">（备份文件里没有可识别的内容）</td>
+                  <td colspan="4" class="bk-note">{{ $t("bk.noRecognizable") }}</td>
                 </tr>
               </tbody>
             </table>
@@ -731,7 +732,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
             </div>
 
             <div>
-              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">要导入的分类</label>
+              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ $t("bk.importCats") }}</label>
               <div class="bk-cats" id="importCats">
                 <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-cat-row">
                   <input
@@ -746,22 +747,22 @@ useEscape(resultOpen, () => { resultOpen.value = false });
             </div>
 
             <div>
-              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">同 ID 条目处理</label>
+              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ $t("bk.sameIdHandling") }}</label>
               <div class="bk-strategy" id="strategyBox">
                 <label class="bk-radio-line">
                   <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
-                  <span>跳过已存在的条目<span class="bk-rdesc">只添加本机没有的；现有配置一律不动（安全）</span></span>
+                  <span>{{ $t("bk.skipExisting") }}<span class="bk-rdesc">{{ $t("bk.skipExistingDesc") }}</span></span>
                 </label>
                 <label class="bk-radio-line">
                   <input v-model="importStrategy" type="radio" name="strategy" value="overwrite" />
-                  <span>用备份覆盖同 ID 条目<span class="bk-rdesc">同 ID 的本机档案会被备份内容整条替换；本机独有的条目保留</span></span>
+                  <span>{{ $t("bk.overwriteExisting") }}<span class="bk-rdesc">{{ $t("bk.overwriteExistingDesc") }}</span></span>
                 </label>
               </div>
             </div>
           </div>
           <div class="bk-modal-foot">
-            <button type="button" id="prevCancel" class="bk-btn bk-plain" @click="previewOpen = false">取消</button>
-            <button type="button" id="prevGo" class="bk-btn bk-primary" @click="startImport">开始导入</button>
+            <button type="button" id="prevCancel" class="bk-btn bk-plain" @click="previewOpen = false">{{ $t("common.cancel") }}</button>
+            <button type="button" id="prevGo" class="bk-btn bk-primary" @click="startImport">{{ $t("bk.startImport") }}</button>
           </div>
         </div>
       </div>
@@ -775,12 +776,12 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                 <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
               </svg>
             </span>
-            <h3 id="cfmTitle">确认覆盖导入？</h3>
+            <h3 id="cfmTitle">{{ $t("bk.confirmOverwrite") }}</h3>
           </div>
           <p id="cfmBody" class="bk-del-body">{{ confirmBody }}</p>
           <div class="bk-modal-foot">
-            <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">取消</button>
-            <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="confirmOk">覆盖导入</button>
+            <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">{{ $t("common.cancel") }}</button>
+            <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="confirmOk">{{ $t("bk.doOverwrite") }}</button>
           </div>
         </div>
       </div>
@@ -789,23 +790,23 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="resultOpen" id="resultModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
         <div class="bk-modal-card">
           <div class="bk-modal-head">
-            <h3 id="resTitle">导入完成</h3>
-            <button type="button" id="resClose" aria-label="关闭" @click="resultOpen = false">✕</button>
+            <h3 id="resTitle">{{ $t("bk.importDone") }}</h3>
+            <button type="button" id="resClose" :aria-label="$t('common.close')" @click="resultOpen = false">✕</button>
           </div>
           <div id="resBody" class="bk-modal-body">
-            <p v-for="row in resultRows" :key="row.k">{{ row.k }}：{{ row.v }}</p>
-            <p v-if="!resultRows.length">导入已完成</p>
+            <p v-for="row in resultRows" :key="row.k">{{ row.k }}: {{ row.v }}</p>
+            <p v-if="!resultRows.length">{{ $t("bk.importFinished") }}</p>
           </div>
           <div class="bk-modal-foot">
-            <button type="button" id="resOk" class="bk-btn bk-primary" @click="resultOpen = false">完成</button>
+            <button type="button" id="resOk" class="bk-btn bk-primary" @click="resultOpen = false">{{ $t("bk.done") }}</button>
           </div>
         </div>
       </div>
 
       <!-- 页脚（旧版 .bk-bk-foot） -->
       <div class="bk-bk-foot">
-        <span><b>互导口径</b>：手机端口令加密的备份在电脑导入时需输入同一口令；电脑导出的私钥一律不带口令写入。</span>
-        <span><b>带口令的私钥</b>只导出元数据不导出材料（桌面只出不进）。</span>
+        <span>{{ $t("bk.portabilityNote1") }}</span>
+        <span>{{ $t("bk.portabilityNote2") }}</span>
       </div>
 
       <!-- toast（旧版 #bkToast） -->
