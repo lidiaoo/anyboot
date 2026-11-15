@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "Wake-пакеты отправлены в LAN ({n} MAC); подождите 10–30 с";
 "and.jumpIsTelnetWake" = "Узел Telnet; нельзя отправить команду пробуждения — используйте SSH";
 "and.jumpNoTools" = "На узле нет python3 / wakeonlan / etherwake — установите (apt install wakeonlan) или другой узел";
+"and.jumpViaDot" = "Узел · {x}";
+"and.jumpDeletedDot" = "Узел · удалён";
+"and.copyLanAddr" = "Прямой адрес";
+"and.addrLabel" = "Адрес";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

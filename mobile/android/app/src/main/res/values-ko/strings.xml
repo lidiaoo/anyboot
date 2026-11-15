@@ -1835,6 +1835,10 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_broadcastedWake">LAN에 웨이크 패킷 브로드캐스트(%1$d MAC). 10~30초 후 연결 확인</string>
     <string name="and_jumpIsTelnetWake">점프 호스트가 Telnet. 웨이크 명령 전송 불가 — SSH 서버로</string>
     <string name="and_jumpNoTools">점프 호스트에 python3 / wakeonlan / etherwake 없음 — 설치(apt install wakeonlan) 또는 다른 점프 호스트</string>
+    <string name="and_jumpViaDot">점프 호스트 · %1$s</string>
+    <string name="and_jumpDeletedDot">점프 호스트 · 삭제됨</string>
+    <string name="and_copyLanAddr">직접 주소</string>
+    <string name="and_addrLabel">주소</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

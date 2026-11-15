@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "Pacotes de ativação enviados na LAN ({n} MACs); aguarde 10–30 s";
 "and.jumpIsTelnetWake" = "O jump host é Telnet; não envia comando de ativação — use SSH";
 "and.jumpNoTools" = "O jump host não tem python3 / wakeonlan / etherwake — instale (apt install wakeonlan) ou outro";
+"and.jumpViaDot" = "Jump host · {x}";
+"and.jumpDeletedDot" = "Jump host · excluído";
+"and.copyLanAddr" = "Endereço direto";
+"and.addrLabel" = "Endereço";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

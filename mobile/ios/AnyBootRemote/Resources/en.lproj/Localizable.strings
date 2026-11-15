@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "Broadcast wake packets on the LAN ({n} MACs); wait 10–30 s to see if it connects";
 "and.jumpIsTelnetWake" = "The jump host is Telnet; can't send a wake command — use an SSH server";
 "and.jumpNoTools" = "The jump host lacks python3 / wakeonlan / etherwake — install one (apt install wakeonlan) or use another jump host";
+"and.jumpViaDot" = "Jump host · {x}";
+"and.jumpDeletedDot" = "Jump host · deleted";
+"and.copyLanAddr" = "Direct address";
+"and.addrLabel" = "Address";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

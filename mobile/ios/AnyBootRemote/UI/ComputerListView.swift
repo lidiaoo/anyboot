@@ -254,7 +254,7 @@ struct ComputerListView: View {
             }
             Button(failReloadSec > 0
                    ? L("and.failReloadOnN", failReloadSec)
-                   : "连不上时自动重载（已关闭）") {
+                   : L("and.failReloadOff")) {
                 failReloadOpen = true
             }
             Button(L("and.transportWith", transportLabel)) {
@@ -401,8 +401,8 @@ struct ComputerListView: View {
             DrawnIcon.desktop(ABColor.fgFaint.opacity(0.5), size: ABMetric.px(26))
             Spacer().frame(height: ABMetric.px(8))
             Text(noServers
-                 ? "还没有添加任何电脑\n到「服务器」里添加一台，这里就会出现它的电源与引导项"
-                 : "没有符合条件的电脑")
+                 ? L("and.emptyNoComputers")
+                 : L("hub.list.empty"))
                 .font(.system(size: 13))
                 .lineSpacing(ABMetric.px(7))
                 .foregroundColor(ABColor.fgDim)
@@ -584,9 +584,9 @@ struct ComputerListView: View {
         } else if info?.winnerKind == ServerProfile.routeJump {
             if let jump = JumpStore.shared.jump(jumpId) {
                 let name = jump.name.trimmingCharacters(in: .whitespaces)
-                conn = "跳板机 · " + (name.isEmpty ? jump.host : name)
+                conn = L("and.jumpViaDot").replacingOccurrences(of: "{x}", with: name.isEmpty ? jump.host : name)
             } else {
-                conn = "跳板机 · 已删除"
+                conn = L("and.jumpDeletedDot")
             }
         } else if hitPair?.routeKind == ServerProfile.routeTSNet {
             conn = L("and.builtinFunnel")
@@ -892,7 +892,7 @@ struct ComputerListView: View {
                 statusLine(row.state)
                 if count == 0 || !lanVisible {
                     dot()
-                    Text(count == 0 ? "(未配地址)" : "直连已停用")
+                    Text(count == 0 ? L("server.noAddr") : L("and.directDisabled"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                 }
@@ -995,7 +995,7 @@ struct ComputerListView: View {
                     .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.bad)
                 if let url = row.profile.url(for: addr, transport: "") {
                     Button(L("common.copy")) {
-                        ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
+                        ABClipboard.copyRemoteSlot(L("and.copyLanAddr"), url.absoluteString)
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 10))
@@ -1512,7 +1512,7 @@ struct ComputerListView: View {
                                 toast(message)
                                 reloadBoot(row.profile)
                             } catch {
-                                toast("撤销失败：\((error as? RemoteHttpError)?.message ?? error.localizedDescription)")
+                                toast(L("and.undoPendingFail").replacingOccurrences(of: "{msg}", with: (error as? RemoteHttpError)?.message ?? error.localizedDescription))
                             }
                         }
                     }
@@ -1528,7 +1528,7 @@ struct ComputerListView: View {
                         .foregroundColor(ABColor.tonePendText)
                     Spacer(minLength: 0)
                     Button(L("hub.pending.undo")) {
-                        switchBoot(row.profile, kind: Kind.grub, value: row.grub.saved, verb: "撤销")
+                        switchBoot(row.profile, kind: Kind.grub, value: row.grub.saved, verb: L("hub.pending.undo"))
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 11, weight: .bold))
@@ -1679,7 +1679,7 @@ struct ComputerListView: View {
             }
             Button {
                 if let host = ServerProfile.normalizeHost(row.profile.host) {
-                    ABClipboard.copyRemoteSlot("地址", host)
+                    ABClipboard.copyRemoteSlot(L("srvEdit.addr"), host)
                 }
             } label: {
                 Label(L("and.copyAddr"), systemImage: "doc.on.doc")

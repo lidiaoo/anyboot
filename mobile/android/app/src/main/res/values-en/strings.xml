@@ -1835,6 +1835,10 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_broadcastedWake">Broadcast wake packets on the LAN (%1$d MACs); wait 10–30 s to see if it connects</string>
     <string name="and_jumpIsTelnetWake">The jump host is Telnet; can\'t send a wake command — use an SSH server</string>
     <string name="and_jumpNoTools">The jump host lacks python3 / wakeonlan / etherwake — install one (apt install wakeonlan) or use another jump host</string>
+    <string name="and_jumpViaDot">Jump host · %1$s</string>
+    <string name="and_jumpDeletedDot">Jump host · deleted</string>
+    <string name="and_copyLanAddr">Direct address</string>
+    <string name="and_addrLabel">Address</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

@@ -1835,6 +1835,10 @@ Telnet：実験的端末のみ。</string>
     <string name="and_broadcastedWake">LAN にウェイクパケットをブロードキャスト（%1$d MAC）。10〜30 秒待って接続を確認</string>
     <string name="and_jumpIsTelnetWake">踏み台が Telnet。ウェイクコマンド送信不可 — SSH サーバーに変更</string>
     <string name="and_jumpNoTools">踏み台に python3 / wakeonlan / etherwake がありません — 導入（apt install wakeonlan）か別の踏み台に</string>
+    <string name="and_jumpViaDot">踏み台 · %1$s</string>
+    <string name="and_jumpDeletedDot">踏み台 · 削除済み</string>
+    <string name="and_copyLanAddr">直接アドレス</string>
+    <string name="and_addrLabel">アドレス</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

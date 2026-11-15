@@ -1835,6 +1835,10 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_broadcastedWake">Pacotes de ativação enviados na LAN (%1$d MACs); aguarde 10–30 s</string>
     <string name="and_jumpIsTelnetWake">O jump host é Telnet; não envia comando de ativação — use SSH</string>
     <string name="and_jumpNoTools">O jump host não tem python3 / wakeonlan / etherwake — instale (apt install wakeonlan) ou outro</string>
+    <string name="and_jumpViaDot">Jump host · %1$s</string>
+    <string name="and_jumpDeletedDot">Jump host · excluído</string>
+    <string name="and_copyLanAddr">Endereço direto</string>
+    <string name="and_addrLabel">Endereço</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

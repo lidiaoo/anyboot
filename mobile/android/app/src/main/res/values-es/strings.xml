@@ -1835,6 +1835,10 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_broadcastedWake">Paquetes de activación enviados en la LAN (%1$d MACs); espera 10–30 s</string>
     <string name="and_jumpIsTelnetWake">El host de salto es Telnet; no envía comando de activación — usa SSH</string>
     <string name="and_jumpNoTools">El host de salto no tiene python3 / wakeonlan / etherwake — instala (apt install wakeonlan) u otro</string>
+    <string name="and_jumpViaDot">Host de salto · %1$s</string>
+    <string name="and_jumpDeletedDot">Host de salto · eliminado</string>
+    <string name="and_copyLanAddr">Dirección directa</string>
+    <string name="and_addrLabel">Dirección</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

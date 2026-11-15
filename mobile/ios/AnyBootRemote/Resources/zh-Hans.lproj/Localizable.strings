@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "已向局域网广播唤醒包（{n} 个 MAC），等 10~30 秒看它能不能连上";
 "and.jumpIsTelnetWake" = "跳板机是 Telnet，发不了唤醒命令 —— 换一台 SSH 服务器";
 "and.jumpNoTools" = "跳板机上没有 python3 / wakeonlan / etherwake —— 装一个（apt install wakeonlan）或换台跳板机";
+"and.jumpViaDot" = "跳板机 · {x}";
+"and.jumpDeletedDot" = "跳板机 · 已删除";
+"and.copyLanAddr" = "直连地址";
+"and.addrLabel" = "地址";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

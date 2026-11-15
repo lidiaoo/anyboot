@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "Wake-Pakete im LAN gesendet ({n} MACs); 10–30 s auf Verbindung warten";
 "and.jumpIsTelnetWake" = "Sprungserver ist Telnet; kein Wake-Befehl – SSH-Server nutzen";
 "and.jumpNoTools" = "Sprungserver hat kein python3 / wakeonlan / etherwake – installieren (apt install wakeonlan) oder anderen Sprungserver";
+"and.jumpViaDot" = "Sprungserver · {x}";
+"and.jumpDeletedDot" = "Sprungserver · gelöscht";
+"and.copyLanAddr" = "Direktadresse";
+"and.addrLabel" = "Adresse";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

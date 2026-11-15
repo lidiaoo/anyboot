@@ -1798,6 +1798,10 @@
 "and.broadcastedWake" = "LAN にウェイクパケットをブロードキャスト（{n} MAC）。10〜30 秒待って接続を確認";
 "and.jumpIsTelnetWake" = "踏み台が Telnet。ウェイクコマンド送信不可 — SSH サーバーに変更";
 "and.jumpNoTools" = "踏み台に python3 / wakeonlan / etherwake がありません — 導入（apt install wakeonlan）か別の踏み台に";
+"and.jumpViaDot" = "踏み台 · {x}";
+"and.jumpDeletedDot" = "踏み台 · 削除済み";
+"and.copyLanAddr" = "直接アドレス";
+"and.addrLabel" = "アドレス";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

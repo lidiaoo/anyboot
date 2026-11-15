@@ -1835,6 +1835,10 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_broadcastedWake">Wake-пакеты отправлены в LAN (%1$d MAC); подождите 10–30 с</string>
     <string name="and_jumpIsTelnetWake">Узел Telnet; нельзя отправить команду пробуждения — используйте SSH</string>
     <string name="and_jumpNoTools">На узле нет python3 / wakeonlan / etherwake — установите (apt install wakeonlan) или другой узел</string>
+    <string name="and_jumpViaDot">Узел · %1$s</string>
+    <string name="and_jumpDeletedDot">Узел · удалён</string>
+    <string name="and_copyLanAddr">Прямой адрес</string>
+    <string name="and_addrLabel">Адрес</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>
