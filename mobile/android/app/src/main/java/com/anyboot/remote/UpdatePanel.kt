@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,13 +66,13 @@ class UpdateState(
 
     /** 版本卡上那枚胶囊的字：收起时也要能看出当前状态，别让用户为了看结果再点开一次 */
     fun capsuleLabel(): String = when (phase) {
-        "checking" -> "检查中…"
-        "up_to_date" -> "已是最新 v$currentVersion"
-        "available" -> "发现新版本 v${release?.version ?: ""}"
-        "downloading", "verifying" -> "正在下载 v${release?.version ?: ""}…"
-        "ready", "need_permission", "launching" -> "v${release?.version ?: ""} 待安装"
-        "error" -> "更新未完成"
-        else -> "检查更新"
+        "checking" -> activity.getString(R.string.and_updChecking)
+        "up_to_date" -> activity.getString(R.string.and_updUpToDateV, currentVersion)
+        "available" -> activity.getString(R.string.and_updAvailableV, release?.version ?: "")
+        "downloading", "verifying" -> activity.getString(R.string.and_updDownloadingV, release?.version ?: "")
+        "ready", "need_permission", "launching" -> activity.getString(R.string.and_updReadyV, release?.version ?: "")
+        "error" -> activity.getString(R.string.and_updError)
+        else -> activity.getString(R.string.and_updCheck)
     }
 
     /** 展开时调一次：只有第一次展开才真的查，之后展开只是回看结果 */
@@ -95,7 +96,7 @@ class UpdateState(
             } catch (failure: Exception) {
                 activity.runOnUiThread {
                     phase = "error"
-                    error = failure.message ?: "检查失败"
+                    error = failure.message ?: activity.getString(R.string.and_checkFail)
                 }
             }
         }, "anyboot-update-check").start()
@@ -127,7 +128,7 @@ class UpdateState(
             } catch (failure: Exception) {
                 activity.runOnUiThread {
                     phase = "error"
-                    error = failure.message ?: "下载失败"
+                    error = failure.message ?: activity.getString(R.string.and_dlFail)
                 }
             }
         }, "anyboot-update-download").start()
@@ -137,8 +138,7 @@ class UpdateState(
         val file = installedFile ?: return
         if (!AppUpdate.canInstallPackages(activity)) {
             // 第一次装会遇到这道门：把「为什么」和「去哪儿开」说清楚再跳系统授权页
-            error = "Android 需要你允许「安装未知应用」才能装这个 APK。" +
-                "下一步：在接下来的系统页面里打开「允许来自此来源」，然后回来再点安装。"
+            error = activity.getString(R.string.and_needPermission)
             phase = "need_permission"
             AppUpdate.openInstallPermission(activity)
             return
@@ -149,7 +149,7 @@ class UpdateState(
             error = ""
         } catch (failure: Exception) {
             phase = "error"
-            error = failure.message ?: "无法启动系统安装器"
+            error = failure.message ?: activity.getString(R.string.and_noInstaller)
         }
     }
 
@@ -167,7 +167,7 @@ class UpdateState(
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             )
         } catch (failure: Exception) {
-            error = "这台设备没有可打开网页的应用。地址：$url"
+            error = activity.getString(R.string.and_noBrowserUrl, url)
         }
     }
 
@@ -175,10 +175,10 @@ class UpdateState(
         if (checkedAt <= 0L) return ""
         val diff = (System.currentTimeMillis() / 1000 - checkedAt).coerceAtLeast(0)
         return when {
-            diff < 60 -> "刚刚检查"
-            diff < 3600 -> "${diff / 60} 分钟前检查"
-            diff < 86400 -> "${diff / 3600} 小时前检查"
-            else -> "${diff / 86400} 天前检查"
+            diff < 60 -> activity.getString(R.string.and_justNow)
+            diff < 3600 -> activity.getString(R.string.and_minAgo, diff / 60)
+            diff < 86400 -> activity.getString(R.string.and_hourAgo, diff / 3600)
+            else -> activity.getString(R.string.and_dayAgo, diff / 86400)
         }
     }
 }
@@ -224,25 +224,24 @@ fun UpdatePanel(state: UpdateState, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (actions == "available" || actions == "error") {
                 PanelButton(
-                    text = if (actions == "available") "下载并安装" else "重试",
+                    text = if (actions == "available") stringResource(R.string.and_dlInstall) else stringResource(R.string.common_retry),
                     primary = true,
                 ) { if (actions == "available") state.download() else state.retry() }
             }
             if (actions == "ready" || actions == "need_permission") {
-                PanelButton(text = "安装", primary = true) { state.install() }
+                PanelButton(text = stringResource(R.string.and_install), primary = true) { state.install() }
             }
             if (actions == "up_to_date") {
-                PanelButton(text = "再检查一次", primary = false) { state.check(manual = true) }
+                PanelButton(text = stringResource(R.string.and_recheck), primary = false) { state.check(manual = true) }
             }
             if (actions == "error") {
                 Spacer(Modifier.width(10.dp))
-                PanelButton(text = "浏览器下载", primary = false) { state.openDownloadPage() }
+                PanelButton(text = stringResource(R.string.and_browserDownload), primary = false) { state.openDownloadPage() }
             }
         }
         Spacer(Modifier.height(10.dp))
         Text(
-            "安装由系统安装器完成：同包名会覆盖升级，服务器 / 密钥 / 设置都保留。" +
-                "首次安装需要允许「安装未知应用」。",
+            stringResource(R.string.and_installHint),
             fontSize = 11.sp,
             lineHeight = 17.sp,
             color = palette.fgFaint,
@@ -262,16 +261,16 @@ private val PROGRESS_PHASES = listOf(
 private fun StatusRow(state: UpdateState) {
     val palette = LocalPalette.current
     val text = when (state.phase) {
-        "checking" -> "正在检查新版本…"
-        "up_to_date" -> "已是最新版本"
-        "available" -> "发现新版本 v${state.release?.version ?: ""}"
-        "downloading" -> "正在下载 v${state.release?.version ?: ""}…"
-        "verifying" -> "正在校验 SHA-256…"
-        "ready" -> "下载完成，SHA-256 校验通过"
-        "need_permission" -> "还需要一次系统授权"
-        "launching" -> "已交给系统安装器"
-        "error" -> "更新没有完成"
-        else -> "还没检查过"
+        "checking" -> stringResource(R.string.and_updDChecking)
+        "up_to_date" -> stringResource(R.string.and_updDUpToDate)
+        "available" -> stringResource(R.string.and_updDAvailableV, state.release?.version ?: "")
+        "downloading" -> stringResource(R.string.and_updDDownloadingV, state.release?.version ?: "")
+        "verifying" -> stringResource(R.string.and_updDVerifying)
+        "ready" -> stringResource(R.string.and_updDDone)
+        "need_permission" -> stringResource(R.string.and_updDNeedPermission)
+        "launching" -> stringResource(R.string.and_updDLaunching)
+        "error" -> stringResource(R.string.and_updDError)
+        else -> stringResource(R.string.and_updDNever)
     }
     val tint = when (state.phase) {
         "up_to_date", "ready" -> palette.ok
@@ -368,7 +367,7 @@ private fun ProgressBlock(state: UpdateState) {
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (state.phase == "downloading") "${(fraction * 100).toInt()}%" else "校验完成",
+                if (state.phase == "downloading") stringResource(R.string.and_percentDone, (fraction * 100).toInt()) else stringResource(R.string.and_verifyDone),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = palette.fg,
@@ -385,7 +384,7 @@ private fun ProgressBlock(state: UpdateState) {
             )
             Spacer(Modifier.weight(1f))
             if (state.source.isNotEmpty()) {
-                Text("来源：${state.source}", fontSize = 11.sp, color = palette.fgFaint)
+                Text(stringResource(R.string.and_sourceWith, state.source), fontSize = 11.sp, color = palette.fgFaint)
             }
         }
     }
