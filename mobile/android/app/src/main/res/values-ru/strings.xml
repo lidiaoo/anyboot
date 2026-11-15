@@ -1177,6 +1177,28 @@
     <string name="and_noBrowserApp">Нет приложения для открытия веб-страниц</string>
     <string name="and_notDetectedParen">(не обнаружено)</string>
     <string name="and_switchPendingN">Переключение ожидает — через %1$d с на хосте</string>
+    <string name="and_macMagic">MAC magic packet</string>
+    <string name="and_stateWaking">Пробуждение</string>
+    <string name="and_stateShutting">Выключение</string>
+    <string name="and_stateRebooting">Перезагрузка</string>
+    <string name="and_stateSleeping">Спит</string>
+    <string name="and_stateDetecting">Определение…</string>
+    <string name="and_copiedLanAddr">Прямой адрес скопирован</string>
+    <string name="and_jumpDeletedShort">Удалённый промежуточный узел</string>
+    <string name="and_inUseNMs">Используется %1$sмс</string>
+    <string name="and_inUse">Используется</string>
+    <string name="and_menuOpenPage">Открыть страницу</string>
+    <string name="and_menuOpenBrowser">Открыть в браузере</string>
+    <string name="and_copiedIpAddr">Скопировано %1$s</string>
+    <string name="and_menuSysinfo">Системная информация</string>
+    <string name="and_addedName">Добавлено: %1$s</string>
+    <string name="and_mergedName">Объединено с тем же компьютером: %1$s</string>
+    <string name="and_saved">Сохранено</string>
+    <string name="and_delProfileConfirm">Удалить «%1$s»?
+
+Удаляется только запись на этом телефоне; AnyBoot на целевом компьютере не затрагивается.</string>
+    <string name="and_addrNotReady">Адрес не готов</string>
+    <string name="and_multiAddrPick">У этого компьютера несколько адресов; выберите для открытия в браузере:</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

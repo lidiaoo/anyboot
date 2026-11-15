@@ -1177,6 +1177,28 @@
     <string name="and_noBrowserApp">Nenhum app pode abrir páginas</string>
     <string name="and_notDetectedParen">(não detectado)</string>
     <string name="and_switchPendingN">Troca pendente — executa no host em %1$ds</string>
+    <string name="and_macMagic">Magic packet do MAC</string>
+    <string name="and_stateWaking">Acordando</string>
+    <string name="and_stateShutting">Desligando</string>
+    <string name="and_stateRebooting">Reiniciando</string>
+    <string name="and_stateSleeping">Suspenso</string>
+    <string name="and_stateDetecting">Detectando…</string>
+    <string name="and_copiedLanAddr">Endereço direto copiado</string>
+    <string name="and_jumpDeletedShort">Jump host excluído</string>
+    <string name="and_inUseNMs">Em uso %1$sms</string>
+    <string name="and_inUse">Em uso</string>
+    <string name="and_menuOpenPage">Abrir página</string>
+    <string name="and_menuOpenBrowser">Abrir no navegador</string>
+    <string name="and_copiedIpAddr">Copiado %1$s</string>
+    <string name="and_menuSysinfo">Informações do sistema</string>
+    <string name="and_addedName">Adicionado: %1$s</string>
+    <string name="and_mergedName">Mesclado no mesmo computador: %1$s</string>
+    <string name="and_saved">Salvo</string>
+    <string name="and_delProfileConfirm">Excluir “%1$s”?
+
+Apenas o registro neste celular é removido; o AnyBoot no computador de destino não é afetado.</string>
+    <string name="and_addrNotReady">Endereço ainda não pronto</string>
+    <string name="and_multiAddrPick">Este computador tem vários endereços; escolha um para abrir no navegador:</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

@@ -1177,6 +1177,28 @@
     <string name="and_noBrowserApp">No app can open web pages</string>
     <string name="and_notDetectedParen">(not detected)</string>
     <string name="and_switchPendingN">Switch pending — runs on the host in %1$ds</string>
+    <string name="and_macMagic">MAC magic packet</string>
+    <string name="and_stateWaking">Waking</string>
+    <string name="and_stateShutting">Shutting down</string>
+    <string name="and_stateRebooting">Rebooting</string>
+    <string name="and_stateSleeping">Asleep</string>
+    <string name="and_stateDetecting">Detecting…</string>
+    <string name="and_copiedLanAddr">Copied direct address</string>
+    <string name="and_jumpDeletedShort">Deleted jump host</string>
+    <string name="and_inUseNMs">In use %1$sms</string>
+    <string name="and_inUse">In use</string>
+    <string name="and_menuOpenPage">Open page</string>
+    <string name="and_menuOpenBrowser">Open in browser</string>
+    <string name="and_copiedIpAddr">Copied %1$s</string>
+    <string name="and_menuSysinfo">System info</string>
+    <string name="and_addedName">Added: %1$s</string>
+    <string name="and_mergedName">Merged into the same computer: %1$s</string>
+    <string name="and_saved">Saved</string>
+    <string name="and_delProfileConfirm">Delete “%1$s”?
+
+Only the record on this phone is removed; AnyBoot on the target computer is untouched.</string>
+    <string name="and_addrNotReady">Address not ready</string>
+    <string name="and_multiAddrPick">This computer has multiple addresses; pick one to open in the system browser:</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

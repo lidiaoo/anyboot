@@ -1702,22 +1702,22 @@ class ComputerListActivity : ComponentActivity() {
                 // 提示小字与悬浮电源球同一套（PowerHint.kt）：传输标识（HTTP/魔法包）+ 路由摘要 / 未配 MAC；
                 // 该行正走远程隧道时广播包腿发不出，标识会相应变成 HTTP 或「发不出」
                 PowerButton(
-                    row, POWER_WAKE, "唤醒",
-                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) "MAC 魔术包" else "未配 MAC", row.connRemote),
+                    row, POWER_WAKE, stringResource(R.string.hub_power_wake),
+                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) stringResource(R.string.and_macMagic) else stringResource(R.string.hub_power_noMac), row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
-                    row, POWER_SLEEP, "睡眠",
-                    hint = powerHint(row.profile, POWER_SLEEP, "挂起到内存", row.connRemote),
+                    row, POWER_SLEEP, stringResource(R.string.hub_power_sleep),
+                    hint = powerHint(row.profile, POWER_SLEEP, stringResource(R.string.hub_power_hibernate), row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
-                    row, POWER_REBOOT, "重启",
+                    row, POWER_REBOOT, stringResource(R.string.hub_power_restart),
                     hint = powerHint(row.profile, POWER_REBOOT, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
-                    row, POWER_SHUTDOWN, "关机",
+                    row, POWER_SHUTDOWN, stringResource(R.string.hub_power_shutdown),
                     hint = powerHint(row.profile, POWER_SHUTDOWN, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
@@ -1734,11 +1734,11 @@ class ComputerListActivity : ComponentActivity() {
         when (state) {
             STATE_ONLINE -> { color = tone.online; label = stringResource(R.string.hub_list_online) }
             STATE_OFFLINE -> { color = tone.offlineText; label = stringResource(R.string.hub_list_offline) }
-            STATE_WAKING -> { color = tone.busy; label = "唤醒中" }
-            STATE_SHUTTING -> { color = tone.busy; label = "关机中" }
-            STATE_REBOOTING -> { color = tone.busy; label = "重启中" }
-            STATE_SLEEPING -> { color = tone.sleep; label = "已睡眠" }
-            else -> { color = palette.fgFaint; label = "检测中…" }
+            STATE_WAKING -> { color = tone.busy; label = stringResource(R.string.and_stateWaking) }
+            STATE_SHUTTING -> { color = tone.busy; label = stringResource(R.string.and_stateShutting) }
+            STATE_REBOOTING -> { color = tone.busy; label = stringResource(R.string.and_stateRebooting) }
+            STATE_SLEEPING -> { color = tone.sleep; label = stringResource(R.string.and_stateSleeping) }
+            else -> { color = palette.fgFaint; label = stringResource(R.string.and_stateDetecting) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(5.dp).clip(CircleShape).background(color))
@@ -1796,7 +1796,7 @@ class ComputerListActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // 顺序对齐 PC：通道名 → 探测状态 → 复制 → 浏览器打开
-                KindBadge(ServerProfile.ROUTE_LAN, "直连")
+                KindBadge(ServerProfile.ROUTE_LAN, stringResource(R.string.hub_route_lan))
                 Text(
                     probeStateText(hit),
                     fontSize = 10.sp,
@@ -1805,23 +1805,23 @@ class ComputerListActivity : ComponentActivity() {
                 )
                 if (url.isNotEmpty()) {
                     Text(
-                        "复制",
+                        stringResource(R.string.common_copy),
                         fontSize = 10.sp,
                         color = palette.fgFaint,
                         modifier = Modifier.clickable {
                             copyText(url)
-                            toast("已复制直连地址")
+                            toast(getString(R.string.and_copiedLanAddr))
                         },
                     )
                     Text(
-                        "浏览器打开",
+                        stringResource(R.string.hub_conn_openBrowser),
                         fontSize = 10.sp,
                         color = palette.fgFaint,
                         modifier = Modifier.clickable {
                             try {
                                 startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
                             } catch (error: Exception) {
-                                toast("没有能打开网页的应用")
+                                toast(getString(R.string.and_noBrowserApp))
                             }
                         },
                     )
@@ -1891,7 +1891,7 @@ class ComputerListActivity : ComponentActivity() {
         if (jumpId.isEmpty()) return
         val jump = JumpStore.findJump(jumps, jumpId)
         val name = ServerProfile.text(jump?.name).ifEmpty {
-            ServerProfile.text(jump?.host).ifEmpty { "已删除的跳板机" }
+            ServerProfile.text(jump?.host).ifEmpty { getString(R.string.and_jumpDeletedShort) }
         }
         val hit = row.hits.firstOrNull {
             it.kind == ServerProfile.ROUTE_JUMP &&
@@ -1902,8 +1902,8 @@ class ComputerListActivity : ComponentActivity() {
             row.winnerKind == ServerProfile.ROUTE_JUMP &&
             ServerProfile.normalizeHost(row.winnerAddr) == host
         val stateText = when {
-            inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
-            inUse -> "使用中"
+            inUse && hit != null && hit.ok -> getString(R.string.and_inUseNMs, hit.ms)
+            inUse -> getString(R.string.and_inUse)
             else -> probeStateText(hit)
         }
         // 样式 3（用户 2026-11-01）：上行「状态 + 跳板机 + 本机端点」，
@@ -1915,7 +1915,7 @@ class ComputerListActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // 顺序对齐 PC：通道名(跳板机) → 状态 → 端点
-                KindBadge(ServerProfile.ROUTE_JUMP, "跳板机")
+                KindBadge(ServerProfile.ROUTE_JUMP, stringResource(R.string.hub_route_jump))
                 Text(
                     stateText,
                     fontSize = 10.sp,
