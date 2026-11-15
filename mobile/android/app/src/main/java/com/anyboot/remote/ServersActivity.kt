@@ -2018,10 +2018,10 @@ class ServersActivity : ComponentActivity() {
                 ) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    SecondaryText("加载中 …")
+                    SecondaryText(stringResource(R.string.and_loading))
                 }
-                sftpEntries.isEmpty() -> SecondaryText("　（空目录）", Modifier.padding(16.dp))
-                shown.isEmpty() -> SecondaryText("　（没有匹配的项）", Modifier.padding(16.dp))
+                sftpEntries.isEmpty() -> SecondaryText("　" + stringResource(R.string.and_emptyDirParen), Modifier.padding(16.dp))
+                shown.isEmpty() -> SecondaryText("　" + stringResource(R.string.and_noMatch), Modifier.padding(16.dp))
                 else -> shown.forEach { entry -> FileRow(entry) }
             }
 
@@ -2149,7 +2149,7 @@ class ServersActivity : ComponentActivity() {
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            (if (entry.dir) "目录" else humanSize(entry.size)) + " · " + timeText(entry.mtime),
+                            (if (entry.dir) stringResource(R.string.fb_dir) else humanSize(entry.size)) + " · " + timeText(entry.mtime),
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = palette.fgDim,
@@ -2170,14 +2170,14 @@ class ServersActivity : ComponentActivity() {
 
                 // 变体动作（设计稿主区）
                 if (entry.dir) {
-                    SheetAction("重命名") { close(); sftpAskRename = entry }
-                    SheetAction("复制路径") { close(); copyClipboard("路径", path) }
-                    SheetAction("删除（含目录内全部内容）", palette.bad) { close(); sftpAskDelete = entry }
+                    SheetAction(stringResource(R.string.fb_rename)) { close(); sftpAskRename = entry }
+                    SheetAction(stringResource(R.string.fb_copyPath)) { close(); copyClipboard(getString(R.string.fb_path), path) }
+                    SheetAction(stringResource(R.string.and_delWithContents), palette.bad) { close(); sftpAskDelete = entry }
                 } else {
-                    SheetAction("下载到本机", palette.accent) { close(); startDownload(entry.name) }
-                    SheetAction("重命名") { close(); sftpAskRename = entry }
-                    SheetAction("复制路径") { close(); copyClipboard("路径", path) }
-                    SheetAction("删除", palette.bad) { close(); sftpAskDelete = entry }
+                    SheetAction(stringResource(R.string.fb_dlTo), palette.accent) { close(); startDownload(entry.name) }
+                    SheetAction(stringResource(R.string.fb_rename)) { close(); sftpAskRename = entry }
+                    SheetAction(stringResource(R.string.fb_copyPath)) { close(); copyClipboard(getString(R.string.fb_path), path) }
+                    SheetAction(stringResource(R.string.fb_delete), palette.bad) { close(); sftpAskDelete = entry }
                 }
 
                 // 分隔线 + 折叠「更多操作」：原有全套能力原样保留
@@ -2188,20 +2188,20 @@ class ServersActivity : ComponentActivity() {
                         .height(1.dp)
                         .background(palette.line),
                 )
-                Text("更多操作", fontSize = 11.sp, color = palette.fgFaint, modifier = Modifier.padding(bottom = 4.dp))
-                SheetAction("详情", small = true) { close(); sftpAskDetail = entry }
-                SheetAction("复制", small = true) { close(); setClip(SftpClip.COPY, entry) }
-                SheetAction("剪切", small = true) { close(); setClip(SftpClip.CUT, entry) }
+                Text(stringResource(R.string.fb_moreOps), fontSize = 11.sp, color = palette.fgFaint, modifier = Modifier.padding(bottom = 4.dp))
+                SheetAction(stringResource(R.string.fb_info), small = true) { close(); sftpAskDetail = entry }
+                SheetAction(stringResource(R.string.fb_copy), small = true) { close(); setClip(SftpClip.COPY, entry) }
+                SheetAction(stringResource(R.string.fb_cut), small = true) { close(); setClip(SftpClip.CUT, entry) }
                 if (entry.dir && sftpClip != SftpClip.NONE) {
-                    SheetAction("粘贴到此处", small = true) { close(); pasteClipboard(server, sftpPath) }
+                    SheetAction(stringResource(R.string.and_pasteHere), small = true) { close(); pasteClipboard(server, sftpPath) }
                 }
                 if (entry.dir) {
-                    SheetAction("在终端打开", small = true) { close(); openTerminalAt(server, path) }
+                    SheetAction(stringResource(R.string.and_openInTerminal), small = true) { close(); openTerminalAt(server, path) }
                 }
-                SheetAction("复制到…", small = true) {
+                SheetAction(stringResource(R.string.fb_copyTo), small = true) {
                     close(); sftpPick = SftpPick(false, listOf(path), entry.name, sftpPath)
                 }
-                SheetAction("移动到…", small = true) {
+                SheetAction(stringResource(R.string.fb_moveTo), small = true) {
                     close(); sftpPick = SftpPick(true, listOf(path), entry.name, sftpPath)
                 }
             }
@@ -2319,7 +2319,7 @@ class ServersActivity : ComponentActivity() {
             var error: String? = null
             try {
                 val server = JumpStore.findJump(JumpStore.loadJumps(appContext), serverId)
-                    ?: throw Exception("服务器不存在（可能已删除）")
+                    ?: throw Exception(getString(R.string.and_serverNotExist))
                 entries = SftpOps.list(appContext, server, path) { title, message ->
                     bus.confirm(title, message)
                 }
@@ -2351,37 +2351,37 @@ class ServersActivity : ComponentActivity() {
     private fun startDownload(fileName: String) {
         val server = JumpStore.findJump(JumpStore.loadJumps(this), sftpServerId)
         if (server == null) {
-            toast("服务器不存在（可能已删除）")
+            toast(getString(R.string.and_serverNotExist))
             return
         }
         // 同一条文件已经在传了就别再起一个：两个任务写同一个本地文件会互相踩
         if (TransferManager.pendingFor(TransferManager.DIR_DOWNLOAD, remotePathOf(fileName)) != null) {
-            toast("这条已经在传了，进度见「传输」页")
+            toast(getString(R.string.and_alreadyTransferring))
             return
         }
         TransferManager.startDownload(applicationContext, server, sftpPath, fileName) { title, message ->
             bus.confirm(title, message)
         }
-        toast("已加入传输：$fileName（进度见「传输」页）")
+        toast(getString(R.string.and_addedTransfer, fileName))
     }
 
     /** 上传：同上，交给传输中心 */
     private fun uploadPicked(uri: Uri) {
         val server = JumpStore.findJump(JumpStore.loadJumps(this), sftpServerId)
         if (server == null) {
-            toast("先选择服务器")
+            toast(getString(R.string.and_selectServerFirst))
             return
         }
         var name = queryFileName(uri)
         if (name.isNullOrEmpty()) name = "upload-" + System.currentTimeMillis()
         if (TransferManager.pendingFor(TransferManager.DIR_UPLOAD, remotePathOf(name)) != null) {
-            toast("这条已经在传了，进度见「传输」页")
+            toast(getString(R.string.and_alreadyTransferring))
             return
         }
         TransferManager.startUpload(applicationContext, server, sftpPath, uri, name) { title, message ->
             bus.confirm(title, message)
         }
-        toast("已加入传输：$name（进度见「传输」页）")
+        toast(getString(R.string.and_addedTransfer, name))
     }
 
     /** 与 TransferManager.joinRemote 同一口径（重复发起检查要用完整远端路径比对） */
@@ -2438,9 +2438,9 @@ class ServersActivity : ComponentActivity() {
     }
 
     private fun sortName(sort: SftpSort): String = when (sort) {
-        SftpSort.NAME -> "名称"
-        SftpSort.SIZE -> "大小"
-        SftpSort.TIME -> "时间"
+        SftpSort.NAME -> getString(R.string.fb_colName)
+        SftpSort.SIZE -> getString(R.string.fb_colSize)
+        SftpSort.TIME -> getString(R.string.and_timeLabel)
     }
 
     private fun timeText(seconds: Long): String {
@@ -2461,11 +2461,11 @@ class ServersActivity : ComponentActivity() {
      * [work] 里直接抛异常就行，message 会原样给用户看。
      *
      * ⚠️ [after] 必须排在 [work] 前面：尾随 lambda 只会绑到最后一个函数参数上，
-     * 换言之 `sftpRun("删除") { … }` 里的 lambda 永远进 [work]。反过来写会直接编译不过。
+     * 换言之 `sftpRun(getString(R.string.fb_delete)) { … }` 里的 lambda 永远进 [work]。反过来写会直接编译不过。
      */
     private fun sftpRun(label: String, after: (() -> Unit)? = null, work: () -> Unit) {
         if (sftpOpLabel.isNotEmpty()) {
-            toast("正在$sftpOpLabel，稍等一下")
+            toast(getString(R.string.and_busyOpDoing, sftpOpLabel))
             return
         }
         sftpOpLabel = label
@@ -2498,12 +2498,12 @@ class ServersActivity : ComponentActivity() {
         val fromJsch = error is com.jcraft.jsch.SftpException
                 || error is com.jcraft.jsch.JSchException
         return if (fromJsch) SftpOps.reason(error, action, label)
-        else (error.message ?: "$action 失败")
+        else (error.message ?: getString(R.string.and_verbFail, action, ""))
     }
 
     private fun mkdirHere(server: JumpServer, name: String) {
         val target = SftpOps.join(sftpPath, name)
-        sftpRun("新建目录") {
+        sftpRun(getString(R.string.fb_newDir)) {
             try {
                 SftpOps.mkdir(applicationContext, server, target, sftpPrompt())
             } catch (error: Exception) {
@@ -2515,7 +2515,7 @@ class ServersActivity : ComponentActivity() {
     private fun renameEntry(server: JumpServer, entry: SftpOps.Entry, newName: String) {
         val from = SftpOps.join(sftpPath, entry.name)
         val to = SftpOps.join(sftpPath, newName)
-        sftpRun("重命名") {
+        sftpRun(getString(R.string.fb_rename)) {
             try {
                 SftpOps.rename(applicationContext, server, from, to, sftpPrompt())
             } catch (error: Exception) {
@@ -2540,7 +2540,7 @@ class ServersActivity : ComponentActivity() {
         val raw = input.trim()
         if (raw.isEmpty()) return
         var resolved: String? = null
-        sftpRun("定位路径", work = {
+        sftpRun(getString(R.string.and_locatePath), work = {
             try {
                 var value = raw
                 if (raw == "~" || raw.startsWith("~/")) {
@@ -2550,7 +2550,7 @@ class ServersActivity : ComponentActivity() {
                 }
                 resolved = SftpOps.resolve(applicationContext, server, value, sftpPrompt())
             } catch (error: Exception) {
-                throw Exception(sftpReason("定位", raw, error))
+                throw Exception(sftpReason(getString(R.string.and_locate), raw, error))
             }
         }, after = { resolved?.let { gotoDir(it) } })
     }
@@ -2561,7 +2561,7 @@ class ServersActivity : ComponentActivity() {
         sftpClipServer = sftpServerId
         sftpClipPaths = listOf(SftpOps.join(sftpPath, entry.name))
         sftpClipNames = entry.name
-        toast((if (mode == SftpClip.CUT) "已剪切：" else "已复制：") + entry.name)
+        toast(if (mode == SftpClip.CUT) getString(R.string.and_cutCopied, entry.name) else getString(R.string.and_copiedName, entry.name))
     }
 
     private fun clearClip() {
@@ -2575,7 +2575,7 @@ class ServersActivity : ComponentActivity() {
     private fun pasteClipboard(server: JumpServer, destDir: String) {
         if (sftpClip == SftpClip.NONE) return
         if (sftpClipServer != server.id) {
-            toast("剪贴板里的东西在另一台服务器上，只能在同一台里粘贴")
+            toast(getString(R.string.and_clipOtherServer))
             return
         }
         val request = SftpPick(sftpClip == SftpClip.CUT, sftpClipPaths, sftpClipNames, destDir)
@@ -2588,7 +2588,7 @@ class ServersActivity : ComponentActivity() {
      * 剪切是「移动」，静默改个名会让用户以为东西没了，不如让他自己决定。
      */
     private fun transferInto(server: JumpServer, request: SftpPick, destDir: String) {
-        sftpRun(if (request.cut) "移动" else "复制") {
+        sftpRun(if (request.cut) getString(R.string.and_move) else getString(R.string.fb_copy)) {
             for (source in request.paths) {
                 if (request.cut && SftpOps.parent(source) == destDir) continue   // 剪到自己待的目录：没意义，跳过
                 val name = SftpOps.nameOf(source)
@@ -2596,7 +2596,7 @@ class ServersActivity : ComponentActivity() {
                 try {
                     if (SftpOps.exists(applicationContext, server, target, sftpPrompt())) {
                         if (request.cut) {
-                            throw Exception("目标目录里已经有「$name」了")
+                            throw Exception(getString(R.string.and_targetExists, name))
                         }
                         target = uniqueTarget(server, destDir, name)
                     }
