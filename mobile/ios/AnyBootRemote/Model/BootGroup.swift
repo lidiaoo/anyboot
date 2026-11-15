@@ -865,7 +865,7 @@ enum BootService {
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                              path: "/api/pending-cancel")
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
-        return message.isEmpty ? "已撤销挂起的切换请求" : message
+        return message.isEmpty ? L("and.undoPendingDone") : message
     }
 
     static func switchBoot(_ profile: ServerProfile, kind: String, value: String) async throws -> String {
@@ -888,7 +888,7 @@ enum BootService {
             return L("and.nextBootSet")
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
-        return failure.isEmpty ? "请求被拒绝" : failure
+        return failure.isEmpty ? L("and.requestRejected") : failure
     }
 
     /// 三引导器通道切换：`GET /api/boot-channel-switch?channel=&target=`。
@@ -908,7 +908,7 @@ enum BootService {
         } else {
             channelName = entry.id.trimmingCharacters(in: .whitespaces)
             target = ""
-            if channelName.isEmpty { throw RemoteHttpError(message: "没有可执行的通道动作") }
+            if channelName.isEmpty { throw RemoteHttpError(message: L("and.noActionAvailable")) }
         }
         guard let choice = await chooseEndpoint(profile) else {
             throw RemoteHttpError(message: L("error.noAddress"))
@@ -963,7 +963,7 @@ enum BootService {
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }
         if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
-            return "已设为默认（等价 OC 菜单里的 Ctrl+Enter）"
+            return L("and.setDefaultDone")
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
         return failure.isEmpty ? "请求被拒绝" : failure

@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "快照裡沒有 grub";
 "and.errConfirmLine1" = "· 電腦上 AnyBoot 的「遠端控制」已開啟，手機和電腦在同一區域網路";
 "and.errConfirmLine2" = "· 位址填的是電腦上的 IP 和埠（例如 192.168.0.120:12300）";
+"and.setDefaultDone" = "已設為預設（等價 OC 選單裡的 Ctrl+Enter）";
+"and.backupCorrupt" = "備份檔案已損壞";
+"and.opFailRaw" = "{a}失敗：{r}";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

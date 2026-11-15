@@ -457,8 +457,7 @@ struct TerminalSettingsSheet: View {
                     jumps.setTerminalFontSize(jumps.terminalFontSize + 1)
                 }
                 Spacer().frame(width: ABMetric.px(10))
-                ABSecondaryText("范围 \(JumpStore.fontSizeRange.lowerBound)"
-                                + " - \(JumpStore.fontSizeRange.upperBound)")
+                ABSecondaryText(L("and.termFontRange", JumpStore.fontSizeRange.lowerBound, JumpStore.fontSizeRange.upperBound))
             }
             .padding(.horizontal, ABMetric.px(12))
             .padding(.vertical, ABMetric.px(6))

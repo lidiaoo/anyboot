@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "Sem grub no snapshot";
 "and.errConfirmLine1" = "· O “controle remoto” do AnyBoot está ativo e o celular e o PC na mesma LAN";
 "and.errConfirmLine2" = "· Endereço é IP e porta do PC (ex. 192.168.0.120:12300)";
+"and.setDefaultDone" = "Definido como padrão (igual a Ctrl+Enter no menu OC)";
+"and.backupCorrupt" = "Arquivo de backup corrompido";
+"and.opFailRaw" = "{a} falhou: {r}";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

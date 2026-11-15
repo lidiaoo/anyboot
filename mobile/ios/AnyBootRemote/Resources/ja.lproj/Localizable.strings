@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "スナップショットに grub なし";
 "and.errConfirmLine1" = "· PC の AnyBoot「リモート制御」が有効、スマホと PC が同じ LAN";
 "and.errConfirmLine2" = "· アドレスは PC の IP とポート（例 192.168.0.120:12300）";
+"and.setDefaultDone" = "既定に設定（OC メニューの Ctrl+Enter と同じ）";
+"and.backupCorrupt" = "バックアップファイルが破損";
+"and.opFailRaw" = "{a} 失敗：{r}";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

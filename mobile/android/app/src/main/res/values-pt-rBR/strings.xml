@@ -2009,6 +2009,9 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_snapshotNoGrub">Sem grub no snapshot</string>
     <string name="and_errConfirmLine1">· O “controle remoto” do AnyBoot está ativo e o celular e o PC na mesma LAN</string>
     <string name="and_errConfirmLine2">· Endereço é IP e porta do PC (ex. 192.168.0.120:12300)</string>
+    <string name="and_setDefaultDone">Definido como padrão (igual a Ctrl+Enter no menu OC)</string>
+    <string name="and_backupCorrupt">Arquivo de backup corrompido</string>
+    <string name="and_opFailRaw">%1$s falhou: %2$s</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

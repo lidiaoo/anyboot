@@ -350,7 +350,7 @@ enum SftpOps {
         if lower.contains("failure") {
             return L("and.opFailRefused", action, path)
         }
-        return action + "失败：" + (raw.isEmpty ? "未知错误" : raw)
+        return L("and.opFailRaw", action, raw.isEmpty ? L("gw.unknownErr") : raw)
     }
 
     /// 我们自己抛的（已经是给用户看的中文）原样透出，免得「删除失败：删除失败：…」套娃

@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "스냅샷에 grub 없음";
 "and.errConfirmLine1" = "· PC의 AnyBoot ‘원격 제어’가 켜져 있고 휴대폰과 PC가 같은 LAN";
 "and.errConfirmLine2" = "· 주소는 PC의 IP와 포트(예 192.168.0.120:12300)";
+"and.setDefaultDone" = "기본으로 설정(OC 메뉴의 Ctrl+Enter와 동일)";
+"and.backupCorrupt" = "백업 파일 손상";
+"and.opFailRaw" = "{a} 실패: {r}";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

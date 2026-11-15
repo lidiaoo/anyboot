@@ -2009,6 +2009,9 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_snapshotNoGrub">Sin grub en la instantánea</string>
     <string name="and_errConfirmLine1">· El «control remoto» de AnyBoot está activo y el móvil y el PC en la misma LAN</string>
     <string name="and_errConfirmLine2">· Dirección es IP y puerto del PC (p. ej. 192.168.0.120:12300)</string>
+    <string name="and_setDefaultDone">Establecido como predeterminado (igual que Ctrl+Enter en el menú OC)</string>
+    <string name="and_backupCorrupt">Archivo de copia dañado</string>
+    <string name="and_opFailRaw">%1$s falló: %2$s</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

@@ -2009,6 +2009,9 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_snapshotNoGrub">В снимке нет grub</string>
     <string name="and_errConfirmLine1">· На ПК включено «удалённое управление», телефон и ПК в одной LAN</string>
     <string name="and_errConfirmLine2">· Адрес — IP и порт ПК (напр. 192.168.0.120:12300)</string>
+    <string name="and_setDefaultDone">Сделано по умолчанию (как Ctrl+Enter в меню OC)</string>
+    <string name="and_backupCorrupt">Файл копии повреждён</string>
+    <string name="and_opFailRaw">%1$s: ошибка %2$s</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

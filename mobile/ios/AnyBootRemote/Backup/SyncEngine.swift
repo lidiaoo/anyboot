@@ -189,7 +189,7 @@ final class SyncEngine {
         let raw: Data?
         switch await client.download() {
         case .success(let d): raw = d
-        case .failure(let e): return .fail(e.errorDescription ?? "拉取失败")
+        case .failure(let e): return .fail(e.errorDescription ?? L("and.pullFail"))
         }
         var remoteRev = store.rev
         if let raw {
@@ -198,7 +198,7 @@ final class SyncEngine {
                 remoteRev = envelope.sync?.rev ?? store.rev
                 _ = merge(from: envelope, categories: categories)
             } catch {
-                return .fail((error as? BackupError)?.errorDescription ?? "云端文件无法解析")
+                return .fail((error as? BackupError)?.errorDescription ?? L("and.cloudParseFail"))
             }
         }
         let payload: Data
@@ -206,7 +206,7 @@ final class SyncEngine {
             let password = store.config.encrypt ? KeyVault.load(account: store.config.encryptPasswordRef) : nil
             payload = try backup.serialize(try collectedEnvelope(remoteRev + 1), password: password)
         } catch {
-            return .fail("组包失败：\((error as NSError).localizedDescription)")
+            return .fail(L("and.packFail", (error as NSError).localizedDescription))
         }
         switch await client.upload(payload, ifMatchETag: nil) {
         case .success(let newEtag):

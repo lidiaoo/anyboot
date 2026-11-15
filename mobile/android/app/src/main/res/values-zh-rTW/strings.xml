@@ -2009,6 +2009,9 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_snapshotNoGrub">快照裡沒有 grub</string>
     <string name="and_errConfirmLine1">· 電腦上 AnyBoot 的「遠端控制」已開啟，手機和電腦在同一區域網路</string>
     <string name="and_errConfirmLine2">· 位址填的是電腦上的 IP 和埠（例如 192.168.0.120:12300）</string>
+    <string name="and_setDefaultDone">已設為預設（等價 OC 選單裡的 Ctrl+Enter）</string>
+    <string name="and_backupCorrupt">備份檔案已損壞</string>
+    <string name="and_opFailRaw">%1$s失敗：%2$s</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

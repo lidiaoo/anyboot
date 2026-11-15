@@ -2009,6 +2009,9 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_snapshotNoGrub">Kein grub im Snapshot</string>
     <string name="and_errConfirmLine1">· AnyBoot „Fernsteuerung“ am PC an, Handy und PC im selben LAN</string>
     <string name="and_errConfirmLine2">· Adresse ist IP und Port des PCs (z. B. 192.168.0.120:12300)</string>
+    <string name="and_setDefaultDone">Als Standard gesetzt (wie Strg+Enter im OC-Menü)</string>
+    <string name="and_backupCorrupt">Sicherungsdatei beschädigt</string>
+    <string name="and_opFailRaw">%1$s fehlgeschlagen: %2$s</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

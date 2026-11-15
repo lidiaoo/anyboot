@@ -2009,6 +2009,9 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_snapshotNoGrub">No grub in snapshot</string>
     <string name="and_errConfirmLine1">· AnyBoot\'s “remote control” is on, and the phone and computer are on the same LAN</string>
     <string name="and_errConfirmLine2">· The address is the computer\'s IP and port (e.g. 192.168.0.120:12300)</string>
+    <string name="and_setDefaultDone">Set as default (same as Ctrl+Enter in the OC menu)</string>
+    <string name="and_backupCorrupt">Backup file is corrupted</string>
+    <string name="and_opFailRaw">%1$s failed: %2$s</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

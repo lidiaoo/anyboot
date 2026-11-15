@@ -2009,6 +2009,9 @@ Telnet：実験的端末のみ。</string>
     <string name="and_snapshotNoGrub">スナップショットに grub なし</string>
     <string name="and_errConfirmLine1">· PC の AnyBoot「リモート制御」が有効、スマホと PC が同じ LAN</string>
     <string name="and_errConfirmLine2">· アドレスは PC の IP とポート（例 192.168.0.120:12300）</string>
+    <string name="and_setDefaultDone">既定に設定（OC メニューの Ctrl+Enter と同じ）</string>
+    <string name="and_backupCorrupt">バックアップファイルが破損</string>
+    <string name="and_opFailRaw">%1$s 失敗：%2$s</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

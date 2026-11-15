@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "No grub in snapshot";
 "and.errConfirmLine1" = "· AnyBoot's “remote control” is on, and the phone and computer are on the same LAN";
 "and.errConfirmLine2" = "· The address is the computer's IP and port (e.g. 192.168.0.120:12300)";
+"and.setDefaultDone" = "Set as default (same as Ctrl+Enter in the OC menu)";
+"and.backupCorrupt" = "Backup file is corrupted";
+"and.opFailRaw" = "{a} failed: {r}";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

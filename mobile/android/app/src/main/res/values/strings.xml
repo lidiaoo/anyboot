@@ -2009,6 +2009,9 @@ Telnet：只有实验性终端。</string>
     <string name="and_snapshotNoGrub">快照里没有 grub</string>
     <string name="and_errConfirmLine1">· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网</string>
     <string name="and_errConfirmLine2">· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）</string>
+    <string name="and_setDefaultDone">已设为默认（等价 OC 菜单里的 Ctrl+Enter）</string>
+    <string name="and_backupCorrupt">备份文件已损坏</string>
+    <string name="and_opFailRaw">%1$s失败：%2$s</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

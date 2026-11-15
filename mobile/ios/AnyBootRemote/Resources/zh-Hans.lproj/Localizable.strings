@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "快照里没有 grub";
 "and.errConfirmLine1" = "· 电脑上 AnyBoot 的「远程控制」已打开，手机和电脑在同一局域网";
 "and.errConfirmLine2" = "· 地址填的是电脑上的 IP 和端口（例如 192.168.0.120:12300）";
+"and.setDefaultDone" = "已设为默认（等价 OC 菜单里的 Ctrl+Enter）";
+"and.backupCorrupt" = "备份文件已损坏";
+"and.opFailRaw" = "{a}失败：{r}";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

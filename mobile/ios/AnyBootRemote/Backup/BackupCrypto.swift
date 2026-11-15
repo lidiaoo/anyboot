@@ -21,8 +21,8 @@ enum BackupCryptoError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badBase64: return "备份文件已损坏"
-        case .decryptFailed: return "口令错误或文件已损坏"
+        case .badBase64: return L("and.backupCorrupt")
+        case .decryptFailed: return L("and.pwdWrongOrCorrupt")
         }
     }
 }

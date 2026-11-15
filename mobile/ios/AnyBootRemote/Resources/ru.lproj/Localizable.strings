@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "В снимке нет grub";
 "and.errConfirmLine1" = "· На ПК включено «удалённое управление», телефон и ПК в одной LAN";
 "and.errConfirmLine2" = "· Адрес — IP и порт ПК (напр. 192.168.0.120:12300)";
+"and.setDefaultDone" = "Сделано по умолчанию (как Ctrl+Enter в меню OC)";
+"and.backupCorrupt" = "Файл копии повреждён";
+"and.opFailRaw" = "{a}: ошибка {r}";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

@@ -1972,6 +1972,9 @@
 "and.snapshotNoGrub" = "Kein grub im Snapshot";
 "and.errConfirmLine1" = "· AnyBoot „Fernsteuerung“ am PC an, Handy und PC im selben LAN";
 "and.errConfirmLine2" = "· Adresse ist IP und Port des PCs (z. B. 192.168.0.120:12300)";
+"and.setDefaultDone" = "Als Standard gesetzt (wie Strg+Enter im OC-Menü)";
+"and.backupCorrupt" = "Sicherungsdatei beschädigt";
+"and.opFailRaw" = "{a} fehlgeschlagen: {r}";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";
