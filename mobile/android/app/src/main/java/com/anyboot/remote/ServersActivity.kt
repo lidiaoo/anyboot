@@ -849,16 +849,16 @@ class ServersActivity : ComponentActivity() {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (server.isSsh()) {
-                        CardAction(stringResource(R.string.nav_terminal), filled = true, Modifier.weight(1f)) { openTerminal(server) }
-                        CardAction(stringResource(R.string.nav_files), filled = false, Modifier.weight(1f)) {
+                        CardAction(stringResource(R.string.nav_terminal), filled = true, icon = "term", modifier = Modifier.weight(1f)) { openTerminal(server) }
+                        CardAction(stringResource(R.string.nav_files), filled = false, icon = "file", modifier = Modifier.weight(1f)) {
                             currentPage = 2
                             sftpServerId = server.id
                             // 走统一的切目录入口：它会顺手把「加载中」点亮，免得闪一下「（空目录）」
                             gotoDir("/", true)
                         }
                     }
-                    CardAction(stringResource(R.string.and_test), filled = false, Modifier.weight(1f)) { testConnection(server) }
-                    CardAction(stringResource(R.string.common_edit), filled = false, Modifier.weight(1f)) { editTarget = server; editOpen = true }
+                    CardAction(stringResource(R.string.and_test), filled = false, icon = "test", modifier = Modifier.weight(1f)) { testConnection(server) }
+                    CardAction(stringResource(R.string.common_edit), filled = false, icon = "edit", modifier = Modifier.weight(1f)) { editTarget = server; editOpen = true }
                 }
             }
         }
@@ -889,7 +889,7 @@ class ServersActivity : ComponentActivity() {
 
     /** 展开区的操作钮（终端为实底强调色，其余描边抬升底） */
     @Composable
-    private fun CardAction(label: String, filled: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    private fun CardAction(label: String, filled: Boolean, icon: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
         val palette = LocalPalette.current
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -905,14 +905,14 @@ class ServersActivity : ComponentActivity() {
                 )
                 .clickable(onClick = onClick),
         ) {
-            when (label) {
-                "终端" -> TermIcon(palette.onAccent, 15.dp)
-                "文件" -> FolderIcon(palette.fg, 15.dp)
-                "测试" -> Icon(
+            when (icon) {
+                "term" -> TermIcon(palette.onAccent, 15.dp)
+                "file" -> FolderIcon(palette.fg, 15.dp)
+                "test" -> Icon(
                     Icons.Filled.Refresh, label, tint = palette.fg,
                     modifier = Modifier.size(15.dp),
                 )
-                "编辑" -> Icon(
+                "edit" -> Icon(
                     Icons.Filled.Edit, label, tint = palette.fgDim,
                     modifier = Modifier.size(15.dp),
                 )
@@ -921,7 +921,7 @@ class ServersActivity : ComponentActivity() {
                 label,
                 fontSize = 9.sp,
                 fontWeight = if (filled) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (filled) palette.onAccent else if (label == "编辑") palette.fgDim else palette.fg,
+                color = if (filled) palette.onAccent else if (icon == "edit") palette.fgDim else palette.fg,
             )
         }
     }
@@ -2169,14 +2169,14 @@ class ServersActivity : ComponentActivity() {
 
                 // 变体动作（设计稿主区）
                 if (entry.dir) {
-                    SheetAction(stringResource(R.string.fb_rename)) { close(); sftpAskRename = entry }
-                    SheetAction(stringResource(R.string.fb_copyPath)) { close(); copyClipboard(getString(R.string.fb_path), path) }
-                    SheetAction(stringResource(R.string.and_delWithContents), palette.bad) { close(); sftpAskDelete = entry }
+                    SheetAction(stringResource(R.string.fb_rename), icon = "rename") { close(); sftpAskRename = entry }
+                    SheetAction(stringResource(R.string.fb_copyPath), icon = "copyPath") { close(); copyClipboard(getString(R.string.fb_path), path) }
+                    SheetAction(stringResource(R.string.and_delWithContents), icon = "delCont", color = palette.bad) { close(); sftpAskDelete = entry }
                 } else {
-                    SheetAction(stringResource(R.string.fb_dlTo), palette.accent) { close(); startDownload(entry.name) }
-                    SheetAction(stringResource(R.string.fb_rename)) { close(); sftpAskRename = entry }
-                    SheetAction(stringResource(R.string.fb_copyPath)) { close(); copyClipboard(getString(R.string.fb_path), path) }
-                    SheetAction(stringResource(R.string.fb_delete), palette.bad) { close(); sftpAskDelete = entry }
+                    SheetAction(stringResource(R.string.fb_dlTo), icon = "dl", color = palette.accent) { close(); startDownload(entry.name) }
+                    SheetAction(stringResource(R.string.fb_rename), icon = "rename") { close(); sftpAskRename = entry }
+                    SheetAction(stringResource(R.string.fb_copyPath), icon = "copyPath") { close(); copyClipboard(getString(R.string.fb_path), path) }
+                    SheetAction(stringResource(R.string.fb_delete), icon = "del", color = palette.bad) { close(); sftpAskDelete = entry }
                 }
 
                 // 分隔线 + 折叠「更多操作」：原有全套能力原样保留
@@ -2188,19 +2188,19 @@ class ServersActivity : ComponentActivity() {
                         .background(palette.line),
                 )
                 Text(stringResource(R.string.fb_moreOps), fontSize = 11.sp, color = palette.fgFaint, modifier = Modifier.padding(bottom = 4.dp))
-                SheetAction(stringResource(R.string.fb_info), small = true) { close(); sftpAskDetail = entry }
-                SheetAction(stringResource(R.string.fb_copy), small = true) { close(); setClip(SftpClip.COPY, entry) }
-                SheetAction(stringResource(R.string.fb_cut), small = true) { close(); setClip(SftpClip.CUT, entry) }
+                SheetAction(stringResource(R.string.fb_info), icon = "info", small = true) { close(); sftpAskDetail = entry }
+                SheetAction(stringResource(R.string.fb_copy), icon = "copy", small = true) { close(); setClip(SftpClip.COPY, entry) }
+                SheetAction(stringResource(R.string.fb_cut), icon = "cut", small = true) { close(); setClip(SftpClip.CUT, entry) }
                 if (entry.dir && sftpClip != SftpClip.NONE) {
-                    SheetAction(stringResource(R.string.and_pasteHere), small = true) { close(); pasteClipboard(server, sftpPath) }
+                    SheetAction(stringResource(R.string.and_pasteHere), icon = "paste", small = true) { close(); pasteClipboard(server, sftpPath) }
                 }
                 if (entry.dir) {
-                    SheetAction(stringResource(R.string.and_openInTerminal), small = true) { close(); openTerminalAt(server, path) }
+                    SheetAction(stringResource(R.string.and_openInTerminal), icon = "openTerm", small = true) { close(); openTerminalAt(server, path) }
                 }
-                SheetAction(stringResource(R.string.fb_copyTo), small = true) {
+                SheetAction(stringResource(R.string.fb_copyTo), icon = "copyTo", small = true) {
                     close(); sftpPick = SftpPick(false, listOf(path), entry.name, sftpPath)
                 }
-                SheetAction(stringResource(R.string.fb_moveTo), small = true) {
+                SheetAction(stringResource(R.string.fb_moveTo), icon = "moveTo", small = true) {
                     close(); sftpPick = SftpPick(true, listOf(path), entry.name, sftpPath)
                 }
             }
@@ -2209,7 +2209,7 @@ class ServersActivity : ComponentActivity() {
 
     /** 动作面板里的一行（设计稿 h-11 行：图标 + 文案；small=「更多操作」组的小字行） */
     @Composable
-    private fun SheetAction(text: String, color: Color? = null, small: Boolean = false, onClick: () -> Unit) {
+    private fun SheetAction(text: String, icon: String = "", color: Color? = null, small: Boolean = false, onClick: () -> Unit) {
         val palette = LocalPalette.current
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -2220,11 +2220,11 @@ class ServersActivity : ComponentActivity() {
                 .clickable { onClick() }
                 .padding(horizontal = 12.dp),
         ) {
-            when {
-                text.startsWith("下载") -> DownloadIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
-                text.startsWith("重命名") -> PencilIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
-                text.startsWith("复制路径") -> CopyIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
-                text.startsWith("删除") -> TrashIcon(color ?: palette.bad, if (small) 15.dp else 18.dp)
+            when (icon) {
+                "dl" -> DownloadIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                "rename" -> PencilIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                "copyPath" -> CopyIcon(color ?: palette.fgDim, if (small) 15.dp else 18.dp)
+                "del", "delCont" -> TrashIcon(color ?: palette.bad, if (small) 15.dp else 18.dp)
             }
             Text(
                 text,
