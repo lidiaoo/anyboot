@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
+import { t } from "@/i18n";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
 
@@ -28,9 +29,9 @@ const loading = ref(true);
 
 /** 提示文案（逐字对齐旧版 renderKeysPage，hub.html:6898） */
 const keysHint = computed(() => {
-  if (loading.value) return "正在读取密钥列表…";
-  if (!keys.value.length) return "还没有密钥。打开密钥管理可生成（ssh-keygen）或导入。";
-  return `本机共 ${keys.value.length} 把密钥（${keys.value.map((k) => k.id).join("、")}）。打开密钥管理可生成 / 导入 / 删除。`;
+  if (loading.value) return t("keys.loading");
+  if (!keys.value.length) return t("keys.empty");
+  return t("keys.summary", { n: keys.value.length, ids: keys.value.map((k) => k.id).join(", ") });
 });
 
 onMounted(async () => {
@@ -44,14 +45,14 @@ onMounted(async () => {
 });
 
 function openKeys() {
-  if (!isTauri()) { toast.show("密钥管理需要应用环境", "bad"); return; }
+  if (!isTauri()) { toast.show(t("keys.needApp"), "bad"); return; }
   void call("hub_open_keys_window", {}).catch((e) => toast.show("打开密钥管理失败：" + e, "bad"));
 }
 </script>
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>密钥</h2></div>
+    <div class="page-head"><h2>{{ $t("nav.keys") }}</h2></div>
     <div class="hub-page-body">
       <div class="act-card">
         <svg
@@ -66,7 +67,7 @@ function openKeys() {
           <circle cx="8" cy="15" r="4" />
           <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
         </svg>
-        <p class="t">密钥</p>
+        <p class="t">{{ $t("nav.keys") }}</p>
         <p class="s" id="keysPageHint">{{ keysHint }}</p>
         <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
           <svg
@@ -83,7 +84,7 @@ function openKeys() {
             <circle cx="8" cy="15" r="4" />
             <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
           </svg>
-          打开密钥管理
+          {{ $t("keys.open") }}
         </button>
       </div>
     </div>

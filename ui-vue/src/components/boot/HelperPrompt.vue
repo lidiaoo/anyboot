@@ -12,6 +12,7 @@
  *  任何选择都要**先等这里操作完毕**，调用方再决定是否降级到密码授权框。
  */
 import { computed, ref } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 import { setHelperReminderSnooze } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
@@ -21,9 +22,9 @@ import { useUiStateStore } from "@/stores/uiState";
 // 「root 助手」一头雾水，且之前调错命令还会报「这个平台没有免密助手」。
 const ui = useUiStateStore();
 const isLinux = computed(() => String(ui.settings?.os ?? "") === "linux");
-const helperName = computed(() => (isLinux.value ? "免密组件（polkit/sudo）" : "免密提权（root 助手）"));
+const helperName = computed(() => (isLinux.value ? t("helper.nameLinux") : t("helper.nameRoot")));
 const installLabel = computed(() =>
-  isLinux.value ? "开启免密组件（输一次管理员密码）" : "开启免密助手（输一次密码）",
+  isLinux.value ? t("helper.enableLinux") : t("helper.enableRoot"),
 );
 
 const emit = defineEmits<{
@@ -48,7 +49,7 @@ async function install() {
     await new Promise((r) => setTimeout(r, 600));
     emit("resolved", "installed");
   } catch (e) {
-    error.value = "开启免密助手失败（可能取消了系统授权）：" + e;
+    error.value = t("helper.fail", { msg: String(e) });
   } finally {
     busy.value = false;
   }
@@ -72,30 +73,26 @@ function cancel() {
 
 <template>
   <div class="token-modal-overlay" style="z-index: 200">
-    <div class="token-modal" role="dialog" aria-modal="true" aria-label="开启免密助手">
-      <h2>开启免密扫描</h2>
-      <p>
-        启动时扫描 Linux 分区的引导项/内核，需要读取分区裸数据（需要管理员权限）。
-        建议开启「{{ helperName }}」：只需授权这一次，之后每次启动都能自动扫描，
-        不再反复弹密码框。
-      </p>
+    <div class="token-modal" role="dialog" aria-modal="true" :aria-label="$t('helper.ariaTitle')">
+      <h2>{{ $t("helper.title") }}</h2>
+      <p>{{ $t("helper.body", { name: helperName }) }}</p>
       <p v-if="error" class="error" style="color: #d9534f; font-size: 12px">{{ error }}</p>
 
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
         <button type="button" class="btn" :disabled="busy || done" @click="install">
           <span v-if="busy" class="btn-spinner" aria-hidden="true"></span>
-          {{ done ? "已开启 ✓" : busy ? "开启中…（请在系统授权框中确认）" : installLabel }}
+          {{ done ? $t("helper.done") : busy ? $t("helper.busy") : installLabel }}
         </button>
 
         <!-- 取消提醒：直接展示 1/7/30 天/永久（不再折叠成「取消提醒…」按钮） -->
-        <small style="font-size: 12px; color: var(--text-faint)">在下列时间内不再提醒：</small>
+        <small style="font-size: 12px; color: var(--text-faint)">{{ $t("helper.snooze") }}</small>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(1)">1 天</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(7)">7 天</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(30)">30 天</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(0)">永久</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(1)">{{ $t("helper.day1") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(7)">{{ $t("helper.day7") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(30)">{{ $t("helper.day30") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(0)">{{ $t("helper.forever") }}</button>
         </div>
-        <button type="button" class="btn ghost" :disabled="busy" @click="cancel">暂不</button>
+        <button type="button" class="btn ghost" :disabled="busy" @click="cancel">{{ $t("helper.notNow") }}</button>
       </div>
     </div>
   </div>

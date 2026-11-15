@@ -47,8 +47,8 @@
 - [ ] **P3.1** `components/boot/BootList.vue`：区块标题、空态、`showGroups`
 - [x] **P3.2** `components/boot/GrubEntry.vue`：`tagText`（组头 N 项 / 变体 / 只读）、`displayName` 分隔符保持代码
 - [ ] **P3.3** `components/boot/GrubList.vue`、`GrubSection.vue`、`RefindSection.vue`、`bootRows.ts` 的 `CHILD_SOURCE` 改 key
-- [ ] **P3.4** `components/boot/GrubEsp.vue`：ESP 配置表单（分区/UUID/目录/挂载/保持挂载说明）
-- [ ] **P3.5** `components/boot/{LoaderSettings,ChannelSettings,SolPanel,HelperPrompt,TokenPrompt}.vue`
+- [x] **P3.4** `components/boot/GrubEsp.vue`：ESP 配置表单（分区/UUID/目录/挂载/保持挂载说明）
+- [x] **P3.5** `components/boot/{LoaderSettings,ChannelSettings,SolPanel,HelperPrompt,TokenPrompt}.vue`
 - [ ] **P3.6** `pages/boot/themes/Theme{A,B,C,G,I,J}.vue` + `LoaderIcon/StateChip`：仅状态语与按钮（其余是图标/布局）
 - [ ] **P3.7** `pages/boot/BootSettings.vue`
 
@@ -59,7 +59,7 @@
 - [ ] **P4.4** `pages/hub/TransfersPage.vue`
 - [ ] **P4.5** `pages/hub/SessionsPage.vue`
 - [ ] **P4.6** `pages/hub/GatewayPage.vue`（远程接入/隧道/配对）
-- [ ] **P4.7** `pages/hub/KeysPage.vue`、`keys/*`
+- [ ] **P4.7**（KeysPage 已完成；KeysWindow 待） `pages/hub/KeysPage.vue`、`keys/*`
 - [ ] **P4.8** `pages/hub/FilesPage.vue`、`files/*`
 - [ ] **P4.9** `pages/hub/AboutPage.vue`（版本/更新/检查更新/仓库链接）
 - [ ] **P4.10** 更新流程文案：`stores/update.ts`（或等价）+ 更新面板按钮/进度/错误

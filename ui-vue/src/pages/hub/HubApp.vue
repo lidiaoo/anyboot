@@ -433,7 +433,7 @@ onUnmounted(() => {
         <FilesPage v-else-if="currentPage === 'files'" />
         <KeysPage v-else-if="currentPage === 'keys'" />
         <TermsetPage v-else-if="currentPage === 'termset'" />
-        <p v-else class="placeholder">{{ contentLabel }} 页面</p>
+        <p v-else class="placeholder">{{ $t("app.pageSuffix", { name: contentLabel }) }}</p>
       </section>
     </div>
   </div>

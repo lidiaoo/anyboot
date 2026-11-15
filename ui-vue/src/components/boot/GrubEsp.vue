@@ -4,6 +4,7 @@
  * 由 LoaderSettings 在 grub 分支独立渲染（修复 G 主题 slot 场景下表单渲染为空的问题）。
  */
 import { computed, ref } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
 import { useToastStore } from "@/stores/toast";
@@ -29,10 +30,10 @@ async function detectEsp() {
     const res = await call<string>("detect_esp", { path: espDir.value });
     // 走统一的**底部状态栏**提示（ui.setBootNotice → BootApp 的 status-bar），
     // 不是浮层 toast。setBootNotice 每次赋新对象，连续点相同文案也会重复显示。
-    ui.setBootNotice(res || "「GRUB」识别完成");
+    ui.setBootNotice(res || t("grubEsp.recognized", { name: "GRUB" }));
     void call("refresh").catch(() => {});
   } catch (e) {
-    toast.show("识别 ESP 失败：" + e, "bad");
+    toast.show(t("grubEsp.fail", { msg: String(e) }), "bad");
   }
 }
 function saveEspDir() {
@@ -70,46 +71,46 @@ function toggleMount() {
   <!-- ESP 配置（旧版 .grub-esp）：自动读取与手动解析共用 -->
   <div class="grub-esp" id="grub-esp" data-esp-root="1">
         <div class="grub-esp-head">
-          <strong>ESP 分区</strong>
-      <small class="grub-esp-shared-note">自动读取与手动解析共用这里的分区设置</small>
-          <small>手动 / 自动共用</small>
+          <strong>{{ $t("grubEsp.espPart") }}</strong>
+      <small class="grub-esp-shared-note">{{ $t("grubEsp.sharedNote") }}</small>
+          <small>{{ $t("grubEsp.sharedShort") }}</small>
         </div>
         <div class="grub-row">
-          <label for="grub-dir">ESP 目录</label>
+          <label for="grub-dir">{{ $t("grubEsp.dir") }}</label>
           <input
             id="grub-dir"
             :value="espDir"
-            placeholder="H:\ 或 /boot/efi 或 /Volumes/ARCH-EFI（分区里任意路径都行）"
+            :placeholder="$t('grubEsp.dirPh')"
             spellcheck="false"
             type="text"
           />
-          <button type="button" id="grub-dir-pick" class="secondary" @click="pickEspDir">选择文件夹…</button>
-          <button v-if="isManual" type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">识别</button>
-          <button type="button" id="grub-dir-save" class="secondary" @click="saveEspDir">保存</button>
-          <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">打开文件管理器</button>
+          <button type="button" id="grub-dir-pick" class="secondary" @click="pickEspDir">{{ $t("grubEsp.pick") }}</button>
+          <button v-if="isManual" type="button" id="grub-dir-detect" class="secondary" @click="detectEsp">{{ $t("grubEsp.detect") }}</button>
+          <button type="button" id="grub-dir-save" class="secondary" @click="saveEspDir">{{ $t("common.save") }}</button>
+          <button type="button" id="grub-dir-open" class="secondary" @click="openGrubDir">{{ $t("grubEsp.openFM") }}</button>
         </div>
         <div class="grub-row">
           <label class="grub-check" for="grub-mount">
             <input id="grub-mount" type="checkbox" :checked="Boolean(grubManual?.keepMounted)" @change="toggleMount" />
-            <span id="grub-mount-label">挂载 ESP（勾上后可直接读写）</span>
+            <span id="grub-mount-label">{{ $t("grubEsp.mountLabel") }}</span>
           </label>
           <small class="grub-part" id="grub-part" />
         </div>
         <div class="grub-row">
-          <label for="grub-partuuid">ESP 的分区 UUID</label>
+          <label for="grub-partuuid">{{ $t("grubEsp.partUuidLabel") }}</label>
           <input
             id="grub-partuuid"
             :value="partuuid"
-            placeholder="GPT 分区 GUID，如 F69D7BF9-E8A9-3135-A5CB-4BD0CA7344E3（三端同值：Linux lsblk -o PARTUUID / macOS diskutil / Windows Get-Partition）"
+            :placeholder="$t('grubEsp.partUuidPh')"
             spellcheck="false"
             type="text"
           />
-          <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">保存</button>
-          <button v-if="isManual" type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">识别</button>
+          <button type="button" id="grub-partuuid-save" class="secondary" @click="savePartuuid">{{ $t("common.save") }}</button>
+          <button v-if="isManual" type="button" id="grub-partuuid-detect" class="secondary" @click="detectPartuuid">{{ $t("grubEsp.detect") }}</button>
         </div>
         <div v-if="isManual" class="grub-row">
-          <button type="button" class="secondary" id="grub-sync" @click="syncManual">同步</button>
-          <label class="grub-part" id="grub-sync-note">把当前系统 /boot/grub/grub.cfg 同步到 ESP（需已挂载到 /boot 或 /boot/efi）</label>
+          <button type="button" class="secondary" id="grub-sync" @click="syncManual">{{ $t("grubEsp.sync") }}</button>
+          <label class="grub-part" id="grub-sync-note">{{ $t("grubEsp.syncNote") }}</label>
         </div>
         <p class="grub-error" id="grub-error" role="status" :hidden="!grubErrorText">{{ grubErrorText }}</p>
       </div>

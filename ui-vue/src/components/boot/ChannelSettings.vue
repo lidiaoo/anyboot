@@ -5,6 +5,7 @@
  * 供各主题列表下方折叠面板使用（列表本身由 BootList 渲染）。
  */
 import { loaderMeta } from "@/pages/boot/themes/loaders";
+import { t } from "@/i18n";
 import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
@@ -15,7 +16,7 @@ const busy = ref(false);
 async function refreshChannel() {
   if (busy.value) return;
   busy.value = true;
-  ui.setBootNotice("正在读取…");
+  ui.setBootNotice(t("grub.reading"));
   try {
     const MAX_TRIES = 1; // T8: 扫描已快，不再连打多次（失败一次即报错）
     let n = 0;
@@ -28,10 +29,10 @@ async function refreshChannel() {
     }
     // 统一文案：带引导器名，「X」扫描完成，但没有识别到条目（不标红）。
     const lname = loaderMeta(props.loader).name;
-    if (n > 0) ui.setBootNotice(`「${lname}」扫描完成，识别到 ${n} 条`);
-    else ui.setBootNotice(`「${lname}」扫描完成，但没有识别到条目`);
+    if (n > 0) ui.setBootNotice(t("grub.scanDone", { name: lname, n }));
+    else ui.setBootNotice(t("grub.scanEmpty", { name: lname }));
   } catch (e) {
-    ui.setBootNotice("重新读取失败：" + e, true);
+    ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {
     busy.value = false;
   }
@@ -43,13 +44,13 @@ const ch = computed(() => ui.channels.find((c) => c.id === props.loader) ?? null
 <template>
   <!-- 通道未探测 / 无该通道数据时，也给出明确空态，不留白、不回落到别的引导器 -->
   <div v-if="!ch" class="channel-settings">
-    <p class="channel-settings-empty">这个引导器没有可调设置（未探测到通道，或该通道无额外配置）</p>
+    <p class="channel-settings-empty">{{ $t("channel.empty") }}</p>
   </div>
   <div v-else class="channel-settings">
     <div class="channel-settings-head" style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
       <span class="grow" style="flex:1"></span>
       <button type="button" class="secondary" :disabled="busy" @click="refreshChannel">
-        {{ busy ? "读取中…" : "重新读取" }}
+        {{ busy ? $t("grub.reading") : $t("grub.reread") }}
       </button>
     </div>
     <!-- 健康检查 / 菜单问题（真实 issues） -->
@@ -57,7 +58,7 @@ const ch = computed(() => ui.channels.find((c) => c.id === props.loader) ?? null
       <small v-for="(h, i) in [...(ch.health ?? []), ...(ch.menuPreview?.issues ?? [])]" :key="i" class="issue" :data-sev="h.severity">{{ h.text }}</small>
     </div>
     <p v-if="!((ch.health?.length ?? 0) || (ch.menuPreview?.issues?.length ?? 0))" class="channel-settings-empty">
-      {{ ch.detail || "没有额外的可调设置" }}
+      {{ ch.detail || $t("channel.noExtra") }}
     </p>
   </div>
 </template>
