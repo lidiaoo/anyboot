@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "Synchronisiert: {t}",
+  espReadHint: "Liest /EFI/grub.cfg und /EFI/grubenv auf der ESP: Nach Installation von 09_anyboot unter Linux synchronisiert jedes update-grub.",
+  notFoundHint: "Ordner auf der ESP wählen zum Erkennen oder unten die fs-uuid eintragen – eines genügt, das andere passt sich an",
+  scriptHint: "Bei Installation wird nur @@ESP_UUID@@ durch die fs-uuid aus „ESP-Partition“ unten ersetzt; der Rest nutzt diesen Inhalt. Leeren+Speichern = Vorlage wiederherstellen",
+  notice1: "Linux muss os-prober aktivieren: GRUB_DISABLE_OS_PROBER=false in /etc/default/grub hinzufügen und update-grub ausführen, damit Einträge anderer Systeme in grub.cfg gelangen; bei mehreren Distros nur eine EFI verwalten lassen (deren GRUB + os-prober sammelt den Rest).",
+  notice2: "Für Windows' EFI-Partition muss das GPT-Flag boot, efi sein (boot-Flag in gparted setzen), sonst erkennt os-prober sie nicht.",
+  notice3: "EFI-Erststart: Bei rEFInd dessen EFI als ersten Start setzen; sonst GRUBs EFI als ersten.",
+  listFormat: "Listenformat",
   zone: "{name}-Zone",
   sectionTitle: "{name}-Starteinträge",
   tabsAria: "{name}-Lesemethode",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "Auto-Scan",
   tabManual: "Manuell",
+  simHint: "Nach {who}-Regeln neu berechnet · Eintrag anklicken für zweite Ebene (in {who}: Tab / + / F2) · „Nächster Start“ schreibt PreviousBoot",
   simScan: "Simulierte Starteintrag-Prüfung",
   hiddenCount: "{n} ausgeblendete Einträge (nicht im {who}-Menü)",
   systemsAria: "Startbare Systeme",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "Im Puffer gehaltener Verlauf (500–100000)",
   downloadPath: "Download-Pfad",
   downloadPathPh: "System-Downloadordner",
+  downloadPathNote: "Zielordner für Downloads (leer = System-Downloads; ~ = Home)",
+  pick: "Wählen…",
+  applySettings: "Einstellungen anwenden",
 },
 about: {
   title: "Über",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "Zielpfad (mit Dateiname)",
   count: "{n} Einträge",
   sftp: "SFTP nutzt die SSH-Sitzung",
+  selectServer: "Server wählen",
+  noSshShort: "Noch keine SSH-Server",
 },
 oc: {
   blessScan: "bless-Scan",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "„{name}“ löschen? Nicht umkehrbar.",
 },
-api: {
-  invalidToken: "Ungültiges Zugriffstoken (401)",
-  commandFailed: "Befehl fehlgeschlagen: {command}",
-},
 ts: {
+  pushError: "Push-Kanal-Fehler",
   local: "Lokal direkt",
   pushing: "Übertrage (Push)",
   polling: "Abfrage (Polling)",
   pushWs: "Push (WebSocket)",
   pollHttp: "Polling (HTTP)",
   auto: "Auto (Push bevorzugt, Fallback Polling)",
+},
+api: {
+  invalidToken: "Ungültiges Zugriffstoken (401)",
+  commandFailed: "Befehl fehlgeschlagen: {command}",
 },
 lat: {
   title: "Latenzverlauf",

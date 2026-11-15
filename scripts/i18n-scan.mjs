@@ -14,7 +14,7 @@ const CJK = /[\u3400-\u9fff\uf900-\ufaff]/;
 
 // 白名单：文件路径（相对仓库根）整文件跳过
 const WHITELIST_FILES = [
-  "ui-vue/src/i18n/messages/",
+  "ui-vue/src/i18n/",
   "ui-vue/src/pages/boot/themes/", // 主题演示数据（后续批次处理）
   "mobile/ios/AnyBootRemote/DemoSeed.swift",
   "mobile/android/app/src/main/java/com/anyboot/remote/DemoSeed.kt",

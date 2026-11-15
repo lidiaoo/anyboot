@@ -20,6 +20,7 @@
  */
 
 import { defineStore } from "pinia";
+import { t } from "@/i18n";
 import { computed, ref, shallowRef } from "vue";
 import type { UiState } from "@/api/types";
 import {
@@ -221,7 +222,7 @@ export const useUiStateStore = defineStore("uiState", () => {
       };
 
       ws.onerror = () => {
-        pushError.value = "推送通道出错";
+        pushError.value = t("ts.pushError");
       };
     });
   }

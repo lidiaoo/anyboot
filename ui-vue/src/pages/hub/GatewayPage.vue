@@ -1667,7 +1667,7 @@ function deletePair(id: string) {
           <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-          ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+          {{ $t("gw.funnelWarn") }}
         </p>
       </div>
 

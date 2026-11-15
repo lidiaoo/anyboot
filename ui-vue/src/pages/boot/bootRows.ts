@@ -6,14 +6,15 @@
  * 计数、排序、选中才可能与旧版一致。
  */
 import type { EntryData } from "@/components/boot/types";
+import { t } from "@/i18n";
 
 
 /** 旧版 REFIND_SIM_CHILD_SOURCE（app.js:873） */
 export const CHILD_SOURCE: Record<string, string> = {
-  default: "默认项",
+  default: "hub.child.default",
   options: "refind_linux.conf",
-  kernel: "折叠内核",
-  macos: "macOS 诊断",
+  kernel: "hub.child.kernel",
+  macos: "hub.child.macosDiag",
   stanza: "submenuentry",
 };
 
@@ -54,7 +55,7 @@ export function simRows(sim: { entries?: SimEntryLike[] } | null | undefined): E
           class: e.kind,
           submenu: rawTitle,
           readonly: false,
-          tag: CHILD_SOURCE[c.source || ""] || "",
+          tag: CHILD_SOURCE[c.source || ""] ? t(CHILD_SOURCE[c.source || ""]) : "",
         });
       }
     } else {

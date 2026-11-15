@@ -6,6 +6,7 @@
  */
 
 import { defineStore } from "pinia";
+import { t } from "@/i18n";
 import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import type { RemoteBootInfo } from "@/api/types";
@@ -214,7 +215,7 @@ export const useRemoteStore = defineStore("remote", () => {
     // (addresses/probe_mode/...)，对不上 → 测试无效、始终「不通」。
     // 改用 remote_test_via：只传 serverId，后端自己查 profile 逐通道探测（与编辑对话框一致）。
     const id = String(payload.id ?? payload.serverId ?? "");
-    let text = "不通";
+    let text = t("hub.conn.fail");
     try {
       const r = await call<{ ok?: boolean; ms?: number; addr?: string; error?: string }>(
         "remote_test_via",

@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "Sincronizado em {t}",
+  espReadHint: "Lê /EFI/grub.cfg e /EFI/grubenv na ESP: após instalar o 09_anyboot no Linux, cada update-grub sincroniza.",
+  notFoundHint: "Escolha uma pasta na ESP ou preencha o fs-uuid abaixo — um basta, o outro se ajusta",
+  scriptHint: "Na instalação só @@ESP_UUID@@ é trocado pela fs-uuid de “Partição ESP” abaixo; o resto usa este conteúdo. Limpar e salvar = restaurar modelo embutido",
+  notice1: "No Linux ative o os-prober: adicione GRUB_DISABLE_OS_PROBER=false em /etc/default/grub e rode update-grub para entradas de outros sistemas irem ao grub.cfg; com várias distros, deixe só uma gerenciar a EFI (seu GRUB + os-prober coleta o resto).",
+  notice2: "Para a partição EFI do Windows, o flag GPT deve ser boot, efi (defina o flag boot no gparted), senão o os-prober não a detecta.",
+  notice3: "Primeira entrada EFI: com rEFInd, defina o EFI do rEFInd como primeira; senão, o EFI do GRUB.",
+  listFormat: "Formato da lista",
   zone: "Zona {name}",
   sectionTitle: "Entradas de {name}",
   tabsAria: "Método de leitura {name}",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "Varredura automática",
   tabManual: "Manual",
+  simHint: "Recalculado pelas regras de {who} · clique para expandir o 2º nível (em {who}: Tab / + / F2) · “Próxima inicialização” grava PreviousBoot",
   simScan: "Varredura simulada de entradas",
   hiddenCount: "{n} itens ocultos (não aparecem no menu {who})",
   systemsAria: "Sistemas inicializáveis",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "Histórico no buffer (500–100000)",
   downloadPath: "Caminho de download",
   downloadPathPh: "Pasta de downloads do sistema",
+  downloadPathNote: "Pasta de downloads (vazio = Downloads do sistema; ~ = home)",
+  pick: "Escolher…",
+  applySettings: "Aplicar configurações",
 },
 about: {
   title: "Sobre",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "Caminho de destino (com nome)",
   count: "{n} itens",
   sftp: "SFTP reusa a sessão SSH",
+  selectServer: "Escolher servidor",
+  noSshShort: "Sem servidores SSH",
 },
 oc: {
   blessScan: "varredura bless",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "Excluir “{name}”? Não pode ser desfeito.",
 },
-api: {
-  invalidToken: "Token de acesso inválido (401)",
-  commandFailed: "Comando falhou: {command}",
-},
 ts: {
+  pushError: "Erro no canal de push",
   local: "Direto local",
   pushing: "Enviando (push)",
   polling: "Consultando (polling)",
   pushWs: "Push (WebSocket)",
   pollHttp: "Polling (HTTP)",
   auto: "Auto (push primeiro, cai para polling)",
+},
+api: {
+  invalidToken: "Token de acesso inválido (401)",
+  commandFailed: "Comando falhou: {command}",
 },
 lat: {
   title: "Tendência de latência",

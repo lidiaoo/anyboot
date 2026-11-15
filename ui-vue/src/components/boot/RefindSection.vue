@@ -204,8 +204,7 @@ async function selectEntry(selector: string) {
         <div class="sim-scan-head">
           <h3>{{ $t("refind.simScan") }}</h3>
           <small
-            >按 {{ who }} 规则复算 · 点条目展开第二层（{{ who }} 里按 Tab / + / F2 进入）·
-            「下次启动」写 PreviousBoot</small
+            >{{ $t("refind.simHint", { who }) }}</small
           >
           <button
             type="button"

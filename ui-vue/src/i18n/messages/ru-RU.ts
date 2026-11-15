@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "Синхр.: {t}",
+  espReadHint: "Читает /EFI/grub.cfg и /EFI/grubenv на ESP: после установки 09_anyboot в Linux каждое update-grub синхронизирует их.",
+  notFoundHint: "Выберите папку на ESP или впишите fs-uuid ниже — достаточно одного, другое подставится",
+  scriptHint: "При установке только @@ESP_UUID@@ заменяется на fs-uuid из «ESP-раздела» ниже; остальное — по этому тексту. Очистить и сохранить = вернуть встроенный шаблон",
+  notice1: "В Linux включите os-prober: добавьте GRUB_DISABLE_OS_PROBER=false в /etc/default/grub и выполните update-grub, чтобы записи других систем попали в grub.cfg; при нескольких дистрибутивах пусть EFI управляет только один (его GRUB + os-prober соберёт остальные).",
+  notice2: "Для EFI-раздела Windows флаг GPT должен быть boot, efi (поставьте boot в gparted), иначе os-prober его не увидит.",
+  notice3: "Первый пункт загрузки EFI: при использовании rEFInd задайте его EFI первым; иначе — EFI GRUB.",
+  listFormat: "Формат списка",
   zone: "Зона {name}",
   sectionTitle: "Записи загрузки {name}",
   tabsAria: "Способ чтения {name}",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "Автоскан",
   tabManual: "Вручную",
+  simHint: "Пересчёт по правилам {who} · клик по записи раскрывает второй уровень (в {who}: Tab / + / F2) · «Следующая загрузка» пишет PreviousBoot",
   simScan: "Имитация сканирования записей",
   hiddenCount: "Скрыто записей: {n} (не видно в меню {who})",
   systemsAria: "Загружаемые системы",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "История в буфере (500–100000)",
   downloadPath: "Путь загрузки",
   downloadPathPh: "Системный каталог загрузок",
+  downloadPathNote: "Каталог загрузок (пусто = системные Загрузки; ~ = домашний)",
+  pick: "Выбрать…",
+  applySettings: "Применить настройки",
 },
 about: {
   title: "О программе",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "Путь назначения (с именем файла)",
   count: "{n} элем.",
   sftp: "SFTP использует сеанс SSH",
+  selectServer: "Выбрать сервер",
+  noSshShort: "Серверов SSH нет",
 },
 oc: {
   blessScan: "сканирование bless",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "Удалить «{name}»? Необратимо.",
 },
-api: {
-  invalidToken: "Недействительный токен (401)",
-  commandFailed: "Ошибка команды: {command}",
-},
 ts: {
+  pushError: "Ошибка канала push",
   local: "Локально напрямую",
   pushing: "Отправка (push)",
   polling: "Опрос (polling)",
   pushWs: "Push (WebSocket)",
   pollHttp: "Опрос (HTTP)",
   auto: "Авто (сначала push, затем опрос)",
+},
+api: {
+  invalidToken: "Недействительный токен (401)",
+  commandFailed: "Ошибка команды: {command}",
 },
 lat: {
   title: "Динамика задержки",

@@ -311,8 +311,7 @@ async function switchEntry(selector: string) {
       role="tabpanel"
     >
       <p class="grub-panel-note" id="grub-hint">
-        读的是 ESP 上的 <code>/EFI/grub.cfg</code> 与 <code>/EFI/grubenv</code>：在 Linux 上装
-        <code>09_anyboot</code> 后，每次 <code>update-grub</code> 会把它同步过来。
+        {{ $t("grub.espReadHint") }}
       </p>
 
       <div class="grub-list" id="grub-list">
@@ -327,7 +326,7 @@ async function switchEntry(selector: string) {
         <!-- 空状态（旧版 #grub-empty），无条目时显示 -->
         <div v-if="!manualEntries.length" id="grub-empty" class="grub-empty-state">
           <strong>{{ $t("grub.notFoundTitle", { name: "GRUB" }) }}</strong>
-          <small>选 ESP 分区里的文件夹去识别，或直接填下面的 fs-uuid —— 两种方式填一个就行，另一个会自动对上</small>
+          <small>{{ $t("grub.notFoundHint") }}</small>
           <div class="actions">
             <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">{{ $t("grub.pickDir") }}</button>
           </div>
@@ -350,8 +349,7 @@ async function switchEntry(selector: string) {
       <details class="grub-script">
         <summary>{{ $t("grub.scriptSummary") }}</summary>
         <small
-          >安装时只把 <code>@@ESP_UUID@@</code> 换成下方「ESP 分区」里填的 fs-uuid，其余按这里的正文来；
-          清空后保存 = 恢复内置模板</small
+          >{{ $t("grub.scriptHint") }}</small
         >
         <textarea id="grub-script" v-model="scriptText" rows="8" spellcheck="false" />
         <div class="actions">
@@ -365,18 +363,13 @@ async function switchEntry(selector: string) {
         <strong>{{ $t("grub.noticeTitle") }}</strong>
         <ul>
           <li>
-            Linux 必须开启 <strong>os-prober</strong>：在 <code>/etc/default/grub</code> 里加
-            <code>GRUB_DISABLE_OS_PROBER=false</code> 后执行 update-grub，其他系统的启动项才会进
-            grub.cfg；装了多个 Linux 发行版时，只需让<strong>一个</strong>发行版管理 EFI（它的 GRUB +
-            os-prober 收集其余系统）。
+            {{ $t("grub.notice1") }}
           </li>
           <li>
-            Windows 的 EFI 分区，GPT 标志必须是 <code>boot, efi</code>（gparted 里给该分区设 boot
-            标志），否则 os-prober 不识别它。
+            {{ $t("grub.notice2") }}
           </li>
           <li>
-            <strong>EFI 第一启动项</strong>：用 rEFInd 就把 rEFInd 的 EFI 设为第一启动项；
-            不用 rEFInd 就把 GRUB 的 EFI 设为第一启动项。
+            {{ $t("grub.notice3") }}
           </li>
         </ul>
       </small>
@@ -392,17 +385,17 @@ async function switchEntry(selector: string) {
 
     <!-- 列表格式（旧版 #grub-format-row） -->
     <div class="grub-row" id="grub-format-row">
-      <label for="grub-list-format">列表格式</label>
+      <label for="grub-list-format">{{ $t("grub.listFormat") }}</label>
       <select
         id="grub-list-format"
         :value="settings.grubListFormat"
         @change="setFormat(($event.target as HTMLSelectElement).value)"
       >
-        <option value="raw">原始</option>
-        <option value="minimal">极简</option>
-        <option value="simple">简易</option>
-        <option value="medium">中等</option>
-        <option value="detailed">复杂</option>
+        <option value="raw">{{ $t("hub.picker.fmt.raw") }}</option>
+        <option value="minimal">{{ $t("hub.picker.fmt.minimal") }}</option>
+        <option value="simple">{{ $t("hub.picker.fmt.simple") }}</option>
+        <option value="medium">{{ $t("hub.picker.fmt.medium") }}</option>
+        <option value="detailed">{{ $t("hub.picker.fmt.detailed") }}</option>
       </select>
     </div>
   </section>

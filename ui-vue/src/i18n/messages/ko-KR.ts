@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "{t}에 동기화",
+  espReadHint: "ESP의 /EFI/grub.cfg와 /EFI/grubenv를 읽습니다. Linux에서 09_anyboot 설치 후 update-grub 때마다 동기화됩니다.",
+  notFoundHint: "ESP 폴더를 선택해 인식하거나 아래 fs-uuid 입력 — 하나만 채우면 자동 일치",
+  scriptHint: "설치 시 @@ESP_UUID@@만 아래 ‘ESP 파티션’의 fs-uuid로 치환, 나머지는 본문 그대로. 비우고 저장 = 내장 템플릿 복원",
+  notice1: "Linux는 os-prober 활성화 필요: /etc/default/grub에 GRUB_DISABLE_OS_PROBER=false 추가 후 update-grub 실행 시 다른 OS 항목이 grub.cfg에 들어갑니다. 여러 배포판이면 하나만 EFI 관리(그 GRUB + os-prober가 나머지 수집).",
+  notice2: "Windows EFI 파티션은 GPT 플래그가 boot, efi여야 합니다(gparted에서 boot 플래그 설정). 아니면 os-prober가 인식하지 않습니다.",
+  notice3: "EFI 첫 부팅 항목: rEFInd를 쓰면 rEFInd의 EFI를 첫 부팅으로, 아니면 GRUB의 EFI를 첫 부팅으로.",
+  listFormat: "목록 형식",
   zone: "{name} 영역",
   sectionTitle: "{name} 부팅 항목",
   tabsAria: "{name} 읽기 방식",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "자동 검사",
   tabManual: "수동",
+  simHint: "{who} 규칙으로 재계산 · 항목 클릭 시 2단계 펼침({who}에서 Tab / + / F2) · ‘다음 부팅’은 PreviousBoot 기록",
   simScan: "부팅 항목 모의 검사",
   hiddenCount: "숨겨진 {n}개 ({who} 메뉴에 안 보임)",
   systemsAria: "부팅 가능한 시스템",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "버퍼에 보관할 기록 (500~100000)",
   downloadPath: "다운로드 경로",
   downloadPathPh: "시스템 다운로드 폴더",
+  downloadPathNote: "다운로드 파일 저장 폴더 (비우면 시스템 다운로드, ~ = 홈)",
+  pick: "선택…",
+  applySettings: "설정 적용",
 },
 about: {
   title: "정보",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "대상 경로 (파일명 포함)",
   count: "{n}개",
   sftp: "SFTP는 SSH 세션 재사용",
+  selectServer: "서버 선택",
+  noSshShort: "SSH 서버 없음",
 },
 oc: {
   blessScan: "bless 스캔",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "“{name}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
 },
-api: {
-  invalidToken: "액세스 토큰 무효 (401)",
-  commandFailed: "명령 실패: {command}",
-},
 ts: {
+  pushError: "푸시 채널 오류",
   local: "로컬 직접",
   pushing: "푸시 중",
   polling: "폴링 중",
   pushWs: "푸시 (WebSocket)",
   pollHttp: "폴링 (HTTP)",
   auto: "자동 (푸시 우선, 실패 시 폴링)",
+},
+api: {
+  invalidToken: "액세스 토큰 무효 (401)",
+  commandFailed: "명령 실패: {command}",
 },
 lat: {
   title: "지연 추세",

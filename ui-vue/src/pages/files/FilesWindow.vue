@@ -829,7 +829,7 @@ function pct(task: XferTask): number {
   <div v-if="pickOpen" class="modal" @click.self="pickOpen = false">
     <div class="modal-card" role="dialog" aria-modal="true">
       <div class="modal-head">
-        <h3>选择服务器</h3>
+        <h3>{{ $t("fb.selectServer") }}</h3>
         <button type="button" aria-label="关闭" @click="pickOpen = false">✕</button>
       </div>
       <div class="modal-body">
@@ -843,7 +843,7 @@ function pct(task: XferTask): number {
         >
           {{ s.name }} · {{ s.host }}
         </button>
-        <p v-if="!sshServers.length" class="hint">还没有 SSH 服务器</p>
+        <p v-if="!sshServers.length" class="hint">{{ $t("fb.noSshShort") }}</p>
       </div>
     </div>
   </div>

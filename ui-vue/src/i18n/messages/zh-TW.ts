@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "同步於 {t}",
+  espReadHint: "讀的是 ESP 上的 /EFI/grub.cfg 與 /EFI/grubenv：在 Linux 上裝 09_anyboot 後，每次 update-grub 會把它同步過來。",
+  notFoundHint: "選 ESP 分區裡的資料夾去識別，或直接填下面的 fs-uuid —— 兩種方式填一個就行，另一個會自動對上",
+  scriptHint: "安裝時只把 @@ESP_UUID@@ 換成下方「ESP 分區」裡填的 fs-uuid，其餘按這裡的正文來；清空後儲存 = 恢復內建模板",
+  notice1: "Linux 必須開啟 os-prober：在 /etc/default/grub 裡加 GRUB_DISABLE_OS_PROBER=false 後執行 update-grub，其他系統的啟動項才會進 grub.cfg；裝了多個 Linux 發行版時，只需讓一個發行版管理 EFI（它的 GRUB + os-prober 收集其餘系統）。",
+  notice2: "Windows 的 EFI 分區，GPT 標誌必須是 boot, efi（gparted 裡給該分區設 boot 標誌），否則 os-prober 不識別它。",
+  notice3: "EFI 第一啟動項：用 rEFInd 就把 rEFInd 的 EFI 設為第一啟動項；不用 rEFInd 就把 GRUB 的 EFI 設為第一啟動項。",
+  listFormat: "列表格式",
   zone: "{name} 區",
   sectionTitle: "{name} 啟動項",
   tabsAria: "{name} 讀取方式",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "自動掃描",
   tabManual: "手動處理",
+  simHint: "按 {who} 規則複算 · 點項目展開第二層（{who} 裡按 Tab / + / F2 進入）·「下次啟動」寫 PreviousBoot",
   simScan: "模擬引導項掃描",
   hiddenCount: "被隱藏的 {n} 項（{who} 選單裡看不到）",
   systemsAria: "可啟動系統",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "緩衝區保留的歷史輸出（500–100000）",
   downloadPath: "下載路徑",
   downloadPathPh: "系統下載目錄",
+  downloadPathNote: "檔案下載到本機的目錄（留空 = 系統下載目錄；~ = 使用者主目錄）",
+  pick: "選擇…",
+  applySettings: "套用設定",
 },
 about: {
   title: "關於",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "目標路徑（含檔名）",
   count: "{n} 項",
   sftp: "SFTP 沿用 SSH 工作階段",
+  selectServer: "選擇伺服器",
+  noSshShort: "還沒有 SSH 伺服器",
 },
 oc: {
   blessScan: "bless 掃描",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "確定刪除「{name}」嗎？此操作不可復原。",
 },
-api: {
-  invalidToken: "存取權杖無效（401）",
-  commandFailed: "命令失敗：{command}",
-},
 ts: {
+  pushError: "推送通道出錯",
   local: "本機直連",
   pushing: "推送中",
   polling: "輪詢中",
   pushWs: "推送（WebSocket）",
   pollHttp: "輪詢（HTTP）",
   auto: "自動（推送優先，失敗回落輪詢）",
+},
+api: {
+  invalidToken: "存取權杖無效（401）",
+  commandFailed: "命令失敗：{command}",
 },
 lat: {
   title: "延遲趨勢",

@@ -156,7 +156,7 @@ async function openPicker(kind: string) {
           items.push({ value: "", label: rawTitle, cls: e.kind, header: true, submenuId: rawTitle });
           for (const c of children) {
             const cname = String(c.title || rawTitle).split(":")[0].trim();
-            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] || "", fixed: false });
+            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] ? t(CHILD_SOURCE[c.source || ""]) : "", fixed: false });
           }
         } else {
           items.push({ value: rawTitle, label: rawTitle, cls: e.kind, fixed: false });
@@ -216,7 +216,7 @@ async function openPicker(kind: string) {
           items.push({ value: "", label: rawTitle, cls: e.kind, header: true, submenuId: rawTitle });
           for (const c of children) {
             const cname = String(c.title || rawTitle).split(":")[0].trim();
-            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] || "", fixed: false });
+            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] ? t(CHILD_SOURCE[c.source || ""]) : "", fixed: false });
           }
         } else {
           items.push({ value: rawTitle, label: rawTitle, cls: e.kind, fixed: false });
@@ -635,7 +635,7 @@ function onRowClick() {
           </div>
           <div class="cq-dev-txt">
             <div class="cq-dev-name">
-              <span class="nm">{{ row.name }}</span>
+              <span class="nm">{{ row.name || (row.id === "local" ? $t("hub.home.local") : "") }}</span>
               <button
                 v-if="!isLocal && osBadge"
                 type="button"

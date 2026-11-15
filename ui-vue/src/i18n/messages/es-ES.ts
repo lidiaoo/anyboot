@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "Sincronizado a las {t}",
+  espReadHint: "Lee /EFI/grub.cfg y /EFI/grubenv en la ESP: tras instalar 09_anyboot en Linux, cada update-grub los sincroniza.",
+  notFoundHint: "Elige una carpeta en la ESP o rellena el fs-uuid abajo: basta uno, el otro se ajusta",
+  scriptHint: "Al instalar solo se sustituye @@ESP_UUID@@ por la fs-uuid de «Partición ESP» abajo; el resto usa este contenido. Vaciar y guardar = restaurar plantilla integrada",
+  notice1: "En Linux activa os-prober: añade GRUB_DISABLE_OS_PROBER=false en /etc/default/grub y ejecuta update-grub para que las entradas de otros sistemas entren en grub.cfg; con varias distros, deja que solo una gestione la EFI (su GRUB + os-prober recoge el resto).",
+  notice2: "Para la partición EFI de Windows, el flag GPT debe ser boot, efi (marca boot en gparted), si no os-prober no la detecta.",
+  notice3: "Primera entrada EFI: con rEFInd, pon su EFI como primera; si no, el EFI de GRUB.",
+  listFormat: "Formato de lista",
   zone: "Zona {name}",
   sectionTitle: "Entradas de {name}",
   tabsAria: "Método de lectura {name}",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "Escaneo automático",
   tabManual: "Manual",
+  simHint: "Recalculado por reglas de {who} · clic para expandir el 2.º nivel (en {who}: Tab / + / F2) · «Próximo arranque» escribe PreviousBoot",
   simScan: "Escaneo simulado de entradas",
   hiddenCount: "{n} elementos ocultos (no aparecen en el menú {who})",
   systemsAria: "Sistemas arrancables",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "Historial en el búfer (500–100000)",
   downloadPath: "Ruta de descarga",
   downloadPathPh: "Carpeta de descargas del sistema",
+  downloadPathNote: "Carpeta de descargas (vacío = Descargas del sistema; ~ = inicio)",
+  pick: "Elegir…",
+  applySettings: "Aplicar ajustes",
 },
 about: {
   title: "Acerca de",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "Ruta de destino (con nombre)",
   count: "{n} elementos",
   sftp: "SFTP reutiliza la sesión SSH",
+  selectServer: "Elegir servidor",
+  noSshShort: "Sin servidores SSH",
 },
 oc: {
   blessScan: "escaneo bless",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "¿Eliminar «{name}»? No se puede deshacer.",
 },
-api: {
-  invalidToken: "Token de acceso no válido (401)",
-  commandFailed: "Comando falló: {command}",
-},
 ts: {
+  pushError: "Error del canal push",
   local: "Directo local",
   pushing: "Enviando (push)",
   polling: "Consultando (polling)",
   pushWs: "Push (WebSocket)",
   pollHttp: "Polling (HTTP)",
   auto: "Auto (push primero, con polling de reserva)",
+},
+api: {
+  invalidToken: "Token de acceso no válido (401)",
+  commandFailed: "Comando falló: {command}",
 },
 lat: {
   title: "Tendencia de latencia",

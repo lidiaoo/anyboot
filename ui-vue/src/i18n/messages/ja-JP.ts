@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "{t} に同期",
+  espReadHint: "ESP 上の /EFI/grub.cfg と /EFI/grubenv を読みます。Linux で 09_anyboot を入れると update-grub のたびに同期されます。",
+  notFoundHint: "ESP のフォルダを選んで認識、または下の fs-uuid を入力 — どちらか一方で自動的に一致します",
+  scriptHint: "インストール時は @@ESP_UUID@@ のみ下の「ESP パーティション」の fs-uuid に置換、他は本文どおり。空にして保存 = 内蔵テンプレート復元",
+  notice1: "Linux は os-prober を有効に：/etc/default/grub に GRUB_DISABLE_OS_PROBER=false を追加し update-grub を実行すると他 OS の項目が grub.cfg に入ります。複数ディストロでは 1 つだけに EFI を管理させてください（その GRUB + os-prober が他を収集）。",
+  notice2: "Windows の EFI パーティションは GPT フラグが boot, efi である必要があります（gparted で boot フラグ設定）。そうでないと os-prober が認識しません。",
+  notice3: "EFI 第一起動項目：rEFInd を使うなら rEFInd の EFI を第一起動に、使わないなら GRUB の EFI を第一起動に。",
+  listFormat: "リスト形式",
   zone: "{name} 区",
   sectionTitle: "{name} 起動項目",
   tabsAria: "{name} の読み取り方法",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "自動スキャン",
   tabManual: "手動",
+  simHint: "{who} ルールで再計算 · 項目クリックで第 2 層展開（{who} で Tab / + / F2 進入）·「次回起動」は PreviousBoot に書込",
   simScan: "起動項目の模擬スキャン",
   hiddenCount: "非表示の {n} 件（{who} メニューに出ません）",
   systemsAria: "起動可能なシステム",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "バッファに保持する履歴（500〜100000）",
   downloadPath: "ダウンロード先",
   downloadPathPh: "システムのダウンロード先",
+  downloadPathNote: "ダウンロード先のディレクトリ（空欄 = システムのダウンロード、~ = ホーム）",
+  pick: "選択…",
+  applySettings: "設定を適用",
 },
 about: {
   title: "情報",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "保存先パス（ファイル名含む）",
   count: "{n} 件",
   sftp: "SFTP は SSH セッションを再利用",
+  selectServer: "サーバーを選択",
+  noSshShort: "SSH サーバーがありません",
 },
 oc: {
   blessScan: "bless スキャン",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "「{name}」を削除しますか？元に戻せません。",
 },
-api: {
-  invalidToken: "アクセストークンが無効（401）",
-  commandFailed: "コマンド失敗：{command}",
-},
 ts: {
+  pushError: "プッシュチャネルのエラー",
   local: "ローカル直結",
   pushing: "プッシュ中",
   polling: "ポーリング中",
   pushWs: "プッシュ（WebSocket）",
   pollHttp: "ポーリング（HTTP）",
   auto: "自動（プッシュ優先、失敗時ポーリング）",
+},
+api: {
+  invalidToken: "アクセストークンが無効（401）",
+  commandFailed: "コマンド失敗：{command}",
 },
 lat: {
   title: "レイテンシ推移",

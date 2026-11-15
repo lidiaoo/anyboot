@@ -415,6 +415,13 @@ remote: {
 },
 grub: {
   syncedAt: "Synced at {t}",
+  espReadHint: "Reads /EFI/grub.cfg and /EFI/grubenv on the ESP: after installing 09_anyboot on Linux, each update-grub syncs it over.",
+  notFoundHint: "Pick a folder on the ESP to detect, or fill the fs-uuid below — one is enough; the other auto-matches",
+  scriptHint: "On install, only @@ESP_UUID@@ is replaced with the fs-uuid from “ESP partition” below; the rest uses this content. Clearing and saving = restore built-in template",
+  notice1: "Linux must enable os-prober: add GRUB_DISABLE_OS_PROBER=false in /etc/default/grub and run update-grub so other systems' entries enter grub.cfg; with several Linux distros, let only one manage EFI (its GRUB + os-prober collects the rest).",
+  notice2: "For Windows' EFI partition, the GPT flag must be boot, efi (set the boot flag in gparted), otherwise os-prober won't detect it.",
+  notice3: "EFI first boot entry: if using rEFInd, set rEFInd's EFI as the first boot entry; otherwise set GRUB's EFI as the first.",
+  listFormat: "List format",
   zone: "{name} zone",
   sectionTitle: "{name} boot entries",
   tabsAria: "{name} read method",
@@ -449,6 +456,7 @@ grub: {
 refind: {
   tabAuto: "Auto scan",
   tabManual: "Manual",
+  simHint: "Recomputed by {who} rules · click an entry to expand the second level (in {who}, press Tab / + / F2) · “Next boot” writes PreviousBoot",
   simScan: "Simulated boot-entry scan",
   hiddenCount: "{n} hidden entries (not shown in the {who} menu)",
   systemsAria: "Bootable systems",
@@ -885,6 +893,9 @@ termset: {
   scrollbackNote: "History output kept in the buffer (500–100000)",
   downloadPath: "Download path",
   downloadPathPh: "System download folder",
+  downloadPathNote: "Where downloaded files go on this machine (blank = system Downloads; ~ = home)",
+  pick: "Choose…",
+  applySettings: "Apply settings",
 },
 about: {
   title: "About",
@@ -1395,6 +1406,8 @@ fb: {
   destPath: "Destination path (with filename)",
   count: "{n} items",
   sftp: "SFTP reuses the SSH session",
+  selectServer: "Choose server",
+  noSshShort: "No SSH servers yet",
 },
 oc: {
   blessScan: "bless scan",
@@ -1435,17 +1448,18 @@ cl: {
 srv: {
   delConfirm: "Delete “{name}”? This can't be undone.",
 },
-api: {
-  invalidToken: "Invalid access token (401)",
-  commandFailed: "Command failed: {command}",
-},
 ts: {
+  pushError: "Push channel error",
   local: "Local direct",
   pushing: "Pushing",
   polling: "Polling",
   pushWs: "Push (WebSocket)",
   pollHttp: "Polling (HTTP)",
   auto: "Auto (prefer push, fall back to polling)",
+},
+api: {
+  invalidToken: "Invalid access token (401)",
+  commandFailed: "Command failed: {command}",
 },
 lat: {
   title: "Latency trend",

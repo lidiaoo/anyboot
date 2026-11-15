@@ -106,7 +106,7 @@ function openSysInfo(id: string) {
 
 
 /** 本机行（固定第一条） */
-const LOCAL_ROW: RemoteProfile = { id: "local", name: "本机", addresses: [] };
+const LOCAL_ROW: RemoteProfile = { id: "local", name: "", addresses: [] };
 
 const allRows = computed<RemoteProfile[]>(() => [LOCAL_ROW, ...remote.servers]);
 

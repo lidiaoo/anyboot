@@ -214,7 +214,7 @@ function pickDownDir() {
         <div>
           <p class="ts-t">{{ $t("termset.downloadPath") }}</p>
           <p class="ts-s">
-            文件下载到本机的目录（留空 = 系统下载目录；<span class="mono">~</span> = 用户主目录）
+            {{ $t("termset.downloadPathNote") }}
           </p>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex: none">
@@ -227,7 +227,7 @@ function pickDownDir() {
             style="width: min(210px, 100%)"
           />
           <button type="button" id="tsDownBrowse" class="btn" style="height: 32px; padding: 0 12px" @click="pickDownDir">
-            选择…
+            {{ $t("termset.pick") }}
           </button>
         </div>
       </div>
@@ -240,7 +240,7 @@ function pickDownDir() {
       style="height: 40px; width: 100%; justify-content: center"
       @click="apply"
     >
-      应用设置
+      {{ $t("termset.applySettings") }}
     </button>
     <p v-if="toastText" class="field-hint" style="color: rgb(var(--ok))">{{ toastText }}</p>
   </div>
