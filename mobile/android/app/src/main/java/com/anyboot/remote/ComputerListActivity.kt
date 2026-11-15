@@ -1986,36 +1986,36 @@ class ComputerListActivity : ComponentActivity() {
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 // —— 打开系列 ——
-                MenuRow("打开页面", { ScreenIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.and_menuOpenPage), { ScreenIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     openComputerPage(row.profile.id)
                 }
-                MenuRow("在浏览器打开", { GlobeIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.and_menuOpenBrowser), { GlobeIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     openInBrowser(row.profile)
                 }
                 MenuDivider()
                 // —— 维护系列 ——
-                MenuRow("重新探测这台电脑", { RefreshIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.rowMenu_reprobe), { RefreshIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     reloadBoot(row.profile)
                 }
-                MenuRow("编辑这台电脑", { PencilIconSmall(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.rowMenu_edit), { PencilIconSmall(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     openEdit(row.profile)
                 }
-                MenuRow("复制地址", { CopyIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.rowMenu_copyAddr), { CopyIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     copyText(ServerProfile.normalizeHost(row.profile.host()))
-                    toast("已复制 ${row.ip}")
+                    toast(getString(R.string.and_copiedIpAddr, row.ip))
                 }
-                MenuRow("系统信息", { InfoIcon(tint = palette.fgFaint, size = 16.dp) }) {
+                MenuRow(stringResource(R.string.and_menuSysinfo), { InfoIcon(tint = palette.fgFaint, size = 16.dp) }) {
                     open = false
                     openSysInfo(row.profile)
                 }
                 MenuDivider()
                 MenuRow(
-                    "删除这台电脑",
+                    stringResource(R.string.rowMenu_delete),
                     { TrashIcon(tint = palette.bad, size = 16.dp) },
                     danger = true,
                 ) {
@@ -2111,7 +2111,7 @@ class ComputerListActivity : ComponentActivity() {
                         .padding(start = 18.dp, end = 8.dp, bottom = 10.dp),
                 ) {
                     Text(
-                        if (adding) "添加电脑" else "编辑这台电脑",
+                        if (adding) stringResource(R.string.menu_add) else stringResource(R.string.rowMenu_edit),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.fg,
@@ -2188,7 +2188,7 @@ class ComputerListActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "保存",
+                            stringResource(R.string.common_save),
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = palette.onAccent,
@@ -2216,9 +2216,9 @@ class ComputerListActivity : ComponentActivity() {
         }
         toast(
             when {
-                profile == null -> "已添加：" + result.target.label()
-                result.mergedExisting -> "已并入同一台电脑：" + result.target.label()
-                else -> "已保存"
+                profile == null -> getString(R.string.and_addedName, result.target.label())
+                result.mergedExisting -> getString(R.string.and_mergedName, result.target.label())
+                else -> getString(R.string.and_saved)
             }
         )
         // 新档案落盘后立刻探一轮，卡片上的在线状态/机器名不用等下次刷新
@@ -2233,11 +2233,10 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             containerColor = palette.card,
-            title = { Text("删除这台电脑", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.rowMenu_delete), fontSize = 15.sp, fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "确定删除「${profile.displayName().ifEmpty { profile.host() }}」？\n\n" +
-                        "只删掉手机上的这条档案，不会动目标电脑上的 AnyBoot。",
+                    stringResource(R.string.and_delProfileConfirm, profile.displayName().ifEmpty { profile.host() }),
                     fontSize = 13.sp,
                     color = palette.fgDim,
                     lineHeight = 20.sp,
@@ -2248,7 +2247,7 @@ class ComputerListActivity : ComponentActivity() {
                     deleteTarget = null
                     doDelete(profile)
                 }) {
-                    Text("删除", color = palette.bad)
+                    Text(stringResource(R.string.common_delete), color = palette.bad)
                 }
             },
             dismissButton = {
@@ -2295,11 +2294,11 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     private fun openUrlInBrowser(url: String) {
-        if (url.isEmpty()) { toast("地址还没就绪"); return }
+        if (url.isEmpty()) { toast(getString(R.string.and_addrNotReady)); return }
         try {
             startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
         } catch (error: Exception) {
-            toast("没有能打开网页的应用")
+            toast(getString(R.string.and_noBrowserApp))
         }
     }
 
@@ -2314,7 +2313,7 @@ class ComputerListActivity : ComponentActivity() {
             text = {
                 val hits = boots[openPickProfileId]?.hits ?: emptyList()
                 Column {
-                    Text("这台电脑有多个可用地址，选一个用系统浏览器打开：", fontSize = 13.sp, color = palette.fgDim)
+                    Text(stringResource(R.string.and_multiAddrPick), fontSize = 13.sp, color = palette.fgDim)
                     Spacer(Modifier.height(8.dp))
                     // 地址可能很多 → 可滚动（限高，鼠标滚轮/拖动都能滚）
                     Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
@@ -2374,9 +2373,9 @@ class ComputerListActivity : ComponentActivity() {
         var iconOverride: String = ""
         if (!group.available) {
             valueLabel = when {
-                row.state == STATE_UNKNOWN -> "读取中…"
-                row.state == STATE_OFFLINE -> "离线不可改"
-                else -> "未检测到"
+                row.state == STATE_UNKNOWN -> getString(R.string.hub_state_reading)
+                row.state == STATE_OFFLINE -> getString(R.string.hub_state_offlineReadonly)
+                else -> getString(R.string.hub_state_notDetected)
             }
             dot = ""
         } else {
@@ -2387,7 +2386,7 @@ class ComputerListActivity : ComponentActivity() {
             // label 自带 grub_os_icon 图标 —— 卡片左侧已画图标，回显文字要去掉行首图标，
             // 否则一行两个（用户 2026-11-15 报「图标重复了 残留」）。
             val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
-            val rawLabel = (hit?.label ?: group.current.ifEmpty { "未设置" })
+            val rawLabel = (hit?.label ?: group.current.ifEmpty { getString(R.string.hub_state_notSet) })
             // 图标识别 100% GRUB 同源：拼装 label 的行首 emoji 就是 grub_os_icon 的产物
             // （按条目名/组名关键字识别），卡片直接用它 —— 不再走 kind→platformEmoji 的旧映射。
             val iconChar = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
