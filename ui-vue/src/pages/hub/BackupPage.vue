@@ -484,8 +484,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               :checked="exportCats.includes(cat.id)"
               @change="toggleCat('export', cat.id)"
             />
-            <span class="bk-cname">{{ cat.name }}</span>
-            <span class="bk-cdesc">{{ cat.desc }}</span>
+            <span class="bk-cname">{{ $t(cat.name) }}</span>
+            <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
           </label>
         </div>
 
@@ -639,8 +639,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                 :checked="syncCats.includes(cat.id)"
                 @change="toggleCat('sync', cat.id)"
               />
-              <span class="bk-cname">{{ cat.name }}</span>
-              <span class="bk-cdesc">{{ cat.desc }}</span>
+              <span class="bk-cname">{{ $t(cat.name) }}</span>
+              <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
             </label>
           </div>
         </div>
@@ -740,8 +740,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                     :checked="importCats.includes(cat.id)"
                     @change="toggleCat('import', cat.id)"
                   />
-                  <span class="bk-cname">{{ cat.name }}</span>
-                  <span class="bk-cdesc">{{ cat.desc }}</span>
+                  <span class="bk-cname">{{ $t(cat.name) }}</span>
+                  <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
                 </label>
               </div>
             </div>
