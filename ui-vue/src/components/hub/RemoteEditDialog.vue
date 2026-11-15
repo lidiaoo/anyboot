@@ -523,7 +523,7 @@ function submit() {
             rows="2"
             class="mono"
             spellcheck="false"
-            placeholder="整段粘进来就行，例如：&#10;192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线&#10;192.168.0.121 11-22-33-44-55-66（5G WiFi）"
+            :placeholder="t('remote.quickPh')"
             @keydown.ctrl.enter.prevent="recognize"
             @keydown.meta.enter.prevent="recognize"
             @paste="onQuickPaste"
@@ -601,19 +601,19 @@ function submit() {
                     class="pb-addr mono"
                     type="text"
                     spellcheck="false"
-                    :placeholder="block.id === 'ts' ? 'http://100.x.y.z:12300 或 https://xxx.ts.net' : 'https://xxx.trycloudflare.com'"
+                    :placeholder="block.id === 'ts' ? 'http://100.x.y.z:12300 or https://xxx.ts.net' : 'https://xxx.trycloudflare.com'"
                     :value="pair.addr"
                     @change="pair.addr = ($event.target as HTMLInputElement).value.trim()"
                   />
-                  <span v-if="pair.kind === 'ts'" class="pb-lane">{{ (pair.lane || 'direct') === 'funnel' ? 'funnel' : '直连' }}</span>
+                  <span v-if="pair.kind === 'ts'" class="pb-lane">{{ (pair.lane || 'direct') === 'funnel' ? 'funnel' : $t('server.direct') }}</span>
                   <input
                     class="rp-timeout mono"
                     type="number"
                     step="0.5"
                     min="0.2"
                     max="30"
-                    placeholder="默认"
-                    title="这一条的探测超时（秒）；留空 = 用区块默认值，再留空 = 全局默认值"
+                    :placeholder="t('srvEdit.portPh')"
+                    :title="$t('remote.pairTimeoutTitle')"
                     :value="pair.probe_timeout_ms ? String(pair.probe_timeout_ms / 1000) : ''"
                     @change="pair.probe_timeout_ms = Math.round(Math.min(30, Math.max(0.2, parseFloat(($event.target as HTMLInputElement).value) || 0)) * 1000)"
                   />
@@ -628,18 +628,18 @@ function submit() {
                   <input class="pb-note" type="text" :placeholder="t('remote.notePh')" :value="pair.note" @change="pair.note = ($event.target as HTMLInputElement).value.trim()" />
                   <input class="pb-note mono" type="password" spellcheck="false" :placeholder="t('remote.tokenPh')" :value="''" :title="pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌'" @change="pair.token = ($event.target as HTMLInputElement).value.trim()" />
                   <span class="pb-swtag">
-                    <label class="switch" title="停用后这条配对不参与探测与连接">
+                    <label class="switch" :title="$t('remote.pairDisableTitle')">
                       <input type="checkbox" :checked="pair.enabled !== false" @change="pair.enabled = !(pair.enabled !== false)" />
                       <span class="trk" aria-hidden="true" />
                     </label>
-                    <span class="pb-swtag-l">启用</span>
+                    <span class="pb-swtag-l">{{ t("remote.enable") }}</span>
                   </span>
                   <span class="pb-swtag">
-                    <label class="switch" title="是否展示：默认开；关掉后电脑列表整行不展示这条通道">
+                    <label class="switch" :title="$t('remote.pairShowTitle')">
                       <input type="checkbox" :checked="pair.show_probe !== false" @change="pair.show_probe = !(pair.show_probe !== false)" />
                       <span class="trk" aria-hidden="true" />
                     </label>
-                    <span class="pb-swtag-l">展示</span>
+                    <span class="pb-swtag-l">{{ $t("remote.show") }}</span>
                   </span>
                 </div>
               </div>
@@ -649,25 +649,25 @@ function submit() {
 
         <div class="field">
           <div id="rsTokenRow" class="token-row" :hidden="!hasToken">
-            <span class="slot-chip">已存令牌</span>
+            <span class="slot-chip">{{ t("remote.tokenStored") }}</span>
             <span :class="['mono', { masked: !tokenVisible }]" id="rsTokenSavedText">{{ tokenVisible ? savedToken : maskToken(savedToken) }}</span>
-            <button type="button" class="token-eye" id="rsTokenCopy" aria-label="复制令牌" title="复制令牌" :hidden="!tokenVisible" @click="copyToken">⧉</button>
-            <button type="button" class="token-eye" id="rsTokenEye" :aria-label="tokenVisible ? '隐藏令牌' : '显示令牌'" title="显示 / 隐藏令牌" @click="tokenVisible = !tokenVisible">
+            <button type="button" class="token-eye" id="rsTokenCopy" :aria-label="t('remote.copyToken')" :title="t('remote.copyToken')" :hidden="!tokenVisible" @click="copyToken">⧉</button>
+            <button type="button" class="token-eye" id="rsTokenEye" :aria-label="tokenVisible ? t('remote.hideToken') : t('remote.showToken')" :title="t('remote.showHideTokenTitle')" @click="tokenVisible = !tokenVisible">
               <svg v-show="!tokenVisible" class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
               <svg v-show="tokenVisible" class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="width:14px;height:14px"><path d="M9.9 4.24A10.9 10.9 0 0 1 12 4c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.29 2.95M6.61 6.61A13.5 13.5 0 0 0 2 12s3.5 7 10 7a10.7 10.7 0 0 0 5.39-1.39" /><path d="M2 2l20 20" /><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /></svg>
             </button>
           </div>
-          <label for="rsToken">访问令牌 token（服务端设了才要填）</label>
-          <input id="rsToken" v-model="token" class="mono" placeholder="留空保持不变；要替换就填新令牌" style="margin-top: 6px" />
+          <label for="rsToken">{{ t("remote.tokenLabel") }}</label>
+          <input id="rsToken" v-model="token" class="mono" :placeholder="t('remote.tokenPh')" style="margin-top: 6px" />
         </div>
 
         <div class="fold-head" id="rsFoldConnHead" @click="foldConn = !foldConn">
-          <span class="chev">{{ foldConn ? "▼" : "▶" }}</span>连接策略
+          <span class="chev">{{ foldConn ? "▼" : "▶" }}</span>{{ $t("remote.connPolicy") }}
           <span class="fold-count" id="rsFoldConnCount">{{ connCount }}</span>
         </div>
         <div class="fold-body" id="rsFoldConn" :hidden="!foldConn">
           <div class="field">
-            <label><b>连接优先级</b>（拖动排序；每行中间那格 = 这个通道自己的探测超时/秒，留空用下面的默认值）</label>
+            <label><b>{{ t("remote.priorityShort") }}</b>{{ t("remote.priorityNote") }}</label>
             <div class="route-prio" id="rsRouteList">
               <div
                 v-for="(kind, index) in routeOrder"
@@ -681,7 +681,7 @@ function submit() {
                 @drop.prevent="onRouteDrop(index, $event)"
                 @dragend="onRouteDragEnd"
               >
-                <span class="rp-grip" title="拖动排序">☰</span>
+                <span class="rp-grip" :title="t('remote.dragSort')">☰</span>
                 <span class="rp-name">{{ ROUTE_LABELS[kind] }}</span>
                 <input
                   class="rp-timeout mono"
@@ -690,42 +690,42 @@ function submit() {
                   min="0.2"
                   max="30"
                   :value="routeTimeout[kind] ?? ''"
-                  :aria-label="ROUTE_LABELS[kind] + ' 通道的探测超时（秒）'"
+                  :aria-label="t('remote.routeTimeoutAria', { route: t(ROUTE_LABELS[kind] || '') || kind })"
                   @change="routeTimeout[kind] = Number(($event.target as HTMLInputElement).value) || undefined"
                 />
-                <button type="button" class="rp-btn" title="上移" @click="moveRoute(index, -1)">↑</button>
-                <button type="button" class="rp-btn" title="下移" @click="moveRoute(index, 1)">↓</button>
+                <button type="button" class="rp-btn" :title="t('remote.moveUp')" @click="moveRoute(index, -1)">↑</button>
+                <button type="button" class="rp-btn" :title="t('remote.moveDown')" @click="moveRoute(index, 1)">↓</button>
                 <!-- 启用开关（v0.2.5：pb-swtag 包裹 + "启用"文字） -->
-                <span class="pb-swtag" :title="'启用 / 停用这条通道：停用后整条通道不参与探测与连接'">
+                <span class="pb-swtag" :title="t('remote.enableChannelTitle')">
                   <label class="switch">
                     <input type="checkbox" :checked="!routeDisabled[kind]" @change="toggleRouteEnabled(kind)" />
                     <span class="trk" aria-hidden="true" />
                   </label>
-                  <span class="pb-swtag-l">启用</span>
+                  <span class="pb-swtag-l">{{ t("remote.enable") }}</span>
                 </span>
                 <!-- 「是否展示」开关（v0.2.5：pb-showprobe 包裹 + "展示"文字） -->
-                <span class="pb-showprobe" :title="'是否展示：默认开；关掉后电脑列表整行不展示「' + (ROUTE_LABELS[kind] || kind) + '」通道（连通性、网址等都不显示），探测与连接不受影响'">
+                <span class="pb-showprobe" :title="t('remote.showProbeTitle', { route: t(ROUTE_LABELS[kind] || '') || kind })">
                   <label class="switch">
                     <input type="checkbox" :checked="!routeProbeHidden.includes(kind)" @change="toggleRouteShow(kind)" />
                     <span class="trk" aria-hidden="true" />
                   </label>
-                  <span class="pb-showprobe-l">展示</span>
+                  <span class="pb-showprobe-l">{{ t("remote.show") }}</span>
                 </span>
               </div>
-              <p class="field-hint">按住 ☰ 上下拖动调整顺序（或点 ↑↓）；探活与接口请求按此顺序逐通道试，第一个通的就走谁。每个通道可以单独设探测超时：局域网一般 1~2 秒够，走公网中继的 Funnel / 内置 Funnel 首次握手慢，可以单独给 5~8 秒，互不牵连。留空的那一格就用下面的默认值。</p>
+              <p class="field-hint">{{ t("remote.priorityHelp") }}</p>
             </div>
           </div>
           <div class="field">
-            <label><b>连接优先级的探测方式</b>（六个通道之间怎么试，对上面每一个通道都生效）</label>
-            <div class="seg-row" role="group" aria-label="连接优先级的探测方式">
-              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'first' }" id="rsRouteProbeFirst" @click="routeProbe = 'first'">并发（首个）</button>
-              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'all' }" id="rsRouteProbeAll" @click="routeProbe = 'all'">并发（全部）</button>
-              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'serial' }" id="rsRouteProbeSerial" @click="routeProbe = 'serial'">串行</button>
+            <label><b>{{ t("remote.priorityProbeLabel") }}</b></label>
+            <div class="seg-row" role="group" :aria-label="t('remote.priorityProbeAria')">
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'first' }" id="rsRouteProbeFirst" @click="routeProbe = 'first'">{{ t("remote.probeFirst") }}</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'all' }" id="rsRouteProbeAll" @click="routeProbe = 'all'">{{ t("remote.probeAll") }}</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'serial' }" id="rsRouteProbeSerial" @click="routeProbe = 'serial'">{{ t("remote.probeSerial") }}</button>
             </div>
-            <p class="field-hint">电脑页与电脑列表的探活都按这里来：并发（首个）把全部通道同时发出，谁先成功就用谁；并发（全部）等全部返回，逐行报每个通道的成败与耗时；串行按上面的优先级逐个通道试，第一个通就停。与下面那个「多网卡探测」是两个粒度：这个管通道之间，那个管同一通道里的多个地址。探测跑在独立的探测线程池上，调大超时或选并发全部也不会卡住界面。</p>
+            <p class="field-hint">{{ t("remote.probeHelp") }}</p>
           </div>
           <div class="field" id="rsBlockPolicy">
-            <label><b>区块内部策略</b>（同一个区块里多条配对之间怎么探）+ <b>区块默认超时</b></label>
+            <label>{{ t("remote.blockStrategyLabel") }}</label>
             <div class="block-policy" id="rsBlockPolicyBox">
               <div v-for="block in PAIR_BLOCKS" :key="block.id" class="bp-row">
                 <span class="bp-name">{{ block.label }}</span>
@@ -745,37 +745,37 @@ function submit() {
                   step="0.5"
                   min="0.2"
                   max="30"
-                  placeholder="默认"
-                  title="这个区块的默认探测超时（秒）；留空 = 全局默认值"
+                  :placeholder="$t('srvEdit.portPh')"
+                  :title="t('remote.blockTimeoutTitle')"
                   :value="blockTimeouts[block.id] || ''"
                   @change="setBlockTimeout(block.id, ($event.target as HTMLInputElement).value)"
                 />
               </div>
             </div>
-            <p class="field-hint">每个区块单独选：并发（首个）命中即收工、其余标「未探测」（快）；并发（全部）逐条报状态（体检用）；串行按行序逐个试、第一个通就停（严格尊重优先级）。并发（首个）下顺序只影响发起先后，先排的不一定赢 —— 要严格按顺序必须选串行。区块默认超时 = 该区块内没单独设超时的行用它，再留空则用下面的全局默认值。</p>
+            <p class="field-hint">{{ t("remote.blockStrategyHelp") }}</p>
           </div>
           <div class="field">
-            <label><b>多网卡探测</b>（同一通道里的多个地址之间怎么探）</label>
-            <div class="seg-row" role="group" aria-label="多网卡探测">
-              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'first' }" id="rsProbeFirst" @click="probeMode = 'first'">并发（首个）</button>
-              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'all' }" id="rsProbeAll" @click="probeMode = 'all'">并发（全部）</button>
-              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'serial' }" id="rsProbeSerial" @click="probeMode = 'serial'">串行</button>
+            <label><b>{{ t("remote.multiNicLabel") }}</b></label>
+            <div class="seg-row" role="group" :aria-label="t('remote.multiNicAria')">
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'first' }" id="rsProbeFirst" @click="probeMode = 'first'">{{ t("remote.probeFirst") }}</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'all' }" id="rsProbeAll" @click="probeMode = 'all'">{{ t("remote.probeAll") }}</button>
+              <button type="button" class="btn small" :class="{ 'seg-on': probeMode === 'serial' }" id="rsProbeSerial" @click="probeMode = 'serial'">{{ t("remote.probeSerial") }}</button>
             </div>
-            <p class="field-hint">一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发（首个）谁先通用谁，���发（全部）等全部返回，串行按地址顺序试、第一个通就停。</p>
+            <p class="field-hint">{{ t("remote.multiNicHelp") }}</p>
           </div>
           <div class="field">
-            <label for="rsProbeTimeout">默认探测超时（秒）—— 通道那格留空时用它</label>
+            <label for="rsProbeTimeout">{{ t("remote.defaultTimeoutLabel") }}</label>
             <input id="rsProbeTimeout" v-model.number="probeTimeout" class="mono num-narrow" type="number" step="0.5" min="0.2" max="30" />
-            <p class="field-hint">默认 2 秒（范围 0.2 ~ 30 秒）。想让某个通道等更久 / 更短，就在上面那一行各自填 —— 填了的那一格以它自己为准，没填的才用这个默认值。</p>
+            <p class="field-hint">{{ t("remote.defaultTimeoutHelp") }}</p>
           </div>
           <div class="field">
-            <label>经跳板机（按地址分别选）</label>
-            <p class="field-hint">跳板机挂在地址上 —— 上面「局域网地址」每一行都有自己的跳板机下拉，空 = 那个地址直连。一台电脑有三块网卡时，可以分别经家里 / 公司两台跳板机中转，各建各的转发。</p>
+            <label>{{ t("remote.viaJumpLabel") }}</label>
+            <p class="field-hint">{{ t("remote.viaJumpHelp") }}</p>
           </div>
         </div>
 
         <div class="fold-head" id="rsFoldPowerHead" @click="foldPower = !foldPower">
-          <span class="chev">{{ foldPower ? "▼" : "▶" }}</span>局域网电源路由
+          <span class="chev">{{ foldPower ? "▼" : "▶" }}</span>{{ t("remote.powerRouteTitle") }}
           <span class="fold-count" id="rsFoldPowerCount">{{ powerRoutes.length }}</span>
         </div>
         <div class="fold-body" id="rsFoldPower" :hidden="!foldPower">
@@ -785,55 +785,55 @@ function submit() {
               <div class="route-head">
                 <span class="route-no">{{ i + 1 }}</span>
                 <span class="route-zone-inline">
-                  <select v-model="r.action" class="route-act" title="这条路由执行什么动作">
+                  <select v-model="r.action" class="route-act" :title="t('remote.routeActionTitle')">
                     <option v-for="a in POWER_ACTIONS" :key="a.value" :value="a.value">{{ a.label }}</option>
                   </select>
                 </span>
                 <span class="route-zone-inline">
-                  <select v-model="r.mode" class="route-mode" title="通过广播包还是 HTTP 接口执行">
+                  <select v-model="r.mode" class="route-mode" :title="t('remote.routeModeTitle')">
                     <option v-for="m in ROUTE_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
                   </select>
                 </span>
                 <span class="route-head-spacer" />
-                <label class="switch" title="停用后这条路由不参与发射">
+                <label class="switch" :title="t('remote.routeDisableTitle')">
                   <input type="checkbox" class="route-enabled" v-model="r.enabled" />
                   <span class="trk" aria-hidden="true" />
                 </label>
-                <button type="button" class="route-del" aria-label="删掉这条" title="删掉这条" @click="powerRoutes.splice(i, 1)">✕</button>
+                <button type="button" class="route-del" :aria-label="t('remote.routeDel')" :title="t('remote.routeDel')" @click="powerRoutes.splice(i, 1)">✕</button>
               </div>
               <!-- 广播包区 -->
               <div class="route-zone route-zone-packet">
-                <div class="route-zone-title">广播包</div>
+                <div class="route-zone-title">{{ t("remote.broadcast") }}</div>
                 <div class="route-main">
-                  <span class="route-num-label">广播地址</span>
-                  <input v-model="r.target" class="route-target mono" type="text" spellcheck="false" placeholder="留空 = 自动：全局广播 + 各地址的 /24" />
-                  <span class="route-num-label">端口</span>
+                  <span class="route-num-label">{{ t("remote.broadcastAddr") }}</span>
+                  <input v-model="r.target" class="route-target mono" type="text" spellcheck="false" :placeholder="t('remote.broadcastAddrPh')" />
+                  <span class="route-num-label">{{ t("server.kPort") }}</span>
                   <input v-model.number="r.port" class="route-port mono" type="number" min="0" max="65535" placeholder="9" />
                 </div>
                 <div class="route-main">
-                  <span class="route-num-label">每块网卡发</span>
+                  <span class="route-num-label">{{ t("remote.perNic") }}</span>
                   <input v-model.number="r.burst" class="route-burst mono" type="number" min="0" max="20" :placeholder="routeDefaultBurst(r)" />
-                  <span class="route-num-label">没发出就重试</span>
+                  <span class="route-num-label">{{ t("remote.retryIfFail") }}</span>
                   <input v-model.number="r.retry" class="route-retry mono" type="number" min="0" max="20" :placeholder="routeDefaultRetry()" />
                 </div>
                 <div class="route-main">
                   <span class="route-macs-label">MAC</span>
-                  <span class="route-macs">{{ r.macs.length ? r.macs.join(" · ") : "（这台服务器配过的全部 MAC）" }}</span>
+                  <span class="route-macs">{{ r.macs.length ? r.macs.join(" · ") : t("remote.allMacs") }}</span>
                 </div>
               </div>
               <!-- HTTP 区 -->
               <div class="route-zone route-zone-http">
                 <div class="route-zone-title">HTTP</div>
-                <p class="route-zone-hint">调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。混合 = HTTP 与广播包同时发。</p>
+                <p class="route-zone-hint">{{ t("remote.routeZoneHint") }}</p>
               </div>
             </div>
           </div>
-          <p class="field-hint">配了路由，电源按钮就往局域网发 UDP 包，由这台电脑上的 sol 按端口执行对应动作 —— 机器睡着、连接断着也能用；没配则唤醒走标准 WOL。广播地址留空 = 自动（全局广播 + 各地址的 /24 广播）。</p>
-          <button type="button" class="btn small" id="rsPowerAdd" style="margin-top: 8px" @click="powerRoutes.push(newPowerRoute())">+ 添加一条路由</button>
+          <p class="field-hint">{{ t("remote.routeHelp") }}</p>
+          <button type="button" class="btn small" id="rsPowerAdd" style="margin-top: 8px" @click="powerRoutes.push(newPowerRoute())">{{ t("remote.addRoute") }}</button>
         </div>
 
         <div class="field" id="rsRouteList">
-          <label><b>连接优先级</b></label>
+          <label><b>{{ t("remote.priorityShort") }}</b></label>
         </div>
 
         <p class="form-error" id="rsEditError">{{ editError }}</p>
@@ -841,10 +841,10 @@ function submit() {
       </div>
 
       <div class="dialog-foot">
-        <button type="button" class="btn danger" id="rsDelete" :hidden="!remote?.id" @click="doDelete">删除</button>
-        <button type="button" class="btn" id="rsTestBtn" @click="doTest">测试连接</button>
-        <button type="button" class="btn" id="rsCancel" @click="emit('close')">取消</button>
-        <button type="button" class="btn primary" id="rsSave" @click="submit">保存</button>
+        <button type="button" class="btn danger" id="rsDelete" :hidden="!remote?.id" @click="doDelete">{{ t("common.delete") }}</button>
+        <button type="button" class="btn" id="rsTestBtn" @click="doTest">{{ t("server.test") }}</button>
+        <button type="button" class="btn" id="rsCancel" @click="emit('close')">{{ t("common.cancel") }}</button>
+        <button type="button" class="btn primary" id="rsSave" @click="submit">{{ t("common.save") }}</button>
       </div>
     </div>
   </div>
