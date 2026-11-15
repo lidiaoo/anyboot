@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">プッシュ（WebSocket）</string>
     <string name="and_transportPoll">ポーリング（HTTP、間隔は「データ更新」）</string>
     <string name="and_transportSelected">「%1$s」を選択：電腦ページ再読み込み後に有効</string>
+    <string name="and_directDisabled">直接接続は停止中</string>
+    <string name="and_copiedChannelAddr">%1$s アドレスをコピー</string>
+    <string name="and_noBrowserApp">Web ページを開けるアプリがありません</string>
+    <string name="and_notDetectedParen">（未検出）</string>
+    <string name="and_switchPendingN">切替保留中、%1$d 秒後に本体で実行</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

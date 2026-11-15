@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">推送（WebSocket）</string>
     <string name="and_transportPoll">轮询（HTTP，间隔见「数据刷新」）</string>
     <string name="and_transportSelected">已选择「%1$s」：电脑页重载后生效</string>
+    <string name="and_directDisabled">直连已停用</string>
+    <string name="and_copiedChannelAddr">已复制%1$s地址</string>
+    <string name="and_noBrowserApp">没有能打开网页的应用</string>
+    <string name="and_notDetectedParen">（未检测到）</string>
+    <string name="and_switchPendingN">切换挂起中，%1$d 秒后在本机执行</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

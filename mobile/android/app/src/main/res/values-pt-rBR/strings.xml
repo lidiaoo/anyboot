@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">Push (WebSocket)</string>
     <string name="and_transportPoll">Polling (HTTP; intervalo em “Atualização de dados”)</string>
     <string name="and_transportSelected">“%1$s” selecionado: vale após recarregar a página</string>
+    <string name="and_directDisabled">Direto desativado</string>
+    <string name="and_copiedChannelAddr">Endereço %1$s copiado</string>
+    <string name="and_noBrowserApp">Nenhum app pode abrir páginas</string>
+    <string name="and_notDetectedParen">(não detectado)</string>
+    <string name="and_switchPendingN">Troca pendente — executa no host em %1$ds</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

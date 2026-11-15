@@ -1066,7 +1066,7 @@ class ComputerListActivity : ComponentActivity() {
                     Box(Modifier.weight(1f)) {
                         if (query.isEmpty()) {
                             Text(
-                                "搜索电脑名称、IP 或 MAC",
+                                stringResource(R.string.hub_list_search),
                                 fontSize = 13.sp,
                                 color = palette.fgFaint,
                                 maxLines = 1,
@@ -1193,7 +1193,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (noServers) {
                     "还没有添加任何电脑\n到「服务器」里添加一台，这里就会出现它的电源与引导项"
                 } else {
-                    "没有符合条件的电脑"
+                    stringResource(R.string.hub_list_empty)
                 },
                 fontSize = 13.sp,
                 color = palette.fgDim,
@@ -1252,7 +1252,7 @@ class ComputerListActivity : ComponentActivity() {
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Text("未连接", fontSize = 11.sp, color = palette.fgFaint)
+                Text(stringResource(R.string.hub_state_notConnected), fontSize = 11.sp, color = palette.fgFaint)
             }
             Spacer(Modifier.height(9.dp))
             // 手机窄：两列一组，末尾落单时补一个等宽空位，两个格子才不会拉变形
@@ -1287,7 +1287,7 @@ class ComputerListActivity : ComponentActivity() {
                 maxLines = Int.MAX_VALUE,
                 overflow = TextOverflow.Clip,
             )
-            Text("未检测到", fontSize = 10.sp, color = palette.fgFaint)
+            Text(stringResource(R.string.hub_state_notDetected), fontSize = 10.sp, color = palette.fgFaint)
         }
     }
 
@@ -1389,7 +1389,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (selected) {
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        "当前",
+                        stringResource(R.string.hub_state_current),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = palette.accent,
@@ -1446,7 +1446,7 @@ class ComputerListActivity : ComponentActivity() {
                     Text("·", fontSize = 11.sp, color = palette.fgFaint)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        if (addrCount == 0) "(未配地址)" else "直连已停用",
+                        if (addrCount == 0) stringResource(R.string.server_noAddr) else stringResource(R.string.and_directDisabled),
                         fontSize = 11.sp,
                         color = palette.fgFaint,
                     )
@@ -1511,16 +1511,16 @@ class ComputerListActivity : ComponentActivity() {
                                 // 行尾操作：复制 / 浏览器打开（URL 带这条配对自己的令牌）
                                 if (pair.url.isNotEmpty() && pair.enabled) {
                                     Text(
-                                        "复制",
+                                        stringResource(R.string.common_copy),
                                         fontSize = 10.sp,
                                         color = palette.fgFaint,
                                         modifier = Modifier.clickable {
                                             copyText(pair.url)
-                                            toast("已复制" + pair.channel + "地址")
+                                            toast(getString(R.string.and_copiedChannelAddr, pair.channel))
                                         },
                                     )
                                     Text(
-                                        "浏览器打开",
+                                        stringResource(R.string.hub_conn_openBrowser),
                                         fontSize = 10.sp,
                                         color = palette.fgFaint,
                                         modifier = Modifier.clickable {
@@ -1529,7 +1529,7 @@ class ComputerListActivity : ComponentActivity() {
                                                     Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pair.url))
                                                 )
                                             } catch (error: Exception) {
-                                                toast("没有能打开网页的应用")
+                                                toast(getString(R.string.and_noBrowserApp))
                                             }
                                         },
                                     )
@@ -1634,14 +1634,14 @@ class ComputerListActivity : ComponentActivity() {
                     InfoIcon(tint = tone.pendText, size = 12.dp)
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "切换挂起中，${pendSecs} 秒后在本机执行" +
-                            (pendingSwitchSummary[row.profile.id]?.let { "：$it" } ?: ""),
+                        stringResource(R.string.and_switchPendingN, pendSecs) +
+                            (pendingSwitchSummary[row.profile.id]?.let { ": $it" } ?: ""),
                         fontSize = 11.sp,
                         color = tone.pendText,
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        "撤销挂起",
+                        stringResource(R.string.hub_pending_undoPending),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.accent,
@@ -1663,10 +1663,10 @@ class ComputerListActivity : ComponentActivity() {
                 ) {
                     InfoIcon(tint = tone.pendText, size = 12.dp)
                     Spacer(Modifier.width(6.dp))
-                    Text("引导项已修改，重启后生效", fontSize = 11.sp, color = tone.pendText)
+                    Text(stringResource(R.string.hub_pending_modified), fontSize = 11.sp, color = tone.pendText)
                     Spacer(Modifier.weight(1f))
                     Text(
-                        "撤销",
+                        stringResource(R.string.hub_pending_undo),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = palette.accent,

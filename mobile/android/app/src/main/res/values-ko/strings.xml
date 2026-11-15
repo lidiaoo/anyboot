@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">푸시 (WebSocket)</string>
     <string name="and_transportPoll">폴링 (HTTP, 간격은 ‘데이터 새로 고침’)</string>
     <string name="and_transportSelected">‘%1$s’ 선택: 컴퓨터 페이지 새로 고침 후 적용</string>
+    <string name="and_directDisabled">직접 연결 중지됨</string>
+    <string name="and_copiedChannelAddr">%1$s 주소 복사됨</string>
+    <string name="and_noBrowserApp">웹 페이지를 열 앱이 없습니다</string>
+    <string name="and_notDetectedParen">(감지되지 않음)</string>
+    <string name="and_switchPendingN">전환 대기 중, %1$d초 후 본체에서 실행</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

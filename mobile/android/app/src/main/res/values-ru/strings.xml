@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">Push (WebSocket)</string>
     <string name="and_transportPoll">Опрос (HTTP; интервал в «Обновлении данных»)</string>
     <string name="and_transportSelected">Выбрано «%1$s»: после перезагрузки страницы компьютера</string>
+    <string name="and_directDisabled">Напрямую отключено</string>
+    <string name="and_copiedChannelAddr">Адрес %1$s скопирован</string>
+    <string name="and_noBrowserApp">Нет приложения для открытия веб-страниц</string>
+    <string name="and_notDetectedParen">(не обнаружено)</string>
+    <string name="and_switchPendingN">Переключение ожидает — через %1$d с на хосте</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

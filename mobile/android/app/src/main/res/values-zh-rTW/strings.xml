@@ -1172,6 +1172,11 @@
     <string name="and_transportPush">推送（WebSocket）</string>
     <string name="and_transportPoll">輪詢（HTTP，間隔見「資料重新整理」）</string>
     <string name="and_transportSelected">已選擇「%1$s」：電腦頁重新載入後生效</string>
+    <string name="and_directDisabled">直連已停用</string>
+    <string name="and_copiedChannelAddr">已複製%1$s位址</string>
+    <string name="and_noBrowserApp">沒有能開啟網頁的應用</string>
+    <string name="and_notDetectedParen">（未偵測到）</string>
+    <string name="and_switchPendingN">切換擱置中，%1$d 秒後在本機執行</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>
