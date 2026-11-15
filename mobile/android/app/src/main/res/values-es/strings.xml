@@ -1970,6 +1970,13 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_tcpNotEstablished">Sin conexión: TCP no establecido (red/puerto/dirección)</string>
     <string name="and_sshConnectFail">Error: no se puede establecer SSH (red/puerto/dirección)</string>
     <string name="and_ptyOpenTimeout">Tiempo agotado al abrir terminal: sin respuesta al PTY (shell quizá desactivado)</string>
+    <string name="and_actionNextReboot">Acciones se aplican al reiniciar</string>
+    <string name="and_noComputersEmpty">Aún sin equipos</string>
+    <string name="and_addFirstComputer">Añade uno primero en «Lista de equipos».</string>
+    <string name="and_noTabsOpen">Sin pestañas abiertas</string>
+    <string name="and_tapTabConnect">Toca una pestaña arriba para conectar.</string>
+    <string name="and_reuseAddrTip">Reutilizar última buena dirección: ahorra, estable</string>
+    <string name="and_alwaysProbeTip">Sondear en cada actualización: más rápido tras cambio de IP</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

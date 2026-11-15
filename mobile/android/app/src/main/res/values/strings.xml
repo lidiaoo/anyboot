@@ -1970,6 +1970,13 @@ Telnet：只有实验性终端。</string>
     <string name="and_tcpNotEstablished">连不上：TCP 连接没建立起来（网络不通 / 端口没开 / 地址写错）</string>
     <string name="and_sshConnectFail">连接失败：无法建立到服务器的 SSH 连接（网络不通 / 端口没开 / 地址写错）</string>
     <string name="and_ptyOpenTimeout">打开终端超时：服务器没回应 PTY 请求（可能禁用了 shell）</string>
+    <string name="and_actionNextReboot">动作在下次重启时生效</string>
+    <string name="and_noComputersEmpty">还没有电脑</string>
+    <string name="and_addFirstComputer">先到「电脑列表」里添加一台。</string>
+    <string name="and_noTabsOpen">还没打开标签</string>
+    <string name="and_tapTabConnect">点上面的电脑标签开始连接。</string>
+    <string name="and_reuseAddrTip">复用上次成功的地址：省电、地址稳定</string>
+    <string name="and_alwaysProbeTip">每次刷新都重新探测地址：换 IP 抓得最快</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "Can't connect: TCP not established (network down / port closed / wrong address)";
 "and.sshConnectFail" = "Connection failed: can't establish SSH to the server (network down / port closed / wrong address)";
 "and.ptyOpenTimeout" = "Open terminal timed out: server didn't answer the PTY request (shell may be disabled)";
+"and.actionNextReboot" = "Actions apply on next reboot";
+"and.noComputersEmpty" = "No computers yet";
+"and.addFirstComputer" = "Add one under “Computer list” first.";
+"and.noTabsOpen" = "No tabs open";
+"and.tapTabConnect" = "Tap a computer tab above to connect.";
+"and.reuseAddrTip" = "Reuse last good address: power-saving, stable";
+"and.alwaysProbeTip" = "Re-probe address on every refresh: fastest after IP change";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

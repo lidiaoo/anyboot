@@ -326,12 +326,12 @@ struct ComputerTabsView: View {
     @ViewBuilder
     private var content: some View {
         if store.servers.isEmpty {
-            ABEmptyState(icon: "desktopcomputer", title: "还没有电脑",
-                         message: "先到「电脑列表」里添加一台。")
+            ABEmptyState(icon: "desktopcomputer", title: L("and.noComputersEmpty"),
+                         message: L("and.addFirstComputer"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if center.tabs.isEmpty {
-            ABEmptyState(icon: "rectangle.on.rectangle", title: "还没打开标签",
-                         message: "点上面的电脑标签开始连接。")
+            ABEmptyState(icon: "rectangle.on.rectangle", title: L("and.noTabsOpen"),
+                         message: L("and.tapTabConnect"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ZStack {
@@ -703,7 +703,7 @@ struct ComputerTabsView: View {
 
                 radioRow(selected: !reprobeAlways, label: L("and.reuseAddrRec")) {
                     DataRefreshPref.reprobeAlways = false
-                    ABToastBus.shared.show("复用上次成功的地址：省电、地址稳定")
+                    ABToastBus.shared.show(L("and.reuseAddrTip"))
                 }
                 Text(L("and.reuseAddrDesc"))
                     .font(.system(size: 10))
@@ -712,7 +712,7 @@ struct ComputerTabsView: View {
 
                 radioRow(selected: reprobeAlways, label: L("and.alwaysProbeAddr")) {
                     DataRefreshPref.reprobeAlways = true
-                    ABToastBus.shared.show("每次刷新都重新探测地址：换 IP 抓得最快")
+                    ABToastBus.shared.show(L("and.alwaysProbeTip"))
                 }
                 Text(L("and.alwaysProbeDesc"))
                     .font(.system(size: 10))

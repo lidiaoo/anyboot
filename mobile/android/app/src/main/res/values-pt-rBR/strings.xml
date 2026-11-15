@@ -1970,6 +1970,13 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_tcpNotEstablished">Sem conexão: TCP não estabelecido (rede/porta/endereço)</string>
     <string name="and_sshConnectFail">Falha: não é possível estabelecer SSH (rede/porta/endereço)</string>
     <string name="and_ptyOpenTimeout">Tempo esgotado ao abrir terminal: sem resposta ao PTY (shell talvez desativado)</string>
+    <string name="and_actionNextReboot">Ações valem no próximo reinício</string>
+    <string name="and_noComputersEmpty">Ainda sem computadores</string>
+    <string name="and_addFirstComputer">Adicione primeiro em “Lista de computadores”.</string>
+    <string name="and_noTabsOpen">Sem abas abertas</string>
+    <string name="and_tapTabConnect">Toque numa aba acima para conectar.</string>
+    <string name="and_reuseAddrTip">Reutilizar último bom endereço: econômico, estável</string>
+    <string name="and_alwaysProbeTip">Sondar a cada atualização: mais rápido após troca de IP</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

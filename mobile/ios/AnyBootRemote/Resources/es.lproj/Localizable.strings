@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "Sin conexión: TCP no establecido (red/puerto/dirección)";
 "and.sshConnectFail" = "Error: no se puede establecer SSH (red/puerto/dirección)";
 "and.ptyOpenTimeout" = "Tiempo agotado al abrir terminal: sin respuesta al PTY (shell quizá desactivado)";
+"and.actionNextReboot" = "Acciones se aplican al reiniciar";
+"and.noComputersEmpty" = "Aún sin equipos";
+"and.addFirstComputer" = "Añade uno primero en «Lista de equipos».";
+"and.noTabsOpen" = "Sin pestañas abiertas";
+"and.tapTabConnect" = "Toca una pestaña arriba para conectar.";
+"and.reuseAddrTip" = "Reutilizar última buena dirección: ahorra, estable";
+"and.alwaysProbeTip" = "Sondear en cada actualización: más rápido tras cambio de IP";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

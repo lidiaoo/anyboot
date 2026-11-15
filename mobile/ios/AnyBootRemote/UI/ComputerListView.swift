@@ -1871,7 +1871,7 @@ struct ComputerListView: View {
                 let selected = !row.child && !option.value.isEmpty && option.value == group.current
                 Button {
                     sheet = nil
-                    switchBoot(profile, kind: kind, value: option.value, verb: "切换")
+                    switchBoot(profile, kind: kind, value: option.value, verb: L("and.switchAction"))
                 } label: {
                     HStack(spacing: ABMetric.px(8)) {
                         if row.child {
@@ -1945,7 +1945,7 @@ struct ComputerListView: View {
             ForEach(channel.entries) { entry in
                 Button {
                     sheet = nil
-                    switchChannelAction(profile, channel: channel, entry: entry, verb: "切换")
+                    switchChannelAction(profile, channel: channel, entry: entry, verb: L("and.switchAction"))
                 } label: {
                     HStack(alignment: .top, spacing: ABMetric.px(8)) {
                         Text(GrubFormat.osIcon(entry.icon))
@@ -1979,7 +1979,7 @@ struct ComputerListView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("动作在下次重启时生效")
+            Text(L("and.actionNextReboot"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, ABMetric.px(4))
@@ -1991,7 +1991,7 @@ struct ComputerListView: View {
         let effective = GrubFormat.effective(selected: BootFormatStore.shared.value, group: group)
         let selectedValue = BootFormatStore.shared.value
         return VStack(alignment: .leading, spacing: 0) {
-            Text("条目文字格式（当前：\(selectedValue.isEmpty ? "跟随电脑 · \(effective)" : effective)）")
+            Text(L("hub.picker.fmtLabel", selectedValue.isEmpty ? L("hub.picker.fmt.follow") + " · " + effective : effective))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
             ScrollView(.horizontal, showsIndicators: false) {

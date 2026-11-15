@@ -1970,6 +1970,13 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_tcpNotEstablished">Keine Verbindung: TCP nicht aufgebaut (Netz aus/Port zu/Adresse falsch)</string>
     <string name="and_sshConnectFail">Verbindung fehlgeschlagen: kein SSH zum Server (Netz aus/Port zu/Adresse falsch)</string>
     <string name="and_ptyOpenTimeout">Terminal öffnen Timeout: keine PTY-Antwort (Shell evtl. deaktiviert)</string>
+    <string name="and_actionNextReboot">Aktionen gelten beim nächsten Neustart</string>
+    <string name="and_noComputersEmpty">Noch keine Computer</string>
+    <string name="and_addFirstComputer">Zuerst unter „Computerliste“ hinzufügen.</string>
+    <string name="and_noTabsOpen">Keine Tabs geöffnet</string>
+    <string name="and_tapTabConnect">Oben auf einen Computer-Tab tippen.</string>
+    <string name="and_reuseAddrTip">Letzte gute Adresse wiederverwenden: sparsam, stabil</string>
+    <string name="and_alwaysProbeTip">Bei jeder Aktualisierung neu prüfen: schnellster nach IP-Wechsel</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

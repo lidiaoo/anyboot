@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "연결 불가: TCP 미확립(네트워크 불통/포트 닫힘/주소 오류)";
 "and.sshConnectFail" = "연결 실패: SSH 미확립(네트워크 불통/포트 닫힘/주소 오류)";
 "and.ptyOpenTimeout" = "터미널 열기 시간 초과: PTY 요청 무응답(shell 비활성 가능)";
+"and.actionNextReboot" = "동작은 다음 재부팅 시 적용";
+"and.noComputersEmpty" = "아직 컴퓨터 없음";
+"and.addFirstComputer" = "먼저 ‘컴퓨터 목록’에서 추가하세요.";
+"and.noTabsOpen" = "열린 탭 없음";
+"and.tapTabConnect" = "위 컴퓨터 탭을 눌러 연결.";
+"and.reuseAddrTip" = "마지막 성공 주소 재사용: 절전·안정";
+"and.alwaysProbeTip" = "새로 고침마다 재감지: IP 변경 시 가장 빠름";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

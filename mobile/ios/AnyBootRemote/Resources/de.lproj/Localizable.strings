@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "Keine Verbindung: TCP nicht aufgebaut (Netz aus/Port zu/Adresse falsch)";
 "and.sshConnectFail" = "Verbindung fehlgeschlagen: kein SSH zum Server (Netz aus/Port zu/Adresse falsch)";
 "and.ptyOpenTimeout" = "Terminal öffnen Timeout: keine PTY-Antwort (Shell evtl. deaktiviert)";
+"and.actionNextReboot" = "Aktionen gelten beim nächsten Neustart";
+"and.noComputersEmpty" = "Noch keine Computer";
+"and.addFirstComputer" = "Zuerst unter „Computerliste“ hinzufügen.";
+"and.noTabsOpen" = "Keine Tabs geöffnet";
+"and.tapTabConnect" = "Oben auf einen Computer-Tab tippen.";
+"and.reuseAddrTip" = "Letzte gute Adresse wiederverwenden: sparsam, stabil";
+"and.alwaysProbeTip" = "Bei jeder Aktualisierung neu prüfen: schnellster nach IP-Wechsel";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

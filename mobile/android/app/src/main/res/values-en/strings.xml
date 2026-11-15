@@ -1970,6 +1970,13 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_tcpNotEstablished">Can\'t connect: TCP not established (network down / port closed / wrong address)</string>
     <string name="and_sshConnectFail">Connection failed: can\'t establish SSH to the server (network down / port closed / wrong address)</string>
     <string name="and_ptyOpenTimeout">Open terminal timed out: server didn\'t answer the PTY request (shell may be disabled)</string>
+    <string name="and_actionNextReboot">Actions apply on next reboot</string>
+    <string name="and_noComputersEmpty">No computers yet</string>
+    <string name="and_addFirstComputer">Add one under “Computer list” first.</string>
+    <string name="and_noTabsOpen">No tabs open</string>
+    <string name="and_tapTabConnect">Tap a computer tab above to connect.</string>
+    <string name="and_reuseAddrTip">Reuse last good address: power-saving, stable</string>
+    <string name="and_alwaysProbeTip">Re-probe address on every refresh: fastest after IP change</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

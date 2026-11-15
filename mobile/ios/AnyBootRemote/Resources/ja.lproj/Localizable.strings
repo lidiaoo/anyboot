@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "接続不可：TCP 未確立（ネット不通 / ポート閉 / アドレス誤り）";
 "and.sshConnectFail" = "接続失敗：SSH を確立できません（ネット不通 / ポート閉 / アドレス誤り）";
 "and.ptyOpenTimeout" = "端末オープンタイムアウト：PTY 要求に応答なし（shell 無効の可能性）";
+"and.actionNextReboot" = "アクションは次回再起動で有効";
+"and.noComputersEmpty" = "PC がまだありません";
+"and.addFirstComputer" = "まず「PC 一覧」で追加してください。";
+"and.noTabsOpen" = "タブがありません";
+"and.tapTabConnect" = "上の PC タブをタップして接続。";
+"and.reuseAddrTip" = "前回成功アドレスを再利用：省電力・安定";
+"and.alwaysProbeTip" = "更新のたびに再検出：IP 変更時に最速";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

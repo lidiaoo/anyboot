@@ -1970,6 +1970,13 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_tcpNotEstablished">Нет соединения: TCP не установлен (сеть/порт/адрес)</string>
     <string name="and_sshConnectFail">Ошибка: не удалось установить SSH (сеть/порт/адрес)</string>
     <string name="and_ptyOpenTimeout">Тайм-аут открытия терминала: нет ответа на PTY (возможно, shell отключён)</string>
+    <string name="and_actionNextReboot">Действия — при следующей перезагрузке</string>
+    <string name="and_noComputersEmpty">Компьютеров пока нет</string>
+    <string name="and_addFirstComputer">Сначала добавьте на «Списке компьютеров».</string>
+    <string name="and_noTabsOpen">Нет открытых вкладок</string>
+    <string name="and_tapTabConnect">Нажмите вкладку компьютера выше.</string>
+    <string name="and_reuseAddrTip">Повторно успешный адрес: экономно, стабильно</string>
+    <string name="and_alwaysProbeTip">Проверять адрес при каждом обновлении: быстрее всего при смене IP</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

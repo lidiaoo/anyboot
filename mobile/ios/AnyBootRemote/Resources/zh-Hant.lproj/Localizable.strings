@@ -1933,6 +1933,13 @@
 "and.tcpNotEstablished" = "連不上：TCP 連線沒建立起來（網路不通 / 埠沒開 / 位址寫錯）";
 "and.sshConnectFail" = "連線失敗：無法建立到伺服器的 SSH 連線（網路不通 / 埠沒開 / 位址寫錯）";
 "and.ptyOpenTimeout" = "開啟終端機逾時：伺服器沒回應 PTY 請求（可能停用了 shell）";
+"and.actionNextReboot" = "動作在下次重新啟動時生效";
+"and.noComputersEmpty" = "還沒有電腦";
+"and.addFirstComputer" = "先到「電腦列表」裡新增一台。";
+"and.noTabsOpen" = "還沒開啟標籤";
+"and.tapTabConnect" = "點上面的電腦標籤開始連線。";
+"and.reuseAddrTip" = "沿用上次成功的位址：省電、位址穩定";
+"and.alwaysProbeTip" = "每次重新整理都重新探測位址：換 IP 抓得最快";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

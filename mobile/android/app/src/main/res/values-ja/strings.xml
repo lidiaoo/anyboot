@@ -1970,6 +1970,13 @@ Telnet：実験的端末のみ。</string>
     <string name="and_tcpNotEstablished">接続不可：TCP 未確立（ネット不通 / ポート閉 / アドレス誤り）</string>
     <string name="and_sshConnectFail">接続失敗：SSH を確立できません（ネット不通 / ポート閉 / アドレス誤り）</string>
     <string name="and_ptyOpenTimeout">端末オープンタイムアウト：PTY 要求に応答なし（shell 無効の可能性）</string>
+    <string name="and_actionNextReboot">アクションは次回再起動で有効</string>
+    <string name="and_noComputersEmpty">PC がまだありません</string>
+    <string name="and_addFirstComputer">まず「PC 一覧」で追加してください。</string>
+    <string name="and_noTabsOpen">タブがありません</string>
+    <string name="and_tapTabConnect">上の PC タブをタップして接続。</string>
+    <string name="and_reuseAddrTip">前回成功アドレスを再利用：省電力・安定</string>
+    <string name="and_alwaysProbeTip">更新のたびに再検出：IP 変更時に最速</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
