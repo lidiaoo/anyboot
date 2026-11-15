@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.ClipData
+import androidx.compose.ui.platform.LocalContext
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -238,7 +239,7 @@ class ComputerListActivity : ComponentActivity() {
             var rows: List<SysInfoRow> = emptyList()
             var error = ""
             try {
-                rows = loadSysInfoRows(target) { endpointOf(target) }
+                rows = loadSysInfoRows(this@ComputerListActivity, target) { endpointOf(target) }
             } catch (failure: Exception) {
                 error = failure.message ?: getString(R.string.and_readSysinfoFail)
             }
@@ -1701,22 +1702,22 @@ class ComputerListActivity : ComponentActivity() {
                 // 该行正走远程隧道时广播包腿发不出，标识会相应变成 HTTP 或「发不出」
                 PowerButton(
                     row, POWER_WAKE, stringResource(R.string.hub_power_wake),
-                    hint = powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) stringResource(R.string.and_macMagic) else stringResource(R.string.hub_power_noMac), row.connRemote),
+                    hint = LocalContext.current.powerHint(row.profile, POWER_WAKE, if (row.profile.hasMacs()) stringResource(R.string.and_macMagic) else stringResource(R.string.hub_power_noMac), row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_SLEEP, stringResource(R.string.hub_power_sleep),
-                    hint = powerHint(row.profile, POWER_SLEEP, stringResource(R.string.hub_power_hibernate), row.connRemote),
+                    hint = LocalContext.current.powerHint(row.profile, POWER_SLEEP, stringResource(R.string.hub_power_hibernate), row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_REBOOT, stringResource(R.string.hub_power_restart),
-                    hint = powerHint(row.profile, POWER_REBOOT, "", row.connRemote),
+                    hint = LocalContext.current.powerHint(row.profile, POWER_REBOOT, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
                 PowerButton(
                     row, POWER_SHUTDOWN, stringResource(R.string.hub_power_shutdown),
-                    hint = powerHint(row.profile, POWER_SHUTDOWN, "", row.connRemote),
+                    hint = LocalContext.current.powerHint(row.profile, POWER_SHUTDOWN, "", row.connRemote),
                     modifier = Modifier.weight(1f),
                 )
             }

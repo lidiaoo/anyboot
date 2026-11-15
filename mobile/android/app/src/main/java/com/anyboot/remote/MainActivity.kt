@@ -546,7 +546,7 @@ class MainActivity : ComponentActivity() {
             var rows: List<SysInfoRow> = emptyList()
             var error = ""
             try {
-                rows = loadSysInfoRows(target) { endpointFor(target) }
+                rows = loadSysInfoRows(this@MainActivity, target) { endpointFor(target) }
             } catch (failure: Exception) {
                 error = failure.message ?: "读取系统信息失败"
             }

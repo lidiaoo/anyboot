@@ -317,12 +317,12 @@ fun ListDivider() {
     )
 }
 
-fun humanDuration(ms: Long): String {
+fun Context.humanDuration(ms: Long): String {
     val seconds = ms / 1000
-    if (seconds < 60) return "$seconds 秒"
+    if (seconds < 60) return getString(R.string.and_durSec, seconds)
     val minutes = seconds / 60
-    if (minutes < 60) return "$minutes 分钟"
-    return "${minutes / 60} 小时 ${minutes % 60} 分"
+    if (minutes < 60) return getString(R.string.and_durMin, minutes)
+    return getString(R.string.and_durHourMin, minutes / 60, minutes % 60)
 }
 
 fun humanSize(bytes: Long): String {
@@ -383,9 +383,9 @@ class SysInfoRow(val label: String, val value: String)
  * <p>**阻塞调用，必须在后台线程跑**（结果回主线程再显示）。字段缺失就跳过那一行
  * —— 老版本服务端没有 `/api/system`，会走异常分支，调用方显示错误原因。
  */
-fun fetchSysInfoRows(endpoint: String, token: String, timeoutMs: Int = 5000): List<SysInfoRow> {
+fun fetchSysInfoRows(ctx: Context, endpoint: String, token: String, timeoutMs: Int = 5000): List<SysInfoRow> {
     val base = endpoint.trim()
-    if (base.isEmpty()) throw Exception("还没有可用地址")
+    if (base.isEmpty()) throw Exception(ctx.getString(R.string.error_noAddress))
     val secret = token.trim()
     val url = (if (base.startsWith("http://") || base.startsWith("https://")) base else "http://$base") +
         "/api/system" + if (secret.isEmpty()) "" else "?token=" + URLEncoder.encode(secret, "UTF-8")
@@ -396,20 +396,20 @@ fun fetchSysInfoRows(endpoint: String, token: String, timeoutMs: Int = 5000): Li
     connection.instanceFollowRedirects = false
     try {
         val status = connection.responseCode
-        if (status == 401) throw Exception("这台电脑不认这个令牌（401）—— 核对访问令牌")
+        if (status == 401) throw Exception(ctx.getString(R.string.and_tokenRejected401))
         val stream = if (status >= 400) connection.errorStream else connection.inputStream
         val body = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-        if (status >= 400) throw Exception("读取系统信息失败（HTTP $status）")
-        return parseSysInfo(JSONObject(body.trim()))
+        if (status >= 400) throw Exception(ctx.getString(R.string.and_readSysinfoFail) + " (HTTP $status)")
+        return parseSysInfo(ctx, JSONObject(body.trim()))
     } catch (error: Exception) {
-        throw if (error.message.isNullOrEmpty()) Exception("读取系统信息失败") else error
+        throw if (error.message.isNullOrEmpty()) Exception(ctx.getString(R.string.and_readSysinfoFail)) else error
     } finally {
         connection.disconnect()
     }
 }
 
 /** `/api/system` 的 JSON → 有序展示行（纯逻辑，缺字段就跳过） */
-fun parseSysInfo(json: JSONObject): List<SysInfoRow> {
+fun parseSysInfo(ctx: Context, json: JSONObject): List<SysInfoRow> {
     val rows = mutableListOf<SysInfoRow>()
     fun add(label: String, value: String) {
         val text = value.trim()
@@ -417,25 +417,25 @@ fun parseSysInfo(json: JSONObject): List<SysInfoRow> {
     }
     val osName = json.optString("osName", "")
     val osVersion = json.optString("osVersion", "")
-    add("系统", listOf(osName, osVersion).filter { it.isNotBlank() }.joinToString(" "))
-    add("内核", json.optString("kernel", ""))
-    add("架构", json.optString("arch", ""))
-    add("主机名", json.optString("hostname", ""))
+    add(ctx.getString(R.string.sysinfo_os), listOf(osName, osVersion).filter { it.isNotBlank() }.joinToString(" "))
+    add(ctx.getString(R.string.sysinfo_kernelBuild), json.optString("kernel", ""))
+    add(ctx.getString(R.string.sysinfo_arch), json.optString("arch", ""))
+    add(ctx.getString(R.string.sysinfo_hostname), json.optString("hostname", ""))
     val cores = json.optInt("cpuCores", 0)
     val cpu = json.optString("cpuModel", "")
-    add("处理器", if (cores > 0) "$cpu（$cores 核）" else cpu)
+    add(ctx.getString(R.string.and_kProcessor), if (cores > 0) ctx.getString(R.string.and_cpuWithCores, cpu, cores) else cpu)
     val total = json.optLong("memTotalMb", 0L)
     val free = json.optLong("memFreeMb", 0L)
     if (total > 0) {
         val text = if (free > 0) {
-            String.format(Locale.US, "%.1f GB（可用 %.1f GB）", total / 1024.0, free / 1024.0)
+            ctx.getString(R.string.and_memGbFree, total / 1024.0, free / 1024.0)
         } else {
             String.format(Locale.US, "%.1f GB", total / 1024.0)
         }
-        add("内存", text)
+        add(ctx.getString(R.string.sysinfo_mem), text)
     }
     val uptime = json.optLong("uptimeSecs", 0L)
-    if (uptime > 0) add("运行时长", humanDuration(uptime * 1000))
+    if (uptime > 0) add(ctx.getString(R.string.sysinfo_uptime), ctx.humanDuration(uptime * 1000))
     val lanIps = json.optJSONArray("lanIps")
     if (lanIps != null && lanIps.length() > 0) {
         val values = mutableListOf<String>()
@@ -443,10 +443,10 @@ fun parseSysInfo(json: JSONObject): List<SysInfoRow> {
             val value = lanIps.optString(index, "").trim()
             if (value.isNotEmpty()) values.add(value)
         }
-        add("局域网地址", values.joinToString("  "))
+        add(ctx.getString(R.string.and_lanAddr), values.joinToString("  "))
     }
     val port = json.optInt("httpPort", 0)
-    if (port > 0) add("服务端口", port.toString())
+    if (port > 0) add(ctx.getString(R.string.and_servicePort), port.toString())
     add("AnyBoot", json.optString("appVersion", ""))
     return rows
 }
@@ -457,7 +457,7 @@ fun parseSysInfo(json: JSONObject): List<SysInfoRow> {
  *
  * <p>**阻塞调用，必须在后台线程跑。** [lanEndpoint] 里可以做建隧道这类慢动作。
  */
-internal fun loadSysInfoRows(profile: ServerProfile, lanEndpoint: () -> String): List<SysInfoRow> {
+internal fun loadSysInfoRows(ctx: Context, profile: ServerProfile, lanEndpoint: () -> String): List<SysInfoRow> {
     var lastError = ""
     val local = try {
         lanEndpoint()
@@ -467,7 +467,7 @@ internal fun loadSysInfoRows(profile: ServerProfile, lanEndpoint: () -> String):
     }
     if (local.isNotEmpty()) {
         try {
-            return fetchSysInfoRows(local, profile.token)
+            return fetchSysInfoRows(ctx, local, profile.token)
         } catch (error: Exception) {
             lastError = error.message ?: ""
         }
@@ -478,12 +478,12 @@ internal fun loadSysInfoRows(profile: ServerProfile, lanEndpoint: () -> String):
         val origin = candidate.origin
         if (origin.isEmpty()) continue
         try {
-            return fetchSysInfoRows(origin, candidate.token)
+            return fetchSysInfoRows(ctx, origin, candidate.token)
         } catch (error: Exception) {
             lastError = error.message ?: ""
         }
     }
-    throw Exception(lastError.ifEmpty { "连不上这台电脑，读不到系统信息" })
+    throw Exception(lastError.ifEmpty { ctx.getString(R.string.and_cannotConnectSysinfo) })
 }
 
 /** 系统信息弹层要用的纯文本（「复制」按钮与分享用） */
