@@ -400,7 +400,7 @@ final class SshSessionManager {
             || text.contains("超时") || text.contains("无响应") {
             return L("and.targetNoResponse")
         }
-        return text.isEmpty ? "未知错误" : text
+        return text.isEmpty ? L("gw.unknownErr") : text
     }
 
     /// 给慢操作限时：超时抛 SshError（输的一方自然收尾，不强杀）
@@ -674,15 +674,15 @@ final class SshSessionManager {
         guard let clientError = error as? SSHClientError else { return nil }
         switch clientError {
         case .allAuthenticationOptionsFailed:
-            return "认证失败：用户名或密码不正确（服务器拒绝了登录）"
+            return L("and.authFailPwd")
         case .unsupportedPasswordAuthentication:
-            return "这台服务器不接受密码登录（改用密钥认证）"
+            return L("and.noPasswordAuth")
         case .unsupportedPrivateKeyAuthentication:
-            return "这台服务器不接受密钥登录（改用密码认证）"
+            return L("and.noKeyAuth")
         case .unsupportedHostBasedAuthentication:
-            return "这台服务器只允许 host-based 认证，App 不支持"
+            return L("and.hostBasedOnly")
         case .channelCreationFailed:
-            return "连接失败：服务器拒绝建立通道"
+            return L("and.connRefusedChannel")
         default:
             return nil
         }
@@ -695,7 +695,7 @@ final class SshSessionManager {
     /// 直接抛给用户等于没说。原始信息打到控制台留档，界面只给可行动的结论。
     static func describe(_ error: Error) -> String {
         if let ssh = error as? SshError {
-            return ssh.errorDescription ?? "连接失败"
+            return ssh.errorDescription ?? L("and.syncConnectFail")
         }
         if let typed = typedDescription(error) {
             NSLog("[ABSSH] 原始错误: \(error)")
@@ -707,30 +707,30 @@ final class SshSessionManager {
         if lower.contains("allauthenticationoptionsfailed")
             || lower.contains("authentication failed")
             || lower.contains("authenticationfailed") {
-            return "认证失败：用户名或密码不正确（服务器拒绝了登录）"
+            return L("and.authFailPwd")
         }
         if lower.contains("permission denied") || lower.contains("publickey") {
-            return "认证失败：密钥被服务器拒绝（检查公钥是否已加到服务器）"
+            return L("and.authFailKey")
         }
         if lower.contains("connection refused") || lower.contains("econnrefused") {
-            return "连接被拒绝：目标端口没在监听（SSH 服务没开？）"
+            return L("and.connRefusedPort")
         }
         if lower.contains("timed out") || lower.contains("timeout") || lower.contains("etimedout") {
-            return "连接超时：地址或端口不通（检查网络 / 防火墙）"
+            return L("and.connTimeoutAddr")
         }
         if lower.contains("no route to host") || lower.contains("unreachable")
             || lower.contains("ehostunreach") || lower.contains("enetunreach") {
-            return "连不上：网络不可达（检查地址与所在网段）"
+            return L("and.netUnreachable")
         }
         if lower.contains("unknown host") || lower.contains("could not resolve")
             || lower.contains("nodename nor servname") || lower.contains("dnserror") {
-            return "找不到主机：域名解析失败"
+            return L("and.dnsFail")
         }
         if lower.contains("disconnected") || lower.contains("connection closed")
             || lower.contains("channelclosed") {
-            return "连不上：TCP 连接没建立起来（网络不通 / 端口没开 / 地址写错）"
+            return L("and.tcpNotEstablished")
         }
-        return "连接失败：无法建立到服务器的 SSH 连接（网络不通 / 端口没开 / 地址写错）"
+        return L("and.sshConnectFail")
     }
 }
 
@@ -864,7 +864,7 @@ final class OneShotGate: @unchecked Sendable {
                 return   // 被取消 = 正常放行了
             }
             self.fail(SshSessionManager.SshError.message(
-                    "打开终端超时：服务器没回应 PTY 请求（可能禁用了 shell）"))
+                    L("and.ptyOpenTimeout")))
         }
         defer { timeout.cancel() }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
