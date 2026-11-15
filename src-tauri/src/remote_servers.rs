@@ -1694,7 +1694,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
     // 仅 HTTP：一个广播包都不发，直接调它自己的接口
     if mode == "http_only" {
         let message = remote_http_power(&server, action)?;
-        return Ok(format!("（仅 HTTP 模式）已调它自己的 AnyBoot 接口：{message}"));
+        return Ok(crate::t!(crate::i18n::current(),"（仅 HTTP 模式）已调它自己的 AnyBoot 接口：{}","（僅 HTTP 模式）已調它自己的 AnyBoot 介面：{}","(HTTP only) called its AnyBoot API: {}","（HTTP のみ）AnyBoot API を呼びました：{}","(HTTP만) AnyBoot API 호출: {}","(nur HTTP) AnyBoot-API aufgerufen: {}","(только HTTP) вызван API AnyBoot: {}","(somente HTTP) chamei a API AnyBoot: {}","(solo HTTP) llamé a la API AnyBoot: {}").replace("{}", &message));
     }
 
     // 优先 HTTP：先调接口，通了就完事（一个广播包都不发）；没通退回广播包
@@ -1702,7 +1702,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
     if mode == "http_first" {
         match remote_http_power(&server, action) {
             Ok(message) => {
-                return Ok(format!("（优先 HTTP 模式）已调它自己的 AnyBoot 接口：{message}"));
+                return Ok(crate::t!(crate::i18n::current(),"（优先 HTTP 模式）已调它自己的 AnyBoot 接口：{}","（優先 HTTP 模式）已調它自己的 AnyBoot 介面：{}","(prefer HTTP) called its AnyBoot API: {}","（HTTP 優先）AnyBoot API を呼びました：{}","(HTTP 우선) AnyBoot API 호출: {}","(HTTP bevorzugt) AnyBoot-API aufgerufen: {}","(сначала HTTP) вызван API AnyBoot: {}","(preferir HTTP) chamei a API AnyBoot: {}","(preferir HTTP) llamé a la API AnyBoot: {}").replace("{}", &message));
             }
             Err(http_error) => {
                 http_first_error = Some(http_error);
@@ -1726,7 +1726,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                 "已从{where_from}按路由发送{label}：{}",
                 plan.described.join(" · ")
             ),
-            Err(error) => format!("广播包没发出去（{error}）"),
+            Err(error) => crate::t!(crate::i18n::current(),"广播包没发出去（{}）","廣播封包沒發出去（{}）","Broadcast packet not sent ({})","ブロードキャスト未送信（{}）","브로드캐스트 미전송({})","Broadcast-Paket nicht gesendet ({})","Broadcast-пакет не отправлен ({})","Pacote de broadcast não enviado ({})","Paquete de broadcast no enviado ({})").replace("{}", &error.to_string()),
         };
         return match (&send_result, &http_result) {
             (Ok(_), Ok(http_message)) => Ok(format!(
@@ -1754,7 +1754,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                     format!("（优先 HTTP 模式）接口没通（{http_error}），改发广播包 —— {message}");
             }
             if action != crate::hub::POWER_WAKE {
-                message.push_str("。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应");
+                message.push_str(crate::t!(crate::i18n::current(),"。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应",". 這個動作靠目標機上的 sol 監聽該埠執行 —— 沒裝 sol 不會有反應",". This action runs via sol listening on that port on the target — without sol nothing happens",". この動作は対象機の sol がそのポートで待ち受けて実行 — sol 無しでは反応しません",". 이 동작은 대상의 sol이 해당 포트에서 수신해 실행 — sol 없으면 반응 없음",". Diese Aktion läuft über sol, das am Ziel auf diesem Port lauscht – ohne sol keine Reaktion",". Действие выполняется sol на цели, слушающим порт — без sol реакции нет",". Esta ação roda via sol escutando nessa porta — sem sol, nada acontece",". Esta acción se ejecuta vía sol escuchando en ese puerto: sin sol, nada ocurre"));
             }
             if !plan.problems.is_empty() {
                 message.push_str(&format!(
