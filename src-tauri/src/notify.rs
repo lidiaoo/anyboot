@@ -43,7 +43,7 @@ pub(crate) fn notify_view(app: &AppHandle) -> Option<NotifyView> {
             Some(NotifyView {
                 kind: "pending",
                 id: Some(pending.id.clone()),
-                title: format!("远程请求（{}）", pending.channel.label()),
+                title: crate::t!(crate::i18n::current(),"远程请求（{}）","遠端請求（{}）","Remote request ({})","リモート要求（{}）","원격 요청 ({})","Fernanfrage ({})","Удалённый запрос ({})","Pedido remoto ({})","Solicitud remota ({})").replace("{}", pending.channel.label()),
                 message: pending.summary.clone(),
                 source: pending.source.clone(),
                 channel: pending.channel.as_str(),
@@ -62,7 +62,7 @@ pub(crate) fn notify_view(app: &AppHandle) -> Option<NotifyView> {
         } => Some(NotifyView {
             kind: "info",
             id: None,
-            title: "远程请求已执行".to_string(),
+            title: crate::t!(crate::i18n::current(),"远程请求已执行","遠端請求已執行","Remote request executed","リモート要求を実行しました","원격 요청 실행됨","Fernanfrage ausgeführt","Удалённый запрос выполнен","Pedido remoto executado","Solicitud remota ejecutada").to_string(),
             message: message.clone(),
             source: source.clone(),
             channel: Channel::Http.as_str(),
@@ -219,7 +219,7 @@ pub(crate) fn show_notify_window(app: &AppHandle) -> Result<(), String> {
         NOTIFY_WINDOW_LABEL,
         tauri::WebviewUrl::App("notify.html".into()),
     ))
-    .title("远程请求")
+    .title(crate::t!(crate::i18n::current(),"远程请求","遠端請求","Remote request","リモート要求","원격 요청","Fernanfrage","Удалённый запрос","Pedido remoto","Solicitud remota"))
     .inner_size(NOTIFY_WIDTH, NOTIFY_HEIGHT)
     .resizable(false)
     .decorations(false)

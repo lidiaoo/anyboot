@@ -1308,7 +1308,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     nodes.push(menu_header("remote-label", crate::t!(crate::i18n::current(),"远程控制","遠端控制","Remote control","リモート制御","원격 제어","Fernsteuerung","Удалённое управление","Controle remoto","Control remoto")));
     nodes.push(menu_item(
         "remote-status",
-        format!("监听状态：{}", menu_status_text(&state.http.state_text, 48)),
+        crate::t!(crate::i18n::current(),"监听状态：{}","監聽狀態：{}","Listening: {}","待受状態：{}","수신 상태: {}","Status: {}","Прослушивание: {}","Escutando: {}","Escuchando: {}").replace("{}", &menu_status_text(&state.http.state_text, 48)),
         false,
     ));
     nodes.push(menu_choice_item(
@@ -1330,7 +1330,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
             .into_iter()
             .map(|seconds| {
                 let label = if seconds == 0 {
-                    "立即执行（0 秒）".to_string()
+                    crate::t!(crate::i18n::current(),"立即执行（0 秒）","立即執行（0 秒）","Run immediately (0 s)","即実行（0 秒）","즉시 실행(0초)","Sofort ausführen (0 s)","Выполнить сразу (0 с)","Executar já (0 s)","Ejecutar ya (0 s)").to_string()
                 } else {
                     format!("{seconds} 秒")
                 };
