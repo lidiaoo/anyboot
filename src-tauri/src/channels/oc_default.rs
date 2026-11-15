@@ -220,16 +220,10 @@ pub(crate) fn entry_spec(
     if !supported {
         return None;
     }
-    // OC 自己的 Bootstrap 入口（这块 ESP 上的 \EFI\BOOT\BOOTX64.EFI）不提供：
-    // 把它设成默认 = 每次启动都先回 OC 菜单，「默认项」就失去意义了。
-    //
-    // 判等用调用方算好的 **ESP 卷标**，**不要**在这里反查 `volume_root(卷标)`：
-    // 那个函数会重跑整条 `volumes()`（Windows 上 = 一次全量分区查询，约 1s），
-    // 而每个 generic 条目都会走到这里 —— 实测两个 generic 条目白烧 1.87s，
-    // 占整轮扫描的四分之一（2026-10-28 埋点抓到）。
-    if entry.kind == "generic" && esp_label.is_some_and(|label| label == entry.volume) {
-        return None;
-    }
+    // OC 自己的 Bootstrap 入口（这块 ESP 上的 \EFI\BOOT\BOOTX64.EFI）用户定案
+    // 2026-11-15 也允许设默认：值域 opencore-default:卷\路径 照常给，行为=再进一次
+    // OC 菜单，行下 note 已如实提示。esp_label 参数保留给调用方兼容。
+    let _ = esp_label;
     // Preboot 条目额外带上条目名（第三段）：这类目标的固件设备路径要经过
     // apfs.efi 虚拟卷，AnyBoot 还造不出来 —— 匹配已有槽全靠「描述 == 条目名」
     // （OC 写 OCBt#### 时的描述与菜单条目名同源，都是 .disk_label/.contentDetails）。
