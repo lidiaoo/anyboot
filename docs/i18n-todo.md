@@ -40,7 +40,7 @@
 - [ ] **P2.2**（主体完成：状态语/回显/电key/连通行/通道列/弹窗头与取消/行菜单标题均已 t()；仅剩 LOCAL_ROW「本机」数据名与后端错误正则匹配） `components/hub/ComputerRow.vue`：通道列名（rEFInd/RefindPlus/GRUB/OpenCore 启动项）、状态语（在线/未连接/离线不可改/读取中…/未检测到）、回显占位（未设置/未选择）、连通行（直通/不通/复制/浏览器打开/探测超时）、电 key 文案、待生效条（含**撤销挂起**倒计时）
 - [ ] **P2.3** 弹窗（`ComputerRow` 内 picker）：head（`{loader} · 选择下次启动`）、格式 chips（跟随电脑/极简/简易/中等/原始/复杂 + `条目文字格式（当前：…）`）、置顶「下次启动」、组头「{n} 项」、来源标签（默认项/折叠内核/macOS 诊断/辅助）、sub/note、取消
 - [ ] **P2.4** 通道弹窗（OC 行）：tag（类型 · 来源）词表、「辅助」、只读提示（`这一项不能直接启动（由 OC/固件接管）`）
-- [ ] **P2.5** `pages/hub/HomePage.vue`：tabs（本机/未连接）、空态提示（选择上方标签…）、⋮ 菜单
+- [x] **P2.5** `pages/hub/HomePage.vue`：tabs（本机/未连接）、空态提示（选择上方标签…）、⋮ 菜单
 - [ ] **P2.6** `components/hub/RemoteListDialog.vue`、`RemoteEditDialog.vue`、`ServerEditDialog.vue`、`PairDialog.vue`、`TunnelDialog.vue`、`SystemInfoDialog.vue`、`LatencyTrend.vue`
 
 ### P3 系统引导页

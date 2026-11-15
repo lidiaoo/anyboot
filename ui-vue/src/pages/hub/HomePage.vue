@@ -7,6 +7,7 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
+import { t } from "@/i18n";
 
 /**
  * 电脑页（原 `ui/hub.html` 的 `#page-home`）。
@@ -52,21 +53,16 @@ const fabOpen = ref(false);
 const fabHelpOpen = ref(false);
 
 /** 帮助正文（旧版 #fabHelpText，原文照抄） */
-const FAB_HELP_TEXT =
-  "唤醒 = 发魔术包让电脑开机 —— 需要配好 MAC 并在主板开启「网络唤醒 / Wake on LAN」。" +
-  "睡眠 = 电脑挂起到内存，网页服务立刻停掉，会显示离线，要叫醒请点「唤醒」。" +
-  "关机 = 电脑立刻关机，网页服务随之中断，关机后只能用「唤醒」开机或到机器旁按电源键。" +
-  "重启 = 电脑立刻重启，网页会话断开，重启完成后会自动恢复在线。" +
-  "没配电源路由时走这台电脑自己的 /api/power（需要能连上它）；配了路由则发局域网 sol 包。";
+const FAB_HELP_KEYS = ["hub.home.help1","hub.home.help2","hub.home.help3","hub.home.help4","hub.home.help5"] as const;
 /** 标签 ⋮ 菜单 */
 const chipMenuOpen = ref(false);
 
 /** 电源动作（旧版 #pcFabWrap 的四个 chip） */
 const POWER_ACTIONS = [
-  { act: "wake", label: "唤醒" },
-  { act: "sleep", label: "睡眠" },
-  { act: "shutdown", label: "关机" },
-  { act: "reboot", label: "重启" },
+  { act: "wake", label: "hub.power.wake" },
+  { act: "sleep", label: "hub.power.sleep" },
+  { act: "shutdown", label: "hub.power.shutdown" },
+  { act: "reboot", label: "hub.power.restart" },
 ] as const;
 
 /**
@@ -76,10 +72,10 @@ const POWER_ACTIONS = [
  *   本机点「唤醒」没有意义（本来就在运行），旧版是 toast 提示后直接返回。
  */
 const POWER_LABEL: Record<string, string> = {
-  wake: "唤醒",
-  sleep: "睡眠",
-  shutdown: "关机",
-  reboot: "重启",
+  wake: "hub.power.wake",
+  sleep: "hub.power.sleep",
+  shutdown: "hub.power.shutdown",
+  reboot: "hub.power.restart",
 };
 
 const toastText = ref("");
@@ -108,13 +104,13 @@ function onMenuAction(act: string) {
   // 这些动作都属于「电脑」页本身，原地弹窗/操作，**不跳转到电脑列表页**。
   if (act === "add") { rsEditing.value = ""; rsEditOpen.value = true; }
   else if (act === "edit") {
-    if (!activeId.value || activeId.value === "local") { showToast("本机是默认连接，不可编辑；选中其它电脑那一行后再编辑"); return; }
+    if (!activeId.value || activeId.value === "local") { showToast(t("hub.list.editLocalOnly")); return; }
     openRemoteEdit(activeId.value);
   }
   else if (act === "list") { rsListOpen.value = true; }
   else if (act === "reloadCurrent") {
-    if (!activeId.value || activeId.value === "local") { showToast("先点上方标签选中一台电脑，再重载"); return; }
-    showToast("正在重载「" + (remote.servers.find((s) => s.id === activeId.value)?.name ?? "") + "」…");
+    if (!activeId.value || activeId.value === "local") { showToast(t("hub.home.selectTabFirst")); return; }
+    showToast(t("hub.home.reloadingTab", { name: remote.servers.find((s) => s.id === activeId.value)?.name ?? "" }));
     void remote.refreshBoot(activeId.value).catch((e) => showToast("重载失败：" + e));
   }
   else if (act === "reloadAll") { void remote.refreshAllBoot().catch(() => {}); }
@@ -125,22 +121,22 @@ function sendPower(action: string) {
   const isLocal = activeId.value === "local";
   if (isLocal) {
     if (action === "wake") {
-      showToast("本机就在运行，无需唤醒");
+      showToast(t("hub.home.localNoWake"));
       return;
     }
-    showToast(`正在${POWER_LABEL[action] ?? action}本机…`);
+    showToast(t("hub.home.powerActLocal", { action: POWER_LABEL[action] ? t(POWER_LABEL[action]) : action }));
     void import("@/api/tauri").then(({ call }) =>
       call("power_action", { action })
-        .then(() => showToast(`已执行：本机${POWER_LABEL[action] ?? action}`))
-        .catch((error: unknown) => showToast(`本机${POWER_LABEL[action] ?? action}失败：${error}`)),
+        .then(() => showToast(t("hub.home.powerDoneLocal", { action: POWER_LABEL[action] ? t(POWER_LABEL[action]) : action })))
+        .catch((error: unknown) => showToast(t("hub.home.powerDoneLocalFail", { action: POWER_LABEL[action] ? t(POWER_LABEL[action]) : action, msg: String(error) }))),
     );
     return;
   }
-  showToast(`正在${POWER_LABEL[action] ?? action}…`);
+  showToast(t("hub.home.powerAct", { action: POWER_LABEL[action] ? t(POWER_LABEL[action]) : action }));
   void import("@/api/tauri").then(({ call }) =>
     call("remote_power", { serverId: activeId.value, action })
-      .then((message: unknown) => showToast(String(message ?? "已发送")))
-      .catch((error: unknown) => showToast(`${POWER_LABEL[action] ?? action}失败：${error}`)),
+      .then((message: unknown) => showToast(String(message ?? t("hub.home.sent"))))
+      .catch((error: unknown) => showToast(t("hub.home.powerFail", { action: POWER_LABEL[action] ? t(POWER_LABEL[action]) : action, msg: String(error) }))),
   );
 }
 
@@ -169,13 +165,13 @@ const currentUrl = computed(() => {
 });
 
 const currentName = computed(() => {
-  if (activeId.value === "local") return "本机";
+  if (activeId.value === "local") return t("hub.home.local");
   return remote.servers.find((s) => s.id === activeId.value)?.name ?? "";
 });
 
 const OS_LABELS: Record<string, string> = { windows: "Windows", macos: "macOS", linux: "Linux" };
 const chips = computed(() => [
-  { id: "local", name: "本机", sub: "默认 · 本地", os: "", conn: "本地", addr: "", online: true },
+  { id: "local", name: t("hub.home.local"), sub: t("hub.home.localSub"), os: "", conn: t("hub.home.connLocal"), addr: "", online: true },
   ...remote.servers.map((s) => {
     // 【修复】conn 之前写死「未连接」永远不更新，和「电脑列表」的在线判定不一致
     // （电脑列表用 remote.bootInfo 的 online，这里却恒为未连接）。改为读同一份 bootInfo。
@@ -185,7 +181,7 @@ const chips = computed(() => [
       name: s.name,
       sub: "",
       os: String(s.machine_os || "").trim().toLowerCase(),
-      conn: online ? "在线" : "未连接",
+      conn: online ? t("hub.state.online") : t("hub.state.notConnected"),
       addr: (s.addresses && s.addresses[0]) || "",
       online,
     };
@@ -251,7 +247,7 @@ function openChipMenuAt(id: string) {
 }
 function chipEdit() {
   chipMenuOpen.value = false;
-  if (!chipMenuId.value || chipMenuId.value === "local") { showToast("本机是默认连接，不可编辑"); return; }
+  if (!chipMenuId.value || chipMenuId.value === "local") { showToast(t("hub.home.editLocal")); return; }
   openRemoteEdit(chipMenuId.value);
 }
 function chipSysInfo(id?: string) {
@@ -280,7 +276,7 @@ function reload() {
 }
 
 function onFrameError() {
-  failMessage.value = "这台电脑的页面加载失败 —— 可能已关机、在睡眠，或 HTTP 服务没开";
+  failMessage.value = t("hub.home.loadFail");
 }
 useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 </script>
@@ -288,7 +284,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 <template>
   <div class="page" id="page-home">
     <div class="pc-top">
-      <div class="pc-chips" id="pcChips" role="tablist" aria-label="AnyBoot 电脑标签">
+      <div class="pc-chips" id="pcChips" role="tablist" :aria-label="$t('hub.home.tabsAria')">
         <button
           v-for="chip in chips"
           :key="chip.id"
@@ -296,7 +292,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           role="tab"
           :class="['pc-chip', { active: activeId === chip.id }]"
           :aria-current="activeId === chip.id"
-          :title="`${chip.conn} · ${chip.addr}`"
+          :title="$t('hub.home.chipTitle', { conn: chip.conn, addr: chip.addr })"
           @click="selectChip(chip.id)"
           @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
@@ -307,16 +303,16 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
             type="button"
             class="os-badge"
             :data-os="chip.os"
-            :title="`系统：${OS_LABELS[chip.os]}（点开看详细信息）`"
+            :title="$t('hub.home.osTitle', { os: OS_LABELS[chip.os] })"
             @click.stop="chipSysInfo(chip.id)"
             @mousedown.stop
           >{{ OS_LABELS[chip.os] }}</button>
           <span v-if="chip.id !== 'local'" class="chip-conn">{{ chip.conn }}</span>
-          <span v-if="chip.id !== 'local'" class="chip-more" title="标签菜单" @click.stop="openChipMenuAt(chip.id)">⋮</span>
+          <span v-if="chip.id !== 'local'" :class="'chip-more'" :title="$t('hub.home.chipMenu')" @click.stop="openChipMenuAt(chip.id)">⋮</span>
         </button>
         <!-- 「＋ 添加」：打开服务端编辑弹层（旧版 #pcAddChip → pcAddOrEdit） -->
-        <button type="button" id="pcAddChip" class="pc-chip add" title="添加 AnyBoot 电脑" @click="emit('addRemote')">
-          ＋ 添加
+        <button type="button" id="pcAddChip" class="pc-chip add" :title="$t('hub.home.addChip')" @click="emit('addRemote')">
+          ＋ {{ $t("hub.home.addShort") }}
         </button>
       </div>
       <!-- 右上角 ⋮（旧版 #pageMore）：与工具条 ⋮ 是同一个 pcMenu -->
@@ -346,10 +342,9 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
               <rect x="3" y="4" width="18" height="16" rx="2" />
               <path d="M3 9h18M8 4v5" />
             </svg>
-            <p><b>{{ failMessage || "选择上方标签查看对应电脑的页面" }}</b></p>
+            <p><b>{{ failMessage || $t("hub.view.emptyHint") }}</b></p>
             <p>
-              本机 = 这台电脑的主界面；其余标签 = 已添加的 AnyBoot 电脑。点右上角 ⋮
-              可添加电脑、重载页面等；想看全部电脑的状态请进「电脑列表」。
+              {{ $t("hub.home.emptyBody") }}
             </p>
           </div>
         </div>
@@ -360,8 +355,8 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
         type="button"
         id="pcRefreshFab"
         class="pc-refresh-fab"
-        title="重载当前页面（重新探测全部地址，谁在线用谁）"
-        aria-label="重载当前页面"
+        :title="$t('hub.home.reloadTitle')"
+        :aria-label="$t('hub.home.reloadAria')"
         @click="reload"
       >
         <svg
@@ -382,8 +377,8 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 
       <!-- 电源悬浮球（旧版 #pcFabWrap） -->
       <div id="pcFabWrap" class="pc-fab" :hidden="!fabOpen">
-        <span id="pcFabNote" class="pc-fab-note" title="电源操作说明">电源走局域网 · 需 sol</span>
-        <button type="button" id="pcFabHelp" class="pc-fab-help" :hidden="!fabOpen" title="电源操作说明" @click="fabHelpOpen = true">
+        <span id="pcFabNote" class="pc-fab-note" :title="$t('hub.home.fabHelp')">{{ $t("hub.home.fabNote") }}</span>
+        <button type="button" id="pcFabHelp" class="pc-fab-help" :hidden="!fabOpen" :title="$t('hub.home.fabHelp')" @click="fabHelpOpen = true">
           ?
         </button>
         <button
@@ -402,7 +397,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
         id="pcFab"
         class="pc-fab-ball"
         :aria-expanded="fabOpen"
-        aria-label="电源操作"
+        :aria-label="$t('hub.home.powerAria')"
         @click="fabOpen = !fabOpen"
       >
         ⏻
@@ -413,15 +408,15 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
     <div v-if="fabHelpOpen" id="fabHelpOverlay" class="overlay" @click.self="fabHelpOpen = false">
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fabHelpTitle">
         <div class="dialog-head">
-          <h3 id="fabHelpTitle">电源 · 睡眠与唤醒</h3>
-          <button type="button" class="icon-btn" id="fabHelpX" aria-label="关闭" @click="fabHelpOpen = false">✕</button>
+          <h3 id="fabHelpTitle">{{ $t("hub.home.fabHelpTitle") }}</h3>
+          <button type="button" class="icon-btn" id="fabHelpX" :aria-label="$t('common.close')" @click="fabHelpOpen = false">✕</button>
         </div>
         <div class="dialog-body">
-          <p class="fab-help-text" id="fabHelpText">{{ FAB_HELP_TEXT }}</p>
+          <p class="fab-help-text" id="fabHelpText"><template v-for="(k, i) in FAB_HELP_KEYS" :key="i">{{ $t(k) }}</template></p>
         </div>
         <div class="dialog-foot">
           <span class="spacer" />
-          <button type="button" class="btn" id="fabHelpOk" @click="fabHelpOpen = false">知道了</button>
+          <button type="button" class="btn" id="fabHelpOk" @click="fabHelpOpen = false">{{ $t("hub.home.fabHelpOk") }}</button>
         </div>
       </div>
     </div>
@@ -430,18 +425,18 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
     <div v-if="toastText" class="toast" role="status">{{ toastText }}</div>
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
-    <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" aria-label="标签菜单">
+    <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" :aria-label="$t('hub.home.chipMenu')">
       <button role="menuitem" @click="chipEdit">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-        编辑这个服务端
+        {{ $t("hub.home.chipEdit") }}
       </button>
       <button role="menuitem" @click="chipSysInfo()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
-        系统信息（系统 / CPU / 内存）
+        {{ $t("rowMenu.sysinfo") }}
       </button>
       <button role="menuitem" @click="chipMenuOpen = false; reload()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></svg>
-        重载此页（重新探测地址）
+        {{ $t("hub.home.chipReload") }}
       </button>
     </div>
 
