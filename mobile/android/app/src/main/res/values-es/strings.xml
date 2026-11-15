@@ -1199,6 +1199,10 @@
 Solo se quita el registro de este móvil; el AnyBoot del equipo destino no se toca.</string>
     <string name="and_addrNotReady">Dirección aún no lista</string>
     <string name="and_multiAddrPick">Este equipo tiene varias direcciones; elige una para abrir en el navegador:</string>
+    <string name="and_pendingRestart">Reinicio pendiente</string>
+    <string name="and_noChannelAction">No hay acciones %1$s en este dispositivo</string>
+    <string name="and_powerNoConfirm">Las acciones de energía no muestran confirmación</string>
+    <string name="and_switchAction">Cambiar</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

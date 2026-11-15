@@ -1199,6 +1199,10 @@
 이 휴대폰의 기록만 삭제되며 대상 컴퓨터의 AnyBoot는 그대로입니다.</string>
     <string name="and_addrNotReady">주소가 아직 준비되지 않음</string>
     <string name="and_multiAddrPick">이 컴퓨터에 여러 주소가 있습니다. 하나를 골라 브라우저로 엽니다:</string>
+    <string name="and_pendingRestart">재부팅 대기</string>
+    <string name="and_noChannelAction">이 기기에 사용 가능한 %1$s 작업이 없습니다</string>
+    <string name="and_powerNoConfirm">전원 작업은 확인 창을 띄우지 않습니다</string>
+    <string name="and_switchAction">전환</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

@@ -1199,6 +1199,10 @@
 このスマホ上の記録のみ削除し、対象 PC の AnyBoot には影響しません。</string>
     <string name="and_addrNotReady">アドレスの準備ができていません</string>
     <string name="and_multiAddrPick">この PC には複数のアドレスがあります。1 つ選んでブラウザで開きます：</string>
+    <string name="and_pendingRestart">再起動待ち</string>
+    <string name="and_noChannelAction">このデバイスに利用可能な %1$s 操作がありません</string>
+    <string name="and_powerNoConfirm">電源操作は確認ダイアログを出しません</string>
+    <string name="and_switchAction">切替</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

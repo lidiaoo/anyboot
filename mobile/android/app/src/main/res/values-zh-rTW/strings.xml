@@ -1199,6 +1199,10 @@
 只刪掉手機上的這條檔案，不會動目標電腦上的 AnyBoot。</string>
     <string name="and_addrNotReady">位址還沒就緒</string>
     <string name="and_multiAddrPick">這台電腦有多個可用位址，選一個用系統瀏覽器開啟：</string>
+    <string name="and_pendingRestart">待重新啟動</string>
+    <string name="and_noChannelAction">該裝置沒有可用的 %1$s 動作</string>
+    <string name="and_powerNoConfirm">電源操作不會彈出確認框</string>
+    <string name="and_switchAction">切換</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

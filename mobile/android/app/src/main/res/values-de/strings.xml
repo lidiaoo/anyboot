@@ -1199,6 +1199,10 @@
 Nur der Eintrag auf diesem Handy wird entfernt; AnyBoot auf dem Zielcomputer bleibt unberührt.</string>
     <string name="and_addrNotReady">Adresse noch nicht bereit</string>
     <string name="and_multiAddrPick">Dieser Computer hat mehrere Adressen; eine zum Öffnen im Browser wählen:</string>
+    <string name="and_pendingRestart">Neustart ausstehend</string>
+    <string name="and_noChannelAction">Keine %1$s-Aktionen auf diesem Gerät</string>
+    <string name="and_powerNoConfirm">Energiebefehle zeigen keine Bestätigung</string>
+    <string name="and_switchAction">Wechseln</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

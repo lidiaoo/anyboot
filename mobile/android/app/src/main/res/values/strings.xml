@@ -1199,6 +1199,10 @@
 只删掉手机上的这条档案，不会动目标电脑上的 AnyBoot。</string>
     <string name="and_addrNotReady">地址还没就绪</string>
     <string name="and_multiAddrPick">这台电脑有多个可用地址，选一个用系统浏览器打开：</string>
+    <string name="and_pendingRestart">待重启</string>
+    <string name="and_noChannelAction">该设备没有可用的 %1$s 动作</string>
+    <string name="and_powerNoConfirm">电源操作不会弹出确认框</string>
+    <string name="and_switchAction">切换</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

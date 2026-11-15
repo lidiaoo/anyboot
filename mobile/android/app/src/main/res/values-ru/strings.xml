@@ -1199,6 +1199,10 @@
 Удаляется только запись на этом телефоне; AnyBoot на целевом компьютере не затрагивается.</string>
     <string name="and_addrNotReady">Адрес не готов</string>
     <string name="and_multiAddrPick">У этого компьютера несколько адресов; выберите для открытия в браузере:</string>
+    <string name="and_pendingRestart">Ожидает перезагрузки</string>
+    <string name="and_noChannelAction">Нет доступных действий %1$s на этом устройстве</string>
+    <string name="and_powerNoConfirm">Команды питания не запрашивают подтверждение</string>
+    <string name="and_switchAction">Переключить</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

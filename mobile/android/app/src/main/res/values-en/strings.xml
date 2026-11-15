@@ -1199,6 +1199,10 @@
 Only the record on this phone is removed; AnyBoot on the target computer is untouched.</string>
     <string name="and_addrNotReady">Address not ready</string>
     <string name="and_multiAddrPick">This computer has multiple addresses; pick one to open in the system browser:</string>
+    <string name="and_pendingRestart">Pending reboot</string>
+    <string name="and_noChannelAction">No %1$s actions available on this device</string>
+    <string name="and_powerNoConfirm">Power actions won\'t show a confirmation</string>
+    <string name="and_switchAction">Switch</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

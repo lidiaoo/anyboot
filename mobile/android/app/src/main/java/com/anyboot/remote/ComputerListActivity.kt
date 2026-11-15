@@ -2427,7 +2427,7 @@ class ComputerListActivity : ComponentActivity() {
                 .clickable(enabled = true) {
                     when {
                         !usable -> toast(getString(R.string.error_busy))
-                        group.options.isEmpty() -> toast("该设备没有可选的 $title 启动项")
+                        group.options.isEmpty() -> toast(getString(R.string.error_noBootOptions, title))
                         row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
                         else -> sheetRequest = SheetRequest(row.profile.id, kind)
                     }
@@ -2475,7 +2475,7 @@ class ComputerListActivity : ComponentActivity() {
                 if (pending) {
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "待重启",
+                        getString(R.string.and_pendingRestart),
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = tone.pendText,
@@ -2517,7 +2517,7 @@ class ComputerListActivity : ComponentActivity() {
             val rows = grubDisplayRows(ocGroup)
             val hit = rows.firstOrNull { it.option?.value == ocGroup.current && !it.option!!.header }
                 ?: rows.firstOrNull { !it.option!!.header }
-            val rawLabel = hit?.label ?: ocGroup.current.ifEmpty { "未设置" }
+            val rawLabel = hit?.label ?: ocGroup.current.ifEmpty { getString(R.string.hub_state_notSet) }
             iconOverride = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
             valueLabel = rawLabel
                 .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
@@ -2553,7 +2553,7 @@ class ComputerListActivity : ComponentActivity() {
                     when {
                         !usable -> toast(getString(R.string.error_busy))
                         actionCount == 0 ->
-                            toast("该设备没有可用的 ${channel.label} 动作")
+                            toast(getString(R.string.and_noChannelAction, channel.label))
                         row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
                     }
@@ -2739,16 +2739,16 @@ class ComputerListActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val effective = grubEffectiveFormat(group)
         val choices = listOf(
-            "" to "跟随电脑",
-            "minimal" to "极简",
-            "simple" to "简易",
-            "medium" to "中等",
-            "raw" to "原始",
-            "detailed" to "复杂",
+            "" to getString(R.string.hub_picker_fmt_follow),
+            "minimal" to getString(R.string.hub_picker_fmt_minimal),
+            "simple" to getString(R.string.hub_picker_fmt_simple),
+            "medium" to getString(R.string.hub_picker_fmt_medium),
+            "raw" to getString(R.string.hub_picker_fmt_raw),
+            "detailed" to getString(R.string.hub_picker_fmt_detailed),
         )
         Column {
             Text(
-                "条目文字格式（当前：${if (grubFmt.isEmpty()) "跟随电脑 · $effective" else effective}）",
+                getString(R.string.hub_picker_fmtLabel, if (grubFmt.isEmpty()) getString(R.string.hub_picker_fmt_follow) + " · $effective" else effective),
                 fontSize = 11.sp,
                 color = palette.fgFaint,
             )
@@ -2926,11 +2926,11 @@ class ComputerListActivity : ComponentActivity() {
                 ) {
                     Text(
                         when {
-                            help -> "操作说明"
-                            request.kind == KIND_CHANNEL -> "${channel?.label ?: "通道"} · 选择下次启动"
-                            request.kind == KIND_REFIND -> "rEFInd · 选择下次启动"
-                            request.kind == KIND_REFINDPLUS -> "RefindPlus · 选择下次启动"
-                            else -> "GRUB · 选择下次启动"
+                            help -> stringResource(R.string.hub_list_help)
+                            request.kind == KIND_CHANNEL -> stringResource(R.string.hub_picker_title, channel?.label ?: getString(R.string.hub_list_colStatus))
+                            request.kind == KIND_REFIND -> stringResource(R.string.hub_picker_title, "rEFInd")
+                            request.kind == KIND_REFINDPLUS -> stringResource(R.string.hub_picker_title, "RefindPlus")
+                            else -> stringResource(R.string.hub_picker_title, "GRUB")
                         },
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -2989,7 +2989,7 @@ class ComputerListActivity : ComponentActivity() {
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            Text("电源操作不会弹出确认框", fontSize = 11.sp, color = palette.fgFaint)
+                            Text(stringResource(R.string.and_powerNoConfirm), fontSize = 11.sp, color = palette.fgFaint)
                         } else if (group != null && group.options.isNotEmpty() && profile != null) {
                             val rid = profile
                             val rows = when {
@@ -3060,7 +3060,7 @@ class ComputerListActivity : ComponentActivity() {
                                                     toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
-                                                    switchBoot(rid, request.kind, opt.value, "切换")
+                                                    switchBoot(rid, request.kind, opt.value, getString(R.string.and_switchAction))
                                                 }
                                             }
                                             .padding(

@@ -1199,6 +1199,10 @@
 Apenas o registro neste celular é removido; o AnyBoot no computador de destino não é afetado.</string>
     <string name="and_addrNotReady">Endereço ainda não pronto</string>
     <string name="and_multiAddrPick">Este computador tem vários endereços; escolha um para abrir no navegador:</string>
+    <string name="and_pendingRestart">Reinício pendente</string>
+    <string name="and_noChannelAction">Sem ações %1$s neste dispositivo</string>
+    <string name="and_powerNoConfirm">Ações de energia não mostram confirmação</string>
+    <string name="and_switchAction">Alternar</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>
