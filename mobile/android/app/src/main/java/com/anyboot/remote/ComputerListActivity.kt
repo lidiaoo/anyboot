@@ -2469,35 +2469,23 @@ class ComputerListActivity : ComponentActivity() {
         val actionCount = channel.entries.size + channel.menuPreview.size
         val usable = actionCount > 0 && row.state == STATE_ONLINE && work == null
 
+        // 统一化（用户 2026-11-15「统一标准 统一用同一个方法」）：OC 通道回显也走
+        // channelToBootGroup + grubDisplayRows —— 图标从 GRUB 拼装 label 行首提取
+        // （grub_os_icon 同源），文字同「组名 › 子名」口径；无当前项回退首行。
         val valueLabel: String
         val dot: String
-        if (channel.entries.isEmpty()) {
-            // 顶层空 → 动作可能全在 OC 预演行里：值区显示预演里的默认项 / 首行
-            val previewRows = channel.menuPreview
-            if (previewRows.isEmpty()) {
-                valueLabel = when {
-                    row.state == STATE_UNKNOWN -> "读取中…"
-                    row.state == STATE_OFFLINE -> "离线不可改"
-                    else -> "没有可用动作"
-                }
-                dot = ""
-            } else {
-                // 默认项不一定有可发的值域（OC 默认项在 Preboot 卷上 spec=null），
-                // 判「下次启动是谁」只看预演里 default 标记的那行 —— 与托盘 /
-                // PC 端 channel_default_title 同一条规则，别退回第一行。
-                val picked = previewRows.firstOrNull { it.isDefault } ?: previewRows.first()
-                valueLabel = picked.title
-                dot = iconKind(picked.kind)
-            }
-        } else {
-            val current = channel.currentDefault.trim()
-            if (current.isEmpty()) {
-                valueLabel = channel.entries.first().title
-                dot = iconKind(channel.entries.first().icon)
-            } else {
-                valueLabel = current
-                dot = iconKind("menu")
-            }
+        var iconOverride: String = ""
+        run {
+            val ocGroup = channelToBootGroup(channel)
+            val rows = grubDisplayRows(ocGroup)
+            val hit = rows.firstOrNull { it.option?.value == ocGroup.current && !it.option!!.header }
+                ?: rows.firstOrNull { !it.option!!.header }
+            val rawLabel = hit?.label ?: ocGroup.current.ifEmpty { "未设置" }
+            iconOverride = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
+            valueLabel = rawLabel
+                .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
+                .trim()
+            dot = hit?.option?.kind ?: "linux"
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -2559,8 +2547,12 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.accent,
                     )
                     Spacer(Modifier.width(7.dp))
+                } else if (iconOverride.isNotEmpty()) {
+                    // GRUB 同源图标（grub_os_icon 按名字识别的产物）
+                    Text(iconOverride, fontSize = 12.5.sp)
+                    Spacer(Modifier.width(7.dp))
                 } else if (dot.isNotEmpty()) {
-                    // 平台图标（emoji，用户：圆点改图标）
+                    // 兜底：GRUB 数据缺失时走 kind→platformEmoji 旧映射
                     Text(platformEmoji(dot), fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
                 }
