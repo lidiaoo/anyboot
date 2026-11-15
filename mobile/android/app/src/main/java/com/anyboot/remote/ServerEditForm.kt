@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.Context
+import androidx.compose.ui.res.stringResource
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -161,7 +162,7 @@ private val ROUTE_LABELS_ZH = mapOf(
 
 internal class ServerEditFormState(
     val profile: ServerProfile?,
-    context: Context,
+    private val context: Context,
 ) {
     val editing: Boolean = profile != null
 
@@ -240,7 +241,7 @@ internal class ServerEditFormState(
     /** 在区块末尾加一行空条目（地址留空 = 保存时丢弃） */
     fun addPair(kind: String) {
         if (pairItems.size >= ServerProfile.MAX_PAIRS) {
-            remoteHint = "最多 ${ServerProfile.MAX_PAIRS} 条配对 —— 先删掉几条再加"
+            remoteHint = context.getString(R.string.and_maxPairsHint, ServerProfile.MAX_PAIRS)
             return
         }
         pairItems.add(
@@ -275,7 +276,7 @@ internal class ServerEditFormState(
     fun clearPairs() {
         pairItems.clear()
         remoteText = ""
-        remoteHint = "已清空 —— 点「保存」即解除配对（地址与配对令牌一起删掉）"
+        remoteHint = context.getString(R.string.and_clearedHint)
     }
 
     /** 通道 id（tunnel / ts / funnel / tsnet）：由区块 + lane/地址推导，与后端 route_kind 同语义 */
@@ -341,20 +342,20 @@ internal class ServerEditFormState(
 
     /** 通道副标：地址 / 没配置的原因 */
     fun routeSub(kind: String): String = when (kind) {
-        "lan" -> addressEntries.firstOrNull { it.address.isNotBlank() }?.address ?: "未填局域网地址"
+        "lan" -> addressEntries.firstOrNull { it.address.isNotBlank() }?.address ?: context.getString(R.string.and_noLanAddr)
         "jump" -> {
             val bound = addressEntries.filter { it.address.isNotBlank() && it.jump.isNotEmpty() }
             when {
-                bound.isEmpty() -> "未选跳板机档案"
-                bound.size == 1 -> "经 " + jumpName(bound[0].jump) + " → " + bound[0].address
+                bound.isEmpty() -> context.getString(R.string.and_noJumpProfile)
+                bound.size == 1 -> context.getString(R.string.and_viaJump, jumpName(bound[0].jump), bound[0].address)
                 // 三个直连三台跳板机：副标只报数量，明细在各自的地址行里
-                else -> bound.size.toString() + " 个地址各走跳板机"
+                else -> context.getString(R.string.and_nAddrsViaJump)
             }
         }
-        "tunnel" -> firstAddrOf(ServerProfile.ROUTE_TUNNEL, "未配置隧道地址")
-        "ts" -> firstAddrOf(ServerProfile.ROUTE_TS, "未配置 100.x 直连地址")
-        "funnel" -> firstAddrOf(ServerProfile.ROUTE_FUNNEL, "未配置（系统 Tailscale 的 *.ts.net 地址）")
-        "tsnet" -> firstAddrOf(ServerProfile.ROUTE_TSNET, "未配置（内置引擎的 *.ts.net 地址）")
+        "tunnel" -> firstAddrOf(ServerProfile.ROUTE_TUNNEL, context.getString(R.string.and_noTunnelAddr))
+        "ts" -> firstAddrOf(ServerProfile.ROUTE_TS, context.getString(R.string.and_noTsAddr))
+        "funnel" -> firstAddrOf(ServerProfile.ROUTE_FUNNEL, context.getString(R.string.and_noFunnelAddr))
+        "tsnet" -> firstAddrOf(ServerProfile.ROUTE_TSNET, context.getString(R.string.and_noTsnetAddr))
         else -> ""
     }
 
@@ -396,7 +397,7 @@ internal class ServerEditFormState(
         }
         val parsed = ServerProfile.parsePair(raw)
         if (!parsed.ok()) {
-            remoteHint = parsed.error.ifEmpty { "没认出配对码" }
+            remoteHint = parsed.error.ifEmpty { context.getString(R.string.and_unrecognizedCode) }
             return
         }
         val addr = ServerProfile.normalizeRemoteOrigin(parsed.tunnel)
@@ -425,10 +426,10 @@ internal class ServerEditFormState(
                 tunnelId = parsed.tunnelId.ifEmpty { old.tunnelId },
                 enabled = true,
             )
-            remoteHint = "已更新「" + RemotePair.blockLabel(parsed.kind) + "」里的同一条配对：" + addr
+            remoteHint = context.getString(R.string.and_updatedPair, RemotePair.blockLabel(parsed.kind), addr)
         } else {
             if (pairItems.size >= ServerProfile.MAX_PAIRS) {
-                remoteHint = "最多 ${ServerProfile.MAX_PAIRS} 条配对 —— 先删掉几条再加"
+                remoteHint = context.getString(R.string.and_maxPairsHint, ServerProfile.MAX_PAIRS)
                 return
             }
             pairItems.add(
@@ -444,7 +445,7 @@ internal class ServerEditFormState(
                     createdAt = System.currentTimeMillis(),
                 ),
             )
-            remoteHint = "已加入「" + RemotePair.blockLabel(parsed.kind) + "」：" + addr
+            remoteHint = context.getString(R.string.and_addedPair, RemotePair.blockLabel(parsed.kind), addr)
         }
         remoteText = ""
     }
@@ -596,12 +597,12 @@ internal class ServerEditFormState(
     /** 快速识别框 → 地址列表（粘上来的整段文字里，备注自动忽略） */
     fun recognizeQuick() {
         if (quickText.isBlank()) {
-            quickHint = "先粘点东西进来，比如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF"
+            quickHint = context.getString(R.string.and_pasteFirstHint)
             return
         }
         val parsed = ServerProfile.parseAddressInput(quickText, true)
         if (parsed.hosts.isEmpty()) {
-            quickHint = "没认出地址 —— 要有 IP 或主机名，比如 192.168.0.120"
+            quickHint = context.getString(R.string.and_unrecognizedAddr)
             return
         }
         var added = 0
@@ -609,8 +610,8 @@ internal class ServerEditFormState(
             if (upsertAddress(host, parsed.macs[host] ?: emptyList())) added++
         }
         val macCount = parsed.macs.values.sumOf { it.size }
-        quickHint = "认出 ${parsed.hosts.size} 个地址、$macCount 个 MAC" +
-            if (added < parsed.hosts.size) "（其余本来就有，只并了 MAC）" else ""
+        quickHint = context.getString(R.string.and_recognizedN, parsed.hosts.size, macCount) +
+            if (added < parsed.hosts.size) context.getString(R.string.and_restOnlyMac) else ""
         // 整条 URL 粘进来时顺手把 token 收了
         val found = ServerProfile.tokenFromUrl(quickText)
         if (found.isNotEmpty() && token.isBlank()) token = found
@@ -622,7 +623,7 @@ internal class ServerEditFormState(
     fun addManualAddress() {
         val address = ServerProfile.normalizeHost(newHost)
         if (address.isEmpty()) {
-            quickHint = "地址不对：填 IP 或主机名，端口可带可不带"
+            quickHint = context.getString(R.string.and_addrWrong)
             return
         }
         val macs = newMacs.split(Regex("[\\s,;，；]+"))
@@ -630,7 +631,7 @@ internal class ServerEditFormState(
             .filter { it.isNotEmpty() }
             .distinct()
         val added = upsertAddress(address, macs)
-        quickHint = if (added) "已添加 $address" else "地址已存在，只追了 MAC：$address"
+        quickHint = if (added) context.getString(R.string.and_addedAddr, address) else context.getString(R.string.and_addrExistsMac, address)
         newHost = ""
         newMacs = ""
     }
@@ -674,13 +675,13 @@ internal class ServerEditFormState(
 
     /** 跳板机名字（下拉与副标共用）；找不到 = 已删除 */
     fun jumpName(id: String): String {
-        val jump = JumpStore.findJump(jumps, id) ?: return "已删除的跳板机"
+        val jump = JumpStore.findJump(jumps, id) ?: return context.getString(R.string.and_jumpDeletedShort)
         return if (JumpStore.text(jump.name).isEmpty()) jump.host else jump.name
     }
 
     fun jumpLabel(jump: JumpServer): String {
         val label = if (JumpStore.text(jump.name).isEmpty()) jump.host else jump.name
-        return "经由：$label" + (if (jump.isSsh()) "" else "（仅 Telnet，不能做隧道）")
+        return context.getString(R.string.and_viaLabel, label) + (if (jump.isSsh()) "" else context.getString(R.string.and_telnetOnlyNoTunnel))
     }
 }
 
@@ -712,16 +713,16 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         }
     }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-        FieldLabel("电脑名称（同一台电脑的不同网卡/地址，用名字区分）")
+        FieldLabel(stringResource(R.string.and_computerNameLabel))
         OutlinedTextField(
             value = state.name,
             onValueChange = { state.name = it },
             singleLine = true,
-            placeholder = { Text("例如：有线网卡 / 5G WiFi（可留空，用地址兜底）", fontSize = 12.sp) },
+            placeholder = { Text(stringResource(R.string.and_computerNamePh), fontSize = 12.sp) },
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FieldLabel("快速识别（整段粘进来，自动拆出地址 / 端口 / MAC 加进下面）")
+        FieldLabel(stringResource(R.string.and_quickDetectLabel))
         OutlinedTextField(
             value = state.quickText,
             onValueChange = { state.quickText = it },
@@ -739,19 +740,19 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { state.recognizeQuick() }) {
-                Text("识别并加入", fontSize = 12.sp)
+                Text(stringResource(R.string.and_detectAdd), fontSize = 12.sp)
             }
             Text(
-                state.quickHint.ifEmpty { "换行 / 空格 / 逗号都能分开；认不出的备注自动忽略" },
+                state.quickHint.ifEmpty { stringResource(R.string.and_detectHint) },
                 fontSize = 11.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
         }
 
-        FieldLabel("已添加的地址（第一个用来连接，其余参与测试连接和唤醒）")
+        FieldLabel(stringResource(R.string.and_addedAddrLabel))
         if (state.addressEntries.isEmpty()) {
             Text(
-                "还没加地址 —— 上面粘一段，或者下面手动填一个。",
+                stringResource(R.string.and_noAddrYet),
                 fontSize = 11.sp, color = palette.fgFaint,
             )
         }
@@ -771,7 +772,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         modifier = Modifier.weight(1f),
                     )
                     if (index == 0) {
-                        Text("连接用", fontSize = 10.sp, color = palette.accent)
+                        Text(stringResource(R.string.and_forConnect), fontSize = 10.sp, color = palette.accent)
                     }
                     TextButton(onClick = { state.addressEntries.removeAt(index) }) {
                         Text("✕", fontSize = 12.sp, color = palette.bad)
@@ -779,7 +780,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 }
                 if (entry.macs.isEmpty()) {
                     Text(
-                        "没配 MAC —— 局域网电源发不出去",
+                        stringResource(R.string.and_noMacLan),
                         fontSize = 10.sp, color = palette.fgFaint,
                     )
                 } else {
@@ -813,12 +814,12 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
                         Text(
-                            "跳板机",
+                            stringResource(R.string.hub_route_jump),
                             fontSize = 10.sp, color = palette.fgFaint,
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            if (entry.jump.isEmpty()) "直连（不经跳板机）"
+                            if (entry.jump.isEmpty()) stringResource(R.string.and_directNoJump)
                             else state.jumpName(entry.jump),
                             fontSize = 11.sp,
                             color = if (entry.jump.isEmpty()) palette.fgDim else palette.fg,
@@ -833,7 +834,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         onDismissRequest = { state.jumpMenuIndex = -1 },
                     ) {
                         DropdownMenuItem(
-                            text = { Text("直连（不经跳板机）") },
+                            text = { Text(stringResource(R.string.and_directNoJump)) },
                             onClick = {
                                 state.addressEntries[index] = entry.copy(jump = "")
                                 state.jumpMenuIndex = -1
@@ -853,11 +854,11 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             }
         }
 
-        FieldLabel("手动添加（地址 + 多个 MAC；地址已存在时只追加 MAC）")
+        FieldLabel(stringResource(R.string.and_manualAddLabel))
         OutlinedTextField(
             value = state.newHost,
             onValueChange = { state.newHost = it },
-            label = { Text("地址（192.168.0.120 或 192.168.0.120:12300）", fontSize = 10.sp) },
+            label = { Text(stringResource(R.string.and_addrFieldLabel), fontSize = 10.sp) },
             singleLine = true,
             textStyle = MaterialTheme.typography.bodySmall,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -867,7 +868,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             OutlinedTextField(
                 value = state.newMacs,
                 onValueChange = { state.newMacs = it },
-                label = { Text("MAC（可多个，空格隔开）", fontSize = 10.sp) },
+                label = { Text(stringResource(R.string.and_macFieldLabel), fontSize = 10.sp) },
                 placeholder = { Text("AA:BB:CC:DD:EE:FF", fontSize = 12.sp) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
@@ -875,11 +876,11 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             )
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = { state.addManualAddress() }) {
-                Text("添加", fontSize = 13.sp)
+                Text(stringResource(R.string.common_add), fontSize = 13.sp)
             }
         }
 
-        FieldLabel("访问令牌 token（服务端设了才要填）")
+        FieldLabel(stringResource(R.string.and_tokenLabel))
         if (state.savedToken.isNotEmpty()) {
             // 已存令牌回显：默认打码，小眼睛切换明文（重开表单回到打码）
             Row(
@@ -898,7 +899,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { state.tokenShown = !state.tokenShown }) {
-                    Text(if (state.tokenShown) "隐藏" else "显示", fontSize = 11.sp)
+                    Text(if (state.tokenShown) stringResource(R.string.and_hide) else stringResource(R.string.and_show), fontSize = 11.sp)
                 }
             }
         }
@@ -906,11 +907,11 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             value = state.token,
             onValueChange = { state.token = it },
             singleLine = true,
-            placeholder = { Text("留空保持不变；要替换就填新令牌", fontSize = 12.sp) },
+            placeholder = { Text(stringResource(R.string.and_tokenKeepPh), fontSize = 12.sp) },
             modifier = Modifier.fillMaxWidth(),
         )
 
-        FieldLabel("远程配对（三个区块，每个区块可以挂多条；同类型配一条不会顶掉另一条）")
+        FieldLabel(stringResource(R.string.and_remotePairLabel))
         OutlinedTextField(
             value = state.remoteText,
             onValueChange = {
@@ -926,17 +927,17 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             TextButton(onClick = {
                 scanLauncher.launch(Intent(context, ScanPairActivity::class.java))
             }) {
-                Text("📷 扫码读码", fontSize = 12.sp)
+                Text(stringResource(R.string.and_scanCode), fontSize = 12.sp)
             }
             TextButton(onClick = { state.clearPairs() }) {
                 Text(
-                    if (state.hasPairs()) "全部清空" else "清空",
+                    if (state.hasPairs()) stringResource(R.string.and_clearAll) else stringResource(R.string.and_clear),
                     fontSize = 12.sp, color = palette.fgDim,
                 )
             }
             Text(
                 if (state.remoteHint.isNotEmpty()) state.remoteHint
-                else "扫码或粘贴后自动加入对应区块；同一条会更新而不是重复",
+                else stringResource(R.string.and_scanOrPasteHint),
                 fontSize = 11.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
