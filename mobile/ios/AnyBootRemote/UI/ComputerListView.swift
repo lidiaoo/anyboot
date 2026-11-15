@@ -247,7 +247,7 @@ struct ComputerListView: View {
                 }
             }
             Button(L("menu.reloadAll")) { refreshAll() }
-            Button(store.connectAll ? "✓ 启动时连接全部服务端" : "启动时连接全部服务端") {
+            Button(store.connectAll ? "✓ " + L("menu.connectAll") : L("menu.connectAll")) {
                 let next = !store.connectAll
                 store.setConnectAll(next)
                 toast(next ? L("and.connectAllOn") : L("and.connectAllOff"))
@@ -328,10 +328,10 @@ struct ComputerListView: View {
                 let rows = allRows
                 let online = rows.filter { $0.state == Reach.online }.count
                 let pending = rows.filter { grubPending($0.grub) }.count
-                statChip("全部", rows.count, filter == .all, false) { filter = .all }
-                statChip("在线", online, filter == .online, false) { filter = .online }
-                statChip("离线", rows.count - online, filter == .offline, false) { filter = .offline }
-                statChip("待生效", pending, filter == .pending, true) { filter = .pending }
+                statChip(L("hub.list.all")), rows.count, filter == .all, false) { filter = .all }
+                statChip(L("hub.list.online")), online, filter == .online, false) { filter = .online }
+                statChip(L("hub.list.offline")), rows.count - online, filter == .offline, false) { filter = .offline }
+                statChip(L("hub.list.pending")), pending, filter == .pending, true) { filter = .pending }
             }
             .padding(.top, ABMetric.px(9))
         }

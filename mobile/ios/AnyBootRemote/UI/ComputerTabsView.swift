@@ -296,7 +296,7 @@ struct ComputerTabsView: View {
             }
             Button(L("and.reloadPage")) { center.reloadActive() }
             Button(L("menu.reloadAll")) { center.reloadAll() }
-            Button(store.connectAll ? "✓ 启动时连接全部服务端" : "启动时连接全部服务端") {
+            Button(store.connectAll ? "✓ " + L("menu.connectAll") : L("menu.connectAll")) {
                 let next = !store.connectAll
                 store.setConnectAll(next)
                 if next { center.connectAll() }
