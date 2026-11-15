@@ -1078,7 +1078,7 @@ function deletePair(id: string) {
           max="3600"
           step="1"
           inputmode="numeric"
-          aria-label="自动刷新间隔，单位秒"
+          :aria-label="$t('gw.arIntervalAria')"
           @change="setupAuto"
           @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
           @keydown.escape.prevent="autoSec = autoSecPrev; ($event.target as HTMLInputElement).blur()"
@@ -1088,7 +1088,7 @@ function deletePair(id: string) {
           type="button"
           id="gwAutoCaret"
           class="gw-ar-caret"
-          aria-label="选择常用刷新间隔"
+          :aria-label="$t('gw.pickIntervalAria')"
           aria-haspopup="listbox"
           :aria-expanded="autoMenuOpen"
           @click="autoMenuOpen = !autoMenuOpen"
@@ -1098,7 +1098,7 @@ function deletePair(id: string) {
           </svg>
         </button>
         <!-- 常用刷新间隔（旧版 #gwAutoMenu） -->
-        <div v-if="autoMenuOpen" id="gwAutoMenu" class="gw-ar-menu" role="listbox" aria-label="常用刷新间隔">
+        <div v-if="autoMenuOpen" id="gwAutoMenu" class="gw-ar-menu" role="listbox" :aria-label="$t('gw.intervalAria')">
           <button
             v-for="sec in [1, 3, 5, 10, 30]"
             :key="sec"
@@ -1107,7 +1107,7 @@ function deletePair(id: string) {
             :aria-selected="autoSec === sec"
             @click="autoSec = sec; autoMenuOpen = false; setupAuto()"
           >
-            {{ sec }} 秒
+            {{ $t("gw.secSuffix", { n: sec }) }}
           </button>
         </div>
       </div>
@@ -1143,7 +1143,7 @@ function deletePair(id: string) {
   </div>
 
   <!-- 分页标签（旧版 #gwTabs，4 个分页带状态点） -->
-  <div class="gw-tabs" id="gwTabs" role="tablist" aria-label="远程接入分页">
+  <div class="gw-tabs" id="gwTabs" role="tablist" :aria-label="$t('gw.tabsAria')">
     <button
       v-for="tab in TABS"
       :key="tab.key"
@@ -1174,12 +1174,12 @@ function deletePair(id: string) {
     <div class="gw-card">
       <div class="gw-card-head">
         <h3>{{ $t("gw.localChannel") }}</h3>
-        <div class="segmented" id="gwModeTabs" role="tablist" aria-label="通道模式">
+        <div class="segmented" id="gwModeTabs" role="tablist" :aria-label="$t('gw.modeTabsAria')">
           <button role="tab" data-mode="quick" :aria-selected="config?.mode !== 'named'" @click="selectMode('quick')">
-            快速隧道
+            {{ $t("gw.quickTunnel") }}
           </button>
           <button role="tab" data-mode="named" :aria-selected="config?.mode === 'named'" @click="selectMode('named')">
-            命名隧道
+            {{ $t("gw.namedTunnel") }}
           </button>
         </div>
         <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
@@ -1209,10 +1209,10 @@ function deletePair(id: string) {
         <!-- 地址左、动作右：复制与「生成此地址的配对码」统一右对齐（与 Tailscale 卡同款） -->
         <span style="flex: 1" />
         <button type="button" id="gwCopyUrl" class="link-btn" :hidden="!cfUrl" @click="copyText(cfUrl)">
-          复制
+          {{ $t("common.copy") }}
         </button>
         <button type="button" id="gwPairBtn" class="btn" :hidden="!cfUrl" @click="pairOpen = true">
-          生成此地址的配对码
+          {{ $t("gw.genPairAddr") }}
         </button>
         <span class="mono gw-meta" id="gwMeta">{{ config?.tunnel?.state || "" }}</span>
       </div>
@@ -1271,18 +1271,18 @@ function deletePair(id: string) {
         <span id="gwBinaryText">
           {{
             !config
-              ? "正在检查 cloudflared…"
+              ? $t("gw.cfChecking")
               : cfInstalled
-                ? `cloudflared ${config?.binary?.version || ""} 已就位`
-                : "cloudflared 未就位 —— 下载（自动校验 SHA-256）或指定本地已有的可执行文件"
+                ? $t("gw.cfReady", { v: config?.binary?.version || "" })
+                : $t("gw.cfNotReady")
           }}
         </span>
         <span style="flex: 1" />
         <button v-if="!cfInstalled" type="button" id="gwDownloadBtn" class="btn" :disabled="!!busy" @click="downloadBinary">
-          下载 cloudflared
+          {{ $t("gw.downloadCloudflared") }}
         </button>
         <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
-          指定本地路径
+          {{ $t("gw.specifyLocalPath") }}
         </button>
         <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
       </div>
@@ -1328,7 +1328,7 @@ function deletePair(id: string) {
           :disabled="!manualPath.trim() || !!busy"
           @click="setManualBinary"
         >
-          确定
+          {{ $t("gw.confirm") }}
         </button>
       </div>
     </div>
@@ -1372,7 +1372,7 @@ function deletePair(id: string) {
           </label>
         </span>
         <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall($t('gw.tsUninstallTitle'), $t('gw.tsUninstallNote'))">
-          卸载
+          {{ $t("gw.uninstall") }}
         </button>
         <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">{{ $t("gw.log") }}</button>
         <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">{{ $t("gw.redetect") }}</button>
@@ -1428,10 +1428,10 @@ function deletePair(id: string) {
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
           <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">{{ $t("gw.openLoginPage") }}</button>
           <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">{{ $t("gw.copyLoginUrl") }}</button>
-          <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">重新生成链接</button>
+          <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
-          <a :href="loginUrl" class="gw-url" :title="'用浏览器打开：' + loginUrl" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+          <a :href="loginUrl" class="gw-url" :title="$t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
           ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就点<b>重新生成链接</b>或把开关<b>关开一次</b>。
@@ -1442,11 +1442,11 @@ function deletePair(id: string) {
       <!-- 运行中态：#tsAddrRow -->
       <div id="tsAddrRow" :hidden="!tsRunning">
         <div class="gw-status" style="margin-top: 8px">
-          <span class="field-hint" style="margin: 0">局域网直连地址</span>
+          <span class="field-hint" style="margin: 0">{{ $t("gw.tsLanAddr") }}</span>
           <span class="mono ts-addr" id="tsAddr">{{ tsAddr }}<span class="ts-port">:{{ httpPort }}</span></span>
           <span style="flex: 1" />
-          <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">复制</button>
-          <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
+          <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">{{ $t("common.copy") }}</button>
+          <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
         </div>
         <div class="gw-status" style="margin-top: 6px">
           <span
@@ -1465,10 +1465,10 @@ function deletePair(id: string) {
             :style="{ fontSize: '12px', color: tsHealthOk === false ? 'rgb(var(--warn))' : 'rgb(var(--fg-dim))' }"
           >{{
             tsHealthOk === true
-              ? `本机服务自检通过（127.0.0.1:${httpPort}）`
+              ? $t("gw.selfCheckOk", { port: httpPort })
               : tsHealthOk === false
-                ? "自检失败：本机服务未监听 —— 先确认 AnyBoot 服务在运行 / 端口未被保留段占用"
-                : `正在自检本机服务（127.0.0.1:${httpPort}）…`
+                ? $t("gw.selfCheckFail")
+                : $t("gw.selfCheckRunning", { port: httpPort })
           }}</span>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
@@ -1516,10 +1516,10 @@ function deletePair(id: string) {
       <div id="tsfBlock" :hidden="!tsStatus?.installed">
         <div class="tsf-sep">
           <div class="gw-card-head" style="margin: 0">
-            <h3 style="font-size: 13px">Funnel 公网通道</h3>
-            <span class="tsf-badge" id="tsfBadge" :hidden="tsfState !== 'ready'">公网 · 经 Tailscale 中继</span>
+            <h3 style="font-size: 13px">{{ $t("gw.funnelPubTitle") }}</h3>
+            <span class="tsf-badge" id="tsfBadge" :hidden="tsfState !== 'ready'">{{ $t("gw.funnelPubBadge") }}</span>
             <span style="flex: 1" />
-            <span class="gw-sw-group" title="开启 / 关闭 Funnel 公网通道；需授权时点击会直接打开官方授权页">
+            <span class="gw-sw-group" :title="$t('gw.funnelToggleTitle')">
               <label class="switch" id="tsfSwWrap" :class="{ loading: tsfBusy }">
                 <input
                   type="checkbox"
@@ -1546,11 +1546,11 @@ function deletePair(id: string) {
           <!-- ready 态：公网地址行 -->
           <div id="tsfAddrRow" :hidden="tsfState !== 'ready'">
             <div class="gw-status" style="margin-top: 8px">
-              <span class="field-hint" style="margin: 0">公网地址</span>
+              <span class="field-hint" style="margin: 0">{{ $t("gw.publicAddr") }}</span>
               <span class="mono ts-addr" id="tsfAddr">{{ tsfStatus?.url || "" }}</span>
               <span style="flex: 1" />
-              <button type="button" class="link-btn" id="tsfCopy" @click="copyText(tsfStatus?.url || '')">复制</button>
-              <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
+              <button type="button" class="link-btn" id="tsfCopy" @click="copyText(tsfStatus?.url || '')">{{ $t("common.copy") }}</button>
+              <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
             </div>
             <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
               ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
@@ -1563,15 +1563,15 @@ function deletePair(id: string) {
               需要在 Tailscale 官方页允许 Funnel 并启用 HTTPS 证书（需 Owner / Admin 账号），一次授权长期有效。
             </p>
             <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-              <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">去官方授权页</button>
-              <button type="button" class="link-btn" id="tsfRetryBtn" @click="tsFunnelToggle(true)">授权完成，重试</button>
+              <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">{{ $t("gw.goAuthPage") }}</button>
+              <button type="button" class="link-btn" id="tsfRetryBtn" @click="tsFunnelToggle(true)">{{ $t("gw.retryAfterAuth") }}</button>
             </div>
           </div>
 
           <!-- error 态 -->
           <div id="tsfErrRow" :hidden="tsfState !== 'error'">
             <p class="field-hint" id="tsfErrText" style="margin: 8px 0 0">{{ tsfStatus?.message || "" }}</p>
-            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="tsFunnelToggle(true)">重试</button>
+            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="tsFunnelToggle(true)">{{ $t("gw.retry") }}</button>
           </div>
         </div>
       </div>
@@ -1587,8 +1587,8 @@ function deletePair(id: string) {
       <!-- 自启 -->
       <label class="gw-auto">
         <input type="checkbox" id="tsAutostart" :checked="tsAutostart" @change="toggleTsAutostart" />
-        <span class="gw-auto-t">启动软件时自动连接 Tailscale</span>
-        <span class="gw-auto-h">等价于自动点「连接」</span>
+        <span class="gw-auto-t">{{ $t("gw.autoConnectStartup") }}</span>
+        <span class="gw-auto-h">{{ $t("gw.autoConnectStartupHint") }}</span>
       </label>
     </div>
   </div>
@@ -1597,11 +1597,11 @@ function deletePair(id: string) {
   <div v-show="activeTab === 'tsn'" class="gw-tabpane">
     <div class="gw-card" id="tsnCard">
       <div class="gw-card-head">
-        <h3>Tailscale (内置)</h3>
-        <span class="tsf-badge" id="tsnBadge" :hidden="tsnStatus?.state !== 'ready'">免安装 · 经 Tailscale 中继</span>
+        <h3>{{ $t("gw.tsnTitle") }}</h3>
+        <span class="tsf-badge" id="tsnBadge" :hidden="tsnStatus?.state !== 'ready'">{{ $t("gw.tsnBadge") }}</span>
         <span style="flex: 1" />
-        <span class="gw-sw-group" title="开启 / 关闭内置 Tailscale 引擎">
-          <span class="gw-sw-cap">引擎</span>
+        <span class="gw-sw-group" :title="$t('gw.tsnEngineTitle')">
+          <span class="gw-sw-cap">{{ $t("gw.engine") }}</span>
           <label class="switch" id="tsnSwWrap">
             <input
               type="checkbox"
@@ -1612,9 +1612,9 @@ function deletePair(id: string) {
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">卸载</button>
-        <button type="button" class="btn" id="tsnLogBtn" @click="() => openTsnLog()">日志</button>
-        <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">重新检测</button>
+        <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">{{ $t("gw.uninstall") }}</button>
+        <button type="button" class="btn" id="tsnLogBtn" @click="() => openTsnLog()">{{ $t("gw.log") }}</button>
+        <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">{{ $t("gw.redetect") }}</button>
       </div>
 
       <div class="gw-status">
@@ -1660,7 +1660,7 @@ function deletePair(id: string) {
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
           <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">打开登录页</button>
           <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">复制登录链接</button>
-          <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">重新生成链接</button>
+          <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
           <a :href="loginUrl" class="gw-url" :title="'用浏览器打开：' + loginUrl" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
@@ -1678,7 +1678,7 @@ function deletePair(id: string) {
           <span class="mono ts-addr" id="tsnAddr">{{ tsnStatus?.url || "" }}</span>
           <span style="flex: 1" />
           <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">复制</button>
-          <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">生成此地址的配对码</button>
+          <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
           ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
