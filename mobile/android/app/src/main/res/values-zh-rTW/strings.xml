@@ -1942,6 +1942,8 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_helpPower4">systemd-boot / OpenCore / Clover 的動作卡同樣在下次重新啟動時生效；帶 ⤴ 的必經 NVRAM 寫</string>
     <string name="and_helpPower5">電腦離線時讀不到引導項</string>
     <string name="and_helpPower6">顯示「未檢測到」= 這台電腦沒部署對應的引導管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是讀取失敗</string>
+    <string name="and_opFailed">操作失敗</string>
+    <string name="and_jumpTunnelAddrUnusable">跳板機通道位址不可用</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

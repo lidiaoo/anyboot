@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "systemd-boot / OpenCore / Clover 的动作卡同样在下次重启时生效；带 ⤴ 的必经 NVRAM 写";
 "and.helpPower5" = "电脑离线时读不到引导项";
 "and.helpPower6" = "显示「未检测到」= 这台电脑没部署对应的引导管理器（rEFInd / GRUB / OpenCore / Clover / systemd-boot），不是读取失败";
+"and.opFailed" = "操作失败";
+"and.jumpTunnelAddrUnusable" = "跳板机隧道地址不可用";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "systemd-boot / OpenCore / Clover のアクションカードも次回再起動で有効。⤴ 付きは NVRAM 書き込み必須";
 "and.helpPower5" = "PC がオフラインのとき起動項目を読めません";
 "and.helpPower6" = "「未検出」= この PC に対応するブートマネージャ未導入（rEFInd / GRUB / OpenCore / Clover / systemd-boot）。読み取り失敗ではありません";
+"and.opFailed" = "操作に失敗";
+"and.jumpTunnelAddrUnusable" = "踏み台トンネルアドレス利用不可";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

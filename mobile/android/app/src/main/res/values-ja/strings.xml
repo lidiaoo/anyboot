@@ -1942,6 +1942,8 @@ Telnet：実験的端末のみ。</string>
     <string name="and_helpPower4">systemd-boot / OpenCore / Clover のアクションカードも次回再起動で有効。⤴ 付きは NVRAM 書き込み必須</string>
     <string name="and_helpPower5">PC がオフラインのとき起動項目を読めません</string>
     <string name="and_helpPower6">「未検出」= この PC に対応するブートマネージャ未導入（rEFInd / GRUB / OpenCore / Clover / systemd-boot）。読み取り失敗ではありません</string>
+    <string name="and_opFailed">操作に失敗</string>
+    <string name="and_jumpTunnelAddrUnusable">踏み台トンネルアドレス利用不可</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

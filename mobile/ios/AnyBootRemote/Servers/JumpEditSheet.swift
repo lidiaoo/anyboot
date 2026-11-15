@@ -73,7 +73,7 @@ struct JumpEditSheet: View {
                         ABDialogInput(placeholder: L("and.namePh"), text: $name)
 
                         fieldLabel(L("srvEdit.proto"))
-                        ABSegmented(options: ["SSH", "Telnet（实验性）"], selected: isTelnet ? 1 : 0) {
+                        ABSegmented(options: ["SSH", L("and.telnetExperimental")], selected: isTelnet ? 1 : 0) {
                             isTelnet = $0 == 1
                         }
 
@@ -93,11 +93,11 @@ struct JumpEditSheet: View {
                             .frame(width: ABMetric.px(88))
                         }
 
-                        fieldLabel("用户名")
+                        fieldLabel(L("server.kUser"))
                         ABDialogInput(placeholder: "root", text: $username)
 
                         fieldLabel(L("server.kAuth"))
-                        ABSegmented(options: ["密码", "密钥"], selected: authKey ? 1 : 0) {
+                        ABSegmented(options: [L("srvEdit.authPassword"), L("srvEdit.authKey")], selected: authKey ? 1 : 0) {
                             authKey = $0 == 1
                         }
 
@@ -169,9 +169,9 @@ struct JumpEditSheet: View {
                         fieldLabel(L("remote.notePh"))
                         ABDialogInput(placeholder: L("srvEdit.notesPh"), text: $note)
 
-                        fieldLabel("经由跳板机")
+                        fieldLabel(L("hub.route.jump"))
                         dropdown(text: jumpLabel, open: $jumpMenuOpen, enabled: true) {
-                            menuRow("直连（默认）") {
+                            menuRow(L("srvEdit.jumpDirect")) {
                                 jumpId = ""
                                 jumpMenuOpen = false
                             }

@@ -141,7 +141,7 @@ final class ComputerTab: ObservableObject, Identifiable {
         effectiveAddress = ""
         guard let url = profile.url(at: addressIndex, transport: ServerStore.shared.transport) else {
             status = .failed
-            errorDetail = composeErrorDetail("地址还没就绪")
+            errorDetail = composeErrorDetail(L("and.addrNotReady"))
             return
         }
         box.load(url)
@@ -155,7 +155,7 @@ final class ComputerTab: ObservableObject, Identifiable {
                                                                             destination: destAddress)
                 guard let url = profile.url(for: local, transport: ServerStore.shared.transport) else {
                     status = .failed
-                    errorDetail = composeErrorDetail("跳板机隧道地址不可用")
+                    errorDetail = composeErrorDetail(L("and.jumpTunnelAddrUnusable"))
                     return
                 }
                 effectiveAddress = local

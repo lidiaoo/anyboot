@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "Карточки systemd-boot / OpenCore / Clover тоже при следующей перезагрузке; с ⤴ требуется запись NVRAM";
 "and.helpPower5" = "Записи загрузки недоступны, пока компьютер offline";
 "and.helpPower6" = "«Не обнаружено» = на ПК нет соответствующего менеджера загрузки (rEFInd / GRUB / OpenCore / Clover / systemd-boot), а не ошибка чтения";
+"and.opFailed" = "Операция не удалась";
+"and.jumpTunnelAddrUnusable" = "Адрес туннеля узла недоступен";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

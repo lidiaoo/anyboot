@@ -247,14 +247,14 @@ final class FilesStore: ObservableObject {
         if text.contains("失败") || text.contains("不支持") || text.contains("不能") || text.contains("已经") {
             return text
         }
-        return text.isEmpty ? "操作失败" : text
+        return text.isEmpty ? L("and.opFailed") : text
     }
 
     func mkdir(_ name: String) {
         guard let jump = server else { return }
         let dir = path
         let target = SftpOps.join(dir, name)
-        run("新建目录") {
+        run(L("fb.newDir")) {
             do {
                 try await SftpOps.mkdir(jump: jump, path: target)
             } catch {
@@ -267,7 +267,7 @@ final class FilesStore: ObservableObject {
         guard let jump = server else { return }
         let from = SftpOps.join(path, entry.name)
         let to = SftpOps.join(path, newName)
-        run("重命名") {
+        run(L("fb.rename")) {
             do {
                 try await SftpOps.rename(jump: jump, from: from, to: to)
             } catch {
@@ -279,7 +279,7 @@ final class FilesStore: ObservableObject {
     func delete(_ entry: SftpOps.Entry) {
         guard let jump = server else { return }
         let target = SftpOps.join(path, entry.name)
-        run("删除") {
+        run(L("fb.delete")) {
             do {
                 try await SftpOps.delete(jump: jump, path: target)
             } catch {

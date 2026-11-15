@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "systemd-boot / OpenCore / Clover action cards also apply on next reboot; those with ⤴ require an NVRAM write";
 "and.helpPower5" = "Boot entries can't be read while the computer is offline";
 "and.helpPower6" = "“Not detected” = this computer has no matching boot manager deployed (rEFInd / GRUB / OpenCore / Clover / systemd-boot), not a read failure";
+"and.opFailed" = "Operation failed";
+"and.jumpTunnelAddrUnusable" = "Jump host tunnel address unavailable";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

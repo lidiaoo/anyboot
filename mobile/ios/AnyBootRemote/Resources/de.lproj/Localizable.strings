@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "systemd-boot / OpenCore / Clover-Aktionskarten gelten auch beim nächsten Neustart; mit ⤴ ist ein NVRAM-Schreibvorgang nötig";
 "and.helpPower5" = "Starteinträge nicht lesbar, wenn der Computer offline ist";
 "and.helpPower6" = "„Nicht erkannt“ = kein passender Bootmanager installiert (rEFInd / GRUB / OpenCore / Clover / systemd-boot), kein Lesefehler";
+"and.opFailed" = "Vorgang fehlgeschlagen";
+"and.jumpTunnelAddrUnusable" = "Sprungserver-Tunneladresse nicht verfügbar";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

@@ -1942,6 +1942,8 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_helpPower4">Os cartões systemd-boot / OpenCore / Clover também valem no próximo reinício; com ⤴ exige gravação NVRAM</string>
     <string name="and_helpPower5">Não é possível ler entradas com o computador offline</string>
     <string name="and_helpPower6">“Não detectado” = este PC não tem o gerenciador de boot correspondente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), não é falha de leitura</string>
+    <string name="and_opFailed">Operação falhou</string>
+    <string name="and_jumpTunnelAddrUnusable">Endereço do túnel do jump host indisponível</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

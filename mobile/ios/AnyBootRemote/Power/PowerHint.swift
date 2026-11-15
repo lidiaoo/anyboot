@@ -19,7 +19,7 @@ enum PowerHint {
         if !routes.isEmpty {
             let route = routes[0]
             let rawTarget = route.target.trimmingCharacters(in: .whitespaces)
-            let target = rawTarget.isEmpty ? "自动广播" : rawTarget
+            let target = rawTarget.isEmpty ? L("and.autoBroadcast") : rawTarget
             let suffix = routes.count > 1 ? L("and.andNMore", routes.count) : ""
             return "\(badge) · → \(target):\(route.effectivePort)\(suffix)"
         }
@@ -43,7 +43,7 @@ enum PowerHint {
         if routes.isEmpty {
             if action == PowerRoute.actionWake {
                 if !profile.hasMacs { return L("hub.power.noMac") }
-                return packetOk ? "魔法包" : "发不出"
+                return packetOk ? L("hub.power.magic") : L("and.sendFail")
             }
             return "HTTP"
         }
@@ -51,11 +51,11 @@ enum PowerHint {
         case "http_only":
             return "HTTP"
         case "http_first":
-            return packetOk ? "HTTP→魔法包" : "HTTP"
+            return packetOk ? L("and.httpToMagic") : "HTTP"
         case "hybrid":
-            return packetOk ? "HTTP+魔法包" : "HTTP"
+            return packetOk ? L("and.httpPlusMagic") : "HTTP"
         case "auto":
-            return packetOk ? "魔法包→HTTP" : "HTTP"
+            return packetOk ? L("and.magicToHttp") : "HTTP"
         default:
             return packetOk ? "魔法包" : "发不出"
         }

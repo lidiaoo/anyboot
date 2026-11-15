@@ -1942,6 +1942,8 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_helpPower4">Карточки systemd-boot / OpenCore / Clover тоже при следующей перезагрузке; с ⤴ требуется запись NVRAM</string>
     <string name="and_helpPower5">Записи загрузки недоступны, пока компьютер offline</string>
     <string name="and_helpPower6">«Не обнаружено» = на ПК нет соответствующего менеджера загрузки (rEFInd / GRUB / OpenCore / Clover / systemd-boot), а не ошибка чтения</string>
+    <string name="and_opFailed">Операция не удалась</string>
+    <string name="and_jumpTunnelAddrUnusable">Адрес туннеля узла недоступен</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

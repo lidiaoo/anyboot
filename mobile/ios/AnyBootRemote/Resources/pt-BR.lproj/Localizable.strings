@@ -1905,6 +1905,8 @@
 "and.helpPower4" = "Os cartões systemd-boot / OpenCore / Clover também valem no próximo reinício; com ⤴ exige gravação NVRAM";
 "and.helpPower5" = "Não é possível ler entradas com o computador offline";
 "and.helpPower6" = "“Não detectado” = este PC não tem o gerenciador de boot correspondente (rEFInd / GRUB / OpenCore / Clover / systemd-boot), não é falha de leitura";
+"and.opFailed" = "Operação falhou";
+"and.jumpTunnelAddrUnusable" = "Endereço do túnel do jump host indisponível";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";
