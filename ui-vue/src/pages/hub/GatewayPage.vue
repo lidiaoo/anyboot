@@ -437,7 +437,7 @@ let tsGuiTimer: number | null = null;
 function tsLaunchGui() {
   void call("gateway_tailscale_launch_gui")
     .then(() => {
-      toast.show("正在打开 Tailscale.app，稍后自动重新检测…");
+      toast.show(t("gw.openingTsApp"));
       if (tsGuiTimer !== null) window.clearTimeout(tsGuiTimer);
       tsGuiTimer = window.setTimeout(() => void refreshAll(), 4000);
     })
@@ -446,7 +446,7 @@ function tsLaunchGui() {
 
 function tsSaveKey() {
   const key = tsKey.value.trim();
-  void run("保存密钥", () => call("gateway_tailscale_set_authkey", { key }), "密钥已保存");
+  void run(t("gw.saveKey"), () => call("gateway_tailscale_set_authkey", { key }), t("gw.saveKeyDone"));
 }
 
 /**
@@ -465,28 +465,28 @@ function tailscaleService(ev: Event) {
   void call("gateway_tailscale_service", { action: on ? "start" : "stop" })
     .then(async () => {
       tsSvcBusy.value = false;
-      toast.show(on ? "tailscaled 服务已启动" : "tailscaled 服务已停止");
+      toast.show(on ? t("gw.daemonStarted") : t("gw.daemonStopped"));
       await refreshAll();
     })
     .catch(async (e) => {
       tsSvcBusy.value = false;
       el.checked = !on;
       await refreshAll();
-      toast.show("服务开关失败：" + e, "bad");
+      toast.show(t("gw.svcFail", { msg: String(e) }), "bad");
     });
 }
 
 async function copyTsAddr() {
   const addr = tsRunning.value ? `${tsAddr.value}:${httpPort.value}` : "";
   if (!addr) {
-    toast.show("没有可复制的地址 —— 先把 Tailscale 连上", "bad");
+    toast.show(t("gw.noCopyAddr"), "bad");
     return;
   }
   try {
     await navigator.clipboard.writeText(addr);
-    toast.show("Tailscale 直连地址已复制：" + addr);
+    toast.show(t("gw.tsAddrCopied", { addr }));
   } catch {
-    toast.show("复制失败 —— 浏览器拒绝了剪贴板权限，请手动选中复制", "bad");
+    toast.show(t("gw.copyFailPerm"), "bad");
   }
 }
 
@@ -602,7 +602,7 @@ async function openExternal(url: string) {
     return;
   }
   const w = window.open(url, "_blank", "noopener");
-  if (!w) toast.show("浏览器拦截了新窗口，请手动复制链接", "bad");
+  if (!w) toast.show(t("gw.popupBlockedNew"), "bad");
 }
 
 /**
@@ -630,10 +630,10 @@ useEscape(autoMenuOpen, () => { autoMenuOpen.value = false; });
 let autoTimer: number | null = null;
 
 const TABS: { key: TabKey; label: string; dot?: boolean }[] = [
-  { key: "cf", label: "Cloudflare 通道", dot: true },
+  { key: "cf", label: "gw.tabCf", dot: true },
   { key: "ts", label: "Tailscale", dot: true },
-  { key: "tsn", label: "Tailscale (内置)", dot: true },
-  { key: "pair", label: "配对管理" },
+  { key: "tsn", label: "gw.tabTsn", dot: true },
+  { key: "pair", label: "gw.tabPair" },
 ];
 
 const cfUrl = computed(() => config.value?.tunnel?.url ?? "");
@@ -709,7 +709,7 @@ async function run(label: string, action: () => Promise<unknown>, done: string) 
     await refreshAll();
   } catch (error) {
     errorText.value = String(error);
-    toast.show(label + "失败：" + error, "bad");
+    toast.show(t("gw.failOf", { label, msg: String(error) }), "bad");
   } finally {
     busy.value = "";
   }
@@ -749,8 +749,8 @@ onMounted(async () => {
     await listen<{ ok?: boolean; version?: string; error?: string }>("gateway-binary-done", (event) => {
       downloading.value = false;
       message.value = event.payload?.ok
-        ? `cloudflared ${event.payload?.version ?? ""} 就绪`
-        : `下载失败：${event.payload?.error ?? "未知错误"}`;
+        ? t("gw.cloudflaredReady", { v: event.payload?.version ?? "" })
+        : t("gw.dlFail", { msg: event.payload?.error ?? t("gw.unknownErr") });
       void refreshAll();
     }),
   );
@@ -763,14 +763,14 @@ onMounted(async () => {
       const done = event.payload || {};
       tsDownloading.value = false;
       if (!done.ok) {
-        toast.show(`Tailscale 下载失败：${done.error || "未知错误"}，可打开官网手动下载`);
+        toast.show(t("gw.tsDlFail", { msg: String(done.error || t("gw.unknownErr")) }));
         void refreshAll();
         return;
       }
       // 旧版：下载完成 → 自动启动安装器（需系统授权确认）
-      toast.show("下载完成，正在安装（需要在系统授权框确认）…");
+      toast.show(t("gw.dlDoneInstalling"));
       void call("gateway_tailscale_install", { path: done.path })
-        .then(() => toast.show("安装器已启动 —— 装好并登录后回来点「重新检测」"))
+        .then(() => toast.show(t("gw.installerStarted")))
         .catch((error) => toast.show(`安装器启动失败：${error}，可手动运行 ${done.path}`));
       void refreshAll();
     }),
@@ -796,28 +796,28 @@ onUnmounted(() => {
 function toggleCf() {
   const next = !cfRunning.value;
   void run(
-    next ? "开启通道" : "关闭通道",
+    next ? t("gw.enableChannel") : t("gw.disableChannel"),
     () => call(
       next ? "gateway_tunnel_start" : "gateway_tunnel_stop",
       next
         ? { mode: config.value?.mode === "named" ? "named" : "quick", namedToken: namedToken.value, namedUrl: namedUrl.value }
         : undefined,
     ),
-    next ? "通道已开启" : "通道已关闭",
+    next ? t("gw.channelEnabled") : t("gw.channelDisabled"),
   );
 }
 
 function downloadBinary() {
-  void run("下载 cloudflared", () => call("gateway_binary_download"), "开始下载…");
+  void run(t("gw.downloadCloudflared"), () => call("gateway_binary_download"), t("gw.dlStarted"));
 }
 
 function setManualBinary() {
   const path = manualPath.value.trim();
   if (!path) return;
   void run(
-    "指定路径",
+    t("gw.customPath"),
     () => call("gateway_binary_set_manual", { path }),
-    "已指定本地 cloudflared",
+    t("gw.customPathSet"),
   ).then(() => {
     manualOpen.value = false;
   });
@@ -826,17 +826,17 @@ function setManualBinary() {
 /** 二进制状态 / 卸载 / 清除凭据 / 保存配置（旧版 gateway_* 系列） */
 
 function uninstallBinary() {
-  void run("卸载 cloudflared", () => call("gateway_binary_uninstall"), "已卸载");
+  void run(t("gw.uninstallCloudflared"), () => call("gateway_binary_uninstall"), t("gw.uninstalled"));
 }
 
 function clearCredentials() {
-  void run("清除登录凭据", () => call("gateway_clear_credentials"), "已清除凭据");
+  void run(t("gw.clearCred"), () => call("gateway_clear_credentials"), t("gw.credCleared"));
 }
 
 /** 保存通道配置（旧版 persistConfig，hub.html:13408） */
 function persistConfig(mode: string) {
   void run(
-    "保存配置",
+    t("gw.saveConfig"),
     () =>
       call("gateway_save_config", {
         mode,
@@ -844,7 +844,7 @@ function persistConfig(mode: string) {
         namedToken: namedToken.value,
         autostart: Boolean(config.value?.autostart),
       }),
-    "配置已保存",
+    t("gw.configSaved"),
   );
 }
 
@@ -856,12 +856,12 @@ function selectMode(next: "quick" | "named") {
 
 
 function tsLogout() {
-  void run("退出 Tailscale 登录", () => call("gateway_tailscale_logout"), "已退出登录");
+  void run(t("gw.logoutTs"), () => call("gateway_tailscale_logout"), t("gw.loggedOut"));
 }
 
 function tsExtensionSettings() {
   void call("gateway_tailscale_open_extension_settings")
-    .then(() => toast.show("已打开系统设置 —— 打开 Tailscale 开关后回来点「重新检测」"))
+    .then(() => toast.show(t("gw.openedSysSettings")))
     .catch((e) => toast.show(String(e || "打开失败"), "bad"));
 }
 
@@ -893,23 +893,23 @@ async function tsFunnelToggle(on: boolean, ev?: Event) {
     if (st) tsfStatus.value = st;
     const state = tsfStatus.value?.state;
     if (on) {
-      if (state === "ready") toast.show(tsfStatus.value?.url ? "Funnel 已开启：" + tsfStatus.value.url : "Funnel 已开启");
+      if (state === "ready") toast.show(tsfStatus.value?.url ? t("gw.funnelOnUrl", { url: tsfStatus.value.url }) : t("gw.funnelReady"));
       else if (state === "needs_authorize") {
         revert();
-        toast.show(tsfStatus.value?.message || "需要先在 Tailscale 官方页授权", "bad");
+        toast.show(tsfStatus.value?.message || t("gw.funnelNeedAuthWeb"), "bad");
       } else {
         revert();
-        toast.show("Funnel 开启失败：" + (tsfStatus.value?.message || "未知原因"), "bad");
+        toast.show(t("gw.funnelOnFail", { msg: tsfStatus.value?.message || t("gw.unknownErr") }), "bad");
       }
     } else if (state === "off") {
-      toast.show("Funnel 已关闭");
+      toast.show(t("gw.funnelOffDone"));
     } else {
       revert();
-      toast.show("Funnel 关闭失败：" + (tsfStatus.value?.message || "未知原因"), "bad");
+      toast.show(t("gw.funnelOffFail", { msg: tsfStatus.value?.message || t("gw.unknownErr") }), "bad");
     }
   } catch (e) {
     revert();
-    toast.show("Funnel " + (on ? "开启" : "关闭") + "失败：" + e, "bad");
+    toast.show(t("gw.funnelToggleFail", { action: on ? t("gw.enableChannel") : t("gw.disableChannel"), msg: String(e) }), "bad");
   } finally {
     tsfBusy.value = false;
   }
@@ -919,7 +919,7 @@ async function tsFunnelToggle(on: boolean, ev?: Event) {
 function tsFunnelAuth() {
   const url = tsfStatus.value?.setupUrl ?? "";
   if (!/^https:\/\/tailscale\.com\/s\//.test(url)) {
-    toast.show("授权地址无效 —— 先点一次开关或「重新检测」拿到最新提示", "bad");
+    toast.show(t("gw.authUrlInvalid"), "bad");
     return;
   }
   void openExternal(url);
@@ -936,7 +936,7 @@ async function refreshFunnel() {
 }
 
 function tsUninstallNow() {
-  void run("卸载 Tailscale", () => call("gateway_tailscale_uninstall"), "已卸载");
+  void run(t("gw.uninstallTs"), () => call("gateway_tailscale_uninstall"), t("gw.uninstalled"));
 }
 
 
@@ -944,15 +944,15 @@ function tsUninstallNow() {
 /** 残留通道：沿用 / 清理多余 */
 function adoptOrphan() {
   const pid = orphans.value[0]?.pid;
-  if (!pid) { toast.show("没有可沿用的残留通道", "bad"); return; }
+  if (!pid) { toast.show(t("gw.noOrphanAdopt"), "bad"); return; }
   void run("沿用残留通道", () => call("gateway_tunnel_adopt", { pid }), "已沿用");
 }
 
 
 function killOrphan() {
   const pid = orphans.value[0]?.pid;
-  if (!pid) { toast.show("没有可终止的残留通道", "bad"); return; }
-  void run("清理残留", () => call("gateway_tunnel_kill_orphan", { pid }), "已清理残留通道");
+  if (!pid) { toast.show(t("gw.noOrphanKill"), "bad"); return; }
+  void run(t("gw.cleanOrphan"), () => call("gateway_tunnel_kill_orphan", { pid }), t("gw.cleanedOrphan"));
 }
 
 // ---- Tailscale ----
@@ -981,14 +981,14 @@ function tsSetUp(on: boolean, revert?: () => void) {
   tsBusy.value = true;
   tsUpIntent.value = on;
   loginUrl.value = "";
-  if (on && tsState.value === "needs_login") toast.show("正在拉起浏览器登录 Tailscale…");
+  if (on && tsState.value === "needs_login") toast.show(t("gw.tsLoginLaunching"));
   void call<TailscaleStatus>("gateway_tailscale_toggle", { up: on })
     .then(async (st) => {
       tsBusy.value = false;
       tsUpIntent.value = false;
       if (st && typeof st === "object") tsStatus.value = st;
       await refreshAll();
-      toast.show(on ? "Tailscale 已连接" : "Tailscale 已断开");
+      toast.show(on ? t("gw.tsConnected") : t("gw.tsDisconnected"));
     })
     .catch(async (e) => {
       tsBusy.value = false;
@@ -997,25 +997,25 @@ function tsSetUp(on: boolean, revert?: () => void) {
       await refreshAll();
       const msg = String(e);
       // 「待授权」不是失败：后端已把链接推进卡片，别用红色报错糊用户一脸
-      if (/^待授权/.test(msg)) toast.show(msg.replace(/^待授权（需在浏览器完成登录）：/, "需在浏览器登录 Tailscale："));
-      else toast.show("Tailscale 开关失败：" + msg, "bad");
+      if (/^待授权/.test(msg)) toast.show(msg.replace(/^待授权（需在浏览器完成登录）：/, t("gw.tsLoginNeededPrefix")));
+      else toast.show(t("gw.tsToggleFail", { msg: String(msg) }), "bad");
     });
 }
 
 // ---- 配对 ----
 /** 重新出码（旧版 openPairReissue → gateway_pair_reissue） */
 function reissuePair(id: string) {
-  void run("重新出码", () => call("gateway_pair_reissue", { id }), "已重新出码");
+  void run(t("gw.reissue"), () => call("gateway_pair_reissue", { id }), t("gw.reissued"));
 }
 
 /** 配对行 meta 文案（旧版 renderPairClients） */
 function pairMeta(pair: PairRow): string {
   const bits: string[] = [];
-  if (pair.url) bits.push("配对地址 " + pair.url.replace(/^https?:\/\//, ""));
+  if (pair.url) bits.push(t("gw.pairAddr", { url: pair.url.replace(/^https?:\/\//, "") }));
   bits.push(
     pair.revoked
-      ? `已吊销 · 配对于 ${fmtTime(pair.createdAt)}`
-      : `最近访问 ${fmtTime(pair.lastSeen)} · 配对于 ${fmtTime(pair.createdAt)}`,
+      ? t("gw.revokedAt", { t: fmtTime(pair.createdAt) })
+      : t("gw.lastSeenAt", { t: fmtTime(pair.lastSeen), t2: fmtTime(pair.createdAt) }),
   );
   return bits.join(" · ");
 }
@@ -1023,10 +1023,10 @@ function pairMeta(pair: PairRow): string {
 /** 来源 chip（旧版按 pair_kind 判定文案与 class） */
 function pairSrcChip(pair: PairRow): { cls: string; text: string; tip: string } {
   const labels: Record<string, string> = {
-    tunnel: "Cloudflare 通道",
-    ts: "Tailscale 直连",
-    funnel: "Funnel（系统 Tailscale）",
-    tsnet: "Funnel（内置引擎）",
+    tunnel: "gw.kindTunnel",
+    ts: "gw.kindTs",
+    funnel: "gw.kindFunnel",
+    tsnet: "gw.kindTsnet",
   };
   const label = labels[pair.kind ?? ""];
   let cls = "";
@@ -1039,11 +1039,11 @@ function pairSrcChip(pair: PairRow): { cls: string; text: string; tip: string } 
     text = "Tailscale";
   } else if (pair.url) {
     cls = "src-tunnel";
-    text = "Cloudflare 通道";
+    text = t("gw.kindTunnel");
   } else {
-    text = "不带地址";
+    text = t("gw.noAddrShort");
   }
-  return { cls, text, tip: text + (pair.url ? ` · ${pair.url}` : " · 出码时没有可用地址") };
+  return { cls, text, tip: text + (pair.url ? ` · ${pair.url}` : " · " + t("gw.noAddrAtIssue")) };
 }
 
 function fmtTime(ts?: number): string {
@@ -1054,11 +1054,11 @@ function fmtTime(ts?: number): string {
 
 
 function revokePair(id: string) {
-  void run("吊销", () => call("gateway_pair_revoke", { id }), "已吊销");
+  void run(t("gw.revoke"), () => call("gateway_pair_revoke", { id }), t("gw.revoked"));
 }
 
 function deletePair(id: string) {
-  void run("删除", () => call("gateway_pair_delete", { id }), "已删除");
+  void run(t("gw.deletePair"), () => call("gateway_pair_delete", { id }), t("gw.deletedPair"));
 }
 </script>
 
