@@ -306,11 +306,7 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
             .unwrap_or(0);
         items.push(menu_header(
             format!("grub-group:{submenu_id}"),
-            format!(
-                "▸ {}{title}（{count} 项{}）",
-                grub_os_icon(title),
-                location
-            ),
+            crate::t!(crate::i18n::current(),"▸ {a}{b}（{c} 项{d}）","▸ {a}{b}（{c} 項{d}）","▸ {a}{b} ({c} items{d})","▸ {a}{b}（{c} 件{d}）","▸ {a}{b} ({c}개{d})","▸ {a}{b} ({c} Einträge{d})","▸ {a}{b} ({c} шт.{d})","▸ {a}{b} ({c} itens{d})","▸ {a}{b} ({c} elementos{d})").replace("{a}", grub_os_icon(title)).replace("{b}", title).replace("{c}", &count.to_string()).replace("{d}", &location),
         ));
         let counts = grub_collapse(
             format,
@@ -807,12 +803,7 @@ pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool, channel: &str)
         }
         items.push(menu_marked_choice_item(
             format!("{}:{}", prefix("switch"), entry.value),
-            format!(
-                "▸ {}{}（{} 个内核）",
-                grub_os_icon(&entry.label),
-                entry.label,
-                entry.children.len()
-            ),
+            crate::t!(crate::i18n::current(),"▸ {a}{b}（{c} 个内核）","▸ {a}{b}（{c} 個內核）","▸ {a}{b} ({c} kernels)","▸ {a}{b}（{c} カーネル）","▸ {a}{b} ({c}개 커널)","▸ {a}{b} ({c} Kernel)","▸ {a}{b} ({c} ядер)","▸ {a}{b} ({c} kernels)","▸ {a}{b} ({c} núcleos)").replace("{a}", grub_os_icon(&entry.label)).replace("{b}", &entry.label).replace("{c}", &entry.children.len().to_string()),
             !busy,
             entry.is_default,
         ));
