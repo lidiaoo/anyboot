@@ -1553,7 +1553,7 @@ function deletePair(id: string) {
               <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
             </div>
             <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-              ⚠️ 此地址公网可达，安全依赖配对令牌，请勿外传配对码。目标机睡眠后同样失联。
+              {{ $t("gw.funnelWarn") }}
             </p>
           </div>
 
@@ -1663,11 +1663,11 @@ function deletePair(id: string) {
           <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
-          <a :href="loginUrl" class="gw-url" :title="'用浏览器打开：' + loginUrl" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+          <a :href="loginUrl" class="gw-url" :title="$t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
-          ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就把引擎<b>关开一次</b>重新生成。
-          链接也可以复制到手机/其它设备的浏览器打开；授权完回到这里把开关关开一次即可。
+          {{ $t("gw.tsnLinkValid") }}
+          {{ $t("gw.tsnLinkCopy") }}
         </p>
       </div>
 
@@ -1689,24 +1689,24 @@ function deletePair(id: string) {
       <div id="tsnErrRow" :hidden="tsnStatus?.state !== 'error'">
         <p class="field-hint" id="tsnErrText" style="margin: 8px 0 0">{{ tsnStatus?.error || "" }}</p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap">
-          <button type="button" class="link-btn" id="tsnRetryBtn" @click="refreshTsn">重试</button>
-          <button type="button" class="link-btn" id="tsnSetupBtn" :hidden="!tsnStatus?.setupUrl" @click="tsnOpenSetup">去开通 Funnel</button>
+          <button type="button" class="link-btn" id="tsnRetryBtn" @click="refreshTsn">{{ $t("gw.retry") }}</button>
+          <button type="button" class="link-btn" id="tsnSetupBtn" :hidden="!tsnStatus?.setupUrl" @click="tsnOpenSetup">{{ $t("gw.goEnableFunnel") }}</button>
         </div>
       </div>
 
       <!-- 清除登录凭据 -->
       <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
-        <button type="button" class="link-btn" id="tsnLogoutBtn" @click="tsnLogout">清除登录凭据</button>
+        <button type="button" class="link-btn" id="tsnLogoutBtn" @click="tsnLogout">{{ $t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          停引擎并删除本机登录凭据，下次开启需重新授权；Tailscale 管理台里的设备记录需自行移除。
+          {{ $t("gw.tsnLogoutHint") }}
         </span>
       </div>
 
       <!-- 自启 -->
       <label class="gw-auto">
         <input type="checkbox" id="tsnAutostart" :checked="tsnAutostart" @change="toggleTsnAutostart" />
-        <span class="gw-auto-t">启动软件时自动开启内置引擎</span>
-        <span class="gw-auto-h">凭据已记住，通常直接就绪</span>
+        <span class="gw-auto-t">{{ $t("gw.autostartEngine") }}</span>
+        <span class="gw-auto-h">{{ $t("gw.autostartEngineHint") }}</span>
       </label>
     </div>
   </div>
@@ -1717,20 +1717,15 @@ function deletePair(id: string) {
     <!-- 配对管理卡 -->
     <div class="gw-card">
       <div class="gw-card-head">
-        <h3>配对管理</h3>
-        <button type="button" class="btn primary" id="gwIssueBtn" @click="pairOpen = true">生成配对码</button>
+        <h3>{{ $t("gw.tabPair") }}</h3>
+        <button type="button" class="btn primary" id="gwIssueBtn" @click="pairOpen = true">{{ $t("gw.genPairCode") }}</button>
       </div>
       <p class="field-hint" style="margin-top: 0">
-        配对码 = 这台电脑的隧道地址 + 一枚专属令牌，每个客户端一枚、可单独吊销。
-        通道没开启时也能生成（隧道地址留空，客户端拿到后自己填）。
-        快速隧道每次重启软件都会换新地址 —— 旧记录里标的「配对地址」还能对账：
-        客户端「最近访问」时间比换址晚，说明它已用新地址在连；一直没动，就是还在用旧地址（或没在连）。
-        配对串只在生成时显示一次（服务端只存哈希，事后查不到）——
-        扫码失败或对方删了配对，在下面列表点「重新出码」换枚新令牌重扫即可，不用重新添加。
+        {{ $t("gw.pairIntro") }}
       </p>
       <div id="gwClientList" class="gw-clients">
         <div v-if="!pairs.length" class="gw-clients-empty">
-          还没有配对的客户端 —— 点「生成配对码」给手机或另一台电脑发一枚令牌。
+          {{ $t("gw.pairNone") }}
         </div>
         <div v-for="pair in pairs" :key="pair.id" class="gw-client">
           <div style="flex: 1; min-width: 0">
@@ -1741,21 +1736,19 @@ function deletePair(id: string) {
             :class="['ts-chip', pairSrcChip(pair).cls]"
             :title="pairSrcChip(pair).tip"
           >{{ pairSrcChip(pair).text }}</span>
-          <button type="button" class="link-btn" @click="reissuePair(pair.id)">重新出码</button>
-          <span v-if="pair.revoked" class="gw-client-revoked">已吊销</span>
-          <button v-else type="button" class="link-btn" @click="revokePair(pair.id)">吊销</button>
-          <button type="button" class="link-btn" @click="deletePair(pair.id)">删除</button>
+          <button type="button" class="link-btn" @click="reissuePair(pair.id)">{{ $t("gw.reissue") }}</button>
+          <span v-if="pair.revoked" class="gw-client-revoked">{{ $t("gw.revoked") }}</span>
+          <button v-else type="button" class="link-btn" @click="revokePair(pair.id)">{{ $t("gw.revoke") }}</button>
+          <button type="button" class="link-btn" @click="deletePair(pair.id)">{{ $t("gw.deletePair") }}</button>
         </div>
       </div>
     </div>
 
     <!-- 连别的电脑卡（旧版是纯说明，入口指向「电脑列表 → 编辑电脑」） -->
     <div class="gw-card">
-      <div class="gw-card-head"><h3>连别的电脑</h3></div>
+      <div class="gw-card-head"><h3>{{ $t("gw.connectOther") }}</h3></div>
       <p class="field-hint" style="margin-top: 0">
-        出门时访问列表里的其他电脑：到「电脑列表 → 编辑电脑」粘贴对方的配对码，
-        或点「从对方获取」在线拉取（对方需在同一局域网且本机服务在线，并会弹确认框）。
-        对方在它自己的「远程接入」页生成配对码。
+        {{ $t("gw.connectOtherHint") }}
       </p>
     </div>
   </div>
@@ -1765,21 +1758,21 @@ function deletePair(id: string) {
   <!-- 卸载确认（旧版 #gwUniOverlay，hub.html:3294）：勾上「保留本机数据」只删程序 -->
   <div v-if="uninstallOpen" id="gwUniOverlay" class="token-modal-overlay" @click.self="uninstallOpen = false">
     <div id="gwUniDialog" class="token-modal gw-uni-modal" role="dialog" aria-modal="true" aria-labelledby="gwUniTitle">
-      <h2 id="gwUniTitle">卸载</h2>
+      <h2 id="gwUniTitle">{{ $t("gw.uninstall") }}</h2>
       <p id="gwUniWhat" class="gw-pair-warn">{{ uninstallWhat }}</p>
       <label class="gw-uni-keep">
         <input id="gwUniKeep" v-model="keepData" type="checkbox" />
         <span>
-          <b>保留本机数据</b>（登录凭据 / 配置 / 状态目录）
+          <b>{{ $t("gw.keepData") }}</b>
           <span id="gwUniKeepHint" class="field-hint" style="display: block; margin-top: 3px">{{ keepHint }}</span>
         </span>
       </label>
       <p id="gwUniWarn" class="field-hint" style="margin: 10px 0 0">
-        不勾选（默认）= 连同本机登录凭据一起清掉，下次安装或重开需要重新授权。
+        {{ $t("gw.keepDataHint") }}
       </p>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
-        <button type="button" id="gwUniCancel" class="btn" @click="uninstallOpen = false">取消</button>
-        <button type="button" id="gwUniOk" class="btn primary" @click="confirmUninstall(keepData)">确认卸载</button>
+        <button type="button" id="gwUniCancel" class="btn" @click="uninstallOpen = false">{{ $t("common.cancel") }}</button>
+        <button type="button" id="gwUniOk" class="btn primary" @click="confirmUninstall(keepData)">{{ $t("gw.confirmUninstall") }}</button>
       </div>
     </div>
   </div>
@@ -1788,7 +1781,7 @@ function deletePair(id: string) {
   <LogDialog
     :open="logOpen"
     id-prefix="gwLog"
-    title="通道日志"
+    :title="$t('gw.logChannel')"
     :lines="logs"
     @copy="copyText"
     @clear="clearLogs"
@@ -1797,7 +1790,7 @@ function deletePair(id: string) {
   <LogDialog
     :open="tsLogOpen"
     id-prefix="tsLog"
-    title="Tailscale 日志"
+    :title="$t('gw.logTs')"
     :lines="tsLogs"
     @copy="copyText"
     @clear="clearTsLogs"
@@ -1807,7 +1800,7 @@ function deletePair(id: string) {
     :open="tsnLogOpen"
     id-prefix="tsnLog"
     button-style="modal"
-    title="内置引擎日志"
+    :title="$t('gw.logTsn')"
     :lines="tsnLogs"
     @copy="copyText"
     @clear="clearTsnLogs"
