@@ -210,9 +210,16 @@ onMounted(async () => {
 /** 解析某台远程电脑的访问地址 */
 async function ensureRemoteUrl(id: string): Promise<void> {
   if (id === "local" || remoteUrls.value.has(id)) return;
+  // 统一化（用户 2026-11-15）：访问网址优先用**嗅探可用**的地址——
+  // remote_endpoint 默认回 primary_address（配置顺序第一条，可能探测不通）；
+  // 这里按电脑列表连通行同一口径：probe_results 里 ok=true 的第一条优先传给后端，
+  // 都不通/还没探测才传 null（后端回退 primary_address）。
+  const okAddr = (remote.bootInfo.get(id)?.probe_results ?? [])
+    .find((r) => r?.ok && r.address)?.address ?? "";
   try {
     const endpoint = await call<{ host: string; port: number }>("remote_endpoint", {
       serverId: id,
+      address: okAddr || null,
     });
     if (endpoint?.host) {
       const profile = remote.servers.find((s) => s.id === id);
