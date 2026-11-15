@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">Боковая панель</string>
     <string name="and_noProfileEdit">На странице компьютера нет текущего — ⋮ карточки тоже редактирует</string>
     <string name="and_selectCardReload">Сначала нажмите карточку, чтобы выбрать компьютер для перезагрузки</string>
+    <string name="and_failReloadOnN">Автоперезагрузка при недоступности (каждые %1$d с)</string>
+    <string name="and_failReloadOff">Автоперезагрузка (выкл)</string>
+    <string name="and_dataRefreshOnN">Обновление данных (каждые %1$d с)</string>
+    <string name="and_dataRefreshOff">Обновление данных (выкл)</string>
+    <string name="and_transportWith">Транспорт (%1$s)</string>
+    <string name="and_bootThemeWith">Тема страницы загрузки (%1$s)</string>
+    <string name="and_customSeconds">Свои секунды</string>
+    <string name="and_refreshInterval">Интервал обновления</string>
+    <string name="and_recheckAddr">Проверять адрес при обновлении</string>
+    <string name="and_introFailReload">При сбое соединения периодически перезагружать страницу (проверяя все адреса).</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

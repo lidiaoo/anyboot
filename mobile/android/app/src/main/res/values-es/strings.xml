@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">Barra lateral</string>
     <string name="and_noProfileEdit">No hay equipo actual en la página: el ⋮ de la tarjeta también edita</string>
     <string name="and_selectCardReload">Toca una tarjeta primero para seleccionar el equipo</string>
+    <string name="and_failReloadOnN">Recargar al fallar (cada %1$ds)</string>
+    <string name="and_failReloadOff">Recargar al fallar (desactivado)</string>
+    <string name="and_dataRefreshOnN">Actualización de datos (cada %1$ds)</string>
+    <string name="and_dataRefreshOff">Actualización de datos (desactivada)</string>
+    <string name="and_transportWith">Transporte (%1$s)</string>
+    <string name="and_bootThemeWith">Tema de la página de arranque (%1$s)</string>
+    <string name="and_customSeconds">Segundos personalizados</string>
+    <string name="and_refreshInterval">Intervalo de actualización</string>
+    <string name="and_recheckAddr">Sondear dirección al actualizar</string>
+    <string name="and_introFailReload">Si falla la conexión, recargar la página periódicamente (sondeando todas las direcciones).</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

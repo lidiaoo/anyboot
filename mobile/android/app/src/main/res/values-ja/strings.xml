@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">サイドバー</string>
     <string name="and_noProfileEdit">電腦ページに現在の PC がありません — カード右の ⋮ からも編集可</string>
     <string name="and_selectCardReload">先にカードをタップして再読み込みする PC を選択</string>
+    <string name="and_failReloadOnN">接続不可時に自動再読み込み（%1$d 秒ごと）</string>
+    <string name="and_failReloadOff">接続不可時の自動再読み込み（オフ）</string>
+    <string name="and_dataRefreshOnN">データ更新（%1$d 秒ごと）</string>
+    <string name="and_dataRefreshOff">データ更新（オフ）</string>
+    <string name="and_transportWith">転送方式（%1$s）</string>
+    <string name="and_bootThemeWith">起動ページのテーマ（%1$s）</string>
+    <string name="and_customSeconds">カスタム秒数</string>
+    <string name="and_refreshInterval">更新間隔</string>
+    <string name="and_recheckAddr">更新時にアドレスを再検出するか</string>
+    <string name="and_introFailReload">接続失敗時に一定間隔で現在のページを自動再読み込み（全アドレス再検出）。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

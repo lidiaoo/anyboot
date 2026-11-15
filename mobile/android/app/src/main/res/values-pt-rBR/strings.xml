@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">Barra lateral</string>
     <string name="and_noProfileEdit">Sem computador atual na página — o ⋮ do cartão também edita</string>
     <string name="and_selectCardReload">Toque um cartão primeiro para selecionar o computador</string>
+    <string name="and_failReloadOnN">Recarregar ao falhar (a cada %1$ds)</string>
+    <string name="and_failReloadOff">Recarregar ao falhar (desligado)</string>
+    <string name="and_dataRefreshOnN">Atualização de dados (a cada %1$ds)</string>
+    <string name="and_dataRefreshOff">Atualização de dados (desligada)</string>
+    <string name="and_transportWith">Transporte (%1$s)</string>
+    <string name="and_bootThemeWith">Tema da página de boot (%1$s)</string>
+    <string name="and_customSeconds">Segundos personalizados</string>
+    <string name="and_refreshInterval">Intervalo de atualização</string>
+    <string name="and_recheckAddr">Sondar endereço ao atualizar</string>
+    <string name="and_introFailReload">Em falha de conexão, recarregar a página periodicamente (sondando todos os endereços).</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

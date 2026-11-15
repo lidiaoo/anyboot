@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">Seitenleiste</string>
     <string name="and_noProfileEdit">Kein aktueller Computer auf der Computerseite – das ⋮ der Karte kann auch bearbeiten</string>
     <string name="and_selectCardReload">Zuerst eine Karte antippen, um den neu zu ladenden Computer zu wählen</string>
+    <string name="and_failReloadOnN">Auto-Neuladen bei Nichterreichen (alle %1$ds)</string>
+    <string name="and_failReloadOff">Auto-Neuladen bei Nichterreichen (aus)</string>
+    <string name="and_dataRefreshOnN">Datenaktualisierung (alle %1$ds)</string>
+    <string name="and_dataRefreshOff">Datenaktualisierung (aus)</string>
+    <string name="and_transportWith">Transport (%1$s)</string>
+    <string name="and_bootThemeWith">Startseiten-Design (%1$s)</string>
+    <string name="and_customSeconds">Eigene Sekunden</string>
+    <string name="and_refreshInterval">Aktualisierungsintervall</string>
+    <string name="and_recheckAddr">Adresse bei Aktualisierung neu prüfen</string>
+    <string name="and_introFailReload">Bei Verbindungsfehler die aktuelle Seite regelmäßig neu laden (alle Adressen neu prüfen).</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

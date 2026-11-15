@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">Sidebar</string>
     <string name="and_noProfileEdit">No current computer on the computer page — the card\'s ⋮ can also edit directly</string>
     <string name="and_selectCardReload">Tap a card first to select the computer to reload</string>
+    <string name="and_failReloadOnN">Auto-reload when unreachable (every %1$ds)</string>
+    <string name="and_failReloadOff">Auto-reload when unreachable (off)</string>
+    <string name="and_dataRefreshOnN">Data refresh (every %1$ds)</string>
+    <string name="and_dataRefreshOff">Data refresh (off)</string>
+    <string name="and_transportWith">Transport (%1$s)</string>
+    <string name="and_bootThemeWith">Boot page theme (%1$s)</string>
+    <string name="and_customSeconds">Custom seconds</string>
+    <string name="and_refreshInterval">Refresh interval</string>
+    <string name="and_recheckAddr">Re-probe address on refresh</string>
+    <string name="and_introFailReload">On connection failure, auto-reload the current page periodically (re-probing all addresses).</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

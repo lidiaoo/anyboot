@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">側邊欄</string>
     <string name="and_noProfileEdit">電腦頁還沒有目前電腦 —— 卡片右側 ⋮ 也能直接編輯</string>
     <string name="and_selectCardReload">先點一下卡片選中要重載的電腦</string>
+    <string name="and_failReloadOnN">連不上時自動重新載入（每 %1$d 秒）</string>
+    <string name="and_failReloadOff">連不上時自動重新載入（已關閉）</string>
+    <string name="and_dataRefreshOnN">資料重新整理（每 %1$d 秒）</string>
+    <string name="and_dataRefreshOff">資料重新整理（已關閉）</string>
+    <string name="and_transportWith">傳輸方式（%1$s）</string>
+    <string name="and_bootThemeWith">引導頁主題（%1$s）</string>
+    <string name="and_customSeconds">自訂秒數</string>
+    <string name="and_refreshInterval">重新整理間隔</string>
+    <string name="and_recheckAddr">重新整理時是否重新探測位址</string>
+    <string name="and_introFailReload">連線失敗時每隔一段時間自動重新載入目前頁面（重新探測全部位址）。</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

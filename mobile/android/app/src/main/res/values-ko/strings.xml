@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">사이드바</string>
     <string name="and_noProfileEdit">컴퓨터 페이지에 현재 컴퓨터가 없습니다 — 카드 오른쪽 ⋮로도 편집</string>
     <string name="and_selectCardReload">먼저 카드를 탭해 다시 로드할 컴퓨터를 선택</string>
+    <string name="and_failReloadOnN">연결 불가 시 자동 새로 고침 (%1$d초마다)</string>
+    <string name="and_failReloadOff">연결 불가 시 자동 새로 고침 (꺼짐)</string>
+    <string name="and_dataRefreshOnN">데이터 새로 고침 (%1$d초마다)</string>
+    <string name="and_dataRefreshOff">데이터 새로 고침 (꺼짐)</string>
+    <string name="and_transportWith">전송 방식 (%1$s)</string>
+    <string name="and_bootThemeWith">부팅 페이지 테마 (%1$s)</string>
+    <string name="and_customSeconds">사용자 지정 초</string>
+    <string name="and_refreshInterval">새로 고침 간격</string>
+    <string name="and_recheckAddr">새로 고침 시 주소 재감지 여부</string>
+    <string name="and_introFailReload">연결 실패 시 일정 간격으로 현재 페이지 자동 새로 고침(모든 주소 재감지).</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

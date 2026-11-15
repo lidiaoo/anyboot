@@ -1150,6 +1150,16 @@
     <string name="topbar_sidebar">侧边栏</string>
     <string name="and_noProfileEdit">电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑</string>
     <string name="and_selectCardReload">先点一下卡片选中要重载的电脑</string>
+    <string name="and_failReloadOnN">连不上时自动重载（每 %1$d 秒）</string>
+    <string name="and_failReloadOff">连不上时自动重载（已关闭）</string>
+    <string name="and_dataRefreshOnN">数据刷新（每 %1$d 秒）</string>
+    <string name="and_dataRefreshOff">数据刷新（已关闭）</string>
+    <string name="and_transportWith">传输方式（%1$s）</string>
+    <string name="and_bootThemeWith">引导页主题（%1$s）</string>
+    <string name="and_customSeconds">自定义秒数</string>
+    <string name="and_refreshInterval">刷新间隔</string>
+    <string name="and_recheckAddr">刷新时是否重新探测地址</string>
+    <string name="and_introFailReload">连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

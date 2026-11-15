@@ -545,8 +545,8 @@ class ComputerListActivity : ComponentActivity() {
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (moreFailReloadSec > 0) "连不上时自动重载（每 $moreFailReloadSec 秒）"
-                            else "连不上时自动重载（已关闭）"
+                            if (moreFailReloadSec > 0) stringResource(R.string.and_failReloadOnN, moreFailReloadSec)
+                            else stringResource(R.string.and_failReloadOff)
                         )
                     },
                     onClick = { open = false; moreFailReloadOpen = true },
@@ -555,16 +555,16 @@ class ComputerListActivity : ComponentActivity() {
                     text = {
                         Text(
                             if (moreDataRefreshSec > 0)
-                                "数据刷新（每 ${moreDataRefreshSec} 秒）"
-                            else "数据刷新（已关闭）"
+                                stringResource(R.string.and_dataRefreshOnN, moreDataRefreshSec)
+                            else stringResource(R.string.and_dataRefreshOff)
                         )
                     },
                     onClick = { open = false; moreDataRefreshOpen = true },
                 )
-                DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_transportWith, transportLabel())) }, onClick = {
                     open = false; moreTransportOpen = true
                 })
-                DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_bootThemeWith, bootThemeLabel())) }, onClick = {
                     open = false; moreBootThemeOpen = true
                 })
                 // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 拖出来的顺序（默认）；
@@ -771,7 +771,7 @@ class ComputerListActivity : ComponentActivity() {
                                 },
                             )
                             Text(
-                                if (sec == 0) "永不（关闭自动重载）" else "每 $sec 秒",
+                                if (sec == 0) stringResource(R.string.menu_never) else stringResource(R.string.menu_everyN, sec),
                                 fontSize = 13.sp, color = palette.fg,
                             )
                         }
@@ -849,8 +849,7 @@ class ComputerListActivity : ComponentActivity() {
                                 },
                             )
                             Text(
-                                if (sec == 0) "关闭数据刷新" else "每 $sec 秒" +
-                                    (if (sec == 2) "（默认）" else ""),
+                                if (sec == 0) stringResource(R.string.menu_offRefresh) else stringResource(R.string.menu_everyNDefault, sec),
                                 fontSize = 13.sp, color = palette.fg,
                             )
                         }
