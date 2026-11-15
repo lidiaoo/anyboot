@@ -187,9 +187,9 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
         items.push(menu_item(
             "grub-empty",
             if grub.partuuid.is_empty() && grub.dir.is_empty() {
-                "GRUB：还没配置 ESP"
+                crate::t!(crate::i18n::current(),"GRUB：还没配置 ESP","GRUB：還沒設定 ESP","GRUB: ESP not configured","GRUB：ESP 未設定","GRUB: ESP 미설정","GRUB: ESP nicht konfiguriert","GRUB: ESP не настроен","GRUB: ESP não configurado","GRUB: ESP sin configurar")
             } else {
-                "GRUB：没解析到启动项"
+                crate::t!(crate::i18n::current(),"GRUB：没解析到启动项","GRUB：沒解析到啟動項","GRUB: no boot entries parsed","GRUB：起動項目を解析できず","GRUB: 부팅 항목 미파싱","GRUB: keine Starteinträge geparst","GRUB: записи загрузки не разобраны","GRUB: sem entradas analisadas","GRUB: no se analizaron entradas")
             },
             false,
         ));
@@ -553,7 +553,7 @@ pub(crate) fn overlay_linux_grub(
             // 空列表要带真实口径（零回落的配套）：电脑列表 /api/grub 的消费方
             // （手机端）error 为空时会显示「没部署 GRUB」，在自动模式下是误导
             if view.entries.is_empty() && view.error.as_deref().unwrap_or("").is_empty() {
-                view.error = Some("自动读取没扫到 GRUB 启动项（在电脑上点「重新读取」）".to_string());
+                view.error = Some(crate::t!(crate::i18n::current(),"自动读取没扫到 GRUB 启动项（在电脑上点「重新读取」）","自動讀取沒掃到 GRUB 啟動項（在電腦上點「重新讀取」）","Auto-read found no GRUB entries (tap “Reload” on the computer)","自動読み取りで GRUB 起動項目なし（PC 側で「再読み込み」）","자동 읽기에서 GRUB 부팅 항목 없음(PC에서 ‘다시 읽기’)","Auto-Lesen fand keine GRUB-Einträge (am PC „Neu laden“)","Авточтение не нашло записей GRUB (на ПК «Перечитать»)","Leitura automática sem entradas GRUB (no PC “Recarregar”)","Lectura automática sin entradas GRUB (en el PC «Recargar»)").to_string());
             }
         }
         // 还没读过（None）：列表与选中项就是空 —— 不回落 ESP
@@ -562,7 +562,7 @@ pub(crate) fn overlay_linux_grub(
             view.groups = Vec::new();
             view.next_entry = None;
             view.saved_entry = None;
-            view.error = Some("自动读取还没执行（在电脑上点「重新读取」）".to_string());
+            view.error = Some(crate::t!(crate::i18n::current(),"自动读取还没执行（在电脑上点「重新读取」）","自動讀取還沒執行（在電腦上點「重新讀取」）","Auto-read hasn't run (tap “Reload” on the computer)","自動読み取り未実行（PC 側で「再読み込み」）","자동 읽기 미실행(PC에서 ‘다시 읽기’)","Auto-Lesen noch nicht gelaufen (am PC „Neu laden“)","Авточтение не выполнено (на ПК «Перечитать»)","Leitura automática não executada (no PC “Recarregar”)","Lectura automática no ejecutada (en el PC «Recargar»)").to_string());
         }
     }
 }
@@ -922,13 +922,13 @@ pub(crate) fn loader_menu_nodes_from(
             let children = if children.is_empty() {
                 vec![menu_item(
                     "refind-empty",
-                    "没有可见的菜单项（都被隐藏规则挡掉了）",
+                    crate::t!(crate::i18n::current(),"没有可见的菜单项（都被隐藏规则挡掉了）","沒有可見的選單項（都被隱藏規則擋掉了）","No visible menu items (all hidden by rules)","表示できるメニュー項目なし（非表示ルールで除外）","표시할 메뉴 항목 없음(숨김 규칙으로 제외)","Keine sichtbaren Menüpunkte (durch Regeln ausgeblendet)","Нет видимых пунктов (скрыты правилами)","Sem itens visíveis (ocultos por regras)","Sin elementos visibles (ocultos por reglas)"),
                     false,
                 )]
             } else {
                 children
             };
-            nodes.push(menu_submenu("refind-entries", "rEFInd 启动项", children));
+            nodes.push(menu_submenu("refind-entries", crate::t!(crate::i18n::current(),"rEFInd 启动项","rEFInd 啟動項","rEFInd entries","rEFInd 起動項目","rEFInd 부팅 항목","rEFInd-Einträge","Записи rEFInd","Entradas rEFInd","Entradas rEFInd"), children));
         }
     }
     // RefindPlus：与 rEFInd 同规则的另一块（并存安装各自出块，互不抢）
@@ -952,7 +952,7 @@ pub(crate) fn loader_menu_nodes_from(
             };
             nodes.push(menu_submenu(
                 "refindplus-entries",
-                "RefindPlus 启动项",
+                crate::t!(crate::i18n::current(),"RefindPlus 启动项","RefindPlus 啟動項","RefindPlus entries","RefindPlus 起動項目","RefindPlus 부팅 항목","RefindPlus-Einträge","Записи RefindPlus","Entradas RefindPlus","Entradas RefindPlus"),
                 children,
             ));
         }
@@ -962,7 +962,7 @@ pub(crate) fn loader_menu_nodes_from(
     let grub_nodes = grub_menu_nodes(grub, busy);
     let grub_configured = !grub.partuuid.is_empty() || !grub.dir.is_empty() || grub.esp.is_some();
     if grub_nodes.iter().any(|node| node.enabled) || grub_configured {
-        nodes.push(menu_submenu("grub-entries", "GRUB 启动项", grub_nodes));
+        nodes.push(menu_submenu("grub-entries", crate::t!(crate::i18n::current(),"GRUB 启动项","GRUB 啟動項","GRUB entries","GRUB 起動項目","GRUB 부팅 항목","GRUB-Einträge","Записи GRUB","Entradas GRUB","Entradas GRUB"), grub_nodes));
     }
     // 通道：检测到就出块（哪怕当前没有可切换的菜单项 —— 主窗能看菜单预览，
     // 托盘至少要让人知道「这台机器上有它」）。未检测到的整块不出现。
@@ -974,7 +974,7 @@ pub(crate) fn loader_menu_nodes_from(
         let children = if children.is_empty() {
             vec![menu_item(
                 format!("channel-empty:{}", channel.id),
-                "没有可切换的菜单项（在主窗看菜单预览）",
+                crate::t!(crate::i18n::current(),"没有可切换的菜单项（在主窗看菜单预览）","沒有可切換的選單項（在主視窗看選單預覽）","No switchable items (see menu preview in main window)","切替可能な項目なし（メイン画面でプレビュー）","전환 가능한 항목 없음(메인 창에서 미리보기)","Keine umschaltbaren Einträge (Vorschau im Hauptfenster)","Нет переключаемых пунктов (предпросмотр в окне)","Sem itens alternáveis (prévia na janela)","Sin elementos alternables (vista previa)"),
                 false,
             )]
         } else {
@@ -1098,7 +1098,7 @@ pub(crate) fn grub_push_entry(
         let tag = if !entry.kernels.is_empty() {
             entry.kernels[0].clone()
         } else if entry.chainloader {
-            "转交引导".to_string()
+            crate::t!(crate::i18n::current(),"转交引导","轉交引導","Chainload","チェーンロード","체인로드","Chainload","Передача загрузки","Encadear boot","Encadenar arranque").to_string()
         } else {
             entry.class.clone().unwrap_or_default()
         };
