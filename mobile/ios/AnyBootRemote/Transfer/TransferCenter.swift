@@ -187,7 +187,7 @@ final class TransferCenter: ObservableObject {
                 task.transferred = max(task.transferred, Self.partialLength(task))
                 task.baseline = task.transferred
                 task.interrupted = true
-                task.message = "上次没传完（App 关掉了），点「继续」接着传"
+                task.message = L("and.lastXferIncomplete")
             }
             loaded.append(task)
         }
@@ -325,12 +325,12 @@ final class TransferCenter: ObservableObject {
 
     /// 继续：接着上次的断点传（**新建一条任务**，暂停那条留作历史）。返回 nil = 已发起
     func resume(_ id: String) -> String? {
-        guard let previous = task(id) else { return "这条任务不在了" }
-        guard previous.state == .paused else { return "这条任务不是暂停状态" }
-        guard let jump = JumpStore.shared.jump(previous.serverId) else { return "服务器已删除，接不上了" }
+        guard let previous = task(id) else { return L("and.taskGone") }
+        guard previous.state == .paused else { return L("and.taskNotPaused") }
+        guard let jump = JumpStore.shared.jump(previous.serverId) else { return L("and.serverGone") }
         if previous.direction == .upload,
            !FileManager.default.fileExists(atPath: previous.localPath) {
-            return "本地文件拷贝已被清理，只能重新上传"
+            return L("and.localCopyCleaned")
         }
         if let clashing = pendingTask(direction: previous.direction,
                                       remotePath: previous.remotePath),
@@ -354,7 +354,7 @@ final class TransferCenter: ObservableObject {
         task.remoteMTime = previous.remoteMTime
         // 暂停那条就此收尾（只是留个说法），否则会挂成一行没有意义的「已暂停」
         finish(previous.id, state: .superseded,
-               message: "已接续（本次从 \(TransferTask.humanBytes(previous.transferred)) 接着传）")
+               message: L("and.resumedFrom", TransferTask.humanBytes(previous.transferred)))
         register(task)
         launch(task, jump: jump, resume: true)
         return nil
@@ -369,15 +369,15 @@ final class TransferCenter: ObservableObject {
                 let cleaned = await discardPartial(task)
                 let note: String
                 if task.direction == .download {
-                    note = cleaned ? "半截文件已删除" : "半截文件没能删掉"
+                    note = cleaned ? L("and.halfDeleted") : L("and.halfNotDeleted")
                 } else {
-                    note = cleaned ? "半截文件已清理" : "半截文件可能还在服务器上"
+                    note = cleaned ? L("and.halfCleaned") : L("and.halfMayRemain")
                 }
                 let verb = task.direction == .upload ? "已传" : "已下"
                 finish(id, state: .cancelled,
                        message: task.transferred > 0
-                        ? "已取消（\(verb) \(TransferTask.humanBytes(task.transferred))，\(note)）"
-                        : "已取消")
+                        ? L("and.cancelledWith", verb, TransferTask.humanBytes(task.transferred), note)
+                        : L("and.cancelled"))
             }
             return
         }
@@ -386,14 +386,14 @@ final class TransferCenter: ObservableObject {
 
     /// 重试：按原样再发一次（**新建一条任务**）。重试是**从头来**；接着断点走要用 `resume`
     func retry(_ id: String) -> String? {
-        guard let previous = task(id), !previous.isPending else { return "这条任务还挂着" }
-        guard let jump = JumpStore.shared.jump(previous.serverId) else { return "服务器已删除，重试不了" }
+        guard let previous = task(id), !previous.isPending else { return L("and.taskPending") }
+        guard let jump = JumpStore.shared.jump(previous.serverId) else { return L("and.retryNoServer") }
         if pendingTask(direction: previous.direction, remotePath: previous.remotePath) != nil {
             return "这条已经在传了"
         }
         if previous.direction == .upload {
             guard FileManager.default.fileExists(atPath: previous.localPath) else {
-                return "找不到原来的本地文件拷贝，只能重新上传"
+                return L("and.retryNoLocalCopy")
             }
             var task = TransferTask(direction: .upload)
             task.serverId = previous.serverId
@@ -590,12 +590,12 @@ final class TransferCenter: ObservableObject {
                     try? FileManager.default.removeItem(atPath: targetPath)
                     await center.finish(taskId, state: .cancelled,
                                         message: cancelledMessage(transferred: offset, verb: "已下",
-                                                                  note: "半截文件已删除"))
+                                                                  note: L("and.halfDeleted")))
                 }
                 return
             }
             await center.finish(taskId, state: .done,
-                                message: "已下载到 \(targetPath)\(note)")
+                                message: L("and.downloadedTo", targetPath + note))
         } catch {
             let stopped = box.value
             if stopped != .none {
@@ -691,7 +691,7 @@ final class TransferCenter: ObservableObject {
                     try? await sftp.remove(at: snapshot.remotePath)
                     await center.finish(taskId, state: .cancelled,
                                         message: cancelledMessage(transferred: offset, verb: "已传",
-                                                                  note: "半截文件已清理"))
+                                                                  note: L("and.halfCleaned")))
                 }
                 return
             }
