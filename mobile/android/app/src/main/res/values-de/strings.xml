@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">Push-Kanal-Fehler</string>
     <string name="cl_footerNote">Energiebefehle sofort (keine Bestätigung) · Aufwecken auch offline (Magic Packet) · Startänderungen nach Neustart</string>
     <string name="topbar_sidebar">Seitenleiste</string>
+    <string name="and_bootThemeTitle">Startseiten-Design</string>
+    <string name="and_bootThemeIntro">Beim Öffnen einer Computerseite wird das hier gewählte Design genutzt (ohne das eigene gespeicherte Design des Computers zu ändern). „Computer folgen“ = keine Vorgabe; jeder nutzt sein eigenes.</string>
+    <string name="and_bootThemeSelected">„%1$s“ gewählt: gilt auf der Computerseite</string>
+    <string name="and_bootThemeScheme">Schema %1$s</string>
+    <string name="and_serverListTitle">Serverliste (zum Bearbeiten antippen)</string>
+    <string name="and_serverListEmpty">Noch keine Computer – „Server hinzufügen“ zum Anlegen.</string>
     <string name="api_invalidToken">Ungültiges Zugriffstoken (401)</string>
     <string name="api_commandFailed">Befehl fehlgeschlagen: %1$s</string>
     <string name="ts_local">Lokal direkt</string>

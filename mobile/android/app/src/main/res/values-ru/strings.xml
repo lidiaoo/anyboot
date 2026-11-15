@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">Ошибка канала push</string>
     <string name="cl_footerNote">Команды питания сразу (без подтверждения) · пробуждение работает и offline (magic packet) · изменения загрузки — после перезагрузки</string>
     <string name="topbar_sidebar">Боковая панель</string>
+    <string name="and_bootThemeTitle">Тема страницы загрузки</string>
+    <string name="and_bootThemeIntro">При открытии страницы компьютера используется выбранная здесь тема (без изменения собственной сохранённой темы компьютера). «Как на компьютере» = без предпочтений; у каждого своя.</string>
+    <string name="and_bootThemeSelected">Выбрано «%1$s»: действует на странице компьютера</string>
+    <string name="and_bootThemeScheme">Схема %1$s</string>
+    <string name="and_serverListTitle">Список серверов (нажмите для правки)</string>
+    <string name="and_serverListEmpty">Компьютеров нет — «Добавить сервер» для создания.</string>
     <string name="api_invalidToken">Недействительный токен (401)</string>
     <string name="api_commandFailed">Ошибка команды: %1$s</string>
     <string name="ts_local">Локально напрямую</string>

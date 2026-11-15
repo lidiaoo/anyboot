@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">Push channel error</string>
     <string name="cl_footerNote">Power actions run immediately (no confirmation) · wake works offline too (magic packet) · boot changes take effect after reboot</string>
     <string name="topbar_sidebar">Sidebar</string>
+    <string name="and_bootThemeTitle">Boot page theme</string>
+    <string name="and_bootThemeIntro">When opening a computer page, the theme chosen here is used (without changing the computer\'s own saved theme). “Follow computer” = no preference; each computer uses its own.</string>
+    <string name="and_bootThemeSelected">Selected “%1$s”: takes effect on the computer page</string>
+    <string name="and_bootThemeScheme">Scheme %1$s</string>
+    <string name="and_serverListTitle">Server list (tap one to edit)</string>
+    <string name="and_serverListEmpty">No computers yet — click “Add server” to create one.</string>
     <string name="api_invalidToken">Invalid access token (401)</string>
     <string name="api_commandFailed">Command failed: %1$s</string>
     <string name="ts_local">Local direct</string>

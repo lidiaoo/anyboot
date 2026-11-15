@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">推送通道出錯</string>
     <string name="cl_footerNote">電源操作立即執行（不再確認）· 喚醒離線也能發（魔術封包）· 引導項變更在下次重新啟動後生效</string>
     <string name="topbar_sidebar">側邊欄</string>
+    <string name="and_bootThemeTitle">引導頁主題</string>
+    <string name="and_bootThemeIntro">進電腦頁面時按這裡選的主題顯示（不改掉電腦自己儲存的主題）。「跟隨電腦」= 不帶偏好，看哪台就用哪台自己的。</string>
+    <string name="and_bootThemeSelected">已選擇「%1$s」：進電腦頁面後生效</string>
+    <string name="and_bootThemeScheme">方案 %1$s</string>
+    <string name="and_serverListTitle">伺服器列表（點一台進行編輯）</string>
+    <string name="and_serverListEmpty">還沒有電腦 —— 點「新增伺服器」建一條。</string>
     <string name="api_invalidToken">存取權杖無效（401）</string>
     <string name="api_commandFailed">命令失敗：%1$s</string>
     <string name="ts_local">本機直連</string>

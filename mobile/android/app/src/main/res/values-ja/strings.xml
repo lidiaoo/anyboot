@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">プッシュチャネルのエラー</string>
     <string name="cl_footerNote">電源操作は即実行（確認なし）· スリープ解除はオフラインでも可（マジックパケット）· 起動項目の変更は再起動後に有効</string>
     <string name="topbar_sidebar">サイドバー</string>
+    <string name="and_bootThemeTitle">起動ページのテーマ</string>
+    <string name="and_bootThemeIntro">PC ページを開くときここで選んだテーマで表示（PC 側の保存テーマは変更しません）。「コンピューターに従う」= 好みなし、各 PC 自身のものを使用。</string>
+    <string name="and_bootThemeSelected">「%1$s」を選択：PC ページで有効</string>
+    <string name="and_bootThemeScheme">プラン %1$s</string>
+    <string name="and_serverListTitle">サーバー一覧（タップで編集）</string>
+    <string name="and_serverListEmpty">PC がありません — 「サーバーを追加」で作成。</string>
     <string name="api_invalidToken">アクセストークンが無効（401）</string>
     <string name="api_commandFailed">コマンド失敗：%1$s</string>
     <string name="ts_local">ローカル直結</string>

@@ -631,11 +631,11 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { moreBootThemeOpen = false },
             containerColor = palette.card,
-            title = { Text("引导页主题") },
+            title = { Text(stringResource(R.string.and_bootThemeTitle)) },
             text = {
                 Column {
                     Text(
-                        "进电脑页面时按这里选的主题显示（不改掉电脑自己保存的主题）。\"跟随电脑\" = 不带偏好，看哪台就用哪台自己的。",
+                        stringResource(R.string.and_bootThemeIntro),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -648,7 +648,7 @@ class ComputerListActivity : ComponentActivity() {
                                     moreBootTheme = value
                                     ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
                                     moreBootThemeOpen = false
-                                    toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                                    toast(getString(R.string.and_bootThemeSelected, bootThemeLabel()))
                                 }
                                 .padding(vertical = 6.dp),
                         ) {
@@ -656,13 +656,13 @@ class ComputerListActivity : ComponentActivity() {
                                 moreBootTheme = value
                                 ServerProfile.setGuestBootTheme(this@ComputerListActivity, value)
                                 moreBootThemeOpen = false
-                                toast("已选择「${bootThemeLabel()}」：进电脑页面后生效")
+                                toast(getString(R.string.and_bootThemeSelected, bootThemeLabel()))
                             })
                             Text(
                                 when (value) {
-                                    "" -> "跟随电脑（不带回退）"
-                                    "K" -> "不套用主题"
-                                    else -> "方案 $value"
+                                    "" -> stringResource(R.string.menu_themeFollow)
+                                    "K" -> stringResource(R.string.menu_themeNone)
+                                    else -> stringResource(R.string.and_bootThemeScheme, value)
                                 },
                                 fontSize = 14.sp, color = palette.fg,
                                 modifier = Modifier.weight(1f, fill = false),
@@ -673,7 +673,7 @@ class ComputerListActivity : ComponentActivity() {
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { moreBootThemeOpen = false }) { Text("取消") }
+                TextButton(onClick = { moreBootThemeOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -687,11 +687,11 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { moreServerListOpen = false },
             containerColor = palette.card,
-            title = { Text("服务端列表（点一台进行编辑）", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.and_serverListTitle), fontSize = 15.sp, fontWeight = FontWeight.Bold) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     if (servers.isEmpty()) {
-                        Text("还没有电脑 —— 点「添加服务端」建一条。", fontSize = 13.sp, color = palette.fgDim)
+                        Text(stringResource(R.string.and_serverListEmpty), fontSize = 13.sp, color = palette.fgDim)
                     }
                     servers.forEach { profile ->
                         // 用户要求：每个条目把所有配置好的 IP 都亮出来，不再用「另有 N 个地址」摘要
@@ -712,7 +712,7 @@ class ComputerListActivity : ComponentActivity() {
                             val count = profile.addressCount()
                             if (count == 0) {
                                 Text(
-                                    text = "　(未配地址)",
+                                    text = "　" + stringResource(R.string.server_noAddr),
                                     fontSize = 11.sp,
                                     color = palette.fgDim,
                                 )
@@ -734,10 +734,10 @@ class ComputerListActivity : ComponentActivity() {
                 TextButton(onClick = {
                     moreServerListOpen = false
                     openAdd()
-                }) { Text("添加") }
+                }) { Text(stringResource(R.string.common_add)) }
             },
             dismissButton = {
-                TextButton(onClick = { moreServerListOpen = false }) { Text("关闭") }
+                TextButton(onClick = { moreServerListOpen = false }) { Text(stringResource(R.string.common_close)) }
             },
         )
     }

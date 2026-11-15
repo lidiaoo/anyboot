@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">Error del canal push</string>
     <string name="cl_footerNote">Acciones de energía inmediatas (sin confirmación) · despertar funciona sin conexión (magic packet) · cambios de arranque tras reiniciar</string>
     <string name="topbar_sidebar">Barra lateral</string>
+    <string name="and_bootThemeTitle">Tema de la página de arranque</string>
+    <string name="and_bootThemeIntro">Al abrir la página de un equipo se usa el tema elegido aquí (sin cambiar el tema guardado del equipo). «Seguir equipo» = sin preferencia; cada uno usa el suyo.</string>
+    <string name="and_bootThemeSelected">«%1$s» seleccionado: se aplica en la página del equipo</string>
+    <string name="and_bootThemeScheme">Esquema %1$s</string>
+    <string name="and_serverListTitle">Lista de servidores (toca para editar)</string>
+    <string name="and_serverListEmpty">Sin equipos: «Añadir servidor» para crear uno.</string>
     <string name="api_invalidToken">Token de acceso no válido (401)</string>
     <string name="api_commandFailed">Comando falló: %1$s</string>
     <string name="ts_local">Directo local</string>

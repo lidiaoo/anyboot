@@ -1148,6 +1148,12 @@
     <string name="ts_pushError">推送通道出错</string>
     <string name="cl_footerNote">电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启后生效</string>
     <string name="topbar_sidebar">侧边栏</string>
+    <string name="and_bootThemeTitle">引导页主题</string>
+    <string name="and_bootThemeIntro">进电脑页面时按这里选的主题显示（不改掉电脑自己保存的主题）。「跟随电脑」= 不带偏好，看哪台就用哪台自己的。</string>
+    <string name="and_bootThemeSelected">已选择「%1$s」：进电脑页面后生效</string>
+    <string name="and_bootThemeScheme">方案 %1$s</string>
+    <string name="and_serverListTitle">服务端列表（点一台进行编辑）</string>
+    <string name="and_serverListEmpty">还没有电脑 —— 点「添加服务端」建一条。</string>
     <string name="api_invalidToken">访问令牌无效（401）</string>
     <string name="api_commandFailed">命令失败：%1$s</string>
     <string name="ts_local">本机直连</string>
