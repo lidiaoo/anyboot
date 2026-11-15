@@ -403,7 +403,7 @@ async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);
     message.value = t("gw.copied");
-    toast.show("已复制到剪贴板");
+    toast.show(t("gw.copied"));
   } catch {
     /* 剪贴板不可用 */
   }
@@ -422,7 +422,7 @@ async function openTsLog(silent = false) {
 function tsDownload() {
   tsDownloading.value = true;
   tsProgress.value = 0;
-  void run("下载 Tailscale", () => call("gateway_tailscale_download"), "开始下载…").finally(() => {
+  void run(t("gw.downloadTs"), () => call("gateway_tailscale_download"), t("gw.dlStarted")).finally(() => {
     tsDownloading.value = false;
   });
 }
@@ -945,7 +945,7 @@ function tsUninstallNow() {
 function adoptOrphan() {
   const pid = orphans.value[0]?.pid;
   if (!pid) { toast.show(t("gw.noOrphanAdopt"), "bad"); return; }
-  void run("沿用残留通道", () => call("gateway_tunnel_adopt", { pid }), "已沿用");
+  void run(t("gw.adoptOrphan"), () => call("gateway_tunnel_adopt", { pid }), t("gw.adopted"));
 }
 
 
@@ -1159,16 +1159,14 @@ function deletePair(id: string) {
         class="gw-tab-dot"
         :data-st="tabDotState(tab.key)"
       />
-      {{ tab.label }}
+      {{ $t(tab.label) }}
     </button>
   </div>
 
   <!-- ===== Cloudflare 分页 ===== -->
   <div v-show="activeTab === 'cf'" class="gw-tabpane">
     <div class="gw-note" id="gwWarnQuick" :hidden="config?.mode === 'named'">
-      快速隧道的地址在通道重启后会变化 —— 重启电脑 / 通道后，已配对的客户端要重新配对一次。
-      要固定地址请改用「命名隧道」（需 Cloudflare 账号 + 托管域名），或用下方 Tailscale
-      直连（装好即用、地址长期固定、不出公网）。
+      {{ $t("gw.hintQuickTunnel") }}
     </div>
 
     <div class="gw-card">
@@ -1221,8 +1219,7 @@ function deletePair(id: string) {
       <!-- 残留通道（旧版 #gwOrphanBox）：沿用或终止 -->
       <div id="gwOrphanBox" :hidden="!orphanRunning" style="margin-top: 12px">
         <p class="field-hint" style="margin: 0 0 6px">
-          检测到上次异常退出留下的残留通道 —— 「沿用」地址不变（客户端无需重新配对），
-          「终止」后点上方「开启通道」会创建新地址。
+          {{ $t("gw.hintOrphan") }}
         </p>
         <div id="gwOrphanList" class="gw-clients">
           <div class="gw-client">
@@ -1306,7 +1303,7 @@ function deletePair(id: string) {
        v-if="namedTokenSet">
         <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">{{ $t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。
+          {{ $t("gw.clearCredHint") }}
         </span>
       </div>
 
@@ -1422,7 +1419,7 @@ function deletePair(id: string) {
       <!-- 需登录态：#tsLoginRow（拿到授权链接就显示；事件没到也能从错误文本兜底） -->
       <div id="tsLoginRow" :hidden="!tsLoginVisible">
         <p class="field-hint" style="margin: 8px 0 0">
-          需要登录 Tailscale 账号 —— 点下面按钮（或直接点链接）在浏览器完成授权，一次即可，凭据会记住。
+          {{ $t("gw.hintNeedLoginSys") }}
           {{ $t("gw.authDoneNote") }}
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
@@ -1434,8 +1431,8 @@ function deletePair(id: string) {
           <a :href="loginUrl" class="gw-url" :title="$t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
-          ⏱️ 登录链接约 <b>10 分钟</b>内有效；过期或点了没反应，就点<b>重新生成链接</b>或把开关<b>关开一次</b>。
-          链接也可以复制到手机/其它设备的浏览器打开；授权完回到这里把开关关开一次即可。
+          {{ $t("gw.hintLinkValidSys") }}
+          {{ $t("gw.hintLinkCopySys") }}
         </p>
       </div>
 
@@ -1472,44 +1469,39 @@ function deletePair(id: string) {
           }}</span>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-          ⚠️ 此地址仅同一 tailnet 内设备（登录同一 Tailscale 账号）可达，安全依赖配对令牌，请勿外传配对码。
-          目标机睡眠后同样失联 —— 唤醒仍需局域网内常开的跳板机代发广播包。
+          {{ $t("gw.hintTsnetOnly") }}
         </p>
       </div>
 
       <!-- 停止态：#tsStoppedRow -->
       <div id="tsStoppedRow" :hidden="!tsStatus?.installed || tsState !== 'stopped'">
         <p class="field-hint" style="margin: 8px 0 0">
-          Tailscale 处于停止状态 —— 在系统托盘 / 菜单栏把它连上后点「重新检测」。
+          {{ $t("gw.hintTsStopped") }}
         </p>
       </div>
 
       <!-- GUI 未启动态：#tsGuiRow -->
       <div id="tsGuiRow" :hidden="!tsStatus?.installed || tsState !== 'needs_gui'">
         <p class="field-hint" style="margin: 8px 0 6px">
-          Tailscale 已安装但 GUI 没有运行 —— 点下面打开 Tailscale.app（菜单栏出现图标即就绪），稍等几秒后自动重新检测。
+          {{ $t("gw.hintTsGuiDown") }}
         </p>
-        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsLaunchGui">打开 Tailscale.app</button>
+        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsLaunchGui">{{ $t("gw.openTsApp") }}</button>
       </div>
 
       <!-- 网络扩展待重启态：#tsRebootRow -->
       <div id="tsRebootRow" :hidden="!tsStatus?.installed || tsState !== 'needs_reboot'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
-          Tailscale 已经装好，但系统里那个旧的网络扩展还在「等待重启卸载」——
-          新扩展因此无法激活，连接会一直失败。<b>重启 Mac</b> 后它会自动换成新扩展，
-          回来点「重新检测」即可。（重装没用，别反复卸装）
+          {{ $t("gw.hintTsOldExt") }}
         </p>
-        <button type="button" class="btn" id="tsRebootRecheck" @click="refreshAll">已重启，重新检测</button>
+        <button type="button" class="btn" id="tsRebootRecheck" @click="refreshAll">{{ $t("gw.rebootRecheck") }}</button>
       </div>
 
       <!-- 网络扩展待授权态：#tsApprovalRow -->
       <div id="tsApprovalRow" :hidden="!tsStatus?.installed || tsState !== 'needs_approval'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
-          Tailscale 已安装，但系统里的<b>网络扩展还没被允许</b> —— 批准之前它连不上网络，点连接一定失败。
-          点下面打开「系统设置 → 通用 → 登录项与扩展 → 网络扩展」，把 <b>Tailscale</b> 打开
-          （可能需要指纹 / 密码），回来点「重新检测」即可。
+          {{ $t("gw.hintTsExtNotAllowed") }}
         </p>
-        <button type="button" class="btn" id="tsApprovalBtn" @click="tsExtensionSettings">打开网络扩展设置</button>
+        <button type="button" class="btn" id="tsApprovalBtn" @click="tsExtensionSettings">{{ $t("gw.openExtSettings") }}</button>
       </div>
 
       <!-- Funnel 公网通道区块：#tsfBlock（4 种状态） -->
@@ -1539,8 +1531,7 @@ function deletePair(id: string) {
 
           <!-- off 态说明 -->
           <p class="field-hint" id="tsfOffRow" :hidden="tsfState !== 'off'" style="margin: 8px 0 0">
-            把本机服务经 Tailscale 官方中继发布成公网地址（https://机器名.ts.net）——
-            手机<b>不装 Tailscale</b> 也能访问，地址固定；国内网络可能不稳，流量有带宽限制。
+            {{ $t("gw.hintFunnelPublish") }}
           </p>
 
           <!-- ready 态：公网地址行 -->
@@ -1560,7 +1551,7 @@ function deletePair(id: string) {
           <!-- needs_authorize 态 -->
           <div id="tsfAuthRow" :hidden="tsfState !== 'needs_authorize'">
             <p class="field-hint" style="margin: 8px 0 0">
-              需要在 Tailscale 官方页允许 Funnel 并启用 HTTPS 证书（需 Owner / Admin 账号），一次授权长期有效。
+              {{ $t("gw.hintFunnelAuth") }}
             </p>
             <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
               <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">{{ $t("gw.goAuthPage") }}</button>
@@ -1578,9 +1569,9 @@ function deletePair(id: string) {
 
       <!-- 清除登录凭据：#tsLogoutRow -->
       <div id="tsLogoutRow" style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
-        <button type="button" class="link-btn" id="tsLogoutBtn" @click="tsLogout">清除登录凭据</button>
+        <button type="button" class="link-btn" id="tsLogoutBtn" @click="tsLogout">{{ $t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          执行 tailscale logout：断开并清除本机登录凭据<b>与保存的 AuthKey</b>，下次连接需重新授权；Tailscale 管理台里的设备记录需自行移除。
+          {{ $t("gw.hintTsLogout") }}
         </span>
       </div>
 
@@ -1625,12 +1616,10 @@ function deletePair(id: string) {
       <!-- off 态：说明 + AuthKey 配置 -->
       <div id="tsnOffRow" :hidden="tsnStatus?.state !== 'off'">
         <p class="field-hint" style="margin: 8px 0 0">
-          本机<b>无需安装 Tailscale</b>——内置引擎把本机服务发布成公网地址
-          （https://anyboot.….ts.net），手机不装 Tailscale 也能访问，地址固定；
-          国内网络首次连接协调服务器可能不稳，流量经 Tailscale 中继有带宽限制。
+          {{ $t("gw.hintTsnPublish") }}
         </p>
         <div class="field" style="margin-top: 10px">
-          <label for="tsnKey">AuthKey（可选，推荐填）</label>
+          <label for="tsnKey">{{ $t("gw.authKeyLabel") }}</label>
           <div style="display: flex; gap: 8px; align-items: center">
             <input
               id="tsnKey"
@@ -1638,13 +1627,13 @@ function deletePair(id: string) {
               type="password"
               class="mono"
               style="flex: 1"
-              placeholder="留空则走浏览器登录"
+              :placeholder="$t('gw.tsAuthkeyEmptyField')"
               autocomplete="off"
             />
-            <button type="button" class="btn" id="tsnKeySave" :disabled="!!busy" @click="tsnSaveKey">保存</button>
+            <button type="button" class="btn" id="tsnKeySave" :disabled="!!busy" @click="tsnSaveKey">{{ $t("common.save") }}</button>
           </div>
           <p class="field-hint">
-            在 Tailscale 管理控制台 → Settings → Keys 里签发一次性的设备授权密钥；填了它开启引擎时免浏览器登录。
+            {{ $t("gw.hintTsnAuthKey") }}
           </p>
         </div>
       </div>
@@ -1652,14 +1641,11 @@ function deletePair(id: string) {
       <!-- needs_auth 态 -->
       <div id="tsnAuthRow" :hidden="tsnStatus?.state !== 'needs_auth'">
         <p class="field-hint" style="margin: 8px 0 0">
-          需要登录 Tailscale 账号 —— 点下面按钮在浏览器完成授权（一次即可，凭据会记住）。
-          登录完成后引擎自动继续，不用再点开关。
-          登录后引擎要<b>初始化环境资源</b>（节点配置、HTTPS 证书、公网 DNS 等），通常需要几分钟——
-          请<b>每隔几分钟回来看一眼</b>状态或日志，就绪后这里会显示、日志里会打印<b>公网地址</b>。
+          {{ $t("gw.hintTsnLogin") }}
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">打开登录页</button>
-          <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">复制登录链接</button>
+          <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">{{ $t("gw.openLoginPage") }}</button>
+          <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">{{ $t("gw.copyLoginUrl") }}</button>
           <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
@@ -1674,10 +1660,10 @@ function deletePair(id: string) {
       <!-- ready 态：公网地址行 -->
       <div id="tsnAddrRow" :hidden="tsnStatus?.state !== 'ready'">
         <div class="gw-status" style="margin-top: 8px">
-          <span class="field-hint" style="margin: 0">公网地址</span>
+          <span class="field-hint" style="margin: 0">{{ $t("gw.publicAddr") }}</span>
           <span class="mono ts-addr" id="tsnAddr">{{ tsnStatus?.url || "" }}</span>
           <span style="flex: 1" />
-          <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">复制</button>
+          <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">{{ $t("common.copy") }}</button>
           <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
@@ -1815,7 +1801,7 @@ function deletePair(id: string) {
         v-if="seg.url"
         :href="seg.url"
         class="gw-url"
-        :title="'用浏览器打开：' + seg.url"
+        :title="$t('gw.openInBrowser', { url: seg.url })"
         @click.prevent="openExternal(seg.url)"
       >{{ seg.url }}</a>
       <template v-else>{{ seg.text }}</template>
