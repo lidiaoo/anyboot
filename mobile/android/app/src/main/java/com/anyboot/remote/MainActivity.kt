@@ -735,10 +735,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     PowerChip(
-                        "唤醒",
+                        stringResource(R.string.hub_power_wake),
                         powerHint(
                             profile, ServerProfile.POWER_WAKE,
-                            if (profile.hasMacs()) "MAC 魔术包" else "未配 MAC",
+                            if (profile.hasMacs()) stringResource(R.string.and_macMagic) else stringResource(R.string.hub_power_noMac),
                             tab?.usingRemote == true,
                         ),
                     ) {
@@ -746,17 +746,17 @@ class MainActivity : ComponentActivity() {
                         runPowerAction(profile, ServerProfile.POWER_WAKE)
                     }
                     PowerChip(
-                        "睡眠",
-                        powerHint(profile, ServerProfile.POWER_SLEEP, "挂起到内存", tab?.usingRemote == true),
+                        stringResource(R.string.hub_power_sleep),
+                        powerHint(profile, ServerProfile.POWER_SLEEP, stringResource(R.string.hub_power_hibernate), tab?.usingRemote == true),
                     ) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_SLEEP)
                     }
-                    PowerChip("关机", powerHint(profile, ServerProfile.POWER_SHUTDOWN, "", tab?.usingRemote == true)) {
+                    PowerChip(stringResource(R.string.hub_power_shutdown), powerHint(profile, ServerProfile.POWER_SHUTDOWN, "", tab?.usingRemote == true)) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_SHUTDOWN)
                     }
-                    PowerChip("重启", powerHint(profile, ServerProfile.POWER_REBOOT, "", tab?.usingRemote == true)) {
+                    PowerChip(stringResource(R.string.hub_power_restart), powerHint(profile, ServerProfile.POWER_REBOOT, "", tab?.usingRemote == true)) {
                         expanded = false
                         runPowerAction(profile, ServerProfile.POWER_REBOOT)
                     }
@@ -1104,24 +1104,20 @@ class MainActivity : ComponentActivity() {
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("点了没反应，按顺序检查：", fontSize = 13.sp, color = palette.fg)
+                    Text(stringResource(R.string.and_powerCheck), fontSize = 13.sp, color = palette.fg)
                     Text(
-                        "① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；\n" +
-                            "② 用的是**有线网卡**的 MAC —— 绝大多数无线网卡不支持关机唤醒；\n" +
-                            "③ MAC 填在「编辑服务端」里对应地址那一行（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；\n" +
-                            "④ 路由里的广播地址和端口对不对（要和 sol 侧监听的一致）；\n" +
-                            "⑤ 主机没被拔电源、插排没断电（关机后网卡要靠待机供电收包）。",
+                        stringResource(R.string.and_powerCheckNote2),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，" + "并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。",
+                        stringResource(R.string.and_powerCheckWin),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                 }
             },
             confirmButton = {
-                TextButton(onClick = { sleepHelpOpen = false }) { Text("知道了") }
+                TextButton(onClick = { sleepHelpOpen = false }) { Text(stringResource(R.string.hub_home_fabHelpOk)) }
             },
         )
     }
@@ -1948,8 +1944,7 @@ class MainActivity : ComponentActivity() {
         }
         activate(activeId)
         toast(
-            "已把同一台电脑的地址合并到一个标签：" + keep.label()
-                    + (if (result.machineName.isEmpty()) "" else "（${result.machineName}）"),
+            getString(R.string.and_mergedToOneTab, keep.label(), if (result.machineName.isEmpty()) "" else "（${result.machineName}）"),
             long = true,
         )
     }

@@ -1495,6 +1495,13 @@ Telnet：実験的端末のみ。</string>
     <string name="and_errDetailAddr">アドレス：%1$s</string>
     <string name="and_errDetailAllTried">この PC の %1$d 個のアドレスを全て試しました：</string>
     <string name="and_errDetailConfirm">確認してください：</string>
+    <string name="and_powerCheckNote2">① BIOS で Wake on LAN を有効化（スリープ解除のみ影響）；
+② 有線 NIC の MAC を使用 — 多くの無線 NIC は電源オフからの解除非対応；
+③ MAC は「サーバーを編集」の該当アドレス行に（例 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
+④ ルートのブロードキャスト/ポートが正しいか（sol 側と一致）；
+⑤ ホストの電源が抜けていない・電源タップが切れていない（オフ時 NIC は待機電力で受信）。</string>
+    <string name="and_powerCheckWin">Windows では「デバイスマネージャー → NIC → 電源の管理」で「このデバイスでコンピューターの電源を切れる」を有効にし、「高速スタートアップ」を無効に（休止で WOL をスキップ）。</string>
+    <string name="and_mergedToOneTab">同一 PC のアドレスを 1 タブに統合：%1$s%2$s</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

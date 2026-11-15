@@ -1495,6 +1495,13 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_errDetailAddr">Endereço: %1$s</string>
     <string name="and_errDetailAllTried">Todos os %1$d endereços deste computador foram tentados:</string>
     <string name="and_errDetailConfirm">Verifique:</string>
+    <string name="and_powerCheckNote2">① Wake on LAN ativo na BIOS (só afecta acordar);
+② Usar o MAC da NIC com fio — a maioria das Wi-Fi não acorda desligada;
+③ MAC na linha de endereço certa em “Editar servidor” (ex. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/porta da rota corretos (iguais ao listener do sol);
+⑤ Host não está desligado da tomada e o filtro está ligado (a NIC precisa de energia de espera para receber).</string>
+    <string name="and_powerCheckWin">No Windows, marque “Permitir que este dispositivo active el equipo” em Gerenciador de Dispositivos → NIC → Gerenciamento de energia, e desligue a “Inicialização rápida” (é hibernação e ignora o WOL).</string>
+    <string name="and_mergedToOneTab">Endereços do mesmo computador mesclados numa aba: %1$s%2$s</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

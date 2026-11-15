@@ -1495,6 +1495,13 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
     <string name="and_errDetailAddr">Address: %1$s</string>
     <string name="and_errDetailAllTried">All %1$d addresses of this computer were tried:</string>
     <string name="and_errDetailConfirm">Please check:</string>
+    <string name="and_powerCheckNote2">① Wake on LAN enabled in BIOS (affects wake only);
+② Using the wired NIC\'s MAC — most wireless NICs don\'t support wake-from-off;
+③ MAC on the matching address row in “Edit server” (e.g. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast address/port in the route correct (matching sol\'s listener);
+⑤ Host isn\'t unplugged and the power strip isn\'t off (the NIC needs standby power to receive packets when off).</string>
+    <string name="and_powerCheckWin">On Windows also tick “Allow this device to wake the computer” under Device Manager → NIC → Power Management, and turn off Fast Startup (it\'s hibernation and skips WOL).</string>
+    <string name="and_mergedToOneTab">Merged the same computer\'s addresses into one tab: %1$s%2$s</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

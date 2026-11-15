@@ -1495,6 +1495,13 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_errDetailAddr">Адрес: %1$s</string>
     <string name="and_errDetailAllTried">Все %1$d адресов этого компьютера проверены:</string>
     <string name="and_errDetailConfirm">Проверьте:</string>
+    <string name="and_powerCheckNote2">① Wake on LAN в BIOS включён (влияет только на пробуждение);
+② MAC проводного NIC — большинство Wi-Fi не поддерживают пробуждение из выкл;
+③ MAC в нужной строке адреса в «Изменить сервер» (напр. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/порт маршрута верны (совпадают со слушателем sol);
+⑤ Хост не обесточен, удлинитель включён (для приёма пакетов NIC нужен дежурный ток).</string>
+    <string name="and_powerCheckWin">В Windows также включите «Разрешить этому устройству выводить компьютер из ждущего режима» в Диспетчере устройств → NIC → Управление электропитанием и отключите «Быстрый запуск» (это гибернация, WOL пропускается).</string>
+    <string name="and_mergedToOneTab">Адреса одного компьютера объединены во вкладку: %1$s%2$s</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

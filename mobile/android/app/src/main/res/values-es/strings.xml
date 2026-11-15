@@ -1495,6 +1495,13 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_errDetailAddr">Dirección: %1$s</string>
     <string name="and_errDetailAllTried">Se probaron las %1$d direcciones de este equipo:</string>
     <string name="and_errDetailConfirm">Comprueba:</string>
+    <string name="and_powerCheckNote2">① Wake on LAN activado en la BIOS (solo afecta a despertar);
+② Usar el MAC de la NIC cableada — la mayoría de las Wi-Fi no despiertan apagadas;
+③ MAC en la fila de dirección correcta en «Editar servidor» (p. ej. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/puerto de la ruta correctos (coinciden con el listener de sol);
+⑤ El host no está desenchufado y la regleta está encendida (la NIC necesita alimentación en espera para recibir).</string>
+    <string name="and_powerCheckWin">En Windows, marca «Permitir que este dispositivo active el equipo» en Administrador de dispositivos → NIC → Administración de energía, y desactiva el «Inicio rápido» (es hibernación y omite el WOL).</string>
+    <string name="and_mergedToOneTab">Direcciones del mismo equipo fusionadas en una pestaña: %1$s%2$s</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

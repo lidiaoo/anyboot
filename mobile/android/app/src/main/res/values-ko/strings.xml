@@ -1495,6 +1495,13 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_errDetailAddr">주소: %1$s</string>
     <string name="and_errDetailAllTried">이 컴퓨터의 주소 %1$d개를 모두 시도했습니다:</string>
     <string name="and_errDetailConfirm">확인하세요:</string>
+    <string name="and_powerCheckNote2">① BIOS에서 Wake on LAN 활성화(깨우기만 영향);
+② 유선 NIC의 MAC 사용 — 대부분 무선 NIC는 전원 꺼짐 깨우기 미지원;
+③ MAC은 ‘서버 편집’의 해당 주소 행에(예 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ 라우트의 브로드캐스트/포트가 올바른지(sol과 일치);
+⑤ 호스트 전원이 뽑히지 않고 멀티탭이 꺼지지 않음(꺼짐 시 NIC는 대기 전력으로 수신).</string>
+    <string name="and_powerCheckWin">Windows는 ‘장치 관리자 → NIC → 전원 관리’에서 ‘이 장치가 컴퓨터를 깨울 수 있음’을 켜고 ‘빠른 시작’을 끄세요(최대 절전이라 WOL 건너뜀).</string>
+    <string name="and_mergedToOneTab">같은 컴퓨터의 주소를 한 탭으로 병합: %1$s%2$s</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

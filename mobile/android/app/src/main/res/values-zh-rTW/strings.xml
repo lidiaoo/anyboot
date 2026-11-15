@@ -1495,6 +1495,13 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_errDetailAddr">位址：%1$s</string>
     <string name="and_errDetailAllTried">這台電腦的 %1$d 個位址都試過了：</string>
     <string name="and_errDetailConfirm">請確認：</string>
+    <string name="and_powerCheckNote2">① 主機板 BIOS 裡開啟了 Wake on LAN / 網路喚醒（只影響喚醒）；
+② 用的是有線網卡的 MAC —— 絕大多數無線網卡不支援關機喚醒；
+③ MAC 填在「編輯伺服器」裡對應位址那一列（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
+④ 路由裡的廣播位址和埠對不對（要和 sol 側監聽的一致）；
+⑤ 主機沒被拔電源、插排沒斷電（關機後網卡要靠待機供電收包）。</string>
+    <string name="and_powerCheckWin">Windows 還要在「裝置管理員 → 網卡 → 電源管理」勾上「允許此裝置喚醒電腦」，並關掉「快速啟動」（快速啟動是休眠，會跳過 WOL）。</string>
+    <string name="and_mergedToOneTab">已把同一台電腦的位址合併到一個標籤：%1$s%2$s</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

@@ -1495,6 +1495,13 @@ Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Her
     <string name="and_errDetailAddr">Adresse: %1$s</string>
     <string name="and_errDetailAllTried">Alle %1$d Adressen dieses Computers wurden versucht:</string>
     <string name="and_errDetailConfirm">Bitte prüfen:</string>
+    <string name="and_powerCheckNote2">① Wake on LAN im BIOS aktiv (nur Aufwecken);
+② MAC der kabelgebundenen NIC – die meisten WLAN-NICs unterstützen kein Aufwecken aus dem Aus;
+③ MAC in der passenden Adresszeile unter „Server bearbeiten“ (z. B. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/Port der Route korrekt (passend zum sol-Listener);
+⑤ Host nicht vom Strom getrennt, Steckdosenleiste an (die NIC braucht Standby-Strom zum Empfangen).</string>
+    <string name="and_powerCheckWin">Unter Windows zusätzlich unter Geräte-Manager → NIC → Energieverwaltung „Gerät kann den Computer aufwecken“ aktivieren und „Schnellstart“ ausschalten (Ruhezustand, überspringt WOL).</string>
+    <string name="and_mergedToOneTab">Adressen desselben Computers in einen Tab zusammengeführt: %1$s%2$s</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>
