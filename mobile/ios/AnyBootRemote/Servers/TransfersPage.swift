@@ -19,8 +19,7 @@ struct TransfersPage: View {
                 }()
                 ABSectionTitle(heading)
                 if pending.isEmpty {
-                    ABEmptyHint("没有正在传输的文件。到「文件」页点「上传」，或点一个远端文件下载 —— "
-                                + "任务都会出现在这里，可以看进度、暂停 / 继续、取消。")
+                    ABEmptyHint(L("and.noTransfersHint"))
                 }
                 ForEach(pending) { task in
                     TransferRow(task: task)

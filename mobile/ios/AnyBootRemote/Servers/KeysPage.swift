@@ -13,8 +13,7 @@ struct KeysPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if jumps.keys.isEmpty {
-                    ABEmptyHint("还没有密钥。导入已有的私钥，或直接在本机生成一对 —— "
-                                + "把公钥放到服务器上（authorized_keys）就能免密登录。")
+                    ABEmptyHint(L("and.noKeysHint"))
                 }
                 ForEach(jumps.keys) { entry in
                     KeyCardRow(entry: entry)

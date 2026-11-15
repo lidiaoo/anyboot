@@ -1604,8 +1604,7 @@ private struct PowerRouteCardView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(ABColor.fgDim)
                 .padding(.top, 2)
-            Text("调这台电脑自带的 /api/power 接口（token 与连接共用，无需单独配置）。"
-                + "混合模式 = HTTP 与广播包同时发。")
+            Text(L("and.powerApiHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
         }

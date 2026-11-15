@@ -60,8 +60,7 @@ struct QRScannerView: View {
     // MARK: - 说明（:130-135）
 
     private var hintText: some View {
-        Text("对准电脑端「远程接入」页生成的二维码，认出来自动填回粘贴框。"
-             + "没有摄像头权限也可以手动复制粘贴配对串。")
+        Text(L("and.scanIntro"))
             .font(.system(size: 12))
             .foregroundColor(ABColor.fgDim)
             .fixedSize(horizontal: false, vertical: true)
@@ -101,8 +100,7 @@ struct QRScannerView: View {
 
             Spacer().frame(height: ABMetric.px(8))
 
-            Text("扫码要用摄像头。不给也行 —— 回到上一页，把电脑端显示的"
-                 + "配对串复制粘贴进「远程接入」框，效果一样。")
+            Text(L("and.camNoPermBody"))
                 .font(.system(size: 12))
                 .foregroundColor(ABColor.fgDim)
                 .multilineTextAlignment(.center)

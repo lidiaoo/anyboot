@@ -122,8 +122,7 @@ struct ABDrawerOverlay: View {
                 .lineSpacing(ABMetric.px(16) - 12)
                 .foregroundColor(ABColor.fgFaint)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
-                 + "再在电脑的「经由跳板机」里选它。")
+            Text(L("and.drawerJumpHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .fixedSize(horizontal: false, vertical: true)

@@ -593,8 +593,7 @@ struct ComputerTabsView: View {
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("Windows 还要在「设备管理器 → 网卡 → 电源管理」勾上「允许此设备唤醒计算机」，"
-                             + "并关掉「快速启动」（快速启动是休眠，会跳过 WOL）。")
+                        Text(L("and.powerCheckWin"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)

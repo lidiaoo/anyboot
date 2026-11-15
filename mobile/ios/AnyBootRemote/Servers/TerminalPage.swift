@@ -519,8 +519,7 @@ struct TerminalSettingsSheet: View {
             }
             .buttonStyle(.plain)
 
-            ABSecondaryText("改动即时生效：已经打开的终端页返回时会自动套用，也可以直接用终端页顶栏的 "
-                            + "A- / A+ 临时调字号（同样会存下来）。")
+            ABSecondaryText(L("and.termLiveHint"))
                 .padding(.horizontal, ABMetric.px(16))
                 .padding(.vertical, ABMetric.px(8))
         }
