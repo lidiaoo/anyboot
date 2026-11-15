@@ -1064,11 +1064,11 @@ function deletePair(id: string) {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-    <h2>远程接入</h2>
+    <h2>{{ $t("gw.title") }}</h2>
 
     <!-- 自动刷新三合一（旧版 #gwAuto） -->
-    <div class="gw-ar" id="gwAuto" title="自动刷新这一页的状态（单位：秒）">
-      <span class="gw-ar-label">自动刷新</span>
+    <div class="gw-ar" id="gwAuto" :title="$t('gw.autoRefreshTitle')">
+      <span class="gw-ar-label">{{ $t("gw.autoRefresh") }}</span>
       <div class="gw-ar-combo">
         <input
           id="gwAutoSec"
@@ -1083,7 +1083,7 @@ function deletePair(id: string) {
           @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
           @keydown.escape.prevent="autoSec = autoSecPrev; ($event.target as HTMLInputElement).blur()"
         />
-        <span class="gw-ar-unit">秒</span>
+        <span class="gw-ar-unit">{{ $t("gw.seconds") }}</span>
         <button
           type="button"
           id="gwAutoCaret"
@@ -1137,7 +1137,7 @@ function deletePair(id: string) {
         >
           <path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l9.6-6.4a1 1 0 0 0 0-1.7l-9.6-6.4A1 1 0 0 0 8 5.6z" />
         </svg>
-        <span id="gwAutoToggleText">{{ autoRunning ? "暂停" : "继续" }}</span>
+        <span id="gwAutoToggleText">{{ autoRunning ? $t("gw.pause") : $t("gw.resume") }}</span>
       </button>
     </div>
   </div>
@@ -1173,7 +1173,7 @@ function deletePair(id: string) {
 
     <div class="gw-card">
       <div class="gw-card-head">
-        <h3>本机通道</h3>
+        <h3>{{ $t("gw.localChannel") }}</h3>
         <div class="segmented" id="gwModeTabs" role="tablist" aria-label="通道模式">
           <button role="tab" data-mode="quick" :aria-selected="config?.mode !== 'named'" @click="selectMode('quick')">
             快速隧道
@@ -1182,11 +1182,11 @@ function deletePair(id: string) {
             命名隧道
           </button>
         </div>
-        <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
-        <button type="button" id="gwLogBtn" class="btn" @click="openGwLog">日志</button>
-        <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">重新检测</button>
-        <span class="gw-sw-group" title="开启 / 关闭 Cloudflare 通道">
-          <span class="gw-sw-cap">通道</span>
+        <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
+        <button type="button" id="gwLogBtn" class="btn" @click="openGwLog">{{ $t("gw.log") }}</button>
+        <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">{{ $t("gw.redetect") }}</button>
+        <span class="gw-sw-group" :title="$t('gw.channelToggleTitle')">
+          <span class="gw-sw-cap">{{ $t("gw.channel") }}</span>
           <label class="switch" :class="{ loading: !!busy }" id="gwToggleWrap">
             <input type="checkbox" id="gwToggleSw" :checked="cfRunning || !!busy" :disabled="!!busy" @change="toggleCf" />
             <span class="trk" aria-hidden="true" />
@@ -1196,7 +1196,7 @@ function deletePair(id: string) {
 
       <div class="gw-status">
         <span class="pulse" id="gwPulse" :hidden="!cfRunning" />
-        <span id="gwStateText">{{ cfRunning ? "通道已开启" : "通道未开启" }}</span>
+        <span id="gwStateText">{{ cfRunning ? $t("gw.channelOn") : $t("gw.channelOff") }}</span>
         <a
           id="gwUrl"
           :href="cfUrl || undefined"
@@ -1226,10 +1226,10 @@ function deletePair(id: string) {
         </p>
         <div id="gwOrphanList" class="gw-clients">
           <div class="gw-client">
-            <span class="mono">{{ config?.tunnel?.url || "（无地址）" }}</span>
+            <span class="mono">{{ config?.tunnel?.url || $t("gw.noAddr") }}</span>
             <span style="flex: 1" />
-            <button type="button" class="link-btn" @click="adoptOrphan">沿用</button>
-            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">终止</button>
+            <button type="button" class="link-btn" @click="adoptOrphan">{{ $t("gw.adopt") }}</button>
+            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">{{ $t("gw.terminate") }}</button>
           </div>
         </div>
       </div>
@@ -1243,12 +1243,12 @@ function deletePair(id: string) {
             v-model="namedToken"
             type="password"
             class="mono"
-            :placeholder="namedTokenSet ? '已保存（留空保持不变）' : 'Cloudflare Zero Trust 创建隧道后给出的 Token'"
+            :placeholder="namedTokenSet ? $t('gw.namedTokenPhSaved') : $t('gw.namedTokenPh')"
             autocomplete="off"
           />
         </div>
         <div class="field">
-          <label for="gwNamedUrl">对外访问地址（可选）</label>
+          <label for="gwNamedUrl">{{ $t("gw.namedUrl") }}</label>
           <input
             id="gwNamedUrl"
             v-model="namedUrl"
@@ -1257,14 +1257,14 @@ function deletePair(id: string) {
             placeholder="https://anyboot.example.com"
             autocomplete="off"
           />
-          <p class="field-hint">填了它，配对串里就用这个地址；留空则配对串里不带地址，客户端要自己填。</p>
+          <p class="field-hint">{{ $t("gw.namedUrlHint") }}</p>
         </div>
       </div>
 
       <label class="gw-auto">
         <input type="checkbox" id="gwAutostart" :checked="config?.autostart" @change="toggleAutostart" />
-        <span class="gw-auto-t">启动软件时自动开启通道</span>
-        <span class="gw-auto-h">cloudflared 随 AnyBoot 一起拉起</span>
+        <span class="gw-auto-t">{{ $t("gw.autoStartCloudflared") }}</span>
+        <span class="gw-auto-h">{{ $t("gw.autoStartCloudflaredHint") }}</span>
       </label>
 
       <div class="gw-binary">
@@ -1284,18 +1284,18 @@ function deletePair(id: string) {
         <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
           指定本地路径
         </button>
-        <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">卸载</button>
+        <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
       </div>
 
       <!-- 清除登录凭据行（旧版 #gwLogoutRow：仅命名隧道 token 存在时显示） -->
       <div v-if="namedTokenSet" id="gwLogoutRow" class="gw-logout-row">
-        <button type="button" class="link-btn" id="gwLogoutBtn" :disabled="!!busy" @click="clearCredentials">清除登录凭据</button>
-        <span class="field-hint">停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。</span>
+        <button type="button" class="link-btn" id="gwLogoutBtn" :disabled="!!busy" @click="clearCredentials">{{ $t("gw.clearCredentials") }}</button>
+        <span class="field-hint">{{ $t("gw.clearCredHint") }}</span>
       </div>
       <!-- 下载进度（旧版 #gwProgressRow） -->
       <div id="gwProgressRow" :hidden="!downloading" class="gw-progress">
         <div class="gw-progress-bar"><div id="gwProgressBar" :style="{ width: progress + '%' }" /></div>
-        <span class="mono" id="gwProgressText">{{ downloading ? `下载 ${progress}%` : "" }}</span>
+        <span class="mono" id="gwProgressText">{{ downloading ? $t("gw.downloading", { n: progress }) : "" }}</span>
       </div>
 
       <!-- 清除登录凭据（旧版 #gwLogoutRow）：命名隧道的 Tunnel Token 就是登录态 -->
@@ -1304,7 +1304,7 @@ function deletePair(id: string) {
         :hidden="config?.mode !== 'named'"
         style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap"
        v-if="namedTokenSet">
-        <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">清除登录凭据</button>
+        <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">{{ $t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
           停止通道并删除保存的命名隧道 Token 与对外地址，模式回落「快速隧道」；cloudflared 程序保留。
         </span>
@@ -1317,10 +1317,10 @@ function deletePair(id: string) {
           v-model="manualPath"
           type="text"
           class="mono"
-          placeholder="cloudflared.exe 的完整路径"
+          :placeholder="$t('gw.cloudflaredPathPh')"
           spellcheck="false"
         />
-        <button type="button" id="gwManualCancel" class="btn" @click="manualOpen = false">取消</button>
+        <button type="button" id="gwManualCancel" class="btn" @click="manualOpen = false">{{ $t("common.cancel") }}</button>
         <button
           type="button"
           id="gwManualOk"
@@ -1338,16 +1338,16 @@ function deletePair(id: string) {
   <div v-show="activeTab === 'ts'" class="gw-tabpane">
     <div class="gw-card" id="tsCard">
       <div class="gw-card-head">
-        <h3>Tailscale 直连</h3>
-        <span class="tsf-badge" id="tsBadge" :hidden="!tsRunning">已安装 · 局域网 100.x</span>
+        <h3>{{ $t("gw.tsDirect") }}</h3>
+        <span class="tsf-badge" id="tsBadge" :hidden="!tsRunning">{{ $t("gw.tsBadge") }}</span>
         <span style="flex: 1" />
         <span
           class="gw-sw-group"
           id="tsMainSwGroup"
           :hidden="!tsStatus?.installed"
-          title="连接 / 断开 Tailscale（登录级，等于 tailscale up / down；待登录时点击会拉起浏览器登录）"
+          :title="$t('gw.connectToggleTitle')"
         >
-          <span class="gw-sw-cap">连接</span>
+          <span class="gw-sw-cap">{{ $t("gw.connect") }}</span>
           <label class="switch" id="tsMainSwWrap" :class="{ loading: tsBusy }">
             <input
               type="checkbox"
@@ -1363,19 +1363,19 @@ function deletePair(id: string) {
           class="gw-sw-group"
           id="tsSvcSwGroup"
           :hidden="!tsSvcKnown"
-          title="启动 / 停止 tailscaled 系统服务（Windows；需要管理员权限）"
+          :title="$t('gw.serviceToggleTitle')"
         >
-          <span class="gw-sw-cap">服务</span>
+          <span class="gw-sw-cap">{{ $t("gw.service") }}</span>
           <label class="switch" id="tsSvcSwWrap" :class="{ loading: tsSvcBusy }">
             <input type="checkbox" id="tsSvcSw" :checked="tsSvcOn" :disabled="tsSvcBusy || tsBusy" @change="tailscaleService" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall('将卸载 Tailscale 程序本体', '不注销、不清 AuthKey，重装后仍是同一台已授权设备（管理台里的节点记录也保留）。')">
+        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall($t('gw.tsUninstallTitle'), $t('gw.tsUninstallNote'))">
           卸载
         </button>
-        <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">日志</button>
-        <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">重新检测</button>
+        <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">{{ $t("gw.log") }}</button>
+        <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">{{ $t("gw.redetect") }}</button>
       </div>
 
       <div class="gw-status" id="tsStateRow">
@@ -1388,21 +1388,21 @@ function deletePair(id: string) {
       <div id="tsDlRow" :hidden="tsStatus?.installed">
         <p class="field-hint" id="tsDlHint" style="margin: 8px 0 0">{{ tsDlHint }}</p>
         <div class="gw-binary">
-          <span id="tsDlText">安装包未下载</span>
+          <span id="tsDlText">{{ $t("gw.pkgNotDownloaded") }}</span>
           <span style="flex: 1" />
-          <button type="button" class="btn" id="tsDownloadBtn" :disabled="!!busy" @click="tsDownload">下载 Tailscale</button>
-          <button type="button" class="btn" id="tsManualLink" @click="tsOpenManual">打开官网手动下载</button>
+          <button type="button" class="btn" id="tsDownloadBtn" :disabled="!!busy" @click="tsDownload">{{ $t("gw.downloadTs") }}</button>
+          <button type="button" class="btn" id="tsManualLink" @click="tsOpenManual">{{ $t("gw.openManual") }}</button>
         </div>
         <div class="gw-progress" id="tsProgressRow" :hidden="!tsDownloading">
           <div class="gw-progress-bar"><div id="tsProgressBar" :style="{ width: tsProgress + '%' }" /></div>
-          <span class="mono" id="tsProgressText">{{ tsDownloading ? `下载 ${tsProgress}%` : "" }}</span>
+          <span class="mono" id="tsProgressText">{{ tsDownloading ? $t("gw.downloading", { n: tsProgress }) : "" }}</span>
         </div>
       </div>
 
       <!-- 未连接态：#tsKeyRow（AuthKey 配置） -->
       <div id="tsKeyRow" :hidden="!tsStatus?.installed || tsRunning">
         <div class="field" style="margin-top: 10px">
-          <label for="tsKey">AuthKey（可选，推荐填）</label>
+          <label for="tsKey">{{ $t("gw.authKeyLabel") }}</label>
           <div style="display: flex; gap: 8px; align-items: center">
             <input
               id="tsKey"
@@ -1413,7 +1413,7 @@ function deletePair(id: string) {
               :placeholder="tsKeyPlaceholder"
               autocomplete="off"
             />
-            <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">保存</button>
+            <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">{{ $t("common.save") }}</button>
           </div>
           <p class="field-hint" id="tsKeyHint">{{ tsKeyHint }}</p>
         </div>
@@ -1423,11 +1423,11 @@ function deletePair(id: string) {
       <div id="tsLoginRow" :hidden="!tsLoginVisible">
         <p class="field-hint" style="margin: 8px 0 0">
           需要登录 Tailscale 账号 —— 点下面按钮（或直接点链接）在浏览器完成授权，一次即可，凭据会记住。
-          授权完成后把开关<b>关开一次</b>就会连上（等超时的话，进程已经退了，必须重跑一次）。
+          {{ $t("gw.authDoneNote") }}
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">打开登录页</button>
-          <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">复制登录链接</button>
+          <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">{{ $t("gw.openLoginPage") }}</button>
+          <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">{{ $t("gw.copyLoginUrl") }}</button>
           <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">重新生成链接</button>
         </div>
         <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
