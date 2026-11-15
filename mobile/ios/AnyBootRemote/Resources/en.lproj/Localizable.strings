@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "Upload to ";
 "and.downloadFromShort" = "Download from ";
 "and.connectedShort" = "Connected ";
+"and.powerAddrInvalid" = "Invalid power address: {x}";
+"and.computerCode" = "Computer returned {x}";
+"and.submittedAction" = "Submitted {x}";
+"and.computerTokenReject" = "The computer rejects this token (401) — check the token in “Edit computer”";
+"and.httpFailedBroadcast" = "HTTP failed ({x}); sent broadcast packet: ";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

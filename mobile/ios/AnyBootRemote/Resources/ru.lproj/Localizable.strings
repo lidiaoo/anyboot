@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "Загрузка на ";
 "and.downloadFromShort" = "Скачать с ";
 "and.connectedShort" = "Подключено ";
+"and.powerAddrInvalid" = "Неверный адрес питания: {x}";
+"and.computerCode" = "Компьютер вернул {x}";
+"and.submittedAction" = "Отправлено: {x}";
+"and.computerTokenReject" = "Компьютер отклоняет этот токен (401) — проверьте в «Изменить компьютер»";
+"and.httpFailedBroadcast" = "HTTP не прошёл ({x}); отправлен broadcast: ";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

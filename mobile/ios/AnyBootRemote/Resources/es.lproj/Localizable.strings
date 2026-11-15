@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "Subir a ";
 "and.downloadFromShort" = "Descargar de ";
 "and.connectedShort" = "Conectado ";
+"and.powerAddrInvalid" = "Dirección de energía no válida: {x}";
+"and.computerCode" = "El equipo devolvió {x}";
+"and.submittedAction" = "Enviado {x}";
+"and.computerTokenReject" = "El equipo rechaza este token (401): compruébalo en «Editar equipo»";
+"and.httpFailedBroadcast" = "HTTP falló ({x}); envié broadcast: ";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

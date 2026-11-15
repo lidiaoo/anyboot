@@ -1882,6 +1882,11 @@ Telnet：実験的端末のみ。</string>
     <string name="and_uploadToShort">アップロード </string>
     <string name="and_downloadFromShort">ダウンロード </string>
     <string name="and_connectedShort">接続済み </string>
+    <string name="and_powerAddrInvalid">電源アドレスが不正：%1$s</string>
+    <string name="and_computerCode">PC 側が返した %1$s</string>
+    <string name="and_submittedAction">%1$s を送信しました</string>
+    <string name="and_computerTokenReject">PC 側がこの token を拒否（401）— 「PC を編集」で確認</string>
+    <string name="and_httpFailedBroadcast">HTTP 不通（%1$s）、ブロードキャスト送信：</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

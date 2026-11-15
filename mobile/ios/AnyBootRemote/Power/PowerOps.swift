@@ -75,7 +75,7 @@ enum PowerOps {
                 return L("and.httpFirstMode") + (try await http())
             } catch {
                 do {
-                    return "HTTP 没通（\(error.localizedDescription)），已改发广播包："
+                    return L("and.httpFailedBroadcast") + error.localizedDescription
                         + (try await packets())
                 } catch let packetError {
                     throw PowerError.message("HTTP 没通（\(error.localizedDescription)）；"
@@ -159,7 +159,7 @@ enum PowerOps {
     static func send(address: String, token: String, action: String) async throws -> String {
         let target = address.trimmedAnyBoot
         guard !target.isEmpty else {
-            throw PowerError.message("这台电脑还没有可用地址")
+            throw PowerError.message(L("error.noAddress"))
         }
         var raw = target.hasPrefix("http://") || target.hasPrefix("https://")
             ? target : "http://" + target
@@ -171,7 +171,7 @@ enum PowerOps {
                 withAllowedCharacters: .urlQueryAllowed) ?? secret)
         }
         guard let url = URL(string: raw) else {
-            throw PowerError.message("电源地址不合法：\(raw)")
+            throw PowerError.message(L("and.powerAddrInvalid", raw))
         }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -181,12 +181,12 @@ enum PowerOps {
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         let body = String(data: data, encoding: .utf8) ?? ""
         if code == 401 {
-            throw PowerError.message("电脑端不认这个 token（401）—— 到「编辑电脑」核对访问令牌")
+            throw PowerError.message(L("and.computerTokenReject"))
         }
         if code >= 400 {
-            throw PowerError.message(messageOf(body, fallback: "电脑端返回 \(code)"))
+            throw PowerError.message(messageOf(body, fallback: L("and.computerCode", code)))
         }
-        return messageOf(body, fallback: "已提交\(label(action))")
+        return messageOf(body, fallback: L("and.submittedAction", label(action)))
     }
 
     /// 从响应体里挑一句能看的话：优先 message，其次 error，都没有就用兜底文案

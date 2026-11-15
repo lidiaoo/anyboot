@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "Enviar para ";
 "and.downloadFromShort" = "Baixar de ";
 "and.connectedShort" = "Conectado ";
+"and.powerAddrInvalid" = "Endereço de energia inválido: {x}";
+"and.computerCode" = "O computador retornou {x}";
+"and.submittedAction" = "Enviado {x}";
+"and.computerTokenReject" = "O computador rejeita este token (401) — verifique em “Editar computador”";
+"and.httpFailedBroadcast" = "HTTP falhou ({x}); enviei broadcast: ";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

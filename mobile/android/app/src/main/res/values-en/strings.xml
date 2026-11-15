@@ -1882,6 +1882,11 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_uploadToShort">Upload to </string>
     <string name="and_downloadFromShort">Download from </string>
     <string name="and_connectedShort">Connected </string>
+    <string name="and_powerAddrInvalid">Invalid power address: %1$s</string>
+    <string name="and_computerCode">Computer returned %1$s</string>
+    <string name="and_submittedAction">Submitted %1$s</string>
+    <string name="and_computerTokenReject">The computer rejects this token (401) — check the token in “Edit computer”</string>
+    <string name="and_httpFailedBroadcast">HTTP failed (%1$s); sent broadcast packet: </string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

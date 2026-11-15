@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "上傳到 ";
 "and.downloadFromShort" = "下載自 ";
 "and.connectedShort" = "已連線 ";
+"and.powerAddrInvalid" = "電源位址不合法：{x}";
+"and.computerCode" = "電腦端回傳 {x}";
+"and.submittedAction" = "已提交{x}";
+"and.computerTokenReject" = "電腦端不認這個 token（401）—— 到「編輯電腦」核對存取權杖";
+"and.httpFailedBroadcast" = "HTTP 沒通（{x}），已改發廣播封包：";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

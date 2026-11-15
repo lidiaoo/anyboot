@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "上传到 ";
 "and.downloadFromShort" = "下载自 ";
 "and.connectedShort" = "已连接 ";
+"and.powerAddrInvalid" = "电源地址不合法：{x}";
+"and.computerCode" = "电脑端返回 {x}";
+"and.submittedAction" = "已提交{x}";
+"and.computerTokenReject" = "电脑端不认这个 token（401）—— 到「编辑电脑」核对访问令牌";
+"and.httpFailedBroadcast" = "HTTP 没通（{x}），已改发广播包：";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

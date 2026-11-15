@@ -70,8 +70,8 @@ struct FileActionSheet: View {
                         action(L("and.delWithContents"), color: ABColor.bad) { store.askDelete = entry }
                     } else {
                         action(L("fb.dlTo"), color: ABColor.accent) { store.startDownload(entry) }
-                        action("重命名") { store.askRename = entry }
-                        action("复制路径") { copyPath(path) }
+                        action(L("fb.rename")) { store.askRename = entry }
+                        action(L("fb.copyPath")) { copyPath(path) }
                         action(L("common.delete"), color: ABColor.bad) { store.askDelete = entry }
                     }
 
@@ -235,7 +235,7 @@ struct FileDetailDialog: View {
                 out.append((L("fb.colPerms"), detail.permissions.isEmpty ? "-" : detail.permissions))
                 out.append((L("and.detailOwner"), "\(detail.uid) : \(detail.gid)"))
                 if !detail.linkTarget.isEmpty {
-                    out.append(("指向", detail.linkTarget))
+                    out.append((L("and.detailLink"), detail.linkTarget))
                 }
                 rows = out
             } catch {
@@ -259,7 +259,7 @@ struct FileRenameDialog: View {
                 if let entry = store.askRename {
                     ABSecondaryText(entry.name)
                     ABDialogInput(placeholder: L("fb.newName"), text: $name)
-                    ABDialogButtons(confirmTitle: "重命名",
+                    ABDialogButtons(confirmTitle: L("fb.rename"),
                                     onConfirm: {
                                         let target = name.trimmingCharacters(in: .whitespaces)
                                         if target.isEmpty { store.toast(L("and.nameEmpty")); return }
@@ -294,7 +294,7 @@ struct FileDeleteDialog: View {
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fg)
                         .fixedSize(horizontal: false, vertical: true)
-                    ABDialogButtons(confirmTitle: "删除", confirmColor: ABColor.bad,
+                    ABDialogButtons(confirmTitle: L("fb.delete"), confirmColor: ABColor.bad,
                                     onConfirm: {
                                         store.askDelete = nil
                                         store.delete(entry)

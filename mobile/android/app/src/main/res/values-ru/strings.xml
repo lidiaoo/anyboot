@@ -1882,6 +1882,11 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_uploadToShort">Загрузка на </string>
     <string name="and_downloadFromShort">Скачать с </string>
     <string name="and_connectedShort">Подключено </string>
+    <string name="and_powerAddrInvalid">Неверный адрес питания: %1$s</string>
+    <string name="and_computerCode">Компьютер вернул %1$s</string>
+    <string name="and_submittedAction">Отправлено: %1$s</string>
+    <string name="and_computerTokenReject">Компьютер отклоняет этот токен (401) — проверьте в «Изменить компьютер»</string>
+    <string name="and_httpFailedBroadcast">HTTP не прошёл (%1$s); отправлен broadcast: </string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

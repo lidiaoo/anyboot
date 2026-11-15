@@ -1845,6 +1845,11 @@
 "and.uploadToShort" = "Hochladen nach ";
 "and.downloadFromShort" = "Herunterladen von ";
 "and.connectedShort" = "Verbunden ";
+"and.powerAddrInvalid" = "Ungültige Energieadresse: {x}";
+"and.computerCode" = "Computer gab {x} zurück";
+"and.submittedAction" = "{x} gesendet";
+"and.computerTokenReject" = "Computer lehnt dieses Token ab (401) – im „Computer bearbeiten“ prüfen";
+"and.httpFailedBroadcast" = "HTTP fehlgeschlagen ({x}); Broadcast gesendet: ";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

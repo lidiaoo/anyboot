@@ -30,12 +30,12 @@ enum SysInfo {
 
         let osName = RemoteHttp.str(json, "osName")
         let osVersion = RemoteHttp.str(json, "osVersion")
-        add("系统", [osName, osVersion]
+        add(L("sysinfo.os"), [osName, osVersion]
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             .joined(separator: " "))
-        add("内核", RemoteHttp.str(json, "kernel"))
-        add("架构", RemoteHttp.str(json, "arch"))
-        add("主机名", RemoteHttp.str(json, "hostname"))
+        add(L("sysinfo.kernelBuild"), RemoteHttp.str(json, "kernel"))
+        add(L("sysinfo.arch"), RemoteHttp.str(json, "arch"))
+        add(L("sysinfo.hostname"), RemoteHttp.str(json, "hostname"))
 
         let cores = RemoteHttp.int(json, "cpuCores")
         let cpu = RemoteHttp.str(json, "cpuModel")
@@ -47,19 +47,19 @@ enum SysInfo {
             let text = free > 0
                 ? String(format: "%.1f GB（可用 %.1f GB）", Double(total) / 1024.0, Double(free) / 1024.0)
                 : String(format: "%.1f GB", Double(total) / 1024.0)
-            add("内存", text)
+            add(L("sysinfo.mem"), text)
         }
 
         let uptime = RemoteHttp.int(json, "uptimeSecs")
-        if uptime > 0 { add("运行时长", ABFormat.duration(Int64(uptime) * 1000)) }
+        if uptime > 0 { add(L("sysinfo.uptime"), ABFormat.duration(Int64(uptime) * 1000)) }
 
         let lanIps = RemoteHttp.strings(json, "lanIps")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-        if !lanIps.isEmpty { add("局域网地址", lanIps.joined(separator: "  ")) }
+        if !lanIps.isEmpty { add(L("and.lanAddr"), lanIps.joined(separator: "  ")) }
 
         let port = RemoteHttp.int(json, "httpPort")
-        if port > 0 { add("服务端口", "\(port)") }
+        if port > 0 { add(L("and.servicePort"), "\(port)") }
 
         add("AnyBoot", RemoteHttp.str(json, "appVersion"))
         return rows
@@ -89,7 +89,7 @@ enum SysInfo {
             }
         }
 
-        throw RemoteHttpError(message: lastError.isEmpty ? "连不上这台电脑，读不到系统信息" : lastError)
+        throw RemoteHttpError(message: lastError.isEmpty ? L("and.cannotConnectSysinfo") : lastError)
     }
 
     /// 系统信息弹层要用的纯文本（「复制」按钮与分享用）

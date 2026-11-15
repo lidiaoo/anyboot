@@ -1882,6 +1882,11 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_uploadToShort">Enviar para </string>
     <string name="and_downloadFromShort">Baixar de </string>
     <string name="and_connectedShort">Conectado </string>
+    <string name="and_powerAddrInvalid">Endereço de energia inválido: %1$s</string>
+    <string name="and_computerCode">O computador retornou %1$s</string>
+    <string name="and_submittedAction">Enviado %1$s</string>
+    <string name="and_computerTokenReject">O computador rejeita este token (401) — verifique em “Editar computador”</string>
+    <string name="and_httpFailedBroadcast">HTTP falhou (%1$s); enviei broadcast: </string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

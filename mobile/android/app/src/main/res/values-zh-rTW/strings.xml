@@ -1882,6 +1882,11 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_uploadToShort">上傳到 </string>
     <string name="and_downloadFromShort">下載自 </string>
     <string name="and_connectedShort">已連線 </string>
+    <string name="and_powerAddrInvalid">電源位址不合法：%1$s</string>
+    <string name="and_computerCode">電腦端回傳 %1$s</string>
+    <string name="and_submittedAction">已提交%1$s</string>
+    <string name="and_computerTokenReject">電腦端不認這個 token（401）—— 到「編輯電腦」核對存取權杖</string>
+    <string name="and_httpFailedBroadcast">HTTP 沒通（%1$s），已改發廣播封包：</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>
