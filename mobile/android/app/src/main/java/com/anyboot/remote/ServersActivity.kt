@@ -1269,12 +1269,12 @@ class ServersActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth(),
                 )
                 // 经由跳板机（设计稿 server-edit 屏：直连（默认）/ 其他 SSH 服务器）
-                FieldLabel("经由跳板机")
+                FieldLabel(stringResource(R.string.srvEdit_jump))
                 Box {
                     OutlinedTextField(
-                        value = if (jumpId.isEmpty()) "直连（默认）"
+                        value = if (jumpId.isEmpty()) stringResource(R.string.srvEdit_jumpDirect)
                         else jumpChoices.firstOrNull { it.id == jumpId }?.let { JumpStore.text(it.name) }
-                            ?: "（已删除，保存后回到直连）",
+                            ?: stringResource(R.string.and_jumpDeletedPd),
                         onValueChange = {}, readOnly = true, singleLine = true,
                         enabled = false,
                         shape = RoundedCornerShape(12.dp),
@@ -1286,7 +1286,7 @@ class ServersActivity : ComponentActivity() {
                     )
                     DropdownMenu(expanded = jumpOpen, onDismissRequest = { jumpOpen = false }) {
                         DropdownMenuItem(
-                            text = { Text("直连（默认）") },
+                            text = { Text(stringResource(R.string.srvEdit_jumpDirect)) },
                             onClick = { jumpId = ""; jumpOpen = false },
                         )
                         jumpChoices.forEach { choice ->
@@ -1297,10 +1297,9 @@ class ServersActivity : ComponentActivity() {
                         }
                     }
                 }
-                FieldLabel("选中后先登录跳板机，再由它转发到这台服务器（外网连内网机器）；Telnet 不支持")
+                FieldLabel(stringResource(R.string.and_jumpSelectHint))
                 FieldLabel(
-                    "SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；"
-                            + "Telnet：只有终端，明文传输，仅实验。"
+                    stringResource(R.string.and_authTypeHint)
                 )
                 Spacer(Modifier.height(16.dp))
 
@@ -1319,7 +1318,7 @@ class ServersActivity : ComponentActivity() {
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("保存", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = palette.onAccent)
+                    Text(stringResource(R.string.common_save), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = palette.onAccent)
                 }
                 Spacer(Modifier.height(10.dp))
                 if (editing) {
@@ -1340,7 +1339,7 @@ class ServersActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            "测试连接",
+                            stringResource(R.string.server_test),
                             fontSize = 14.sp,
                             color = palette.fgDim,
                         )
@@ -1354,7 +1353,7 @@ class ServersActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 6.dp),
-                    ) { Text("删除此服务器", color = palette.bad, fontSize = 13.sp) }
+                    ) { Text(stringResource(R.string.and_deleteThisServer), color = palette.bad, fontSize = 13.sp) }
                 }
             }
         }
@@ -1410,7 +1409,7 @@ class ServersActivity : ComponentActivity() {
     ): Boolean {
         // 跳板机只对 SSH 有意义：Telnet 选了跳板机直接拦下（表单提示里写明了）
         if (isTelnet && jumpId.isNotEmpty()) {
-            toast("Telnet 服务器不支持经由跳板机连接，请改回直连", long = true)
+            toast(getString(R.string.and_telnetNoJump), long = true)
             return false
         }
         val target = existing ?: JumpServer()
@@ -1426,7 +1425,7 @@ class ServersActivity : ComponentActivity() {
             val encrypted = KeyVault.encrypt(password)
             if (encrypted.isEmpty()) {
                 // 设备密钥库异常：宁可拒绝保存也别静默吞掉密码
-                toast("密码加密保存失败（设备密钥库异常），请重试一次", long = true)
+                toast(getString(R.string.and_pwdSaveFail), long = true)
                 return false
             }
             target.passwordEnc = encrypted
@@ -1468,8 +1467,7 @@ class ServersActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             if (keys.isEmpty()) {
                 EmptyHint(
-                    "还没有密钥。导入已有的私钥，或直接在本机生成一对 —— "
-                            + "把公钥放到服务器上（authorized_keys）就能免密登录。"
+                    stringResource(R.string.and_noKeysHint)
                 )
             }
             for (entry in keys) {
@@ -1478,7 +1476,7 @@ class ServersActivity : ComponentActivity() {
             }
             // 设计稿的虚线提示框
             DashedHint(
-                "公钥需追加到服务器 ~/.ssh/authorized_keys\n私钥加密存本机，永不上传"
+                stringResource(R.string.and_pubkeyHint)
             )
             Spacer(Modifier.height(12.dp))
         }
@@ -1486,17 +1484,17 @@ class ServersActivity : ComponentActivity() {
         deleteTargetKey?.let { entry ->
             AlertDialog(
                 onDismissRequest = { deleteTargetKey = null },
-                title = { Text("删除密钥") },
-                text = { Text("确定删除「" + JumpStore.text(entry.name) + "」吗？私钥不可恢复。") },
+                title = { Text(stringResource(R.string.keysWin_delKey)) },
+                text = { Text(stringResource(R.string.and_delKeyConfirm, JumpStore.text(entry.name))) },
                 confirmButton = {
                     TextButton(onClick = {
                         deleteTargetKey = null
                         keys.remove(entry)
                         JumpStore.saveKeys(this@ServersActivity, keys)
-                    }) { Text("删除", color = LocalPalette.current.bad) }
+                    }) { Text(stringResource(R.string.common_delete), color = LocalPalette.current.bad) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { deleteTargetKey = null }) { Text("取消") }
+                    TextButton(onClick = { deleteTargetKey = null }) { Text(stringResource(R.string.common_cancel)) }
                 },
             )
         }
@@ -1529,7 +1527,7 @@ class ServersActivity : ComponentActivity() {
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (JumpStore.text(entry.name).isEmpty()) "未命名密钥" else entry.name,
+                            if (JumpStore.text(entry.name).isEmpty()) stringResource(R.string.and_unnamedKey) else entry.name,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = palette.fg,
@@ -1539,7 +1537,7 @@ class ServersActivity : ComponentActivity() {
                         if (inUse > 0) {
                             Spacer(Modifier.width(6.dp))
                             Text(
-                                "N 台使用".replace("N", inUse.toString()),
+                                getString(R.string.and_usedByN, inUse),
                                 fontSize = 9.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = palette.accent,
@@ -1574,13 +1572,13 @@ class ServersActivity : ComponentActivity() {
                         .border(1.dp, palette.line, RoundedCornerShape(12.dp))
                         .clickable {
                             if (JumpStore.text(entry.publicKey).isEmpty()) {
-                                toast("这把密钥没有记录公钥")
+                                toast(getString(R.string.and_noPubkey))
                             } else {
                                 copyClipboard(JumpStore.text(entry.name) + " 公钥", entry.publicKey)
                             }
                         },
                     contentAlignment = Alignment.Center,
-                ) { Text("复制公钥", fontSize = 12.sp, color = palette.fg) }
+                ) { Text(stringResource(R.string.keysWin_copyPub), fontSize = 12.sp, color = palette.fg) }
                 Box(
                     Modifier
                         .weight(1f)
@@ -1590,13 +1588,13 @@ class ServersActivity : ComponentActivity() {
                         .border(1.dp, palette.line, RoundedCornerShape(12.dp))
                         .clickable {
                             if (inUse > 0) {
-                                toast("有 $inUse 台服务器在用这把密钥，先改它们的认证方式", long = true)
+                                toast(getString(R.string.and_keyInUseWarn, inUse), long = true)
                             } else {
                                 deleteTargetKey = entry
                             }
                         },
                     contentAlignment = Alignment.Center,
-                ) { Text("删除", fontSize = 12.sp, color = palette.fgDim) }
+                ) { Text(stringResource(R.string.common_delete), fontSize = 12.sp, color = palette.fgDim) }
             }
         }
     }
@@ -1652,18 +1650,18 @@ class ServersActivity : ComponentActivity() {
             onDismissRequest = { generateKeyOpen = false },
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
-            title = { Text("生成密钥对") },
+            title = { Text(stringResource(R.string.and_genKeypair)) },
             text = {
                 Column {
                     OutlinedTextField(
                         value = name, onValueChange = { name = it }, singleLine = true,
-                        placeholder = { Text("名称，如 home-ed25519", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.and_keyNamePh), fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = ed25519, onClick = { ed25519 = true })
                         Text(
-                            "Ed25519（推荐）",
+                            stringResource(R.string.and_ed25519Rec),
                             fontSize = 13.sp,
                             modifier = Modifier.weight(1f, fill = false),
                         )
@@ -1677,10 +1675,10 @@ class ServersActivity : ComponentActivity() {
                 TextButton(onClick = {
                     generateKeyOpen = false
                     generateKey(name.trim(), ed25519)
-                }) { Text("生成") }
+                }) { Text(stringResource(R.string.and_generate)) }
             },
             dismissButton = {
-                TextButton(onClick = { generateKeyOpen = false }) { Text("取消") }
+                TextButton(onClick = { generateKeyOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -1695,8 +1693,7 @@ class ServersActivity : ComponentActivity() {
                 // 于是干脆别让它跑到一半才炸 —— 老版本是在导出私钥那步抛
                 // UnsupportedOperationException（message 为 null，界面只显示「未知错误」）。
                 if (ed) {
-                    throw Exception("当前版本还不能在本机生成 Ed25519 私钥。"
-                            + "请改选 RSA 4096，或用 ssh-keygen 生成后走「导入私钥文件」。")
+                    throw Exception(getString(R.string.and_cannotGenEd25519))
                 }
                 val jsch = JSch()
                 val pair = if (ed) KeyPair.genKeyPair(jsch, KeyPair.ED25519)
@@ -1720,15 +1717,15 @@ class ServersActivity : ComponentActivity() {
                     keys.add(entry)
                     JumpStore.saveKeys(this, keys)
                     toast(
-                        "已生成 " + entry.algorithm + " 密钥「" + entry.name + "」—— 复制公钥放到服务器的"
+                        getString(R.string.and_keyGenSuccess, entry.algorithm, entry.name) + " "
                                 + " authorized_keys", long = true
                     )
                 }
             } catch (error: Exception) {
                 // 以前只 toast 不落日志 —— 这类失败在 logcat 里完全看不见（message 为 null 时 toast 只显示「未知错误」）。
                 TerminalActivity.tlog("生成密钥失败: " + android.util.Log.getStackTraceString(error))
-                val message = error.message ?: "未知错误"
-                runOnUiThread { toast("生成失败：$message", long = true) }
+                val message = error.message ?: getString(R.string.gw_unknownErr)
+                runOnUiThread { toast(getString(R.string.keysWin_genFail, message), long = true) }
             }
         }, "anyboot-keygen").start()
     }
@@ -1741,11 +1738,11 @@ class ServersActivity : ComponentActivity() {
                 var count: Int
                 while (stream.read(chunk).also { count = it } > 0) {
                     buffer.write(chunk, 0, count)
-                    if (buffer.size() > 256 * 1024) throw Exception("文件太大，不像私钥")
+                    if (buffer.size() > 256 * 1024) throw Exception(getString(R.string.and_fileTooBigKey))
                 }
                 val pem = buffer.toString("UTF-8").trim()
                 if (!pem.startsWith("-----BEGIN")) {
-                    throw Exception("不像 PEM 格式的私钥（应以 -----BEGIN 开头）")
+                    throw Exception(getString(R.string.and_notPem))
                 }
                 Thread({
                     try {
@@ -1766,16 +1763,16 @@ class ServersActivity : ComponentActivity() {
                         runOnUiThread {
                             keys.add(entry)
                             JumpStore.saveKeys(this, keys)
-                            toast("已导入 " + entry.algorithm + " 密钥")
+                            toast(getString(R.string.and_keyImportSuccess, entry.algorithm))
                         }
                     } catch (error: Exception) {
-                        val message = error.message ?: "未知错误"
-                        runOnUiThread { toast("导入失败：$message", long = true) }
+                        val message = error.message ?: getString(R.string.gw_unknownErr)
+                        runOnUiThread { toast(getString(R.string.keysWin_importFail, message), long = true) }
                     }
                 }, "anyboot-key-import").start()
             }
         } catch (error: Exception) {
-            toast("读取失败：" + error.message, long = true)
+            toast(getString(R.string.and_readFailMsg, error.message), long = true)
         }
     }
 
@@ -1796,7 +1793,7 @@ class ServersActivity : ComponentActivity() {
     private fun copyClipboard(label: String, text: String) {
         val manager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         manager.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
-        toast("已复制")
+        toast(getString(R.string.fb_copied))
     }
 
     // ------------------------------------------------------------------
@@ -1834,7 +1831,7 @@ class ServersActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             val server = selected
             if (server == null) {
-                EmptyHint("没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。")
+                EmptyHint(stringResource(R.string.and_noSshForFiles))
                 return@Column
             }
 
@@ -1844,7 +1841,7 @@ class ServersActivity : ComponentActivity() {
                     value = if (JumpStore.text(server.name).isEmpty()) server.addressLabel()
                     else JumpStore.text(server.name),
                     onValueChange = {}, readOnly = true, singleLine = true,
-                    label = { Text("服务器") },
+                    label = { Text(stringResource(R.string.nav_servers)) },
                     // 必须 disabled：readOnly 的 TextField 会吃掉点击，clickable 收不到（详见 disabledFieldColors）
                     enabled = false,
                     colors = disabledFieldColors(
@@ -1902,9 +1899,9 @@ class ServersActivity : ComponentActivity() {
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
             ) {
-                ChipButton("上级") { gotoDir(SftpOps.parent(sftpPath)) }
-                ChipButton("上传") { uploadLauncher.launch(arrayOf("*/*")) }
-                ChipButton("＋ 新建目录") { sftpMkdirOpen = true }
+                ChipButton(stringResource(R.string.and_parentDir)) { gotoDir(SftpOps.parent(sftpPath)) }
+                ChipButton(stringResource(R.string.fb_upload)) { uploadLauncher.launch(arrayOf("*/*")) }
+                ChipButton(stringResource(R.string.and_newDirPlus)) { sftpMkdirOpen = true }
                 ChipButton("刷新") { reloadDir() }
                 ChipButton("路径") { sftpLocateOpen = true }
                 ChipButton("终端") { openTerminalAt(server, sftpPath) }

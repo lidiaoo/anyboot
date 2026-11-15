@@ -1354,6 +1354,32 @@ Telnet：実験的端末のみ。</string>
     <string name="and_termShellOpt">端末 shell（任意）</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh など。空欄 = ログイン shell</string>
     <string name="and_termShellHint">プリセット shell は自動で -l 付与。カスタムコマンドもそのまま実行可（例 tmux attach）</string>
+    <string name="and_jumpDeletedPd">（削除済み。保存で直接に）</string>
+    <string name="and_jumpSelectHint">選択後まず踏み台にログインし、このサーバーへ転送（外部→社内）。Telnet 非対応</string>
+    <string name="and_authTypeHint">SSH：トンネル（外部→自宅 PC）＋端末＋ファイル。Telnet：端末のみ、平文、実験的。</string>
+    <string name="and_deleteThisServer">このサーバーを削除</string>
+    <string name="and_telnetNoJump">Telnet サーバーは踏み台経由非対応。直接に戻してください</string>
+    <string name="and_pwdSaveFail">パスワードの暗号化保存に失敗（キーストア異常）。再試行してください</string>
+    <string name="and_noKeysHint">キーがありません。既存の秘密鍵を取り込むか、ローカルで生成 — 公開鍵をサーバー（authorized_keys）に置けばパスワードレス。</string>
+    <string name="and_pubkeyHint">公開鍵をサーバーの ~/.ssh/authorized_keys に追記
+秘密鍵はローカルに暗号化保存、アップロードしません</string>
+    <string name="and_delKeyConfirm">「%1$s」を削除しますか？秘密鍵は復元できません。</string>
+    <string name="and_unnamedKey">無名キー</string>
+    <string name="and_usedByN">%1$d 台で使用</string>
+    <string name="and_noPubkey">この鍵に公開鍵の記録がありません</string>
+    <string name="and_keyInUseWarn">%1$d 台がこの鍵を使用中。先に認証方式を変更</string>
+    <string name="and_keyNamePh">名前（例 home-ed25519）</string>
+    <string name="and_ed25519Rec">Ed25519（推奨）</string>
+    <string name="and_generate">生成</string>
+    <string name="and_cannotGenEd25519">このバージョンは Ed25519 秘密鍵をローカル生成できません。RSA 4096 を選ぶか、ssh-keygen で生成して「秘密鍵を取り込む」。</string>
+    <string name="and_keyGenSuccess">%1$s 鍵「%2$s」を生成 — 公開鍵をサーバーの</string>
+    <string name="and_fileTooBigKey">ファイルが大きすぎて秘密鍵ではありません</string>
+    <string name="and_notPem">PEM 秘密鍵ではありません（-----BEGIN で始まる必要）</string>
+    <string name="and_keyImportSuccess">%1$s 鍵を取り込みました</string>
+    <string name="and_readFailMsg">読み取り失敗：%1$s</string>
+    <string name="and_noSshForFiles">SSH サーバーなし — 「サーバー」で追加。Telnet はファイル転送非対応。</string>
+    <string name="and_parentDir">上へ</string>
+    <string name="and_newDirPlus">＋ 新規フォルダ</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

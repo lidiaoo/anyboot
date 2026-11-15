@@ -1354,6 +1354,32 @@ Telnet: apenas terminal experimental.</string>
     <string name="and_termShellOpt">Shell do terminal (opcional)</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh etc.; vazio = shell de login</string>
     <string name="and_termShellHint">Shell predefinido adiciona -l; um comando próprio é executado como está (ex. tmux attach)</string>
+    <string name="and_jumpDeletedPd">(excluído; volta a direto ao salvar)</string>
+    <string name="and_jumpSelectHint">Após selecionar, entre no jump host primeiro, que encaminha para este servidor (fora → intranet); Telnet não suportado</string>
+    <string name="and_authTypeHint">SSH: túneis (fora → PCs de casa) + terminal + arquivos; Telnet: só terminal, texto puro, experimental.</string>
+    <string name="and_deleteThisServer">Excluir este servidor</string>
+    <string name="and_telnetNoJump">Servidores Telnet não passam por jump host; volte ao direto</string>
+    <string name="and_pwdSaveFail">Falha ao salvar a senha criptografada (erro do keystore); tente de novo</string>
+    <string name="and_noKeysHint">Sem chaves. Importe uma privada existente ou gere um par — coloque a pública no servidor (authorized_keys).</string>
+    <string name="and_pubkeyHint">Anexe a chave pública ao ~/.ssh/authorized_keys do servidor
+A privada é criptografada localmente e nunca enviada</string>
+    <string name="and_delKeyConfirm">Excluir “%1$s”? A chave privada não é recuperável.</string>
+    <string name="and_unnamedKey">Chave sem nome</string>
+    <string name="and_usedByN">Usada por %1$d</string>
+    <string name="and_noPubkey">Sem chave pública registrada</string>
+    <string name="and_keyInUseWarn">%1$d servidores usam esta chave; mude a autenticação primeiro</string>
+    <string name="and_keyNamePh">Nome, ex. home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519 (recomendado)</string>
+    <string name="and_generate">Gerar</string>
+    <string name="and_cannotGenEd25519">Esta versão não gera chaves Ed25519 localmente. Escolha RSA 4096 ou gere com ssh-keygen e use “Importar chave privada”.</string>
+    <string name="and_keyGenSuccess">Gerada chave %1$s “%2$s” — copie a pública para o</string>
+    <string name="and_fileTooBigKey">Arquivo grande demais para chave privada</string>
+    <string name="and_notPem">Não é chave privada PEM (deve começar com -----BEGIN)</string>
+    <string name="and_keyImportSuccess">Importada chave %1$s</string>
+    <string name="and_readFailMsg">Falha na leitura: %1$s</string>
+    <string name="and_noSshForFiles">Sem servidores SSH — adicione em Servidores. Telnet não suporta transferência.</string>
+    <string name="and_parentDir">Acima</string>
+    <string name="and_newDirPlus">＋ Nova pasta</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

@@ -1354,6 +1354,32 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_termShellOpt">終端機 shell（選填）</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh 等，留空 = 登入 shell</string>
     <string name="and_termShellHint">預設 shell 自動帶 -l；也可填自訂命令原樣執行（如 tmux attach）</string>
+    <string name="and_jumpDeletedPd">（已刪除，儲存後回到直連）</string>
+    <string name="and_jumpSelectHint">選中後先登入跳板機，再由它轉送到這台伺服器（外網連內網機器）；Telnet 不支援</string>
+    <string name="and_authTypeHint">SSH：支援通道（外網連家裡的電腦）+ 終端機 + 檔案；Telnet：只有終端機，明文傳輸，僅實驗。</string>
+    <string name="and_deleteThisServer">刪除此伺服器</string>
+    <string name="and_telnetNoJump">Telnet 伺服器不支援經由跳板機連線，請改回直連</string>
+    <string name="and_pwdSaveFail">密碼加密儲存失敗（裝置金鑰庫異常），請重試一次</string>
+    <string name="and_noKeysHint">還沒有金鑰。匯入已有的私鑰，或直接在本機產生一對 —— 把公鑰放到伺服器上（authorized_keys）就能免密登入。</string>
+    <string name="and_pubkeyHint">公鑰需追加到伺服器 ~/.ssh/authorized_keys
+私鑰加密存本機，永不上傳</string>
+    <string name="and_delKeyConfirm">確定刪除「%1$s」嗎？私鑰不可復原。</string>
+    <string name="and_unnamedKey">未命名金鑰</string>
+    <string name="and_usedByN">%1$d 台使用</string>
+    <string name="and_noPubkey">這把金鑰沒有記錄公鑰</string>
+    <string name="and_keyInUseWarn">有 %1$d 台伺服器在用這把金鑰，先改它們的認證方式</string>
+    <string name="and_keyNamePh">名稱，如 home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519（推薦）</string>
+    <string name="and_generate">產生</string>
+    <string name="and_cannotGenEd25519">目前版本還不能在本機產生 Ed25519 私鑰。請改選 RSA 4096，或用 ssh-keygen 產生後走「匯入私鑰檔案」。</string>
+    <string name="and_keyGenSuccess">已產生 %1$s 金鑰「%2$s」—— 複製公鑰放到伺服器的</string>
+    <string name="and_fileTooBigKey">檔案太大，不像私鑰</string>
+    <string name="and_notPem">不像 PEM 格式的私鑰（應以 -----BEGIN 開頭）</string>
+    <string name="and_keyImportSuccess">已匯入 %1$s 金鑰</string>
+    <string name="and_readFailMsg">讀取失敗：%1$s</string>
+    <string name="and_noSshForFiles">沒有 SSH 伺服器 —— 先到「伺服器」頁新增。Telnet 不支援檔案傳輸。</string>
+    <string name="and_parentDir">上層</string>
+    <string name="and_newDirPlus">＋ 新增目錄</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

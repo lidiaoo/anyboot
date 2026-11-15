@@ -1354,6 +1354,32 @@ Telnet: experimental terminal only.</string>
     <string name="and_termShellOpt">Terminal shell (optional)</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh etc.; blank = login shell</string>
     <string name="and_termShellHint">Preset shell auto-adds -l; you can also enter a custom command run as-is (e.g. tmux attach)</string>
+    <string name="and_jumpDeletedPd">(deleted; reverts to direct on save)</string>
+    <string name="and_jumpSelectHint">Once selected, log in to the jump host first, then it forwards to this server (outside → intranet); Telnet unsupported</string>
+    <string name="and_authTypeHint">SSH: tunnels (outside → home computers) + terminal + files; Telnet: terminal only, plaintext, experimental.</string>
+    <string name="and_deleteThisServer">Delete this server</string>
+    <string name="and_telnetNoJump">Telnet servers can\'t go through a jump host; switch back to direct</string>
+    <string name="and_pwdSaveFail">Failed to save the password encrypted (keystore error); try again</string>
+    <string name="and_noKeysHint">No keys yet. Import an existing private key, or generate a pair locally — put the public key on the server (authorized_keys) for passwordless login.</string>
+    <string name="and_pubkeyHint">Append the public key to the server\'s ~/.ssh/authorized_keys
+The private key is encrypted locally and never uploaded</string>
+    <string name="and_delKeyConfirm">Delete “%1$s”? The private key can\'t be recovered.</string>
+    <string name="and_unnamedKey">Unnamed key</string>
+    <string name="and_usedByN">Used by %1$d</string>
+    <string name="and_noPubkey">No public key recorded for this key</string>
+    <string name="and_keyInUseWarn">%1$d servers use this key; change their auth first</string>
+    <string name="and_keyNamePh">Name, e.g. home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519 (recommended)</string>
+    <string name="and_generate">Generate</string>
+    <string name="and_cannotGenEd25519">This version can\'t generate Ed25519 private keys locally. Choose RSA 4096, or generate with ssh-keygen and use “Import private key file”.</string>
+    <string name="and_keyGenSuccess">Generated %1$s key “%2$s” — copy the public key to the server\'s</string>
+    <string name="and_fileTooBigKey">File too large to be a private key</string>
+    <string name="and_notPem">Not a PEM private key (should begin with -----BEGIN)</string>
+    <string name="and_keyImportSuccess">Imported %1$s key</string>
+    <string name="and_readFailMsg">Read failed: %1$s</string>
+    <string name="and_noSshForFiles">No SSH servers — add one on the Servers page. Telnet doesn\'t support file transfer.</string>
+    <string name="and_parentDir">Up</string>
+    <string name="and_newDirPlus">＋ New folder</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

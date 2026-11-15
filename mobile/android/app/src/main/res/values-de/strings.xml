@@ -1354,6 +1354,32 @@ Telnet: nur experimentelles Terminal.</string>
     <string name="and_termShellOpt">Terminal-Shell (optional)</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh usw.; leer = Login-Shell</string>
     <string name="and_termShellHint">Voreingestellte Shell fügt -l hinzu; eigener Befehl wird unverändert ausgeführt (z. B. tmux attach)</string>
+    <string name="and_jumpDeletedPd">(gelöscht; beim Speichern direkt)</string>
+    <string name="and_jumpSelectHint">Nach Auswahl zuerst am Sprungserver anmelden, dann Weiterleitung zu diesem Server (außen → Intranet); Telnet nicht unterstützt</string>
+    <string name="and_authTypeHint">SSH: Tunnel (außen → Heim-PC) + Terminal + Dateien; Telnet: nur Terminal, Klartext, experimentell.</string>
+    <string name="and_deleteThisServer">Diesen Server löschen</string>
+    <string name="and_telnetNoJump">Telnet-Server unterstützen keinen Sprungserver; zurück auf direkt</string>
+    <string name="and_pwdSaveFail">Passwort verschlüsselt speichern fehlgeschlagen (Keystore-Fehler); erneut versuchen</string>
+    <string name="and_noKeysHint">Noch keine Schlüssel. Vorhandenen privaten Schlüssel importieren oder lokal ein Paar erzeugen – öffentlichen Schlüssel auf den Server (authorized_keys) legen.</string>
+    <string name="and_pubkeyHint">Öffentlichen Schlüssel an ~/.ssh/authorized_keys des Servers anhängen
+Privater Schlüssel lokal verschlüsselt, nie hochgeladen</string>
+    <string name="and_delKeyConfirm">„%1$s“ löschen? Der private Schlüssel ist nicht wiederherstellbar.</string>
+    <string name="and_unnamedKey">Unbenannter Schlüssel</string>
+    <string name="and_usedByN">Von %1$d genutzt</string>
+    <string name="and_noPubkey">Für diesen Schlüssel ist kein öffentlicher Schlüssel gespeichert</string>
+    <string name="and_keyInUseWarn">%1$d Server nutzen diesen Schlüssel; zuerst deren Auth ändern</string>
+    <string name="and_keyNamePh">Name, z. B. home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519 (empfohlen)</string>
+    <string name="and_generate">Erzeugen</string>
+    <string name="and_cannotGenEd25519">Diese Version kann keine Ed25519-Privatschlüssel lokal erzeugen. RSA 4096 wählen oder mit ssh-keygen erzeugen und „Privaten Schlüssel importieren“.</string>
+    <string name="and_keyGenSuccess">%1$s-Schlüssel „%2$s“ erzeugt – öffentlichen Schlüssel auf die</string>
+    <string name="and_fileTooBigKey">Datei zu groß für einen privaten Schlüssel</string>
+    <string name="and_notPem">Kein PEM-Privatschlüssel (sollte mit -----BEGIN beginnen)</string>
+    <string name="and_keyImportSuccess">%1$s-Schlüssel importiert</string>
+    <string name="and_readFailMsg">Lesen fehlgeschlagen: %1$s</string>
+    <string name="and_noSshForFiles">Keine SSH-Server – auf der Server-Seite hinzufügen. Telnet unterstützt keinen Dateitransfer.</string>
+    <string name="and_parentDir">Hoch</string>
+    <string name="and_newDirPlus">＋ Neuer Ordner</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

@@ -1354,6 +1354,32 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_termShellOpt">Shell терминала (необязательно)</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh и т. п.; пусто = login shell</string>
     <string name="and_termShellHint">Предустановленный shell добавляет -l; своя команда выполняется как есть (напр. tmux attach)</string>
+    <string name="and_jumpDeletedPd">(удалён; при сохранении — напрямую)</string>
+    <string name="and_jumpSelectHint">После выбора сначала вход на узел, затем переадресация к этому серверу (внешне → интранет); Telnet не поддерж.</string>
+    <string name="and_authTypeHint">SSH: туннели (извне → дом. ПК) + терминал + файлы; Telnet: только терминал, открытый текст, эксперимент.</string>
+    <string name="and_deleteThisServer">Удалить этот сервер</string>
+    <string name="and_telnetNoJump">Серверы Telnet не поддерживают узел; вернитесь на прямое подключение</string>
+    <string name="and_pwdSaveFail">Не удалось сохранить пароль (ошибка хранилища ключей); повторите</string>
+    <string name="and_noKeysHint">Ключей нет. Импортируйте существующий или создайте пару — положите открытый ключ на сервер (authorized_keys).</string>
+    <string name="and_pubkeyHint">Добавьте открытый ключ в ~/.ssh/authorized_keys сервера
+Закрытый ключ шифруется локально, не загружается</string>
+    <string name="and_delKeyConfirm">Удалить «%1$s»? Закрытый ключ не восстановить.</string>
+    <string name="and_unnamedKey">Ключ без имени</string>
+    <string name="and_usedByN">Используется %1$d</string>
+    <string name="and_noPubkey">Для этого ключа нет открытого ключа</string>
+    <string name="and_keyInUseWarn">%1$d серверов используют этот ключ; сначала смените их аутентификацию</string>
+    <string name="and_keyNamePh">Имя, напр. home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519 (рекомендуется)</string>
+    <string name="and_generate">Создать</string>
+    <string name="and_cannotGenEd25519">Эта версия не создаёт ключи Ed25519 локально. Выберите RSA 4096 или создайте через ssh-keygen и «Импорт файла ключа».</string>
+    <string name="and_keyGenSuccess">Создан ключ %1$s «%2$s» — скопируйте открытый ключ на</string>
+    <string name="and_fileTooBigKey">Файл слишком велик для ключа</string>
+    <string name="and_notPem">Не PEM-ключ (должен начинаться с -----BEGIN)</string>
+    <string name="and_keyImportSuccess">Импортирован ключ %1$s</string>
+    <string name="and_readFailMsg">Ошибка чтения: %1$s</string>
+    <string name="and_noSshForFiles">Серверов SSH нет — добавьте на странице «Серверы». Telnet не поддерживает передачу файлов.</string>
+    <string name="and_parentDir">Вверх</string>
+    <string name="and_newDirPlus">＋ Новый каталог</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

@@ -1354,6 +1354,32 @@ Telnet：只有实验性终端。</string>
     <string name="and_termShellOpt">终端 shell（可选）</string>
     <string name="and_termShellPh2">/bin/bash /bin/zsh 等，留空 = 登录 shell</string>
     <string name="and_termShellHint">预设 shell 自动带 -l；也可填自定义命令原样执行（如 tmux attach）</string>
+    <string name="and_jumpDeletedPd">（已删除，保存后回到直连）</string>
+    <string name="and_jumpSelectHint">选中后先登录跳板机，再由它转发到这台服务器（外网连内网机器）；Telnet 不支持</string>
+    <string name="and_authTypeHint">SSH：支持隧道（外网连家里的电脑）+ 终端 + 文件；Telnet：只有终端，明文传输，仅实验。</string>
+    <string name="and_deleteThisServer">删除此服务器</string>
+    <string name="and_telnetNoJump">Telnet 服务器不支持经由跳板机连接，请改回直连</string>
+    <string name="and_pwdSaveFail">密码加密保存失败（设备密钥库异常），请重试一次</string>
+    <string name="and_noKeysHint">还没有密钥。导入已有的私钥，或直接在本机生成一对 —— 把公钥放到服务器上（authorized_keys）就能免密登录。</string>
+    <string name="and_pubkeyHint">公钥需追加到服务器 ~/.ssh/authorized_keys
+私钥加密存本机，永不上传</string>
+    <string name="and_delKeyConfirm">确定删除「%1$s」吗？私钥不可恢复。</string>
+    <string name="and_unnamedKey">未命名密钥</string>
+    <string name="and_usedByN">%1$d 台使用</string>
+    <string name="and_noPubkey">这把密钥没有记录公钥</string>
+    <string name="and_keyInUseWarn">有 %1$d 台服务器在用这把密钥，先改它们的认证方式</string>
+    <string name="and_keyNamePh">名称，如 home-ed25519</string>
+    <string name="and_ed25519Rec">Ed25519（推荐）</string>
+    <string name="and_generate">生成</string>
+    <string name="and_cannotGenEd25519">当前版本还不能在本机生成 Ed25519 私钥。请改选 RSA 4096，或用 ssh-keygen 生成后走「导入私钥文件」。</string>
+    <string name="and_keyGenSuccess">已生成 %1$s 密钥「%2$s」—— 复制公钥放到服务器的</string>
+    <string name="and_fileTooBigKey">文件太大，不像私钥</string>
+    <string name="and_notPem">不像 PEM 格式的私钥（应以 -----BEGIN 开头）</string>
+    <string name="and_keyImportSuccess">已导入 %1$s 密钥</string>
+    <string name="and_readFailMsg">读取失败：%1$s</string>
+    <string name="and_noSshForFiles">没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。</string>
+    <string name="and_parentDir">上级</string>
+    <string name="and_newDirPlus">＋ 新建目录</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>
