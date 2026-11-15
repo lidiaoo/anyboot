@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "Импорт завершён (с ошибками)";
 "and.importFailed" = "Импорт не удался";
 "and.createFailed" = "Не удалось создать";
+"and.updateCheckFail" = "Ошибка проверки обновлений";
+"and.updateNotDone" = "Проверка обновлений не завершена";
+"and.verReleased" = "v{x} выпущена";
+"and.openReleases" = "Открыть страницу Releases";
+"and.iOSManualInstall" = "iOS — ручная установка: откройте страницу Releases, скачайте ipa, переподпишите и установите поверх (до публикации в App Store система не разрешает установку из приложения).";
+"and.iOSInstallNote" = "iOS устанавливается системой; переустановка поверх сохраняет серверы/ключи/настройки.";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "匯入完成（有失敗項）";
 "and.importFailed" = "匯入失敗";
 "and.createFailed" = "建立失敗";
+"and.updateCheckFail" = "更新檢查失敗";
+"and.updateNotDone" = "更新檢查沒有完成";
+"and.verReleased" = "v{x} 已發佈";
+"and.openReleases" = "開啟 Releases 頁";
+"and.iOSManualInstall" = "iOS 版需手動安裝：開啟 Releases 頁下載 ipa，重簽名後覆蓋安裝（未上架 App Store 前，系統不支援應用程式內直接自裝）。";
+"and.iOSInstallNote" = "iOS 版由系統安裝，覆蓋安裝不改動已儲存的伺服器 / 金鑰 / 設定。";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

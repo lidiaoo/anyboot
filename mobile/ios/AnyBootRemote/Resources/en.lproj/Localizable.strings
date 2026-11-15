@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "Import done (with failures)";
 "and.importFailed" = "Import failed";
 "and.createFailed" = "Create failed";
+"and.updateCheckFail" = "Update check failed";
+"and.updateNotDone" = "Update check didn't complete";
+"and.verReleased" = "v{x} released";
+"and.openReleases" = "Open Releases page";
+"and.iOSManualInstall" = "iOS needs manual install: open the Releases page, download the ipa, re-sign, then overwrite-install (before App Store listing, the system disallows in-app self-install).";
+"and.iOSInstallNote" = "iOS installs via the system; overwrite-install keeps saved servers / keys / settings.";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

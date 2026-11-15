@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "가져오기 완료(실패 항목 있음)";
 "and.importFailed" = "가져오기 실패";
 "and.createFailed" = "생성 실패";
+"and.updateCheckFail" = "업데이트 확인 실패";
+"and.updateNotDone" = "업데이트 확인 미완료";
+"and.verReleased" = "v{x} 출시됨";
+"and.openReleases" = "Releases 페이지 열기";
+"and.iOSManualInstall" = "iOS는 수동 설치: Releases 페이지에서 ipa 다운로드 후 재서명하여 덮어쓰기(App Store 등록 전엔 앱 내 자동 설치 불가).";
+"and.iOSInstallNote" = "iOS는 시스템이 설치. 덮어써도 저장된 서버/키/설정 유지.";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

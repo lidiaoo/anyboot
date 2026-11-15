@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "取り込み完了（失敗あり）";
 "and.importFailed" = "取り込み失敗";
 "and.createFailed" = "作成失敗";
+"and.updateCheckFail" = "更新確認に失敗";
+"and.updateNotDone" = "更新確認が完了しませんでした";
+"and.verReleased" = "v{x} をリリースしました";
+"and.openReleases" = "Releases ページを開く";
+"and.iOSManualInstall" = "iOS 版は手動インストール：Releases ページで ipa をダウンロードし再署名して上書き（App Store 掲載前はアプリ内自己インストール不可）。";
+"and.iOSInstallNote" = "iOS 版はシステムがインストール。上書きしても保存済みサーバー/鍵/設定は保持。";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

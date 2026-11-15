@@ -134,7 +134,7 @@ enum WakeOnLan {
             let summary = targets.joined(separator: " / ")
             let counts = waking
                 ? L("and.nMacsBurstRetry", macs.count, route.effectiveBurst, route.effectiveRetry)
-                : "（\(route.effectiveBurst) 包 / 重试 \(route.effectiveRetry) 次）"
+                : L("and.burstRetry", route.effectiveBurst, route.effectiveRetry)
             described.append("\(ServerProfile.powerActionLabel(wanted)) → \(summary):\(route.effectivePort)\(counts)")
         }
 
@@ -177,7 +177,7 @@ enum WakeOnLan {
                 throw lastError ?? PowerError.message(L("and.jumpNotSend"))
             }
             let label = jump.name.trimmedAnyBoot.isEmpty ? jump.host : jump.name
-            whereFrom = "跳板机「\(label)」"
+            whereFrom = L("and.jumpFrom", label)
         }
 
         if sent == 0 {

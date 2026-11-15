@@ -1853,6 +1853,12 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_importDoneWithFail">가져오기 완료(실패 항목 있음)</string>
     <string name="and_importFailed">가져오기 실패</string>
     <string name="and_createFailed">생성 실패</string>
+    <string name="and_updateCheckFail">업데이트 확인 실패</string>
+    <string name="and_updateNotDone">업데이트 확인 미완료</string>
+    <string name="and_verReleased">v%1$s 출시됨</string>
+    <string name="and_openReleases">Releases 페이지 열기</string>
+    <string name="and_iOSManualInstall">iOS는 수동 설치: Releases 페이지에서 ipa 다운로드 후 재서명하여 덮어쓰기(App Store 등록 전엔 앱 내 자동 설치 불가).</string>
+    <string name="and_iOSInstallNote">iOS는 시스템이 설치. 덮어써도 저장된 서버/키/설정 유지.</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

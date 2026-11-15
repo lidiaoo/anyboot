@@ -1853,6 +1853,12 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_importDoneWithFail">Importación completada (con fallos)</string>
     <string name="and_importFailed">Error de importación</string>
     <string name="and_createFailed">Error al crear</string>
+    <string name="and_updateCheckFail">Error al buscar actualizaciones</string>
+    <string name="and_updateNotDone">La búsqueda de actualizaciones no terminó</string>
+    <string name="and_verReleased">v%1$s publicada</string>
+    <string name="and_openReleases">Abrir página Releases</string>
+    <string name="and_iOSManualInstall">iOS requiere instalación manual: abre Releases, descarga el ipa, vuelve a firmar e instala encima (antes de la App Store, el sistema no permite autoinstalar).</string>
+    <string name="and_iOSInstallNote">iOS instala por el sistema; sobrescribir conserva servidores/claves/ajustes.</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

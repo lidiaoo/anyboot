@@ -1853,6 +1853,12 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_importDoneWithFail">匯入完成（有失敗項）</string>
     <string name="and_importFailed">匯入失敗</string>
     <string name="and_createFailed">建立失敗</string>
+    <string name="and_updateCheckFail">更新檢查失敗</string>
+    <string name="and_updateNotDone">更新檢查沒有完成</string>
+    <string name="and_verReleased">v%1$s 已發佈</string>
+    <string name="and_openReleases">開啟 Releases 頁</string>
+    <string name="and_iOSManualInstall">iOS 版需手動安裝：開啟 Releases 頁下載 ipa，重簽名後覆蓋安裝（未上架 App Store 前，系統不支援應用程式內直接自裝）。</string>
+    <string name="and_iOSInstallNote">iOS 版由系統安裝，覆蓋安裝不改動已儲存的伺服器 / 金鑰 / 設定。</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

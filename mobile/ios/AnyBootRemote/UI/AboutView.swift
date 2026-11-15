@@ -60,7 +60,7 @@ struct AboutView: View {
 
     private var titleBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "返回") { nav.back() }
+            ABBarIcon(text: "‹", description: L("and.back")) { nav.back() }
             Text(L("nav.about"))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(ABColor.fg)
@@ -89,7 +89,7 @@ struct AboutView: View {
                 .foregroundColor(ABColor.fg)
                 .padding(.top, ABMetric.px(12))
 
-            Text("v" + Self.versionName + " · 多系统启动管理器")
+            Text(L("about.verLine", Self.versionName))
                 .font(ABFont.mono(12))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, ABMetric.px(2))
@@ -147,7 +147,7 @@ struct AboutView: View {
         if checkingUpdate { return L("about.checkingNow") }
         if let version = latestVersion { return L("and.updAvailableV", version) }
         if updateUpToDate { return L("and.updUpToDateV", Self.versionName) }
-        if updateError != nil { return "更新检查失败" }
+        if updateError != nil { return L("and.updateCheckFail") }
         return L("about.checkUpdate")
     }
 
@@ -173,18 +173,17 @@ struct AboutView: View {
             }
 
             if let version = latestVersion {
-                Text("v\(version) 已发布")
+                Text(L("and.verReleased", version))
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(ABColor.fg)
                     .padding(.top, ABMetric.px(10))
-                Text("iOS 版需要手动安装：打开 Releases 页下载 ipa，重签名后覆盖安装"
-                    + "（未上架 App Store 前，系统不支持应用内直接自装）。")
+                Text(L("and.iOSManualInstall"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgDim)
                     .lineSpacing(ABMetric.px(18) - 12)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, ABMetric.px(6))
-                panelButton("打开 Releases 页", primary: true) {
+                panelButton(L("and.openReleases"), primary: true) {
                     open(Self.repoURL + "/releases")
                 }
                 .padding(.top, ABMetric.px(12))
@@ -208,7 +207,7 @@ struct AboutView: View {
                     .padding(.top, ABMetric.px(12))
             }
 
-            Text("iOS 版由系统安装，覆盖安装不改动已保存的服务器 / 密钥 / 设置。")
+            Text(L("and.iOSInstallNote"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .lineSpacing(ABMetric.px(16) - 11)
@@ -224,7 +223,7 @@ struct AboutView: View {
         if checkingUpdate { return L("about.checking") }
         if let version = latestVersion { return L("and.updAvailableV", version) }
         if updateUpToDate { return L("about.upToDate") }
-        if updateError != nil { return "更新检查没有完成" }
+        if updateError != nil { return L("and.updateNotDone") }
         return L("about.notChecked")
     }
 
@@ -271,7 +270,7 @@ struct AboutView: View {
                     latestVersion = nil
                     updateUpToDate = false
                     updateError = (error as? LocalizedError)?.errorDescription
-                        ?? "检查更新失败：\(error.localizedDescription)"
+                        ?? L("and.checkFail") + "：" + error.localizedDescription
                 }
             }
         }
@@ -352,15 +351,15 @@ struct AboutView: View {
 
     private var linkCard: some View {
         VStack(spacing: 0) {
-            linkRow("更新日志", url: Self.repoURL + "/releases") {
+            linkRow(L("about.tabReleases"), url: Self.repoURL + "/releases") {
                 DrawnIcon.clock(ABColor.fgDim, size: ABMetric.px(18))
             }
             linkDivider
-            linkRow("问题反馈（Issues）", url: Self.repoURL + "/issues") {
+            linkRow(L("about.tabIssues"), url: Self.repoURL + "/issues") {
                 DrawnIcon.code(ABColor.fgDim, size: ABMetric.px(18))
             }
             linkDivider
-            linkRow("开源许可", url: Self.repoURL + "/blob/main/LICENSE", suffix: "MIT") {
+            linkRow(L("about.tabLicense"), url: Self.repoURL + "/blob/main/LICENSE", suffix: "MIT") {
                 DrawnIcon.docFile(ABColor.fgDim, size: ABMetric.px(18))
             }
         }

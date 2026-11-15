@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "Importación completada (con fallos)";
 "and.importFailed" = "Error de importación";
 "and.createFailed" = "Error al crear";
+"and.updateCheckFail" = "Error al buscar actualizaciones";
+"and.updateNotDone" = "La búsqueda de actualizaciones no terminó";
+"and.verReleased" = "v{x} publicada";
+"and.openReleases" = "Abrir página Releases";
+"and.iOSManualInstall" = "iOS requiere instalación manual: abre Releases, descarga el ipa, vuelve a firmar e instala encima (antes de la App Store, el sistema no permite autoinstalar).";
+"and.iOSInstallNote" = "iOS instala por el sistema; sobrescribir conserva servidores/claves/ajustes.";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

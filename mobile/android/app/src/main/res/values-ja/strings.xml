@@ -1853,6 +1853,12 @@ Telnet：実験的端末のみ。</string>
     <string name="and_importDoneWithFail">取り込み完了（失敗あり）</string>
     <string name="and_importFailed">取り込み失敗</string>
     <string name="and_createFailed">作成失敗</string>
+    <string name="and_updateCheckFail">更新確認に失敗</string>
+    <string name="and_updateNotDone">更新確認が完了しませんでした</string>
+    <string name="and_verReleased">v%1$s をリリースしました</string>
+    <string name="and_openReleases">Releases ページを開く</string>
+    <string name="and_iOSManualInstall">iOS 版は手動インストール：Releases ページで ipa をダウンロードし再署名して上書き（App Store 掲載前はアプリ内自己インストール不可）。</string>
+    <string name="and_iOSInstallNote">iOS 版はシステムがインストール。上書きしても保存済みサーバー/鍵/設定は保持。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

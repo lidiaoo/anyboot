@@ -17,8 +17,7 @@ struct ServersListPage: View {
                 searchField
 
                 if jumps.jumps.isEmpty {
-                    ABEmptyHint("还没有服务器。\n\nSSH 跳板机：外网连家里的必经之路 —— 手机先 SSH 登录它，"
-                                + "再由它访问局域网内的 anyboot 电脑。\nTelnet：只有实验性终端。")
+                    ABEmptyHint(L("and.noServersHint"))
                     Button {
                         store.editTarget = nil
                         store.editOpen = true
@@ -153,10 +152,10 @@ struct ServerCardRow: View {
                     infoCell(L("srvEdit.port"), "\(server.port)")
                 }
                 if !server.note.trimmingCharacters(in: .whitespaces).isEmpty {
-                    ABSecondaryText("备注：" + server.note).padding(.top, ABMetric.px(8))
+                    ABSecondaryText(L("and.noteWith", server.note)).padding(.top, ABMetric.px(8))
                 }
                 if server.isSsh {
-                    ABSecondaryText("经由此服务器的电脑：\(store.computersVia(server.id)) 台")
+                    ABSecondaryText(L("and.computersVia", store.computersVia(server.id)))
                         .padding(.top, ABMetric.px(2))
                 }
                 if server.isSsh && up {
@@ -203,7 +202,7 @@ struct ServerCardRow: View {
         } else {
             text += server.addressLabel
         }
-        if !server.isSsh { text += "（实验性终端）" }
+        if !server.isSsh { text += L("and.experimentalTerminal") }
         return text
     }
 

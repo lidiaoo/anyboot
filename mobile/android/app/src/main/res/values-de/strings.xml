@@ -1853,6 +1853,12 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_importDoneWithFail">Import fertig (mit Fehlern)</string>
     <string name="and_importFailed">Import fehlgeschlagen</string>
     <string name="and_createFailed">Erstellen fehlgeschlagen</string>
+    <string name="and_updateCheckFail">Update-Prüfung fehlgeschlagen</string>
+    <string name="and_updateNotDone">Update-Prüfung nicht abgeschlossen</string>
+    <string name="and_verReleased">v%1$s veröffentlicht</string>
+    <string name="and_openReleases">Releases-Seite öffnen</string>
+    <string name="and_iOSManualInstall">iOS erfordert manuelle Installation: Releases-Seite öffnen, ipa laden, neu signieren, überschreiben (vor App-Store-Listung kein In-App-Selbstinstall).</string>
+    <string name="and_iOSInstallNote">iOS wird vom System installiert; Überschreiben behält Server/Schlüssel/Einstellungen.</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

@@ -1853,6 +1853,12 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_importDoneWithFail">Импорт завершён (с ошибками)</string>
     <string name="and_importFailed">Импорт не удался</string>
     <string name="and_createFailed">Не удалось создать</string>
+    <string name="and_updateCheckFail">Ошибка проверки обновлений</string>
+    <string name="and_updateNotDone">Проверка обновлений не завершена</string>
+    <string name="and_verReleased">v%1$s выпущена</string>
+    <string name="and_openReleases">Открыть страницу Releases</string>
+    <string name="and_iOSManualInstall">iOS — ручная установка: откройте страницу Releases, скачайте ipa, переподпишите и установите поверх (до публикации в App Store система не разрешает установку из приложения).</string>
+    <string name="and_iOSInstallNote">iOS устанавливается системой; переустановка поверх сохраняет серверы/ключи/настройки.</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

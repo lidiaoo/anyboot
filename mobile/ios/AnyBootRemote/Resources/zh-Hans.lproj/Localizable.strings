@@ -1816,6 +1816,12 @@
 "and.importDoneWithFail" = "导入完成（有失败项）";
 "and.importFailed" = "导入失败";
 "and.createFailed" = "创建失败";
+"and.updateCheckFail" = "更新检查失败";
+"and.updateNotDone" = "更新检查没有完成";
+"and.verReleased" = "v{x} 已发布";
+"and.openReleases" = "打开 Releases 页";
+"and.iOSManualInstall" = "iOS 版需要手动安装：打开 Releases 页下载 ipa，重签名后覆盖安装（未上架 App Store 前，系统不支持应用内直接自装）。";
+"and.iOSInstallNote" = "iOS 版由系统安装，覆盖安装不改动已保存的服务器 / 密钥 / 设置。";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";
