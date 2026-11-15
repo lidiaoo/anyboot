@@ -128,10 +128,10 @@ struct TerminalPage: View {
             .overlay(alignment: .topTrailing) {
                 if fontMenuOpen {
                     VStack(alignment: .leading, spacing: 0) {
-                        fontRow("缩小字号（当前 \(jumps.terminalFontSize)）") {
+                        fontRow(L("and.zoomOut", jumps.terminalFontSize)) {
                             jumps.setTerminalFontSize(jumps.terminalFontSize - 1)
                         }
-                        fontRow("放大字号（当前 \(jumps.terminalFontSize)）") {
+                        fontRow(L("and.zoomIn", jumps.terminalFontSize)) {
                             jumps.setTerminalFontSize(jumps.terminalFontSize + 1)
                         }
                     }
@@ -318,7 +318,7 @@ struct TerminalPage: View {
             }
             return
         }
-        statusMessage = "正在连接 \(server.addressLabel) …"
+        statusMessage = L("and.connectingAddr", server.addressLabel)
         let fresh = TerminalSessionRef(server: server)
         do {
             if server.isSsh {
@@ -370,7 +370,7 @@ struct TerminalPage: View {
         ABDialogHost(isPresented: killTarget != nil, onDismiss: { killTarget = nil }) {
             ABDialogCard("结束会话") {
                 if let item = killTarget {
-                    ABDialogNote("结束「\(item.server.displayName)」的终端会话吗？", color: ABColor.fg)
+                    ABDialogNote(L("and.endSessionConfirm", item.server.displayName), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "结束",
                                     onConfirm: {
                                         killTarget = nil
@@ -509,7 +509,7 @@ struct TerminalSettingsSheet: View {
                 jumps.setTerminalFontFamily("")
                 jumps.setTerminalAutoKeyboard(false)
                 jumps.setTerminalKeyBar(true)
-                store.toast("已恢复默认：暗色 · 字号 \(JumpStore.defaultFontSize) · 快捷键栏开")
+                store.toast(L("and.termResetDone", JumpStore.defaultFontSize))
             } label: {
                 Text(L("and.termResetBtn"))
                     .font(.system(size: 14))

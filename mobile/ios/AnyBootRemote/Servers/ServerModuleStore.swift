@@ -105,7 +105,7 @@ final class ServerModuleStore: ObservableObject {
         do {
             let entry = try KeyFactory.importPem(at: url, fallbackName: "imported-\(JumpStore.shared.keys.count)")
             JumpStore.shared.upsert(entry)
-            toast("已导入 \(entry.algorithm) 密钥")
+            toast(L("and.keyImportSuccess", entry.algorithm))
         } catch {
             toast("导入失败：" + (error.localizedDescription), long: true)
         }

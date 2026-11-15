@@ -34,7 +34,7 @@ final class TelnetSession {
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed(let error):
-                self?.finish("连接失败：\(error)")
+                self?.finish(L("and.connFailMsg", String(describing: error)))
             case .cancelled:
                 self?.finish("连接已关闭")
             default:

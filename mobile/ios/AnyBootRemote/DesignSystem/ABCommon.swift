@@ -125,10 +125,10 @@ enum ABFormat {
     /// `humanDuration(ms)`：秒 → 分钟 → 小时+分
     static func duration(_ ms: Int64) -> String {
         let seconds = ms / 1000
-        if seconds < 60 { return "\(seconds) 秒" }
+        if seconds < 60 { return L("gw.secSuffix", seconds) }
         let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes) 分钟" }
-        return "\(minutes / 60) 小时 \(minutes % 60) 分"
+        if minutes < 60 { return L("and.durMin", minutes) }
+        return L("and.durHourMin", minutes / 60, minutes % 60)
     }
 
     /// `humanSize(bytes)`：B → KB → MB（注意 Android 只到 MB，不升 GB）
@@ -190,11 +190,11 @@ enum ABClipboard {
     static func copyRemoteSlot(_ label: String, _ value: String) {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty {
-            ABToastBus.shared.show("没有可复制的\(label)")
+            ABToastBus.shared.show(L("and.nothingToCopy", label))
             return
         }
         UIPasteboard.general.string = text
-        ABToastBus.shared.show("已复制\(label)")
+        ABToastBus.shared.show(L("and.copiedLabel", label))
     }
 }
 

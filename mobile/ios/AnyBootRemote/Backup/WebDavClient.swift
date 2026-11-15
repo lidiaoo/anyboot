@@ -22,7 +22,7 @@ enum WebDavError: LocalizedError, Equatable {
         case .conflict: return "云端已被其他设备更新，请重试"
         case .serverError(let code): return "服务器无响应（\(code)），请稍后重试"
         case .quota: return "WebDAV 空间不足"
-        case .network(let reason): return "连接失败：\(reason)"
+        case .network(let reason): return L("and.connFailMsg", reason)
         }
     }
 }

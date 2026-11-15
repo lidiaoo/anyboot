@@ -40,7 +40,7 @@ struct KeysPage: View {
                      onDismiss: { store.deleteKeyTarget = nil }) {
             ABDialogCard("删除密钥") {
                 if let entry = store.deleteKeyTarget {
-                    ABDialogNote("确定删除「\(entry.name)」吗？私钥不可恢复。", color: ABColor.fg)
+                    ABDialogNote(L("and.delKeyConfirm", entry.name), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "删除", confirmColor: ABColor.bad,
                                     onConfirm: {
                                         store.deleteKeyTarget = nil
@@ -83,7 +83,7 @@ struct KeyCardRow: View {
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
                         if inUse > 0 {
-                            Text("\(inUse) 台使用")
+                            Text(L("and.usedByN", inUse))
                                 .font(.system(size: 9, design: .monospaced))
                                 .foregroundColor(ABColor.accent)
                                 .padding(.horizontal, ABMetric.px(5))
@@ -113,7 +113,7 @@ struct KeyCardRow: View {
                 }
                 plainButton(L("common.delete")) {
                     if inUse > 0 {
-                        store.toast("有 \(inUse) 台服务器在用这把密钥，先改它们的认证方式", long: true)
+                        store.toast(L("and.keyInUseWarn", inUse), long: true)
                     } else {
                         store.deleteKeyTarget = entry
                     }
@@ -218,7 +218,7 @@ struct GenerateKeyDialog: View {
                                                    ed25519: ed25519)
                 JumpStore.shared.upsert(entry)
                 busy = false
-                store.toast("已生成 \(entry.algorithm) 密钥「\(entry.name)」—— 复制公钥放到服务器的"
+                store.toast(L("and.keyGenSuccess", entry.algorithm, entry.name)
                             + " authorized_keys", long: true)
             } catch {
                 busy = false

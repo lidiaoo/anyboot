@@ -464,7 +464,7 @@ struct ComputerEditorView: View {
 
             // ---- 局域网电源路由（折叠，默认收起） ----
             foldHeader(title: L("remote.powerRouteTitle"),
-                       summary: draft.powerRoutes.isEmpty ? "未配置" : "\(draft.powerRoutes.count) 条",
+                       summary: draft.powerRoutes.isEmpty ? "未配置" : L("and.nItems", draft.powerRoutes.count),
                        open: powerFoldOpen) { powerFoldOpen.toggle() }
             if powerFoldOpen {
                 powerFoldContent
@@ -547,7 +547,7 @@ struct ComputerEditorView: View {
             if upsertAddress(host, macs: parsed.macs[host] ?? []) { added += 1 }
         }
         let macCount = parsed.macs.values.reduce(0) { $0 + $1.count }
-        quickHint = "认出 \(parsed.hosts.count) 个地址、\(macCount) 个 MAC"
+        quickHint = L("and.recognizedN", parsed.hosts.count, macCount)
             + (added < parsed.hosts.count ? "（其余本来就有，只并了 MAC）" : "")
         // 整条 URL 粘进来时顺手把 token 收了
         let found = ServerProfile.token(fromURL: raw)
@@ -582,7 +582,7 @@ struct ComputerEditorView: View {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         let added = upsertAddress(address, macs: macs)
-        quickHint = added ? "已添加 \(address)" : "地址已存在，只追了 MAC：\(address)"
+        quickHint = added ? L("and.addedAddr", address) : L("and.addrExistsMac", address)
         newHost = ""
         newMacs = ""
     }
@@ -617,7 +617,7 @@ struct ComputerEditorView: View {
         }
         let existed = draft.pairs.contains { $0.key == RemotePair(kind: parsed.kind, addr: parsed.tunnel).key }
         if draft.upsertPair(parsed) == nil {
-            remoteHint = "最多 \(ServerProfile.maxPairs) 条配对 —— 先删掉几条再加"
+            remoteHint = L("and.maxPairsHint", ServerProfile.maxPairs)
             return
         }
         let label = RemotePair.blockLabel(parsed.kind)
@@ -641,7 +641,7 @@ struct ComputerEditorView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(ABColor.fg)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(items.isEmpty ? "未配" : "\(items.count) 条")
+                Text(items.isEmpty ? "未配" : L("and.nItems", items.count))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                 Button {
@@ -679,7 +679,7 @@ struct ComputerEditorView: View {
     /// 在区块末尾加一行空条目（地址留空 = 保存时丢弃）
     private func addPair(_ kind: String) {
         if draft.pairs.count >= ServerProfile.maxPairs {
-            remoteHint = "最多 \(ServerProfile.maxPairs) 条配对 —— 先删掉几条再加"
+            remoteHint = L("and.maxPairsHint", ServerProfile.maxPairs)
             return
         }
         var pair = RemotePair(kind: kind, addr: "")
@@ -747,14 +747,14 @@ struct ComputerEditorView: View {
         let availableEnabled = draft.routeOrderSorted().filter {
             routeAvailable($0) && !draft.routeDisabled.contains($0)
         }.count
-        var text = "优先级 \(availableEnabled)/\(Self.routeNames.count)"
+        var text = L("and.priorityN", availableEnabled, Self.routeNames.count)
             + " · 通道间 \(probeShort(draft.routeProbeMode))"
             + " · 多网卡 \(probeShort(draft.probeMode))"
             + " · 默认 \(String(format: "%.1f", Double(probeTimeoutMsValue) / 1000.0))s"
         let separatelySet = [ServerProfile.routeLan, ServerProfile.routeJump].filter {
             !(routeTimeoutTexts[$0] ?? "").trimmingCharacters(in: .whitespaces).isEmpty
         }.count
-        if separatelySet > 0 { text += "（\(separatelySet) 个通道单独设）" }
+        if separatelySet > 0 { text += L("and.nRoutesSeparate", separatelySet) }
         if !jumpBindings.isEmpty { text += " · 跳板机" }
         return text
     }
@@ -971,7 +971,7 @@ struct ComputerEditorView: View {
 
     private func jumpLabel(_ jump: JumpServer) -> String {
         let label = jump.displayName.isEmpty ? jump.host : jump.displayName
-        return "经由：\(label)" + (jump.isSsh ? "" : "（仅 Telnet，不能做隧道）")
+        return L("and.viaLabel", label) + (jump.isSsh ? "" : "（仅 Telnet，不能做隧道）")
     }
 
     /// 生效的「地址 → 跳板机」绑定（保存时写进档案的 jumps）
@@ -1483,7 +1483,7 @@ private struct PowerRouteCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("路由 \(index + 1) / \(total)")
+            Text(L("and.routeIndexN", index + 1, total))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
 

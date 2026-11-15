@@ -164,7 +164,7 @@ final class ComputerTab: ObservableObject, Identifiable {
                 if !advanceAddress() {
                     mainFailed = true
                     status = .failed
-                    errorDetail = composeErrorDetail("经由跳板机连接失败：\(error.localizedDescription)")
+                    errorDetail = composeErrorDetail(L("and.jumpConnFail", error.localizedDescription))
                 }
             }
         }

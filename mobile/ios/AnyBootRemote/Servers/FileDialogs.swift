@@ -290,7 +290,7 @@ struct FileDeleteDialog: View {
                 if let entry = store.askDelete {
                     Text(entry.dir
                          ? "删除目录「\(entry.name)」？\n里面的东西会一起删掉，删了就找不回来。"
-                         : "删除文件「\(entry.name)」？删了就找不回来。")
+                         : L("and.delFileConfirm", entry.name))
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fg)
                         .fixedSize(horizontal: false, vertical: true)
@@ -316,7 +316,7 @@ struct FileMkdirDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.mkdirOpen, onDismiss: { store.mkdirOpen = false }) {
             ABDialogCard("新建目录") {
-                ABSecondaryText("位置：\(store.path)")
+                ABSecondaryText(L("and.location", store.path))
                 ABDialogInput(placeholder: L("and.dirName"), text: $name)
                 ABDialogButtons(confirmTitle: "新建",
                                 onConfirm: {

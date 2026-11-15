@@ -39,7 +39,7 @@ enum SysInfo {
 
         let cores = RemoteHttp.int(json, "cpuCores")
         let cpu = RemoteHttp.str(json, "cpuModel")
-        add("处理器", cores > 0 ? "\(cpu)（\(cores) 核）" : cpu)
+        add("处理器", cores > 0 ? L("and.cpuWithCores", cpu, cores) : cpu)
 
         let total = RemoteHttp.int(json, "memTotalMb")
         let free = RemoteHttp.int(json, "memFreeMb")

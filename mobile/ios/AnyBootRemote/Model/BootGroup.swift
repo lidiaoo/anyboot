@@ -464,7 +464,7 @@ enum GrubFormat {
                 var j = i + 1
                 var cnt = 0
                 while j < opts.count && !opts[j].header { cnt += 1; j += 1 }
-                rows.append(GrubRow(option: nil, text: o.label, isGroup: true, trailing: "\(cnt) 项"))
+                rows.append(GrubRow(option: nil, text: o.label, isGroup: true, trailing: L("hub.picker.groupItems", cnt)))
                 i += 1
             } else {
                 // 子项：value 非空且属于某组(value=父title)，用 ↳ + 图标；顶层项原样
@@ -515,12 +515,12 @@ enum GrubFormat {
             var parts: [String] = []
             if format == "raw" {
                 // 原始格式不折叠；变体数用解析期并进的 grubVariants
-                if option.grubVariants > 1 { parts.append("\(option.grubVariants) 个变体") }
+                if option.grubVariants > 1 { parts.append(L("grub.variantsN", option.grubVariants)) }
             } else {
                 if emitted.contains(label) { return }
                 emitted.insert(label)
                 let variants = counts[label] ?? 1
-                if variants > 1 { parts.append("\(variants) 个变体") }
+                if variants > 1 { parts.append(L("grub.variantsN", variants)) }
             }
             if format == "raw" || format == "detailed" {
                 let tag: String
@@ -555,7 +555,7 @@ enum GrubFormat {
         var location = ""
         if format != "minimal" && format != "raw" {
             var parts: [String] = []
-            if !group.grubEfiDir.isEmpty { parts.append("位于\(group.grubEfiDir)") }
+            if !group.grubEfiDir.isEmpty { parts.append(L("and.locatedAt", group.grubEfiDir)) }
             if !group.grubPartuuid.isEmpty { parts.append("UUID=\(group.grubPartuuid)") }
             if !parts.isEmpty { location = " · " + parts.joined(separator: " ") }
         }

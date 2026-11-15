@@ -206,7 +206,7 @@ struct FilesPage: View {
             Button {
                 sortMenuOpen.toggle()
             } label: {
-                Text("排序 \(store.sort.label)" + (store.sortDesc ? " ↓" : " ↑"))
+                Text(L("and.sortWith", store.sort.label) + (store.sortDesc ? " ↓" : " ↑"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.accent)
                     .padding(.horizontal, ABMetric.px(10))
@@ -278,7 +278,7 @@ struct FilesPage: View {
     private var opRow: some View {
         HStack(spacing: ABMetric.px(8)) {
             ProgressView().scaleEffect(0.6).frame(width: ABMetric.px(14), height: ABMetric.px(14))
-            ABSecondaryText("正在\(store.opLabel) …")
+            ABSecondaryText(L("and.doingOp", store.opLabel))
         }
         .padding(.top, ABMetric.px(6))
     }

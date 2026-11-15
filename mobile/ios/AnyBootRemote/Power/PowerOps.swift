@@ -90,7 +90,7 @@ enum PowerOps {
             let packets = await packetResult
             switch (http, packets) {
             case let (.success(httpMessage), .success(packetMessage)):
-                return "（混合模式）HTTP 与广播包已同时发送 —— HTTP：\(httpMessage)；广播包：\(packetMessage)"
+                return L("and.mixedBothSent", httpMessage, packetMessage)
             case let (.success(httpMessage), .failure(packetError)):
                 return "（混合模式）HTTP 接口已执行：\(httpMessage)；"
                     + "广播包没发出去（\(packetError.localizedDescription)）"

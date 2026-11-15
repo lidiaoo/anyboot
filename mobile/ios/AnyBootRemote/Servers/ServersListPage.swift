@@ -276,7 +276,7 @@ struct ServerCardRow: View {
             store.manualPassword = .init(server: server, onReady: { test() })
             return
         }
-        store.toast("正在测试 \(server.addressLabel) …")
+        store.toast(L("and.testingAddr", server.addressLabel))
         let started = Date()
         Task {
             do {
@@ -291,7 +291,7 @@ struct ServerCardRow: View {
                 updated.lastSeen = Date()
                 JumpStore.shared.upsert(updated)
                 store.markSessionsChanged()
-                store.toast("连接成功（\(ms)ms）", long: true)
+                store.toast(L("and.connOkMs", ms), long: true)
             } catch {
                 store.toast(SshSessionManager.describe(error), long: true)
             }

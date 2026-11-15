@@ -79,7 +79,7 @@ struct ABDrawerOverlay: View {
                     } label: {
                         rowBody(icon: { tint, size in
                             DrawnIcon.moon(tint, size: size)
-                        }, label: "主题：\(theme.label)", selected: false)
+                        }, label: L("theme.toast", theme.label), selected: false)
                     }
                     .buttonStyle(.plain)
                 }

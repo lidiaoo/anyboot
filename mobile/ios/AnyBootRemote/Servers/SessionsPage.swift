@@ -97,7 +97,7 @@ struct SessionsPage: View {
                      onDismiss: { store.killTarget = nil }) {
             ABDialogCard("结束会话") {
                 if let session = store.killTarget {
-                    ABDialogNote("结束「\(session.server.displayName)」的终端会话吗？", color: ABColor.fg)
+                    ABDialogNote(L("and.endSessionConfirm", session.server.displayName), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "结束",
                                     onConfirm: {
                                         store.killTarget = nil

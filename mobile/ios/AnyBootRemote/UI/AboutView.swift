@@ -145,8 +145,8 @@ struct AboutView: View {
     /// 收起时也要能看出当前状态，别让用户为了看一句话再点开一次
     private var capsuleLabel: String {
         if checkingUpdate { return L("about.checkingNow") }
-        if let version = latestVersion { return "发现新版本 v\(version)" }
-        if updateUpToDate { return "已是最新 v\(Self.versionName)" }
+        if let version = latestVersion { return L("and.updAvailableV", version) }
+        if updateUpToDate { return L("and.updUpToDateV", Self.versionName) }
         if updateError != nil { return "更新检查失败" }
         return L("about.checkUpdate")
     }
@@ -222,7 +222,7 @@ struct AboutView: View {
 
     private var statusText: String {
         if checkingUpdate { return L("about.checking") }
-        if let version = latestVersion { return "发现新版本 v\(version)" }
+        if let version = latestVersion { return L("and.updAvailableV", version) }
         if updateUpToDate { return L("about.upToDate") }
         if updateError != nil { return "更新检查没有完成" }
         return L("about.notChecked")

@@ -47,7 +47,7 @@ enum SyncStatus: Equatable {
         case .idle: return ""
         case .running: return L("and.syncing")
         case .success(let date): return "上次同步 \(Self.timeText(date)) · 成功"
-        case .failed(let reason): return "同步失败：\(reason)"
+        case .failed(let reason): return L("bk.syncFail", reason)
         }
     }
 

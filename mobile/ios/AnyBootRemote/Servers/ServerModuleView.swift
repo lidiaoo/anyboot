@@ -213,9 +213,9 @@ struct ServerModuleView: View {
         switch store.page {
         case .servers:
             let online = jumps.jumps.filter { $0.isSsh && SshSessionManager.shared.isUp($0.id) }.count
-            pillText("\(online) 在线")
+            pillText(L("and.nOnline", online))
         case .keys:
-            pillText("\(jumps.keys.count) 把")
+            pillText(L("keysWin.count", jumps.keys.count))
         case .files:
             let up = FilesStore.shared.isUp
             HStack(spacing: ABMetric.px(5)) {
@@ -365,7 +365,7 @@ struct DeleteJumpDialog: View {
                     let viaServers = jumps.jumps.filter {
                         $0.id != server.id && $0.jumpServerId == server.id
                     }.count
-                    ABDialogNote("确定删除「\(server.displayName)」吗？"
+                    ABDialogNote(L("and.delServerConfirm", server.displayName)
                                  + (via > 0 ? "\n\n注意：有 \(via) 台电脑配置了经由它连接，删除后这些电脑会退回直连。" : "")
                                  + (viaServers > 0 ? "\n\n另有 \(viaServers) 台服务器经由它中转，删除后退回直连。" : ""),
                                  color: ABColor.fg)

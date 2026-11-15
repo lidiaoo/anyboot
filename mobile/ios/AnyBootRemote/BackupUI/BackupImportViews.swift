@@ -265,7 +265,7 @@ struct BackupImportPreview: View {
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fg)
                     Spacer(minLength: 0)
-                    Text("备份 \(row.backupCount) 条 · 本机 \(row.localCount) 条")
+                    Text(L("and.backupLocalCount", row.backupCount, row.localCount))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.fgDim)
                     if !row.conflicts.isEmpty {
@@ -284,7 +284,7 @@ struct BackupImportPreview: View {
                 VStack(alignment: .leading, spacing: ABMetric.px(3)) {
                     Text("新增 \(row.backupCount - row.conflicts.count) · 覆盖 \(row.conflicts.count)："
                          + shown.joined(separator: "、")
-                         + (row.conflicts.count > 20 ? " 等 \(row.conflicts.count) 条" : ""))
+                         + (row.conflicts.count > 20 ? L("and.andNMore", row.conflicts.count) : ""))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.fgDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -363,7 +363,7 @@ struct BackupImportPreview: View {
         if sum.missingJumpRefs > 0 {
             HStack(spacing: ABMetric.px(6)) {
                 Text("⚠").font(.system(size: 12, weight: .bold)).foregroundColor(ABColor.warn)
-                Text("\(sum.missingJumpRefs) 台电脑关联的跳板机不在本备份中")
+                Text(L("and.missJumpNotInBackup", sum.missingJumpRefs))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.warn)
                 Spacer(minLength: 0)
@@ -408,7 +408,7 @@ struct BackupImportPreview: View {
                 } label: {
                     HStack(spacing: ABMetric.px(6)) {
                         if importing { ProgressView().tint(ABColor.onAccent) }
-                        Text("导入所选（\(selected.count) 类）")
+                        Text(L("and.importSelectedN", selected.count))
                             .font(.system(size: 15, weight: .semibold))
                     }
                     .foregroundColor(selected.isEmpty || importing ? ABColor.fgFaint : ABColor.onAccent)

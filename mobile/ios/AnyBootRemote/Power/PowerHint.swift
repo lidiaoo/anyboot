@@ -20,7 +20,7 @@ enum PowerHint {
             let route = routes[0]
             let rawTarget = route.target.trimmingCharacters(in: .whitespaces)
             let target = rawTarget.isEmpty ? "自动广播" : rawTarget
-            let suffix = routes.count > 1 ? " 等 \(routes.count) 条" : ""
+            let suffix = routes.count > 1 ? L("and.andNMore", routes.count) : ""
             return "\(badge) · → \(target):\(route.effectivePort)\(suffix)"
         }
 

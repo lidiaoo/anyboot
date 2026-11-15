@@ -303,16 +303,16 @@ struct ComputerTabsView: View {
                 ABToastBus.shared.show(next ? L("and.connectAllOn") : L("and.connectAllOff"))
             }
             Button(failReloadSec > 0
-                   ? "连不上时自动重载（每 \(failReloadSec) 秒）"
+                   ? L("and.failReloadOnN", failReloadSec)
                    : "连不上时自动重载（已关闭）") {
                 failReloadOpen = true
             }
             Button(dataRefreshSec > 0
-                   ? "数据刷新（每 \(dataRefreshSec) 秒）"
+                   ? L("and.dataRefreshOnN", dataRefreshSec)
                    : "数据刷新（已关闭）") {
                 dataRefreshOpen = true
             }
-            Button("传输方式（\(transportLabel)）") { transportOpen = true }
+            Button(L("and.transportWith", transportLabel)) { transportOpen = true }
         } label: {
             Text("⋮")
                 .font(.system(size: 19))
@@ -386,7 +386,7 @@ struct ComputerTabsView: View {
                     .foregroundColor(ABColor.fgFaint)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(failReloadSec > 0
-                     ? "每 \(failReloadSec) 秒自动重试（⋮ 里可改）"
+                     ? L("and.autoRetryN", failReloadSec)
                      : "自动重试已关闭（⋮ 里可改）")
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
@@ -620,7 +620,7 @@ struct ComputerTabsView: View {
     private func setFailReloadSec(_ sec: Int) {
         FailReloadPref.sec = sec
         // Android saveFailReloadSec（1055-1061）
-        ABToastBus.shared.show(sec > 0 ? "连不上时每 \(sec) 秒自动重载" : "已关闭自动重载")
+        ABToastBus.shared.show(sec > 0 ? L("and.toastFailReloadOn", sec) : "已关闭自动重载")
     }
 
     private var transportLabel: String {
@@ -643,7 +643,7 @@ struct ComputerTabsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach([5, 10, 30, 60, 0], id: \.self) { sec in
                     radioRow(selected: failReloadSec == sec,
-                             label: sec == 0 ? "永不（关闭自动重载）" : "每 \(sec) 秒") {
+                             label: sec == 0 ? "永不（关闭自动重载）" : L("menu.everyN", sec)) {
                         setFailReloadSec(sec)
                     }
                 }
@@ -707,10 +707,10 @@ struct ComputerTabsView: View {
                 ForEach([2, 5, 10, 30, 0], id: \.self) { sec in
                     radioRow(selected: dataRefreshSec == sec,
                              label: sec == 0 ? "关闭数据刷新"
-                                : "每 \(sec) 秒" + (sec == 2 ? "（默认）" : "")) {
+                                : L("menu.everyN", sec) + (sec == 2 ? "（默认）" : "")) {
                         DataRefreshPref.sec = sec
                         ABToastBus.shared.show(sec > 0
-                            ? "数据每 \(sec) 秒刷新一次" : "已关闭数据刷新")
+                            ? L("menu.toastRefreshOn", sec) : "已关闭数据刷新")
                     }
                 }
 
@@ -758,7 +758,7 @@ struct ComputerTabsView: View {
                         store.setTransport(value)
                         transportOpen = false
                         ABToastBus.shared.show(
-                            "已选择「\(transportLabel)」：重载页面后生效（页面上也能即切）")
+                            L("and.transportSelectedReload", transportLabel))
                     }
                 }
                 HStack {
@@ -845,7 +845,7 @@ struct ComputerTabsView: View {
                         let removed = store.mergeSameMachine()
                         ABToastBus.shared.show(
                             removed > 0
-                                ? "已合并 \(removed) 条重复记录 —— 同一台电脑只留一个标签"
+                                ? L("and.mergedRecords", removed)
                                 : "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同")
                     }
                     Spacer(minLength: 0)

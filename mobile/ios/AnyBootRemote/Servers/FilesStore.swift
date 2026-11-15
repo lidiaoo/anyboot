@@ -194,7 +194,7 @@ final class FilesStore: ObservableObject {
             return
         }
         _ = TransferCenter.shared.startDownload(jump: server!, remoteDir: path, name: entry.name)
-        toast("已加入传输：\(entry.name)（进度见「传输」页）")
+        toast(L("and.addedTransfer", entry.name))
     }
 
     func upload(_ urls: [URL]) {
@@ -224,7 +224,7 @@ final class FilesStore: ObservableObject {
     /// 完成后成功 → 重拉当前目录；失败 → 长提示弹出来。
     private func run(_ label: String, work: @escaping () async throws -> Void) {
         if !opLabel.isEmpty {
-            toast("正在\(opLabel)，稍等一下")
+            toast(L("and.busyOpDoing", opLabel))
             return
         }
         opLabel = label
@@ -294,7 +294,7 @@ final class FilesStore: ObservableObject {
         let raw = input.trimmingCharacters(in: .whitespaces)
         if raw.isEmpty { return }
         if !opLabel.isEmpty {
-            toast("正在\(opLabel)，稍等一下")
+            toast(L("and.busyOpDoing", opLabel))
             return
         }
         let current = path
@@ -360,7 +360,7 @@ final class FilesStore: ObservableObject {
                 var target = SftpOps.join(destDir, name)
                 do {
                     if try await SftpOps.exists(jump: jump, path: target) {
-                        if request.cut { throw FilesOpError("目标目录里已经有「\(name)」了") }
+                        if request.cut { throw FilesOpError(L("and.targetExists", name)) }
                         target = try await self.uniqueTarget(jump, destDir, name)
                     }
                     if request.cut {

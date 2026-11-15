@@ -14,8 +14,8 @@ struct TransfersPage: View {
                 let paused = pending.filter { $0.state == .paused }.count
                 let heading: String = {
                     if pending.isEmpty { return L("and.ongoing") }
-                    if paused == 0 { return "进行中（\(pending.count)）" }
-                    return "进行中（\(pending.count - paused)）· 已暂停（\(paused)）"
+                    if paused == 0 { return L("and.ongoingN", pending.count) }
+                    return L("and.ongoingPausedN", pending.count - paused, paused)
                 }()
                 ABSectionTitle(heading)
                 if pending.isEmpty {
@@ -163,7 +163,7 @@ struct TransferRow: View {
         let size = task.total <= 0
             ? "已传 \(TransferTask.humanBytes(task.transferred))"
             : "\(TransferTask.humanBytes(task.transferred)) / \(TransferTask.humanBytes(task.total))"
-        return "已暂停 · \(size)"
+        return L("and.pausedSize", size)
     }
 
     private var speedText: String {
@@ -176,7 +176,7 @@ struct TransferRow: View {
         if let reason = TransferCenter.shared.resume(task.id) {
             store.toast(reason, long: true)
         } else {
-            store.toast("接着传：\(task.name)（进度见上面「进行中」）")
+            store.toast(L("and.resumeTransfer", task.name))
         }
     }
 
@@ -184,7 +184,7 @@ struct TransferRow: View {
         if let reason = TransferCenter.shared.retry(task.id) {
             store.toast(reason, long: true)
         } else {
-            store.toast("已重新加入传输：\(task.name)（进度见上面「进行中」）")
+            store.toast(L("and.reAddedTransfer", task.name))
         }
     }
 }

@@ -253,11 +253,11 @@ struct ComputerListView: View {
                 toast(next ? L("and.connectAllOn") : L("and.connectAllOff"))
             }
             Button(failReloadSec > 0
-                   ? "连不上时自动重载（每 \(failReloadSec) 秒）"
+                   ? L("and.failReloadOnN", failReloadSec)
                    : "连不上时自动重载（已关闭）") {
                 failReloadOpen = true
             }
-            Button("传输方式（\(transportLabel)）") {
+            Button(L("and.transportWith", transportLabel)) {
                 transportOpen = true
             }
             // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 调出来的顺序（默认）；
@@ -616,7 +616,7 @@ struct ComputerListView: View {
                 let inUse = pair.id == hitPair?.id
                 let stateText: String
                 if inUse && hit?.ok == true {
-                    stateText = "使用中 \(hit?.ms ?? 0)ms"
+                    stateText = L("and.inUseNMs", hit?.ms ?? 0)
                 } else if inUse {
                     stateText = L("and.inUse")
                 } else {
@@ -740,7 +740,7 @@ struct ComputerListView: View {
         }
         for (id, count) in seen where count > 1 {
             let short = id.count > 8 ? String(id.prefix(8)) : id
-            return "隧道 \(short) 被 \(count) 条配对共用 —— 同一隧道被多套系统共用，请求会随机落到其中一个"
+            return L("and.tunnelShared", short, count)
         }
         return ""
     }
@@ -937,7 +937,7 @@ struct ComputerListView: View {
             && (ServerProfile.normalizeHost(row.winnerAddr) ?? "") == host
         let stateText: String
         if inUse && hit?.ok == true {
-            stateText = "使用中 \(hit?.ms ?? 0)ms"
+            stateText = L("and.inUseNMs", hit?.ms ?? 0)
         } else if inUse {
             stateText = L("and.inUse")
         } else {
@@ -1275,7 +1275,7 @@ struct ComputerListView: View {
 
         return Button {
             if group.actionCount == 0 {
-                toast("该设备没有可用的 \(group.label) 动作")
+                toast(L("and.noChannelAction", group.label))
             } else if row.state != Reach.online {
                 toast(L("error.deviceOffline"))
             } else {
@@ -1396,7 +1396,7 @@ struct ComputerListView: View {
 
         return Button {
             if group.options.isEmpty {
-                toast("该设备没有可选的 \(title) 启动项")
+                toast(L("error.noBootOptions", title))
             } else if row.state != Reach.online {
                 toast(L("error.deviceOffline"))
             } else {
@@ -1500,7 +1500,7 @@ struct ComputerListView: View {
             if pendSecs > 0 {
                 HStack(spacing: ABMetric.px(6)) {
                     DrawnIcon.info(ABColor.tonePendText, size: ABMetric.px(12))
-                    Text("切换挂起中，\(pendSecs) 秒后在本机执行"
+                    Text(L("and.switchPendingN", pendSecs)
                         + (pendSummary.isEmpty ? "" : "：\(pendSummary)"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.tonePendText)
@@ -2479,7 +2479,7 @@ struct ComputerListView: View {
     private func setFailReloadSec(_ sec: Int) {
         FailReloadPref.sec = sec
         // Android saveMoreFailReloadSec（627-633）
-        toast(sec > 0 ? "连不上时每 \(sec) 秒自动重载" : "已关闭自动重载")
+        toast(sec > 0 ? L("and.toastFailReloadOn", sec) : "已关闭自动重载")
     }
 
     private var transportLabel: String {
@@ -2503,7 +2503,7 @@ struct ComputerListView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer().frame(height: ABMetric.px(10))
                     ForEach([5, 10, 30, 60, 0], id: \.self) { sec in
-                        radioRow(sec == failReloadSec, "永不（关闭自动重载）", "每 \(sec) 秒") {
+                        radioRow(sec == failReloadSec, "永不（关闭自动重载）", L("menu.everyN", sec)) {
                             setFailReloadSec(sec)
                         }
                     }
@@ -2617,7 +2617,7 @@ struct ComputerListView: View {
     private func pickTransport(_ value: String) {
         store.setTransport(value)
         transportOpen = false
-        toast("已选择「\(transportLabel)」：电脑页重载后生效")
+        toast(L("and.transportSelected", transportLabel))
     }
 
     /// M3 单选行（RadioButton 20dp 圆 + 文案 13sp fg）：主文案非空才显示

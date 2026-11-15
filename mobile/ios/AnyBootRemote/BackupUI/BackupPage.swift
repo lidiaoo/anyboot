@@ -501,7 +501,7 @@ struct BackupPage: View {
             return "未同步过"
         case .running: return L("and.syncing")
         case .success(let date): return "上次同步 \(SyncStatus.timeText(date)) · 成功"
-        case .failed(let reason): return "同步失败：\(reason)"
+        case .failed(let reason): return L("bk.syncFail", reason)
         }
     }
 
@@ -519,7 +519,7 @@ struct BackupPage: View {
             let reason = await SyncEngine.shared.syncNow()
             syncing = false
             if let reason {
-                ABToastBus.shared.show("同步失败：\(reason)", seconds: 3.5)
+                ABToastBus.shared.show(L("bk.syncFail", reason), seconds: 3.5)
             }
         }
     }
