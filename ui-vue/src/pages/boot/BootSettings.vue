@@ -48,7 +48,7 @@ function loaderDefault(id: string): string {
     // 与 refind 同口径，看 refindplus 通道的独立槽位
     const hit = (ui.refindplusVariables ?? []).find((v) => v.active);
     const lb = (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot);
-    return (lb?.title || hit?.displayName || "未知").toString();
+    return (lb?.title || hit?.displayName || t("boot.unknown")).toString();
   }
   if (id === "grub") {
     const g = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
@@ -401,9 +401,8 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         </small>
         <small class="helper-hint">{{ privStatus.detail }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-          开启后「启动扫描 / GRUB 自动读取 / 只读挂载 ESP」都用免密助手，不再每次弹密码。
-          需要一次系统授权（{{ privStatus.hasPkexec ? "polkit 图形框" : (privStatus.hasSudo ? "sudo 密码" : "管理员权限") }}）；
-          授权条目写到 <code>{{ privStatus.sudoersPath }}</code>，可随时移除。
+          {{ $t("bs.privBody1") }}
+          {{ $t("bs.privBody2", { method: privStatus.hasPkexec ? $t("bs.privMethodPkexec") : (privStatus.hasSudo ? $t("bs.privMethodSudo") : $t("bs.privMethodAdmin")), path: privStatus.sudoersPath }) }}
         </small>
       </template>
       <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported） -->
@@ -424,7 +423,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         </small>
         <small class="helper-hint">{{ ui.state.helper.text }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-          点「开启/重装」会弹出系统管理员授权框，输入密码后约需几秒完成；完成后状态会变为「已开启」。
+          {{ $t("bs.helperBody2") }}
         </small>
       </template>
       <!-- 启动时使用管理员扫描（默认开） -->
@@ -442,8 +441,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         </label>
       </div>
       <small class="helper-hint">
-        开启后启动时自动扫描所有引导器（GRUB 自动 + rEFInd 内核）。未开启免密助手时会提示开启，
-        也可在此取消提醒。
+        {{ $t("bs.startupAdminNote2") }}
       </small>
       <!-- 启动免密提醒（取消提醒设置） -->
       <div class="helper-card-row" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 14px">
@@ -484,7 +482,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         {{ linuxExt4Hint }}
       </small>
       <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
-        注意：仅挂载模式下，若分区上次没干净关机（RECOVER），这个提示不会出现。
+        {{ $t("bs.mountOnlyNote") }}
       </small>
     </section>
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
@@ -497,39 +495,39 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             :key="id"
             type="button"
             :class="['k-tab', { 'is-on': adv.state.visible[id] }]"
-            title="点击 开/关 展示该引导器"
+            :title="$t('bs.toggleShowTitle')"
             @click="toggleVisible(id)"
           >
             <span>{{ loaderMeta(id).name }}</span>
             <span
               class="k-rg"
-              title="点击挪到另一列（没开左右布局时，点它自动切过去）"
+              :title="$t('bs.moveColTitle')"
               @click.stop="moveSide(id)"
-            >{{ adv.state.side[id] === 'r' ? '右' : '左' }}</span>
+            >{{ adv.state.side[id] === 'r' ? $t('bs.right') : $t('bs.left') }}</span>
           </button>
           <span class="grow" />
-          <button type="button" class="btn xs ghost" title="回到默认编排" @click="adv.resetOrder()">重置</button>
+          <button type="button" class="btn xs ghost" :title="$t('bs.reset')" @click="adv.resetOrder()">{{ $t("bs.reset") }}</button>
         </div>
         <!-- row2：版式主题 -->
         <div class="k-row">
-          <span class="k-lbl">版式主题</span>
+          <span class="k-lbl">{{ $t("bs.layoutTheme") }}</span>
           <div class="seg">
             <button
               v-for="item in THEME_LABELS"
               :key="item.key"
               type="button"
               :class="{ 'is-on': adv.effectiveTheme === item.key }"
-              :title="item.key === 'K' ? '不套用 A–J 版式：预演区用本页的引导器卡片（区域编排：启用/左右分栏/排序），仅此页有这种形态' : '引导菜单整体用方案 ' + item.key + ' 的版式；选好后列内排序照常生效'"
+              :title="item.key === 'K' ? $t('bs.themeKTitle') : $t('bs.themeTitle', { k: item.key })"
               @click="adv.setTheme(item.key)"
             >
               {{ item.label }}
             </button>
           </div>
-          <span class="hint">主题决定每张卡怎么画；B / G / J 是加宽版面，选中即把窗口加宽到 932。</span>
+          <span class="hint">{{ $t("bs.themeHint") }}</span>
         </div>
         <!-- row3：布局 -->
         <div class="k-row">
-          <span class="k-lbl">布局</span>
+          <span class="k-lbl">{{ $t("bs.layoutLabel") }}</span>
           <div class="seg">
             <button
               v-for="mode in layouts"
@@ -541,43 +539,43 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
               {{ layoutLabels[mode] }}
             </button>
           </div>
-          <span v-if="layouts.length > 1" class="hint">默认 = 单列竖排（460）；加宽 = 窗口 932、列表仍单列；左右布局 = 两列各自滚动，点标签上的「左/右」分列、拖分隔条定占比（中间圆钮或双击回正中）——仅「不套用主题」和 A / C；B / G / J 只有加宽，I 没有左右布局（置灰的档位选择仍会记着，换回支持的主题自动生效）。</span>
-          <span v-else class="hint">这个主题只有「{{ layoutLabels[layouts[0] ?? "default"] }}」一种布局</span>
+          <span v-if="layouts.length > 1" class="hint">{{ $t("bs.layoutHint") }}</span>
+          <span v-else class="hint">{{ $t("bs.layoutOnlyOne", { x: layoutLabels[layouts[0] ?? "default"] }) }}</span>
         </div>
         <!-- row4：菜单样式 -->
         <div class="k-row">
-          <span class="k-lbl">菜单样式</span>
+          <span class="k-lbl">{{ $t("bs.menuStyle") }}</span>
           <div class="seg">
-            <button type="button" :class="{ 'is-on': adv.state.style === 'full' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('full')">完整</button>
-            <button type="button" :class="{ 'is-on': adv.state.style === 'compact' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('compact')">紧凑</button>
-            <button type="button" :class="{ 'is-on': adv.state.style === 'min' }" title="完整：路径 + 徽章 + 全部动作；紧凑：行距减半、隐去路径；极简：只剩图标 + 名称 + 默认高亮" @click="adv.setStyle('min')">极简</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'full' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('full')">{{ $t("bs.styleFull") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'compact' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('compact')">{{ $t("bs.styleCompact") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'min' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('min')">{{ $t("bs.styleMin") }}</button>
           </div>
-          <span class="hint">三档对任何版式主题都生效；行内动作按钮在紧凑/极简下悬停才出现。</span>
+          <span class="hint">{{ $t("bs.styleHint") }}</span>
         </div>
         <!-- row4b：下次启动 -->
         <div class="k-row">
-          <span class="k-lbl">下次启动</span>
+          <span class="k-lbl">{{ $t("bs.nextBootSec") }}</span>
           <div class="seg">
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'off' }" title="不显示：整块从界面移除（不是留个空壳），下面引导列表照常可用 —— 出厂默认就是这一档" @click="adv.setNextBoot('off')">不显示</button>
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'fold' }" @click="adv.setNextBoot('fold')">折叠框</button>
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'open' }" @click="adv.setNextBoot('open')">展开</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'off' }" :title="$t('bs.nbOffTitle')" @click="adv.setNextBoot('off')">{{ $t("bs.nbOff") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'fold' }" @click="adv.setNextBoot('fold')">{{ $t("bs.nbFold") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'open' }" @click="adv.setNextBoot('open')">{{ $t("bs.nbOpen") }}</button>
           </div>
-          <span class="hint">「系统引导」页顶部那块：不显示 = 整块移除、不占任何高度（默认）；折叠框 = 默认收起，标题旁小按钮切换；展开 = 打开就看到全部条目，同样可收起。</span>
+          <span class="hint">{{ $t("bs.nextBootHint") }}</span>
         </div>
         <!-- row5：排序条（设置动作收在设置区，预演区保持纯观看） -->
         <div class="k-row">
           <span class="k-sortwrap" style="display: contents">
             <span class="k-sortbar">
-              <span class="k-sort-lbl">上下排序</span>
+              <span class="k-sort-lbl">{{ $t("bs.orderLabel") }}</span>
               <span v-for="(id, i) in adv.state.order" :key="id" class="k-sortchip">
                 <span class="k-sort-nm">{{ loaderMeta(id).name }}</span>
-                <button type="button" class="k-zop" title="上移一位" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
-                <button type="button" class="k-zop" title="下移一位" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
+                <button type="button" class="k-zop" :title="$t('bs.moveUpOne')" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
+                <button type="button" class="k-zop" :title="$t('bs.moveDownOne')" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
               </span>
             </span>
           </span>
           <span class="grow" />
-          <span class="hint">预演与「系统引导」页同一份真实数据（只读示意）· 界面效果以「系统引导」页实际为准</span>
+          <span class="hint">{{ $t("bs.previewHint") }}</span>
         </div>
 
       </div>
@@ -585,8 +583,8 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
     <!-- 预演面板（旧版：bootThemeStage → .k-stage + lg-side 选中项；真实区块由 ThemeHost slot 承接） -->
     <section class="card k-prev" ref="kPrevEl">
       <header class="k-prev-head">
-        <h2>预演 · {{ adv.effectiveLayout === 'lr' ? '左右' : '单列' }}</h2>
-        <small>{{ adv.state.order.filter((x) => adv.state.visible[x]).length }} 个引导器</small>
+        <h2>{{ $t('bs.previewTitle', { layout: adv.effectiveLayout === 'lr' ? $t('bs.previewLr') : $t('bs.previewSingle') }) }}</h2>
+        <small>{{ $t('bs.loaderCount', { n: adv.state.order.filter((x) => adv.state.visible[x]).length }) }}</small>
       </header>
       <!-- K 不套用主题：旧版 k-zone-cards + kLoaderCard 自绘卡片 -->
       <div v-if="adv.effectiveTheme === 'K'" class="k-zone-cards">
@@ -595,7 +593,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             <span class="ldr" aria-hidden="true">{{ loaderMono(loader.id) }}</span>
             <span class="nm">{{ loader.name }}</span>
             <span class="grow" />
-            <span class="hint">共 {{ (previewRows[loader.id] ?? []).length }} 条</span>
+            <span class="hint">{{ $t("bs.totalRows", { n: (previewRows[loader.id] ?? []).length }) }}</span>
           </div>
           <div class="k-entries">
             <div
@@ -606,7 +604,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             >
               <span class="grub-entry-name">{{ row.name }}</span>
             </div>
-            <div v-if="!(previewRows[loader.id] ?? []).length" class="hint">没有条目</div>
+            <div v-if="!(previewRows[loader.id] ?? []).length" class="hint">{{ $t("bs.noEntries") }}</div>
           </div>
         </div>
       </div>
