@@ -7,7 +7,7 @@ import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { simRows } from "@/pages/boot/bootRows";
+import { CHILD_SOURCE } from "@/pages/boot/bootRows";
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -109,101 +109,145 @@ function localEntries(kind: string): { entries: EntryData[]; active: string; gro
   }
   return null;
 }
+/** 统一中间结构：本机/非本机的数据都先归一化成它，再由唯一转换产出 EntryData。
+ *  这是「电脑列表下拉」唯一的数据转换——本机/非本机只有取数不同，转换规则一套。 */
+interface PickerSource {
+  title: string;
+  current: string;
+  groupTitles: Record<string, string>;
+  /** hasGroups=false = 平铺（无组头行），如 OC；true = 组结构（GRUB/rEFInd） */
+  hasGroups: boolean;
+  /** 归一化条目：header=true 表示组头行；fixed=true 表示只读兜底行 */
+  items: { value: string; label: string; cls?: string; header?: boolean; fixed?: boolean; tag?: string; sub?: string; note?: string; kernels?: string[]; variants?: number; chainloader?: boolean; submenuId?: string }[];
+}
+
 async function openPicker(kind: string) {
   pickerFmt.value = "";
-  // 统一：本机 / 非本机都用同一套 GrubList 渲染（entries+groupTitles+activeSelector+flat），保证样式内容一致。
-  // 本机数据来自 uiState store（系统页同源快照），非本机来自 remote_boot_info，转换规则完全一致。
   const isGrubKind = kind === "grub";
   const isRefindKind = kind === "refind" || kind === "refindplus";
   const isChannelKind = kind.startsWith("channel:");
-  const CLASS_LABEL: Record<string,string> = { mac:"macOS", win:"Windows", auto:"泛型", tool:"工具项", linux:"Linux", generic:"泛型" };
+  const CLASS_LABEL: Record<string, string> = { mac: "macOS", win: "Windows", auto: "泛型", tool: "工具项", linux: "Linux", generic: "泛型" };
 
-  let entries: EntryData[] = [];
-  let active = "";
-  const groupTitles: Record<string, string> = {};
-  let flat = false;
-  let title = localTitle(kind);
-
+  // ── 1) 取数并归一化为 PickerSource（本机：uiState；非本机：remote_boot_info）──
+  let src: PickerSource | null = null;
   if (isLocal.value) {
     try { await (ui as any).pollOnce?.(); } catch { /* 忽略 */ }
     if (isGrubKind) {
-      const src: any = (ui as any).linuxGrub ?? null;
-      for (const g of (src?.groups ?? []) as any[]) if (g.id) groupTitles[g.id] = g.name ?? "";
-      entries = ((src?.entries ?? []) as any[]).map((e) => ({ selector: e.selector, name: e.name, class: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenu: e.submenu } as EntryData));
-      active = String(src?.nextEntry || src?.savedEntry || "").trim();
-      flat = false;
+      const g: any = (ui as any).linuxGrub ?? null;
+      src = {
+        title: "GRUB",
+        current: String(g?.nextEntry || g?.savedEntry || "").trim(),
+        groupTitles: Object.fromEntries(((g?.groups ?? []) as any[]).filter((x) => x.id).map((x) => [x.id, x.name ?? ""])),
+        hasGroups: true,
+        items: ((g?.entries ?? []) as any[]).map((e) => ({ value: e.selector, label: e.name, cls: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenuId: e.submenu })),
+      };
     } else if (isRefindKind) {
       const sim: any = kind === "refind" ? (ui as any).refindSim : (ui as any).refindplusSim;
-      entries = simRows(sim);
-      // active = lastBoot 的 title（sim 原始 entries 里的 lastBoot；simRows 不保留该标记）
-      const raw = (sim?.entries ?? []) as any[];
-      const lb = raw.find((e) => e.lastBoot)?.title;
-      active = String(lb ?? "").trim();
-      flat = false;  // rEFInd 有「组头+子项」层级
+      const items: PickerSource["items"] = [];
+      const groupTitles: Record<string, string> = {};
+      let current = "";
+      for (const e of (sim?.entries ?? []) as any[]) {
+        if (e.hidden) continue;
+        const rawTitle = e.title || "";
+        const children = e.children || [];
+        if (children.length > 1) {
+          groupTitles[rawTitle] = rawTitle;
+          items.push({ value: "", label: rawTitle, cls: e.kind, header: true, submenuId: rawTitle });
+          for (const c of children) {
+            const cname = String(c.title || rawTitle).split(":")[0].trim();
+            items.push({ value: rawTitle, label: cname, cls: e.kind, submenuId: rawTitle, tag: CHILD_SOURCE[c.source || ""] || "", fixed: false });
+          }
+        } else {
+          items.push({ value: rawTitle, label: rawTitle, cls: e.kind, fixed: false });
+        }
+        if (e.lastBoot) current = rawTitle;
+      }
+      src = { title: kind === "refind" ? "rEFInd" : "RefindPlus", current: current.trim(), groupTitles, hasGroups: true, items };
     } else if (isChannelKind) {
       const id = kind.slice("channel:".length);
       const ch = ((ui as any).channels ?? []).find((c: any) => c.id === id);
       const preview = (ch?.menuPreview?.entries ?? []) as any[];
       const orderSrc = ch?.menuPreview?.orderSource ?? "";
       const ordered = [...preview.filter((r) => r.spec), ...preview.filter((r) => !r.spec)];
-      entries = ordered.map((row) => ({
-        selector: String(row.spec || row.title || ""),
-        name: String(row.title || ""),
-        class: row.kind,
-        readonly: !row.spec,
-        tags: [String(CLASS_LABEL[row.kind] || row.kind || ""), orderSrc === "private" ? "OC 私有 OCBtOrder" : (orderSrc ? "固件 BootOrder" : "")].filter(Boolean),
-        sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : (row.path || undefined),
-        note: row.note || undefined,
-      } as EntryData));
-      const cur = String(ch?.currentDefault || "");
-      const hit = ordered.find((r) => r.default === true || (cur && (cur === (r.spec || r.title) || cur.indexOf(String(r.title || "")) >= 0)));
-      active = String(hit ? (hit.spec || hit.title || "") : "").trim();
-      flat = true;  // OC 平铺
+      src = {
+        title: ch?.label ?? id,
+        current: String(ch?.currentDefault || ""),
+        groupTitles: {},
+        hasGroups: false,  // OC：条目 submenu 为空，天然平铺（无组头行）——与 GRUB 行样式一致
+        items: ordered.map((row) => ({
+          value: String(row.spec || ""),
+          label: String(row.title || ""),
+          cls: row.kind,
+          fixed: !row.spec,
+          tag: [String(CLASS_LABEL[row.kind] || row.kind || ""), orderSrc === "private" ? "OC 私有 OCBtOrder" : orderSrc ? "固件 BootOrder" : ""].filter(Boolean).join(" · "),
+          sub: row.volume && row.volume !== "—" ? `${row.volume} · ${row.path}` : row.path || undefined,
+          note: row.note || undefined,
+        })),
+      };
     }
   } else {
     const info: any = props.info;
     const group = kind === "refind" ? info?.refind : kind === "refindplus" ? info?.refindplus
       : kind === "grub" ? info?.grub
       : (info?.channels ?? []).find((c: any) => c.kind === kind);
-    title = (group as { title?: string })?.title ?? title;
-    const opts = ((group as { options?: any[] })?.options ?? []) as any[];
-    const currentValue = String((group as { current?: string })?.current ?? "");
-    // GRUB 和 rEFInd/RefindPlus 的 remote options 都带组结构（header=组头，其后为子项）→ 同一处理，保层级。
-    if (isGrubKind || isRefindKind) {
-      // 组结构：header=组名，子项 submenu=组名
+    if (!group) { src = null; } else {
+      const opts = ((group as { options?: any[] })?.options ?? []) as any[];
+      const current = String((group as { current?: string })?.current ?? "").trim();
+      // remote options：GRUB/rEFInd 带组结构（header=组头，其后为子项）；OC 平铺（fixed 行）
+      const items: PickerSource["items"] = [];
+      const groupTitles: Record<string, string> = {};
       let groupLabel = "";
+      let hasGroups = false;
       for (const o of opts) {
         if (o.header) {
           groupLabel = String(o.label ?? "").replace(/^[▾▸\s]+/, "").replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "").trim();
-          if (groupLabel) groupTitles[groupLabel] = groupLabel;
+          if (isGrubKind || isRefindKind) { if (groupLabel) { groupTitles[groupLabel] = groupLabel; hasGroups = true; } }
           continue;
         }
         const value = String(o.value ?? "").trim();
-        if (!value) continue;
-        const row: EntryData = { selector: value, name: String(o.label ?? value).trim() };
-        if (o.class) row.class = String(o.class);
-        if (groupLabel) row.submenu = groupLabel;
-        entries.push(row);
-      }
-      active = currentValue.trim();
-      flat = false;
-    } else {
-      // rEFInd / OC：平铺，保留 fixed/tags
-      for (const o of opts) {
-        if (o.header) continue;
-        const value = String(o.value ?? "");
-        const label = String(o.label ?? value);
-        const sel = value || label;
         const isFixed = Boolean(o.fixed) || !value;
-        entries.push({ selector: sel, name: label, class: o.class, readonly: isFixed, tags: o.class ? [CLASS_LABEL[String(o.class)] || String(o.class)] : undefined } as EntryData);
+        items.push({ value, label: String(o.label ?? value).trim(), cls: o.class, header: false, fixed: isFixed, submenuId: groupLabel && (isGrubKind || isRefindKind) ? groupLabel : "" });
       }
-      active = currentValue;
-      flat = true;
+      src = { title: (group as { title?: string })?.title ?? localTitle(kind), current, groupTitles, hasGroups: hasGroups && !(isChannelKind), items };
     }
   }
 
+  if (!src) return;
+
+  // ── 2) 唯一转换：PickerSource → GrubList 的 EntryData（本机/非本机同一段代码）──
+  const entries: EntryData[] = [];
+  let active = "";
+  if (src.hasGroups) {
+    for (const it of src.items) {
+      if (it.header) {
+        continue;
+      }
+      const e: EntryData = { selector: it.value.trim(), name: it.label.trim() };
+      if (it.cls) e.class = it.cls;
+      if (it.kernels) e.kernels = it.kernels;
+      if (it.variants) e.variants = it.variants;
+      if (it.chainloader !== undefined) e.chainloader = it.chainloader;
+      if (it.tag) e.tags = [it.tag];
+      if (it.submenuId) e.submenu = src.groupTitles[it.submenuId] || it.submenuId;
+      if (it.fixed) e.readonly = true;
+      entries.push(e);
+    }
+    active = src.current;
+  } else {
+    for (const it of src.items) {
+      const sel = (it.value || it.label).trim();
+      const e: EntryData = { selector: sel, name: it.label.trim() };
+      if (it.cls) e.class = it.cls;
+      if (it.tag) e.tags = [it.tag];
+      if (it.sub) e.sub = it.sub;
+      if (it.note) e.note = it.note;
+      if (it.fixed || !it.value) e.readonly = true;
+      entries.push(e);
+      if (!active && (it.value === src.current || it.label === src.current)) active = sel;
+    }
+  }
   if (!entries.length) return;
-  picker.value = { kind, title, entries, active, groupTitles, flat };
+  picker.value = { kind, title: src.title, entries, active, groupTitles: src.groupTitles, flat: !src.hasGroups };
 }
 function chooseBoot(value: string) {
   const pk = picker.value; if (!pk) return;
