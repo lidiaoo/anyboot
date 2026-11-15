@@ -1436,6 +1436,22 @@ Telnet：只有实验性终端。</string>
     <string name="and_sftpNeedsSession">（先在「服务器」页连上这台服务器，或点行内「终端」—— SFTP 复用同一条 SSH 会话）</string>
     <string name="and_namePubkey">%1$s 公钥</string>
     <string name="and_readAction">读取</string>
+    <string name="and_addrNoJump">这个地址没有配跳板机</string>
+    <string name="and_connFailAutoReload">连接失败，自动重载中…</string>
+    <string name="and_remoteShort">远程</string>
+    <string name="and_noCurrentEdit">还没有当前电脑 —— 点标签或卡片右侧 ⋮ 编辑某一台</string>
+    <string name="and_currentSysinfo">当前电脑的系统信息</string>
+    <string name="and_noCurrentTapTab">还没有当前电脑 —— 先点一个标签</string>
+    <string name="and_reloadPage">重载当前页面</string>
+    <string name="and_cannotReachServer">连不上服务端</string>
+    <string name="and_checkList">顺手检查这几点：
+· 目标电脑的 AnyBoot 是否在跑，设置里「HTTP 服务」是否显示正在监听；
+· 这里填的地址端口，和目标机设置里的端口是否一致；
+· 那个端口是否被别的程序占用 —— 被占用时目标机的服务根本起不来；
+· 目标机防火墙是否放行了这个端口。</string>
+    <string name="and_autoRetryN">每 %1$d 秒自动重试（⋮ 里可改）</string>
+    <string name="and_autoRetryOff">自动重试已关闭（⋮ 里可改）</string>
+    <string name="and_editServer">修改这个服务端</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

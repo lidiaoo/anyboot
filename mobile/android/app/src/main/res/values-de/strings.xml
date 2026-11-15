@@ -1436,6 +1436,22 @@ Inhalte werden mitgelöscht, nicht wiederherstellbar.</string>
     <string name="and_sftpNeedsSession">(Zuerst auf „Server“ verbinden oder in der Zeile „Terminal“ antippen – SFTP nutzt dieselbe SSH-Sitzung)</string>
     <string name="and_namePubkey">%1$s öffentlicher Schlüssel</string>
     <string name="and_readAction">Lesen</string>
+    <string name="and_addrNoJump">Diese Adresse hat keinen Sprungserver</string>
+    <string name="and_connFailAutoReload">Verbindung fehlgeschlagen; automatisches Neuladen…</string>
+    <string name="and_remoteShort">Remote</string>
+    <string name="and_noCurrentEdit">Kein aktueller Computer – Tab oder ⋮ der Karte zum Bearbeiten</string>
+    <string name="and_currentSysinfo">Systeminfo des aktuellen Computers</string>
+    <string name="and_noCurrentTapTab">Kein aktueller Computer – zuerst einen Tab</string>
+    <string name="and_reloadPage">Aktuelle Seite neu laden</string>
+    <string name="and_cannotReachServer">Server nicht erreichbar</string>
+    <string name="and_checkList">Kurz prüfen:
+· Läuft AnyBoot am Ziel und zeigt „HTTP-Dienst“ Lauschen an?
+· Stimmen Adresse/Port hier mit den Einstellungen des Ziels überein?
+· Ist der Port von anderem Programm belegt? Dann startet der Dienst nicht.
+· Erlaubt die Firewall des Ziels diesen Port?</string>
+    <string name="and_autoRetryN">Automatisch alle %1$ds erneut (in ⋮ änderbar)</string>
+    <string name="and_autoRetryOff">Automatisch erneut aus (in ⋮ änderbar)</string>
+    <string name="and_editServer">Diesen Server bearbeiten</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

@@ -1436,6 +1436,22 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_sftpNeedsSession">(Сначала подключитесь на странице «Серверы» или нажмите «Терминал» в строке — SFTP использует тот же сеанс SSH)</string>
     <string name="and_namePubkey">Открытый ключ %1$s</string>
     <string name="and_readAction">Чтение</string>
+    <string name="and_addrNoJump">У этого адреса нет узла</string>
+    <string name="and_connFailAutoReload">Сбой подключения; автоперезагрузка…</string>
+    <string name="and_remoteShort">Удалённо</string>
+    <string name="and_noCurrentEdit">Нет текущего компьютера — нажмите вкладку или ⋮ карточки</string>
+    <string name="and_currentSysinfo">Системная информация текущего компьютера</string>
+    <string name="and_noCurrentTapTab">Нет текущего компьютера — сначала вкладку</string>
+    <string name="and_reloadPage">Перезагрузить страницу</string>
+    <string name="and_cannotReachServer">Не удаётся подключиться к серверу</string>
+    <string name="and_checkList">Быстрая проверка:
+· Запущен ли AnyBoot на цели и показывает ли «HTTP-служба» прослушивание?
+· Совпадают ли адрес/порт здесь с настройками цели?
+· Не занят ли порт другой программой? Тогда служба не запустится.
+· Разрешает ли брандмауэр цели этот порт?</string>
+    <string name="and_autoRetryN">Автоповтор каждые %1$d с (в ⋮)</string>
+    <string name="and_autoRetryOff">Автоповтор выкл (в ⋮)</string>
+    <string name="and_editServer">Изменить этот сервер</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

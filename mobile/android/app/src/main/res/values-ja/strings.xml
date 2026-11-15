@@ -1436,6 +1436,22 @@ Telnet：実験的端末のみ。</string>
     <string name="and_sftpNeedsSession">（先に「サーバー」で接続するか、行内の「端末」をタップ — SFTP は同じ SSH セッションを再利用）</string>
     <string name="and_namePubkey">%1$s 公開鍵</string>
     <string name="and_readAction">読み取り</string>
+    <string name="and_addrNoJump">このアドレスに踏み台未設定</string>
+    <string name="and_connFailAutoReload">接続失敗、自動再読み込み中…</string>
+    <string name="and_remoteShort">リモート</string>
+    <string name="and_noCurrentEdit">現在の PC がありません — タブかカード右の ⋮ で編集</string>
+    <string name="and_currentSysinfo">現在の PC のシステム情報</string>
+    <string name="and_noCurrentTapTab">現在の PC がありません — 先にタブを</string>
+    <string name="and_reloadPage">現在のページを再読み込み</string>
+    <string name="and_cannotReachServer">サーバーに接続できません</string>
+    <string name="and_checkList">確認ポイント：
+· 対象 PC で AnyBoot が動作し、設定の「HTTP サービス」が待受中か；
+· ここに入力したアドレス/ポートが対象機の設定と一致するか；
+· そのポートが他プログラムに使われていないか（使われているとサービスが起動不可）；
+· 対象機のファイアウォールがこのポートを許可しているか。</string>
+    <string name="and_autoRetryN">%1$d 秒ごとに自動再試行（⋮ で変更）</string>
+    <string name="and_autoRetryOff">自動再試行オフ（⋮ で変更）</string>
+    <string name="and_editServer">このサーバーを編集</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

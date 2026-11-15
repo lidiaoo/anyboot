@@ -1436,6 +1436,22 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_sftpNeedsSession">（先在「伺服器」頁連上這台伺服器，或點列內「終端機」—— SFTP 沿用同一條 SSH 工作階段）</string>
     <string name="and_namePubkey">%1$s 公鑰</string>
     <string name="and_readAction">讀取</string>
+    <string name="and_addrNoJump">這個位址沒有設跳板機</string>
+    <string name="and_connFailAutoReload">連線失敗，自動重新載入中…</string>
+    <string name="and_remoteShort">遠端</string>
+    <string name="and_noCurrentEdit">還沒有目前電腦 —— 點標籤或卡片右側 ⋮ 編輯某一台</string>
+    <string name="and_currentSysinfo">目前電腦的系統資訊</string>
+    <string name="and_noCurrentTapTab">還沒有目前電腦 —— 先點一個標籤</string>
+    <string name="and_reloadPage">重新載入目前頁面</string>
+    <string name="and_cannotReachServer">連不上伺服器</string>
+    <string name="and_checkList">順手檢查這幾點：
+· 目標電腦的 AnyBoot 是否在跑，設定裡「HTTP 服務」是否顯示正在監聽；
+· 這裡填的位址埠，和目標機設定裡的埠是否一致；
+· 那個埠是否被別的程式占用 —— 被占用時目標機的服務根本起不來；
+· 目標機防火牆是否放行了這個埠。</string>
+    <string name="and_autoRetryN">每 %1$d 秒自動重試（⋮ 裡可改）</string>
+    <string name="and_autoRetryOff">自動重試已關閉（⋮ 裡可改）</string>
+    <string name="and_editServer">修改這個伺服器</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

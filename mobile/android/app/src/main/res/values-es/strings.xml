@@ -1436,6 +1436,22 @@ El contenido también se borra sin vuelta.</string>
     <string name="and_sftpNeedsSession">(Conecta el servidor en «Servidores» o toca «Terminal» en la fila: SFTP reusa la misma sesión SSH)</string>
     <string name="and_namePubkey">Clave pública %1$s</string>
     <string name="and_readAction">Lectura</string>
+    <string name="and_addrNoJump">Esta dirección no tiene host de salto</string>
+    <string name="and_connFailAutoReload">Error de conexión; recargando…</string>
+    <string name="and_remoteShort">Remoto</string>
+    <string name="and_noCurrentEdit">Sin equipo actual: toca una pestaña o el ⋮ de la tarjeta</string>
+    <string name="and_currentSysinfo">Información del sistema del equipo actual</string>
+    <string name="and_noCurrentTapTab">Sin equipo actual: toca una pestaña</string>
+    <string name="and_reloadPage">Recargar página actual</string>
+    <string name="and_cannotReachServer">No se puede alcanzar el servidor</string>
+    <string name="and_checkList">Comprobaciones:
+· ¿AnyBoot se ejecuta en el destino y «Servicio HTTP» muestra escuchando?
+· ¿La dirección/puerto coincide con la configuración del destino?
+· ¿La puerta está ocupada por otro programa? Entonces el servicio no arranca.
+· ¿El firewall del destino permite este puerto?</string>
+    <string name="and_autoRetryN">Reintentar cada %1$ds (en ⋮)</string>
+    <string name="and_autoRetryOff">Reintento automático desactivado (en ⋮)</string>
+    <string name="and_editServer">Editar este servidor</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

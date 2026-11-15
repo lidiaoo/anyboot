@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.annotation.SuppressLint
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -191,9 +192,9 @@ class MainActivity : ComponentActivity() {
         // 一址一跳板机：按**要探的这个地址**查它自己的跳板机，各建各的隧道
         val dest = ServerProfile.normalizeHost(target).ifEmpty { ServerProfile.normalizeHost(profile.host()) }
         val jumpId = profile.jumpForAddress(dest)
-        if (jumpId.isEmpty()) throw Exception("这个地址没有配跳板机")
+        if (jumpId.isEmpty()) throw Exception(getString(R.string.and_addrNoJump))
         val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-            ?: throw Exception("跳板机不存在（可能已删除）")
+            ?: throw Exception(getString(R.string.and_jumpNotExist))
         SshSessionManager.shared().tunnelAddress(this, jump, dest) { title, message ->
             bus.confirm(title, message)
         }
@@ -366,7 +367,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onCopy = {
                             this@MainActivity.copyRemoteSlot(
-                                "系统信息", sysInfoText(target.label(), sysInfoRows),
+                                getString(R.string.and_menuSysinfo), sysInfoText(target.label(), sysInfoRows),
                             )
                         },
                     )
@@ -395,7 +396,7 @@ class MainActivity : ComponentActivity() {
             if (errorInfo == null || failReloadSec <= 0) return@LaunchedEffect
             delay(failReloadSec * 1000L)
             if (errorInfo != null) {
-                toast("连接失败，自动重载中…")
+                toast(getString(R.string.and_connFailAutoReload))
                 reloadActive()
             }
         }
@@ -431,7 +432,7 @@ class MainActivity : ComponentActivity() {
                 .background(palette.card)
                 .padding(start = 4.dp, top = 6.dp, end = 4.dp, bottom = 6.dp),
         ) {
-            BarIcon("☰", "侧边栏") { drawerOpen = true }
+            BarIcon("☰", stringResource(R.string.topbar_sidebar)) { drawerOpen = true }
             LazyRow(
                 state = listState,
                 verticalAlignment = Alignment.CenterVertically,
@@ -440,7 +441,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 items(servers) { profile -> ServerChip(profile) }
             }
-            BarIcon("＋", "添加电脑") { editRequest = EditRequest(null, false) }
+            BarIcon("＋", stringResource(R.string.menu_add)) { editRequest = EditRequest(null, false) }
             OverflowMenu()
         }
     }
@@ -518,17 +519,17 @@ class MainActivity : ComponentActivity() {
     private fun connLabelOf(profile: ServerProfile, tab: Tab?): String {
         val state = heartbeat?.stateOf(profile.id)
         val online = state?.isOnline == true
-        if (!online && tab?.status != STATUS_OK) return "未连接"
+        if (!online && tab?.status != STATUS_OK) return getString(R.string.hub_state_notConnected)
         if (online && !state!!.kind.isEmpty()) {
             return ServerProfile.routeLabel(state.kind)
         }
         return when {
-            tab?.usingRemote == true -> "远程"
+            tab?.usingRemote == true -> getString(R.string.and_remoteShort)
             // 兜底也尊重连接策略：跳板机被停用就不许出现在标注里
             // 一址一跳板机：只要有任一地址绑了跳板机就算（老字段单值不再作数）
             profile.jumpBindings().isNotEmpty()
-                && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) -> "跳板机"
-            else -> "直连"
+                && !profile.routeDisabled.contains(ServerProfile.ROUTE_JUMP) -> getString(R.string.hub_route_jump)
+            else -> getString(R.string.hub_route_lan)
         }
     }
 
@@ -548,7 +549,7 @@ class MainActivity : ComponentActivity() {
             try {
                 rows = loadSysInfoRows(this@MainActivity, target) { endpointFor(target) }
             } catch (failure: Exception) {
-                error = failure.message ?: "读取系统信息失败"
+                error = failure.message ?: getString(R.string.and_readSysinfoFail)
             }
             runOnUiThread {
                 if (sysInfoTarget == null) return@runOnUiThread
@@ -565,11 +566,11 @@ class MainActivity : ComponentActivity() {
      */
     private fun endpointFor(profile: ServerProfile, address: String = profile.host()): String {
         val host = ServerProfile.normalizeHost(address)
-        if (host.isEmpty()) throw Exception("这台电脑还没有可用地址")
+        if (host.isEmpty()) throw Exception(getString(R.string.error_noAddress))
         val jumpId = profile.jumpForAddress(host)
         if (jumpId.isEmpty()) return host
         val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-            ?: throw Exception("跳板机不存在（可能已删除）")
+            ?: throw Exception(getString(R.string.and_jumpNotExist))
         return SshSessionManager.shared().tunnelAddress(this, jump, host) { title, message ->
             bus.confirm(title, message)
         }
@@ -581,59 +582,58 @@ class MainActivity : ComponentActivity() {
         val palette = LocalPalette.current
         var open by remember { mutableStateOf(false) }
         Box {
-            BarIcon("⋮", "更多") { open = true }
+            BarIcon("⋮", stringResource(R.string.menu_more)) { open = true }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("添加电脑") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.menu_add)) }, onClick = {
                     open = false; editRequest = EditRequest(null, false)
                 })
-                DropdownMenuItem(text = { Text("编辑当前电脑") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_editCurrent)) }, onClick = {
                     open = false
                     // 没选中任何一台时不能落进「新增」分支（那会弹出一个空的添加框）
                     val current = ServerStore.find(servers, activeId)
-                    if (current == null) toast("还没有当前电脑 —— 点标签或卡片右侧 ⋮ 编辑某一台")
+                    if (current == null) toast(getString(R.string.and_noCurrentEdit))
                     else editRequest = EditRequest(current, false)
                 })
-                DropdownMenuItem(text = { Text("电脑列表") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.hub_list_title)) }, onClick = {
                     open = false; serverListOpen = true
                 })
-                DropdownMenuItem(text = { Text("当前电脑的系统信息") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_currentSysinfo)) }, onClick = {
                     open = false
                     val current = ServerStore.find(servers, activeId)
-                    if (current == null) toast("还没有当前电脑 —— 先点一个标签")
+                    if (current == null) toast(getString(R.string.and_noCurrentTapTab))
                     else openSystemInfo(current)
                 })
-                DropdownMenuItem(text = { Text("重载当前页面") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_reloadPage)) }, onClick = {
                     open = false; reloadActive()
                 })
-                DropdownMenuItem(text = { Text("全部重载") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.menu_reloadAll)) }, onClick = {
                     open = false; reloadAll()
                 })
                 DropdownMenuItem(
-                    text = { Text(if (connectAll) "✓ 启动时连接全部服务端" else "启动时连接全部服务端") },
+                    text = { Text((if (connectAll) "✓ " else "") + stringResource(R.string.menu_connectAll)) },
                     onClick = {
                         open = false
                         connectAll = !connectAll
                         ServerStore.setConnectAll(this@MainActivity, connectAll)
                         if (connectAll) connectAllServers()
-                        toast(if (connectAll) "已开启：启动时把所有服务端一起连上"
-                        else "已关闭：只连当前标签")
+                        toast(if (connectAll) getString(R.string.and_connectAllOn) else getString(R.string.and_connectAllOff))
                     },
                 )
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (failReloadSec > 0) "连不上时自动重载（每 $failReloadSec 秒）"
-                            else "连不上时自动重载（已关闭）"
+                            if (failReloadSec > 0) stringResource(R.string.and_failReloadOnN, failReloadSec)
+                            else stringResource(R.string.and_failReloadOff)
                         )
                     },
                     onClick = {
                         open = false; failReloadOpen = true
                     },
                 )
-                DropdownMenuItem(text = { Text("传输方式（${transportLabel()}）") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_transportWith, transportLabel())) }, onClick = {
                     open = false; transportOpen = true
                 })
-                DropdownMenuItem(text = { Text("引导页主题（${bootThemeLabel()}）") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_bootThemeWith, bootThemeLabel())) }, onClick = {
                     open = false; bootThemeOpen = true
                 })
             }
@@ -653,7 +653,7 @@ class MainActivity : ComponentActivity() {
                 .padding(24.dp),
         ) {
             Spacer(Modifier.weight(1f))
-            Text("连不上服务端", fontSize = 20.sp, color = palette.fg, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.and_cannotReachServer), fontSize = 20.sp, color = palette.fg, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             Text(
                 text = info.detail,
@@ -663,28 +663,24 @@ class MainActivity : ComponentActivity() {
             )
             // 连不上时最常见的三种原因都写出来：服务没跑 / 端口不一致 / 端口被占用
             Text(
-                text = "顺手检查这几点：\n" +
-                    "· 目标电脑的 AnyBoot 是否在跑，设置里「HTTP 服务」是否显示正在监听；\n" +
-                    "· 这里填的地址端口，和目标机设置里的端口是否一致；\n" +
-                    "· 那个端口是否被别的程序占用 —— 被占用时目标机的服务根本起不来；\n" +
-                    "· 目标机防火墙是否放行了这个端口。",
+                text = stringResource(R.string.and_checkList),
                 fontSize = 12.sp,
                 color = palette.fgFaint,
                 lineHeight = 17.sp,
                 modifier = Modifier.padding(bottom = 12.dp),
             )
             Text(
-                text = if (failReloadSec > 0) "每 $failReloadSec 秒自动重试（⋮ 里可改）"
-                else "自动重试已关闭（⋮ 里可改）",
+                text = if (failReloadSec > 0) stringResource(R.string.and_autoRetryN, failReloadSec)
+                else stringResource(R.string.and_autoRetryOff),
                 fontSize = 11.sp,
                 color = palette.fgFaint,
             )
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { reloadActive() }) { Text("重试") }
+            Button(onClick = { reloadActive() }) { Text(stringResource(R.string.common_retry)) }
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = {
                 editRequest = EditRequest(ServerStore.find(servers, activeId), false)
-            }) { Text("修改这个服务端") }
+            }) { Text(stringResource(R.string.and_editServer)) }
             Spacer(Modifier.weight(1f))
         }
     }
@@ -726,7 +722,7 @@ class MainActivity : ComponentActivity() {
                             .clickable { sleepHelpOpen = true }
                             .padding(start = 10.dp, top = 5.dp, end = 5.dp, bottom = 5.dp),
                     ) {
-                        Text("电源走局域网 · 需 sol", fontSize = 10.sp, color = palette.fgFaint)
+                        Text(stringResource(R.string.hub_home_fabNote), fontSize = 10.sp, color = palette.fgFaint)
                         Spacer(Modifier.width(4.dp))
                         Box(
                             contentAlignment = Alignment.Center,
