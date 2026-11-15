@@ -183,9 +183,9 @@ struct BackupImportPreview: View {
         .background(ABColor.base)
         .overlay(alignment: .bottom) { bottomBar(sum) }
         // S6b 覆盖导入确认
-        .confirmationDialog("覆盖导入", isPresented: $confirmOverwrite, titleVisibility: .visible) {
-            Button("覆盖导入", role: .destructive) { runImport() }
-            Button("取消", role: .cancel) { }
+        .confirmationDialog(L("bk.doOverwrite"), isPresented: $confirmOverwrite, titleVisibility: .visible) {
+            Button(L("bk.doOverwrite"), role: .destructive) { runImport() }
+            Button(L("common.cancel"), role: .cancel) { }
         } message: {
             Text(overwriteMessage(sum))
         }

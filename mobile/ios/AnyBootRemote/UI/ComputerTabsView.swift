@@ -164,7 +164,7 @@ struct ComputerTabsView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("侧边栏")
+        .accessibilityLabel(L("topbar.sidebar"))
     }
 
     private var chipStrip: some View {
@@ -197,7 +197,7 @@ struct ComputerTabsView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("添加电脑")
+        .accessibilityLabel(L("menu.add"))
     }
 
     private func chip(_ profile: ServerProfile) -> some View {

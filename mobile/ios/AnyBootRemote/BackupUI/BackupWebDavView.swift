@@ -61,9 +61,9 @@ struct BackupWebDavView: View {
             encryptPasswordAgain = encryptPassword
         }
         // S6c 自动创建目录
-        .confirmationDialog("目录不存在", isPresented: $confirmCreateDir, titleVisibility: .visible) {
+        .confirmationDialog(L("and.dirNotExist"), isPresented: $confirmCreateDir, titleVisibility: .visible) {
             Button(L("fb.create")) { createDirectory() }
-            Button("取消", role: .cancel) { }
+            Button(L("common.cancel"), role: .cancel) { }
         } message: {
             Text(L("and.dirNotExistCreate"))
         }

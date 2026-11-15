@@ -124,7 +124,7 @@ struct TerminalPage: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("字号")
+            .accessibilityLabel(L("termset.fontSize"))
             .overlay(alignment: .topTrailing) {
                 if fontMenuOpen {
                     VStack(alignment: .leading, spacing: 0) {

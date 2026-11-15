@@ -204,7 +204,7 @@ struct AboutView: View {
             }
 
             if updateUpToDate {
-                panelButton("再检查一次", primary: false) { checkUpdate() }
+                panelButton(L("and.recheck"), primary: false) { checkUpdate() }
                     .padding(.top, ABMetric.px(12))
             }
 

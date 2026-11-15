@@ -69,21 +69,21 @@ struct JumpEditSheet: View {
 
                         Spacer().frame(height: ABMetric.px(12))
 
-                        fieldLabel("名称")
+                        fieldLabel(L("keysWin.name"))
                         ABDialogInput(placeholder: L("and.namePh"), text: $name)
 
-                        fieldLabel("协议")
+                        fieldLabel(L("srvEdit.proto"))
                         ABSegmented(options: ["SSH", "Telnet（实验性）"], selected: isTelnet ? 1 : 0) {
                             isTelnet = $0 == 1
                         }
 
                         HStack(alignment: .top, spacing: ABMetric.px(12)) {
                             VStack(alignment: .leading, spacing: 0) {
-                                fieldLabel("地址")
+                                fieldLabel(L("srvEdit.addr"))
                                 ABDialogInput(placeholder: L("and.addrPh2"), text: $hostInput)
                             }
                             VStack(alignment: .leading, spacing: 0) {
-                                fieldLabel("端口")
+                                fieldLabel(L("srvEdit.port"))
                                 ABDialogInput(placeholder: isTelnet ? "23" : "22",
                                               text: Binding(
                                                 get: { portInput },
@@ -96,7 +96,7 @@ struct JumpEditSheet: View {
                         fieldLabel("用户名")
                         ABDialogInput(placeholder: "root", text: $username)
 
-                        fieldLabel("认证方式")
+                        fieldLabel(L("server.kAuth"))
                         ABSegmented(options: ["密码", "密钥"], selected: authKey ? 1 : 0) {
                             authKey = $0 == 1
                         }
@@ -140,7 +140,7 @@ struct JumpEditSheet: View {
                                     .strokeBorder(ABColor.line, lineWidth: ABMetric.hairline))
                             .padding(.top, ABMetric.px(12))
                         } else {
-                            fieldLabel("密钥")
+                            fieldLabel(L("nav.keys"))
                             dropdown(text: keysLabel, open: $keyMenuOpen,
                                      enabled: !jumps.keys.isEmpty) {
                                 ForEach(Array(jumps.keys.enumerated()), id: \.offset) { index, entry in
@@ -155,10 +155,10 @@ struct JumpEditSheet: View {
                                 .padding(.top, ABMetric.px(12))
                         }
 
-                        fieldLabel("终端启动路径（可选）")
+                        fieldLabel(L("and.termPathOpt"))
                         ABDialogInput(placeholder: L("srvEdit.termPathPh"), text: $termPath)
 
-                        fieldLabel("终端 shell（可选）")
+                        fieldLabel(L("and.termShellOpt"))
                         ABDialogInput(placeholder: L("and.termShellPh2"), text: $termShell)
                         Text(L("and.termShellHint"))
                             .font(.system(size: 12))
@@ -166,7 +166,7 @@ struct JumpEditSheet: View {
                             .padding(.top, ABMetric.px(4))
                             .fixedSize(horizontal: false, vertical: true)
 
-                        fieldLabel("备注")
+                        fieldLabel(L("remote.notePh"))
                         ABDialogInput(placeholder: L("srvEdit.notesPh"), text: $note)
 
                         fieldLabel("经由跳板机")

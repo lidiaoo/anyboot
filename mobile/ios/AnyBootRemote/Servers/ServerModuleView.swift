@@ -96,7 +96,7 @@ struct ServerModuleView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("终端设置")
+                .accessibilityLabel(L("nav.termSettings"))
             }
 
             // ⚠️ 命中区 44×44（HIG 最小）：此前是 Text("⋮") + padding，
@@ -111,7 +111,7 @@ struct ServerModuleView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("更多")
+            .accessibilityLabel(L("menu.more"))
             .overlay(alignment: .topTrailing) {
                 if moreOpen {
                     VStack(alignment: .leading, spacing: 0) {

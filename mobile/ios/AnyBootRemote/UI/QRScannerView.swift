@@ -112,7 +112,7 @@ struct QRScannerView: View {
 
             textButton(L("and.back")) { dismiss() }
             // 系统不给「永久拒绝」的再次拉起，用户只能去设置里开
-            textButton("去设置里授权", action: openSystemSettings)
+            textButton(L("and.openSettingsAuth"), action: openSystemSettings)
         }
         .padding(ABMetric.px(24))
         .frame(maxWidth: .infinity, maxHeight: .infinity)

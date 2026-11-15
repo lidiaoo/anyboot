@@ -193,7 +193,7 @@ struct ComputerEditorView: View {
                     .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(L("common.close"))
             }
             .padding(.leading, 18)
             .padding(.trailing, 8)
@@ -243,7 +243,7 @@ struct ComputerEditorView: View {
                         .frame(width: 52, height: 40)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("删除这台电脑")
+                    .accessibilityLabel(L("rowMenu.delete"))
                 }
                 // 2026-11-02：底部补「取消」—— 原来这行只有「删除」（编辑时）
                 // 和「保存」，首次运行弹窗又没有 ×，用户无处可退。
@@ -262,7 +262,7 @@ struct ComputerEditorView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("取消")
+                .accessibilityLabel(L("common.cancel"))
                 Button {
                     save()
                 } label: {
@@ -291,11 +291,11 @@ struct ComputerEditorView: View {
         // 允许下滑关闭（首次运行也允许：只有「保存」按钮时滑不掉就等于卡死）
         .interactiveDismissDisabled(false)
         .confirmationDialog("确定删除这台电脑吗？", isPresented: $showDelete, titleVisibility: .visible) {
-            Button("删除", role: .destructive) {
+            Button(L("common.delete"), role: .destructive) {
                 if let id = profile?.id { onFinish(.delete(id)) }
                 dismiss()
             }
-            Button("取消", role: .cancel) {}
+            Button(L("common.cancel"), role: .cancel) {}
         }
         .sheet(isPresented: $showScanner) {
             QRScannerView { code in
@@ -311,14 +311,14 @@ struct ComputerEditorView: View {
     private var formBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             // ---- 电脑名称 ----
-            fieldLabel("电脑名称（同一台电脑的不同网卡/地址，用名字区分）")
+            fieldLabel(L("and.computerNameLabel"))
             TextField(L("and.computerNamePh"), text: $name)
                 .autocorrectionDisabled()
                 .abField()
                 .accessibilityIdentifier("editor.name")
 
             // ---- 快速识别 ----
-            fieldLabel("快速识别（整段粘进来，自动拆出地址 / 端口 / MAC 加进下面）")
+            fieldLabel(L("and.quickDetectLabel"))
             TextField("192.168.0.120:12300 AA:BB:CC:DD:EE:FF 台式机有线\n192.168.0.121 11-22-33-44-55-66（5G WiFi）",
                       text: $quickText, axis: .vertical)
                 .lineLimit(2...4)
@@ -344,7 +344,7 @@ struct ComputerEditorView: View {
             .padding(.top, 2)
 
             // ---- 已添加的地址（结构化卡片） ----
-            fieldLabel("已添加的地址（第一个用来连接，其余参与测试连接和唤醒）")
+            fieldLabel(L("and.addedAddrLabel"))
             if addressEntries.isEmpty {
                 Text(L("and.noAddrYet"))
                     .font(.system(size: 11))
@@ -355,7 +355,7 @@ struct ComputerEditorView: View {
             }
 
             // ---- 手动添加 ----
-            fieldLabel("手动添加（地址 + 多个 MAC；地址已存在时只追加 MAC）")
+            fieldLabel(L("and.manualAddLabel"))
             TextField(L("and.addrFieldLabel"), text: $newHost)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
@@ -381,7 +381,7 @@ struct ComputerEditorView: View {
             .padding(.top, 6)
 
             // ---- 访问令牌 ----
-            fieldLabel("访问令牌 token（服务端设了才要填）")
+            fieldLabel(L("remote.tokenLabel"))
             if !savedToken.isEmpty {
                 // 已存令牌回显：默认打码，小眼睛切换明文（重开表单回到打码）
                 HStack(spacing: 4) {
@@ -411,7 +411,7 @@ struct ComputerEditorView: View {
                 .accessibilityIdentifier("editor.token")
 
             // ---- 远程配对 ----
-            fieldLabel("远程配对（三个区块，每个区块可以挂多条；同类型配一条不会顶掉另一条）")
+            fieldLabel(L("and.remotePairLabel"))
             TextField(L("and.pairCodeHint"),
                       text: Binding(get: { remoteText }, set: { remoteText = $0; applyRemoteHint() }),
                       axis: .vertical)
@@ -776,7 +776,7 @@ struct ComputerEditorView: View {
 
     private var connFoldContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            fieldLabel("连接优先级（↑↓ 调顺序；行尾开关启用 / 停用；名称下的小框 = 这个通道自己的探测超时/秒，留空用下面的默认值）")
+            fieldLabel(L("and.routeOrderLabel"))
             let order = draft.routeOrderSorted()
             ForEach(Array(order.enumerated()), id: \.element) { index, kind in
                 routeRow(kind: kind, index: index, total: order.count)
@@ -788,7 +788,7 @@ struct ComputerEditorView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
-            fieldLabel("连接优先级的探测方式（六个通道之间怎么试，对上面每一个通道都生效）")
+            fieldLabel(L("remote.priorityProbeLabel"))
             HStack(spacing: 0) {
                 probeChoice("并发·首个", draft.routeProbeMode == ServerProfile.probeParallelFirst) {
                     draft.routeProbeMode = ServerProfile.probeParallelFirst
@@ -806,7 +806,7 @@ struct ComputerEditorView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
-            fieldLabel("多网卡探测（同一通道里的多个地址之间怎么探）")
+            fieldLabel(L("remote.multiNicLabel"))
             HStack(spacing: 0) {
                 probeChoice("并发·首个", draft.probeMode == ServerProfile.probeParallelFirst) {
                     draft.probeMode = ServerProfile.probeParallelFirst
@@ -825,7 +825,7 @@ struct ComputerEditorView: View {
 
             // 区块内部策略 + 区块默认超时（配对专用）：一行「区块名 …… 默认超时[__]秒」，
             // 第二行三个策略按钮均分占满 —— 与 PC 端同构
-            fieldLabel("区块内部策略（同一个区块里的多条配对之间怎么探）与区块默认超时")
+            fieldLabel(L("and.blockProbeLabel"))
             ForEach(RemotePair.blockIds, id: \.self) { block in
                 blockPolicyRow(block)
             }
@@ -846,7 +846,7 @@ struct ComputerEditorView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 4)
 
-            fieldLabel("探测方式（连接优先级整体的策略，对上面每一个通道都生效）")
+            fieldLabel(L("and.probeMethodLabel"))
             HStack(spacing: 10) {
                 probeChoice("并发·首个", draft.probeMode == ServerProfile.probeParallelFirst) {
                     draft.probeMode = ServerProfile.probeParallelFirst
@@ -863,7 +863,7 @@ struct ComputerEditorView: View {
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
 
-            fieldLabel("默认探测超时（秒）—— 通道那格留空时用它")
+            fieldLabel(L("remote.defaultTimeoutLabel"))
             HStack(spacing: 10) {
                 timeoutTextField("秒",
                                  text: Binding(

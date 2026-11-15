@@ -88,14 +88,14 @@ struct BackupPage: View {
             }
         }
         // L4 关闭同步确认（S6a）
-        .confirmationDialog("关闭多端同步？", isPresented: $confirmSyncOff, titleVisibility: .visible) {
-            Button("关闭同步", role: .destructive) {
+        .confirmationDialog(L("and.offTitle"), isPresented: $confirmSyncOff, titleVisibility: .visible) {
+            Button(L("and.offBtn"), role: .destructive) {
                 sync.enabled = false
                 sync.resetTombstones()
                 SyncEngine.shared.stopAll()
                 ABToastBus.shared.show("已关闭同步，云端文件已保留")
             }
-            Button("取消", role: .cancel) { }
+            Button(L("common.cancel"), role: .cancel) { }
         } message: {
             Text(L("and.offDesc"))
         }
@@ -354,7 +354,7 @@ struct BackupPage: View {
         }
         .buttonStyle(.plain)
         .disabled(exportDisabled)
-        .accessibilityLabel("导出到文件")
+        .accessibilityLabel(L("and.exportToFile"))
     }
 
     private func exportNow() {
