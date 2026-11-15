@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.net.Uri
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -102,7 +103,7 @@ private fun BackupPageRoot() {
 
     Box(Modifier.fillMaxSize().background(palette.base)) {
         Column(Modifier.fillMaxSize()) {
-            TopBar("备份与恢复", onMenu = { drawerOpen = true })
+            TopBar(stringResource(R.string.bk_titleFull), onMenu = { drawerOpen = true })
             Column(
                 Modifier
                     .fillMaxSize()
@@ -153,11 +154,11 @@ private fun BackupPageRoot() {
     // S5 加密口令弹窗
     if (showPasswordDialog) {
         PasswordDialog(
-            title = "输入备份口令",
+            title = stringResource(R.string.and_backupPwdTitle),
             onConfirm = { password ->
                 val raw = pendingRaw
                 if (raw == null) {
-                    toast(context, "文件已失效，请重新选择")
+                    toast(context, context.getString(R.string.and_fileInvalidReselect))
                     showPasswordDialog = false
                     return@PasswordDialog ""
                 }
@@ -192,7 +193,7 @@ private fun TopBar(title: String, onMenu: (() -> Unit)? = null) {
             .height(48.dp),
     ) {
         // 左上角 ☰：呼出抽屉侧边栏（电脑/电脑列表页同款）
-        if (onMenu != null) BarIcon("☰", "侧边栏", tint = palette.fg, onClick = onMenu)
+        if (onMenu != null) BarIcon("☰", stringResource(R.string.topbar_sidebar), tint = palette.fg, onClick = onMenu)
         Text(
             title,
             fontSize = 16.sp,
@@ -288,14 +289,14 @@ private fun ExportSection() {
                 exporting = false
                 val skippedNote = if (categories.contains("keys")) "" else ""
                 toast(context, if (error == null) {
-                    "已导出 ${categories.size} 类数据$skippedNote"
-                } else "写入失败：$error")
+                    context.getString(R.string.and_exportedN, categories.size, skippedNote)
+                } else context.getString(R.string.and_writeFail, error))
             }, "anyboot-export").start()
         }
         exportBytes = null
     }
 
-    BkSectionTitle("导出")
+    BkSectionTitle(stringResource(R.string.and_tabExport))
     Card {
         BackupManager.CATEGORIES.forEachIndexed { index, cat ->
             Row(
@@ -319,17 +320,17 @@ private fun ExportSection() {
                         Text(BackupManager.labelOf(cat), fontSize = 14.sp, color = palette.fg)
                         if (cat == "keys") {
                             Spacer(Modifier.width(6.dp))
-                            Text("⚠ 高风险", fontSize = 11.sp, color = palette.warn,
+                            Text(stringResource(R.string.and_highRisk), fontSize = 11.sp, color = palette.warn,
                                 fontWeight = FontWeight.SemiBold)
                         }
                     }
                     Text(
                         when (cat) {
-                            "servers" -> "电脑档案、配对通道、电源路由"
-                            "jumps" -> "地址、账号；登录密码以明文进 secrets"
-                            "keys" -> "私钥将以明文写入备份，务必设置口令"
-                            "terminal" -> "终端外观、传输方式等本机偏好"
-                            else -> "会话记录与已信任的主机指纹"
+                            "servers" -> stringResource(R.string.and_catServers)
+                            "jumps" -> stringResource(R.string.and_catJump)
+                            "keys" -> stringResource(R.string.and_catKeys)
+                            "terminal" -> stringResource(R.string.and_catPrefs)
+                            else -> stringResource(R.string.and_catTrust)
                         },
                         fontSize = 11.sp,
                         color = palette.fgFaint,
@@ -337,7 +338,7 @@ private fun ExportSection() {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                Text("（${countOf(cat)}）", fontSize = 12.sp, color = palette.fgDim)
+                Text(stringResource(R.string.and_countParen, countOf(cat)), fontSize = 12.sp, color = palette.fgDim)
             }
         }
         // info / warning 条
@@ -353,9 +354,9 @@ private fun ExportSection() {
             refs.count { !jumpIds.contains(it) }
         }
         if (keysSelected && !passwordValid) {
-            InfoBar("含私钥的备份必须设置口令加密", warn = true)
+            InfoBar(stringResource(R.string.and_mustSetPwd), warn = true)
         } else if (missing > 0) {
-            InfoBar("$missing 处引用的跳板机未包含在本次导出（按地址各算一处）", warn = false)
+            InfoBar(stringResource(R.string.and_missJump, missing), warn = false)
         }
         if (keysSelected) {
             Spacer(Modifier.height(8.dp))
@@ -371,7 +372,7 @@ private fun ExportSection() {
         }
         Spacer(Modifier.height(12.dp))
         PrimaryButton(
-            text = if (exporting) "导出中…" else "导出到文件",
+            text = if (exporting) stringResource(R.string.and_exporting) else stringResource(R.string.and_exportToFile),
             enabled = !exportDisabled,
             loading = exporting,
         ) {
@@ -382,7 +383,7 @@ private fun ExportSection() {
                 exportBytes = BackupManager.serialize(envelope, pwd)
                 saveLauncher.launch("anyboot-backup-${stampName()}.anyboot")
             } catch (error: Exception) {
-                toast(context, "导出失败：" + (error.message ?: "未知错误"))
+                toast(context, context.getString(R.string.and_exportFailed, error.message ?: context.getString(R.string.gw_unknownErr)))
             }
         }
     }
@@ -429,13 +430,13 @@ private fun PasswordFields(
     OutlinedTextField(
         value = password,
         onValueChange = onPassword,
-        label = { Text("备份口令（≥6 位）", fontSize = 12.sp, color = palette.fgDim) },
+        label = { Text(stringResource(R.string.and_pwdHint), fontSize = 12.sp, color = palette.fgDim) },
         singleLine = true,
         visualTransformation = if (showPassword) VisualTransformation.None
         else PasswordVisualTransformation(),
         trailingIcon = {
             TextButton(onClick = onToggle) {
-                Text(if (showPassword) "隐藏" else "显示", fontSize = 12.sp, color = palette.accent)
+                Text(if (showPassword) stringResource(R.string.and_hide) else stringResource(R.string.and_show), fontSize = 12.sp, color = palette.accent)
             }
         },
         colors = colors,
@@ -444,7 +445,7 @@ private fun PasswordFields(
     OutlinedTextField(
         value = passwordAgain,
         onValueChange = onAgain,
-        label = { Text("再次输入口令", fontSize = 12.sp, color = palette.fgDim) },
+        label = { Text(stringResource(R.string.and_pwdAgain), fontSize = 12.sp, color = palette.fgDim) },
         singleLine = true,
         visualTransformation = if (showPassword) VisualTransformation.None
         else PasswordVisualTransformation(),
@@ -452,7 +453,7 @@ private fun PasswordFields(
         modifier = Modifier.fillMaxWidth(),
     )
     if (mismatch) {
-        Text("两次输入不一致", fontSize = 12.sp, color = palette.bad,
+        Text(stringResource(R.string.bk_pwMismatch), fontSize = 12.sp, color = palette.bad,
             modifier = Modifier.padding(top = 4.dp))
     }
 }
@@ -504,7 +505,7 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
     val config = remember { SyncManager.Config.load(context) }
     var lastSync by remember { mutableStateOf(prefs.getLong("backup_sync_last_at", 0L)) }
 
-    BkSectionTitle("多端同步")
+    BkSectionTitle(stringResource(R.string.and_syncTitle))
     Card {
         // L4 启用开关
         Row(
@@ -512,8 +513,8 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.weight(1f)) {
-                Text("启用多端同步", fontSize = 14.sp, color = palette.fg)
-                Text("通过 WebDAV 在多台设备间保持数据一致",
+                Text(stringResource(R.string.and_enableSync), fontSize = 14.sp, color = palette.fg)
+                Text(stringResource(R.string.and_syncDesc),
                     fontSize = 12.sp, color = palette.fgFaint)
             }
             Switch(
@@ -523,7 +524,7 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
                         !want -> confirmOff = true
                         !config.isConfigured() -> {
                             onOpenConfig()
-                            toast(context, "请先配置 WebDAV 服务器和同步内容")
+                            toast(context, context.getString(R.string.and_cfgFirst))
                         }
                         else -> {
                             enabled = true
@@ -543,11 +544,11 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
                 .padding(vertical = 12.dp),
         ) {
             Column(Modifier.weight(1f)) {
-                Text("WebDAV 与同步内容", fontSize = 14.sp, color = palette.fg)
+                Text(stringResource(R.string.and_webdavTitle), fontSize = 14.sp, color = palette.fg)
                 Text(
                     if (config.isConfigured())
                         Uri.parse(config.serverUrl.trim()).host ?: config.serverUrl
-                    else "未配置",
+                    else stringResource(R.string.and_notConfigured),
                     fontSize = 12.sp, color = palette.fgFaint,
                 )
             }
@@ -567,13 +568,13 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
                     SyncManager.syncNow(context) { error ->
                         syncing = false
                         lastSync = if (error == null) System.currentTimeMillis() else lastSync
-                        toast(context, if (error == null) "同步完成" else "同步失败：$error")
+                        toast(context, if (error == null) context.getString(R.string.bk_syncDone) else context.getString(R.string.and_syncFail, error))
                     }
                 }
                 .padding(vertical = 12.dp),
         ) {
             Text(
-                "立即同步",
+                stringResource(R.string.bk_syncNow),
                 fontSize = 14.sp,
                 color = if (config.isConfigured()) palette.fg else palette.fgFaint,
                 modifier = Modifier.weight(1f),
@@ -585,13 +586,12 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(6.dp))
-                Text("同步中…", fontSize = 12.sp, color = palette.fgDim)
+                Text(stringResource(R.string.and_syncing), fontSize = 12.sp, color = palette.fgDim)
             } else {
                 Text(
                     when {
-                        lastSync > 0 -> "上次同步 " + SimpleDateFormat("HH:mm", Locale.US)
-                            .format(Date(lastSync))
-                        else -> "未同步过"
+                        lastSync > 0 -> stringResource(R.string.bk_lastSync, SimpleDateFormat("HH:mm", Locale.US).format(Date(lastSync)))
+                        else -> stringResource(R.string.bk_neverSynced)
                     },
                     fontSize = 12.sp,
                     color = palette.fgDim,
@@ -603,17 +603,17 @@ private fun SyncSection(onOpenConfig: () -> Unit) {
     if (confirmOff) {
         AlertDialog(
             onDismissRequest = { confirmOff = false },
-            title = { Text("关闭多端同步？") },
-            text = { Text("关闭后本设备将停止自动同步，已上传的云文件保留。") },
+            title = { Text(stringResource(R.string.and_offTitle)) },
+            text = { Text(stringResource(R.string.and_offDesc)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmOff = false
                     enabled = false
                     prefs.edit().putBoolean("backup_sync_enabled", false).apply()
-                }) { Text("关闭同步", color = LocalPalette.current.bad) }
+                }) { Text(stringResource(R.string.and_offBtn), color = LocalPalette.current.bad) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmOff = false }) { Text("取消") }
+                TextButton(onClick = { confirmOff = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -631,7 +631,7 @@ private fun openPreview(context: android.content.Context, raw: ByteArray,
             else BackupManager.decrypt(raw, password)
             android.os.Handler(android.os.Looper.getMainLooper()).post { onEnvelope(envelope) }
         } catch (error: Exception) {
-            val message = error.message ?: "不是有效的 AnyBoot 备份文件"
+            val message = error.message ?: context.getString(R.string.and_invalidFile)
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 toast(context, message)
             }
@@ -656,26 +656,26 @@ private fun ImportSection(onPicked: (ByteArray, Boolean) -> Unit) {
                     while (stream.read(chunk).also { count = it } > 0) {
                         buffer.write(chunk, 0, count)
                         if (buffer.size() > BackupManager.MAX_FILE_BYTES) {
-                            throw BackupManager.BackupException("文件超过 10MB，已拒绝")
+                            throw BackupManager.BackupException(context.getString(R.string.and_tooBig))
                         }
                     }
                     val raw = buffer.toByteArray()
                     onPicked(raw, BackupManager.isEncrypted(raw))
                 }
             } catch (error: Exception) {
-                toast(context, error.message ?: "读取文件失败")
+                toast(context, error.message ?: context.getString(R.string.and_readFileErr))
             }
         }
     }
 
-    BkSectionTitle("导入")
+    BkSectionTitle(stringResource(R.string.and_tabImport))
     Card {
-        SecondaryButton("从文件导入") {
+        SecondaryButton(stringResource(R.string.and_importFromFile)) {
             openLauncher.launch(arrayOf("*/*"))
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            "支持 .anyboot 备份文件",
+            stringResource(R.string.and_importHint),
             fontSize = 12.sp,
             color = palette.fgFaint,
             modifier = Modifier.fillMaxWidth(),
@@ -723,14 +723,14 @@ private fun PasswordDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("口令") },
+                    label = { Text(stringResource(R.string.and_pwd)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (error.isNotEmpty()) {
                     Text(
-                        error + if (attempts >= 3) "，请确认文件来源" else "",
+                        error + if (attempts >= 3) stringResource(R.string.and_confirmSource) else "",
                         fontSize = 12.sp,
                         color = LocalPalette.current.bad,
                         modifier = Modifier.padding(top = 6.dp),
@@ -748,7 +748,7 @@ private fun PasswordDialog(
                         error = message
                     }
                 },
-            ) { Text("确认") }
+            ) { Text(stringResource(R.string.and_confirmBtn)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
@@ -802,15 +802,15 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     .padding(horizontal = 12.dp)
                     .height(52.dp),
             ) {
-                Text("‹ 返回", fontSize = 14.sp, color = palette.fgDim,
+                Text("‹ " + stringResource(R.string.and_back), fontSize = 14.sp, color = palette.fgDim,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onClose() }
                         .padding(8.dp))
-                Text("WebDAV 与同步内容", fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                Text(stringResource(R.string.and_webdavTitle), fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     color = palette.fg, modifier = Modifier.weight(1f))
                 Text(
-                    "保存",
+                    stringResource(R.string.common_save),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (formValid && encryptValid) palette.accent else palette.fgFaint,
@@ -831,7 +831,7 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                                 config.saveEncryptPassword(context, encryptPassword)
                             config.save(context)
                             prefs.edit().putBoolean("backup_sync_enabled", true).apply()
-                            toast(context, "已保存")
+                            toast(context, context.getString(R.string.and_saved))
                             onClose()
                         }
                         .padding(8.dp),
@@ -846,10 +846,10 @@ private fun WebDavOverlay(onClose: () -> Unit) {
                     .padding(bottom = 24.dp)
             ) {
                 Card {
-                    BkFieldLabel("服务器地址")
+                    BkFieldLabel(stringResource(R.string.and_serverAddr))
                     FieldInput("https://dav.jianguoyun.com/dav/", serverUrl,
                         { serverUrl = it }, KeyboardType.Uri)
-                    BkFieldLabel("用户名")
+                    BkFieldLabel(stringResource(R.string.server_kUser))
                     FieldInput("账号 / 邮箱", username, { username = it }, KeyboardType.Email)
                     BkFieldLabel("密码")
                     FieldInput("WebDAV 密码", password, { password = it },
