@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "Set as default (same as Ctrl+Enter in the OC menu)";
 "and.backupCorrupt" = "Backup file is corrupted";
 "and.opFailRaw" = "{a} failed: {r}";
+"and.overwriteImport" = "Overwrite import";
+"and.overwriteImportDesc" = "Existing data of the selected categories will be replaced by the backup.";
+"and.importFailMsg" = "Import failed: {x}";
+"and.doneBtn" = "Done";
+"and.nextBootUnknown" = "Next boot\\nUnknown (no system selected)";
+"and.nextBootWord" = "Next boot";
+"and.noEntrySelected" = "No entry selected";
+"and.noVisibleMenu" = "No visible menu items (all hidden by rules)";
+"and.itemsCountFmt" = "▸ {a}{b} ({c} items{d})";
+"and.kernelsCountFmt" = "▸ {a}{b} ({c} kernels)";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

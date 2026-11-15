@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "既定に設定（OC メニューの Ctrl+Enter と同じ）";
 "and.backupCorrupt" = "バックアップファイルが破損";
 "and.opFailRaw" = "{a} 失敗：{r}";
+"and.overwriteImport" = "上書き取り込み";
+"and.overwriteImportDesc" = "選択カテゴリの既存データがバックアップ内容に置き換えられます。";
+"and.importFailMsg" = "取り込み失敗：{x}";
+"and.doneBtn" = "完了";
+"and.nextBootUnknown" = "次回起動\\n不明（システム未選択）";
+"and.nextBootWord" = "次回起動";
+"and.noEntrySelected" = "項目未選択";
+"and.noVisibleMenu" = "表示できるメニュー項目なし（非表示ルールで除外）";
+"and.itemsCountFmt" = "▸ {a}{b}（{c} 件{d}）";
+"and.kernelsCountFmt" = "▸ {a}{b}（{c} カーネル）";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

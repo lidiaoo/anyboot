@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "기본으로 설정(OC 메뉴의 Ctrl+Enter와 동일)";
 "and.backupCorrupt" = "백업 파일 손상";
 "and.opFailRaw" = "{a} 실패: {r}";
+"and.overwriteImport" = "덮어쓰기 가져오기";
+"and.overwriteImportDesc" = "선택 범주의 기존 데이터가 백업 내용으로 대체됩니다.";
+"and.importFailMsg" = "가져오기 실패: {x}";
+"and.doneBtn" = "완료";
+"and.nextBootUnknown" = "다음 부팅\\n알 수 없음(선택된 시스템 없음)";
+"and.nextBootWord" = "다음 부팅";
+"and.noEntrySelected" = "선택된 항목 없음";
+"and.noVisibleMenu" = "표시할 메뉴 항목 없음(숨김 규칙으로 제외)";
+"and.itemsCountFmt" = "▸ {a}{b} ({c}개{d})";
+"and.kernelsCountFmt" = "▸ {a}{b} ({c}개 커널)";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

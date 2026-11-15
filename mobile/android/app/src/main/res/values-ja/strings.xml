@@ -2016,6 +2016,13 @@ Telnet：実験的端末のみ。</string>
     <string name="and_overwriteImportDesc">選択カテゴリの既存データがバックアップ内容に置き換えられます。</string>
     <string name="and_importFailMsg">取り込み失敗：%1$s</string>
     <string name="and_doneBtn">完了</string>
+    <string name="and_nextBootUnknown">次回起動
+不明（システム未選択）</string>
+    <string name="and_nextBootWord">次回起動</string>
+    <string name="and_noEntrySelected">項目未選択</string>
+    <string name="and_noVisibleMenu">表示できるメニュー項目なし（非表示ルールで除外）</string>
+    <string name="and_itemsCountFmt">▸ %1$s%2$s（%3$s 件%4$s）</string>
+    <string name="and_kernelsCountFmt">▸ %1$s%2$s（%3$s カーネル）</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "Als Standard gesetzt (wie Strg+Enter im OC-Menü)";
 "and.backupCorrupt" = "Sicherungsdatei beschädigt";
 "and.opFailRaw" = "{a} fehlgeschlagen: {r}";
+"and.overwriteImport" = "Überschreibend importieren";
+"and.overwriteImportDesc" = "Bestehende Daten der gewählten Kategorien werden durch die Sicherung ersetzt.";
+"and.importFailMsg" = "Import fehlgeschlagen: {x}";
+"and.doneBtn" = "Fertig";
+"and.nextBootUnknown" = "Nächster Start\\nUnbekannt (kein System gewählt)";
+"and.nextBootWord" = "Nächster Start";
+"and.noEntrySelected" = "Kein Eintrag gewählt";
+"and.noVisibleMenu" = "Keine sichtbaren Menüpunkte (durch Regeln ausgeblendet)";
+"and.itemsCountFmt" = "▸ {a}{b} ({c} Einträge{d})";
+"and.kernelsCountFmt" = "▸ {a}{b} ({c} Kernel)";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

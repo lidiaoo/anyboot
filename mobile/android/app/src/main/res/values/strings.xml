@@ -2016,6 +2016,13 @@ Telnet：只有实验性终端。</string>
     <string name="and_overwriteImportDesc">本机所选分类的现有数据将被备份内容替换。</string>
     <string name="and_importFailMsg">导入失败：%1$s</string>
     <string name="and_doneBtn">完成</string>
+    <string name="and_nextBootUnknown">下次启动
+未知（没有选中的系统）</string>
+    <string name="and_nextBootWord">下次启动</string>
+    <string name="and_noEntrySelected">未选中条目</string>
+    <string name="and_noVisibleMenu">没有可见的菜单项（都被隐藏规则挡掉了）</string>
+    <string name="and_itemsCountFmt">▸ %1$s%2$s（%3$s 项%4$s）</string>
+    <string name="and_kernelsCountFmt">▸ %1$s%2$s（%3$s 个内核）</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

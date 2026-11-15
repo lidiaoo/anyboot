@@ -648,15 +648,15 @@ pub(crate) fn next_boot_label(state: &UiState) -> String {
 
 pub(crate) fn next_boot_label_from_rows(rows: &[(String, String)]) -> String {
     if rows.is_empty() {
-        return "下次启动\n未知（没有选中的系统）".to_string();
+        return crate::t!(crate::i18n::current(),"下次启动\n未知（没有选中的系统）","下次啟動\n未知（沒有選中的系統）","Next boot\nUnknown (no system selected)","次回起動\n不明（システム未選択）","다음 부팅\n알 수 없음(선택된 시스템 없음)","Nächster Start\nUnbekannt (kein System gewählt)","Следующая загрузка\nНеизвестно (система не выбрана)","Próximo boot\nDesconhecido (nenhum sistema)","Próximo arranque\nDesconocido (sin sistema)").to_string();
     }
-    let mut text = String::from("下次启动");
+    let mut text = String::from(crate::t!(crate::i18n::current(),"下次启动","下次啟動","Next boot","次回起動","다음 부팅","Nächster Start","Следующая загрузка","Próximo boot","Próximo arranque"));
     for (name, entry) in rows {
         text.push('\n');
         text.push_str(name);
         text.push_str(" · ");
         text.push_str(if entry.is_empty() {
-            "未选中条目"
+            crate::t!(crate::i18n::current(),"未选中条目","未選取項目","No entry selected","項目未選択","선택된 항목 없음","Kein Eintrag gewählt","Запись не выбрана","Nenhum item selecionado","Ningún elemento seleccionado")
         } else {
             entry.as_str()
         });
@@ -944,7 +944,7 @@ pub(crate) fn loader_menu_nodes_from(
             let children = if children.is_empty() {
                 vec![menu_item(
                     "refindplus-empty",
-                    "没有可见的菜单项（都被隐藏规则挡掉了）",
+                    crate::t!(crate::i18n::current(),"没有可见的菜单项（都被隐藏规则挡掉了）","沒有可見的選單項（都被隱藏規則擋掉了）","No visible menu items (all hidden by rules)","表示できるメニュー項目なし（非表示ルールで除外）","표시할 메뉴 항목 없음(숨김 규칙으로 제외)","Keine sichtbaren Menüpunkte (durch Regeln ausgeblendet)","Нет видимых пунктов (скрыты правилами)","Sem itens visíveis (ocultos por regras)","Sin elementos visibles (ocultos por reglas)"),
                     false,
                 )]
             } else {

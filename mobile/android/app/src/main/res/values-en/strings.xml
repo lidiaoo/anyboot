@@ -2016,6 +2016,13 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_overwriteImportDesc">Existing data of the selected categories will be replaced by the backup.</string>
     <string name="and_importFailMsg">Import failed: %1$s</string>
     <string name="and_doneBtn">Done</string>
+    <string name="and_nextBootUnknown">Next boot
+Unknown (no system selected)</string>
+    <string name="and_nextBootWord">Next boot</string>
+    <string name="and_noEntrySelected">No entry selected</string>
+    <string name="and_noVisibleMenu">No visible menu items (all hidden by rules)</string>
+    <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s items%4$s)</string>
+    <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s kernels)</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

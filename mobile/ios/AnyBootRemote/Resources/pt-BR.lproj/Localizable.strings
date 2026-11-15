@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "Definido como padrão (igual a Ctrl+Enter no menu OC)";
 "and.backupCorrupt" = "Arquivo de backup corrompido";
 "and.opFailRaw" = "{a} falhou: {r}";
+"and.overwriteImport" = "Importar sobrescrevendo";
+"and.overwriteImportDesc" = "Dados existentes das categorias selecionadas serão substituídos pelo backup.";
+"and.importFailMsg" = "Falha na importação: {x}";
+"and.doneBtn" = "Concluído";
+"and.nextBootUnknown" = "Próximo boot\\nDesconhecido (nenhum sistema)";
+"and.nextBootWord" = "Próximo boot";
+"and.noEntrySelected" = "Nenhum item selecionado";
+"and.noVisibleMenu" = "Sem itens visíveis (ocultos por regras)";
+"and.itemsCountFmt" = "▸ {a}{b} ({c} itens{d})";
+"and.kernelsCountFmt" = "▸ {a}{b} ({c} kernels)";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

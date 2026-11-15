@@ -2016,6 +2016,13 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_overwriteImportDesc">선택 범주의 기존 데이터가 백업 내용으로 대체됩니다.</string>
     <string name="and_importFailMsg">가져오기 실패: %1$s</string>
     <string name="and_doneBtn">완료</string>
+    <string name="and_nextBootUnknown">다음 부팅
+알 수 없음(선택된 시스템 없음)</string>
+    <string name="and_nextBootWord">다음 부팅</string>
+    <string name="and_noEntrySelected">선택된 항목 없음</string>
+    <string name="and_noVisibleMenu">표시할 메뉴 항목 없음(숨김 규칙으로 제외)</string>
+    <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s개%4$s)</string>
+    <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s개 커널)</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

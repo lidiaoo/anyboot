@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "已設為預設（等價 OC 選單裡的 Ctrl+Enter）";
 "and.backupCorrupt" = "備份檔案已損壞";
 "and.opFailRaw" = "{a}失敗：{r}";
+"and.overwriteImport" = "覆蓋匯入";
+"and.overwriteImportDesc" = "本機所選分類的現有資料將被備份內容替換。";
+"and.importFailMsg" = "匯入失敗：{x}";
+"and.doneBtn" = "完成";
+"and.nextBootUnknown" = "下次啟動\\n未知（沒有選中的系統）";
+"and.nextBootWord" = "下次啟動";
+"and.noEntrySelected" = "未選取項目";
+"and.noVisibleMenu" = "沒有可見的選單項（都被隱藏規則擋掉了）";
+"and.itemsCountFmt" = "▸ {a}{b}（{c} 項{d}）";
+"and.kernelsCountFmt" = "▸ {a}{b}（{c} 個內核）";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

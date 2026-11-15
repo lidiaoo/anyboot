@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "已设为默认（等价 OC 菜单里的 Ctrl+Enter）";
 "and.backupCorrupt" = "备份文件已损坏";
 "and.opFailRaw" = "{a}失败：{r}";
+"and.overwriteImport" = "覆盖导入";
+"and.overwriteImportDesc" = "本机所选分类的现有数据将被备份内容替换。";
+"and.importFailMsg" = "导入失败：{x}";
+"and.doneBtn" = "完成";
+"and.nextBootUnknown" = "下次启动\\n未知（没有选中的系统）";
+"and.nextBootWord" = "下次启动";
+"and.noEntrySelected" = "未选中条目";
+"and.noVisibleMenu" = "没有可见的菜单项（都被隐藏规则挡掉了）";
+"and.itemsCountFmt" = "▸ {a}{b}（{c} 项{d}）";
+"and.kernelsCountFmt" = "▸ {a}{b}（{c} 个内核）";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

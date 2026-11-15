@@ -1975,6 +1975,16 @@
 "and.setDefaultDone" = "Сделано по умолчанию (как Ctrl+Enter в меню OC)";
 "and.backupCorrupt" = "Файл копии повреждён";
 "and.opFailRaw" = "{a}: ошибка {r}";
+"and.overwriteImport" = "Импорт с перезаписью";
+"and.overwriteImportDesc" = "Существующие данные выбранных категорий будут заменены копией.";
+"and.importFailMsg" = "Ошибка импорта: {x}";
+"and.doneBtn" = "Готово";
+"and.nextBootUnknown" = "Следующая загрузка\\nНеизвестно (система не выбрана)";
+"and.nextBootWord" = "Следующая загрузка";
+"and.noEntrySelected" = "Запись не выбрана";
+"and.noVisibleMenu" = "Нет видимых пунктов (скрыты правилами)";
+"and.itemsCountFmt" = "▸ {a}{b} ({c} шт.{d})";
+"and.kernelsCountFmt" = "▸ {a}{b} ({c} ядер)";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

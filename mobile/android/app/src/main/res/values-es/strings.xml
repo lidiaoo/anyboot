@@ -2016,6 +2016,13 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_overwriteImportDesc">Los datos existentes de las categorías se reemplazarán por el backup.</string>
     <string name="and_importFailMsg">Error de importación: %1$s</string>
     <string name="and_doneBtn">Hecho</string>
+    <string name="and_nextBootUnknown">Próximo arranque
+Desconocido (sin sistema)</string>
+    <string name="and_nextBootWord">Próximo arranque</string>
+    <string name="and_noEntrySelected">Ningún elemento seleccionado</string>
+    <string name="and_noVisibleMenu">Sin elementos visibles (ocultos por reglas)</string>
+    <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s elementos%4$s)</string>
+    <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s núcleos)</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
