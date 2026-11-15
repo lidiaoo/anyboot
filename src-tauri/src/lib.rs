@@ -150,6 +150,7 @@ mod window_geometry;
 mod dock_autohide;
 mod dock_commands;
 mod tray_classic;
+mod i18n;
 mod menu_model;
 mod tray_menu_window;
 mod notify;
