@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
@@ -41,7 +42,7 @@ function loaderDefault(id: string): string {
   if (id === "refind") {
     const hit = (ui.status?.variables ?? []).find((v) => v.active);
     const lb = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
-    return (lb?.title || hit?.displayName || "未知").toString();
+    return (lb?.title || hit?.displayName || t("boot.unknown")).toString();
   }
   if (id === "refindplus") {
     // 与 refind 同口径，看 refindplus 通道的独立槽位
@@ -51,7 +52,7 @@ function loaderDefault(id: string): string {
   }
   if (id === "grub") {
     const g = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
-    return (g?.nextEntry || g?.savedEntry || "未知").toString();
+    return (g?.nextEntry || g?.savedEntry || t("boot.unknown")).toString();
   }
   const ch = (ui.channels ?? []).find((c) => c.id === id);
   // 旧版 channelEntries：currentDefault 可能是 id 或标题，命中 channel.entries 取标题
@@ -60,7 +61,7 @@ function loaderDefault(id: string): string {
   const hit = cur
     ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000"))
     : undefined;
-  return (hit?.title || cur || (ch?.detected ? "未选择" : "未知")).toString();
+  return (hit?.title || cur || (ch?.detected ? t("hub.state.notSelected") : t("boot.unknown"))).toString();
 }
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
@@ -97,11 +98,11 @@ const privBusyAction = ref<"install" | "uninstall" | "">("");
 const privStateText = computed(() => {
   const st = privStatus.value;
   if (!st) return "";
-  if (st.state === "ready") return "已开启";
-  if (st.state === "outdated") return `已安装（旧版本 ${st.version || "?"}，当前 ${st.currentVersion}）—— 建议重装`;
-  if (st.state === "stale") return "已安装但组件文件缺失，建议重装";
-  if (st.state === "absent") return "未开启";
-  return st.detail || "未知";
+  if (st.state === "ready") return t("bs.helperReady");
+  if (st.state === "outdated") return t("bs.helperOutdated", { v: st.version || "?", c: st.currentVersion });
+  if (st.state === "stale") return t("bs.helperStale");
+  if (st.state === "absent") return t("bs.helperAbsent");
+  return st.detail || t("boot.unknown");
 });
 const privInstalled = computed(
   () => privStatus.value?.state === "ready",
@@ -127,9 +128,9 @@ async function toggleLinuxPriv(): Promise<void> {
     // 后端已在内部 publish_ui，但推送可能有延迟；主动拉一次快照，
     // 确保按钮「立刻」从「开启中」切到「已开启」（不等推送那一拍）。
     await ui.pollOnce().catch(() => {});
-    toast.show(install ? "Linux 免密组件已开启" : "Linux 免密组件已移除");
+    toast.show(install ? t("bs.linuxHelperOn") : t("bs.linuxHelperOff"));
   } catch (e) {
-    toast.show("操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
+    toast.show(t("bs.linuxHelperFail", { msg: String(e) }), "bad");
   } finally {
     privBusy.value = false;
     privBusyAction.value = "";
@@ -137,9 +138,9 @@ async function toggleLinuxPriv(): Promise<void> {
 }
 /** Linux 分区扫描策略（仅 Linux 显示） */
 const LINUX_EXT4_MODES = [
-  { key: "raw", label: "仅裸读（默认）", hint: "三端一致：一律裸读自研 ext4 驱动，RECOVER（上次未干净关机）能看见" },
-  { key: "prefer_mount", label: "优先挂载", hint: "已挂载分区先走挂载点直读（快）；仅当该分区真遇到 RECOVER 时再回落裸读补全提示" },
-  { key: "mount_only", label: "仅挂载", hint: "已挂载分区只直读（最快）；RECOVER 提示不会出现（上次没干净关机看不出）" },
+  { key: "raw", label: "bs.readMode.raw", hint: "bs.readMode.rawHint" },
+  { key: "prefer_mount", label: "bs.readMode.preferMount", hint: "bs.readMode.preferMountHint" },
+  { key: "mount_only", label: "bs.readMode.mountOnly", hint: "bs.readMode.mountOnlyHint" },
 ] as const;
 const linuxExt4Mode = computed(() => String(ui.settings?.linuxExt4ScanMode ?? "raw"));
 const linuxExt4Hint = computed(
@@ -153,9 +154,9 @@ const snoozeLabel = computed(() => {
   const until = Number(ui.settings?.helperReminderSnoozeUntil ?? 0);
   const now = Math.floor(Date.now() / 1000);
   if (!until || until <= now) return "";
-  if (until > now + 3600 * 24 * 365 * 40) return "已永久取消提醒";
+  if (until > now + 3600 * 24 * 365 * 40) return t("bs.snoozeForever");
   const d = Math.ceil((until - now) / 86400);
-  return `已取消提醒（约 ${d} 天）`;
+  return t("bs.snoozeDays", { d });
 });
 async function snoozeHelperReminder(days: number): Promise<void> {
   const until = days === 0 ? 4_102_444_800 : Math.floor(Date.now() / 1000) + days * 86400;
@@ -172,19 +173,19 @@ async function toggleBootHelper(): Promise<void> {
   helperBusy.value = true;
   helperBusyLabel.value =
     action === "install"
-      ? (h.installed ? "重装中…（会弹系统授权框，请输入密码）" : "开启中…（会弹系统授权框，请输入密码）")
-      : "关闭中…";
+      ? (h.installed ? t("bs.privReinstall") : t("bs.privEnabling"))
+      : t("bs.disabling");
   try {
     await call("boot_helper", { action });
     // 失败已由下次快照带回；成功/失败都给明确结果反馈
     if (action === "install") {
-      toast.show("免密提权已开启");
+      toast.show(t("bs.privOn"));
     } else {
-      toast.show("免密提权已关闭");
+      toast.show(t("bs.privOff"));
     }
   } catch (e) {
     // 用户取消系统授权 / 安装失败：明确告诉用户，而不是静默
-    toast.show("免密提权操作未完成：" + e + "（如取消了系统授权框可重试）", "bad");
+    toast.show(t("bs.privFail", { msg: String(e) }), "bad");
   } finally {
     helperBusy.value = false;
     helperBusyLabel.value = "";
@@ -218,16 +219,16 @@ const layouts = computed<LayoutMode[]>(
 );
 
 const layoutLabels: Record<LayoutMode, string> = {
-  default: "默认",
-  wide: "加宽",
-  lr: "左右布局",
+  default: "bs.layout.default",
+  wide: "bs.layout.wide",
+  lr: "bs.layout.lr",
 };
 
 /** 引导器 ESP 展示值（旧版 l.esp）：refind/grub 固定，三通道取 channel.detail */
 /** 引导器 ESP 副标题（与 BootApp/旧版适配器一致：按模式零回落） */
 function loaderEsp(id: string): string {
-  if (id === "refind") return settings.refindMode === "manual" ? "vars/PreviousBoot 快照" : "ESP · refind.conf";
-  if (id === "refindplus") return settings.refindplusMode === "manual" ? "vars/PreviousBoot 快照" : (ui.refindplusSim?.installDir || "ESP · config.conf");
+  if (id === "refind") return settings.refindMode === "manual" ? t("boot.srcSnapshot") : "ESP · refind.conf";
+  if (id === "refindplus") return settings.refindplusMode === "manual" ? t("boot.srcSnapshot") : (ui.refindplusSim?.installDir || "ESP · config.conf");
   if (id === "grub") {
     if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
     const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
@@ -293,7 +294,7 @@ const previewLoaders = computed(() =>
       const defTitle = loaderDefault(id);
       const count = (previewRows.value[id] ?? []).length;
       const entries: { t?: string; def?: boolean }[] = [];
-      if (defTitle && defTitle !== "未知") entries.push({ t: defTitle, def: true });
+      if (defTitle && defTitle !== t("boot.unknown")) entries.push({ t: defTitle, def: true });
       while (entries.length < count) entries.push({ t: "", def: false });
       return {
         id,
@@ -382,21 +383,21 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       <!-- 免密提权（Linux · polkit/sudo 助手） -->
       <template v-if="privStatus && privStatus.platform">
         <div class="helper-card-row">
-          <span class="helper-label">免密组件（Linux · polkit/sudo 助手）</span>
+          <span class="helper-label">{{ $t("bs.privLabelLinux") }}</span>
           <span
             class="helper-state"
             :data-state="privBusy ? 'off' : (privStatus.state === 'ready' ? 'on' : (privStatus.state === 'outdated' || privStatus.state === 'stale') ? 'stale' : 'off')"
-          >{{ privBusy ? "处理中…" : privStateText }}</span>
+          >{{ privBusy ? $t("bs.processing") : privStateText }}</span>
           <span class="grow" />
           <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
             <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
             {{ privBusy
-                ? (privBusyAction === "uninstall" ? "关闭中…" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装中…" : "开启中…"))
-                : (privInstalled ? "关闭" : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? "重装 ⤴" : "开启 ⤴")) }}
+                ? (privBusyAction === "uninstall" ? $t("bs.disabling") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? $t("bs.privReinstall") : $t("bs.privEnabling")))
+                : (privInstalled ? $t("bs.close") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? $t("bs.reinstall") : $t("bs.enable"))) }}
           </button>
         </div>
         <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-          免密组件仅电脑端(本机)可管理，移动端不支持开启/移除。
+          {{ $t("bs.privMobileNote") }}
         </small>
         <small class="helper-hint">{{ privStatus.detail }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
@@ -408,18 +409,18 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported） -->
       <template v-else-if="ui.state?.helper?.supported">
         <div class="helper-card-row">
-          <span class="helper-label">免密提权（root 助手）</span>
+          <span class="helper-label">{{ $t("bs.privLabelRoot") }}</span>
           <span class="helper-state" :data-state="helperBusy ? 'off' : (ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off')">
-            {{ helperBusy ? "处理中…" : (ui.state.helper.installed ? (ui.state.helper.stale ? "已开启（旧构建，建议重装）" : "已开启") : "未开启") }}
+            {{ helperBusy ? $t("bs.processing") : (ui.state.helper.installed ? (ui.state.helper.stale ? $t("bs.helperStaleOld") : $t("bs.helperReady")) : $t("bs.helperAbsent")) }}
           </span>
           <span class="grow" />
           <button type="button" class="btn sm" :disabled="helperBusy || !isDesktop" @click="toggleBootHelper">
             <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
-            {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? "关闭" : ui.state.helper.installed ? "重装 ⤴" : "开启 ⤴") }}
+            {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? $t("bs.close") : ui.state.helper.installed ? $t("bs.reinstall") : $t("bs.enable")) }}
           </button>
         </div>
         <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-          免密提权助手仅在电脑端(本机)可管理，移动端不支持开启/关闭。
+          {{ $t("bs.helperMobileNote") }}
         </small>
         <small class="helper-hint">{{ ui.state.helper.text }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
@@ -428,7 +429,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       </template>
       <!-- 启动时使用管理员扫描（默认开） -->
       <div class="helper-card-row" style="margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 14px">
-        <span class="helper-label">启动时使用管理员扫描</span>
+        <span class="helper-label">{{ $t("bs.startupAdminLabel") }}</span>
         <span class="grow" style="flex: 1"></span>
         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
           <input
@@ -437,7 +438,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             :checked="ui.settings?.startupScanWithAdmin !== false"
             @change="toggleStartupAdminScan"
           />
-          <span>{{ ui.settings?.startupScanWithAdmin !== false ? "已开启" : "已关闭" }}</span>
+          <span>{{ ui.settings?.startupScanWithAdmin !== false ? $t("bs.on") : $t("bs.off") }}</span>
         </label>
       </div>
       <small class="helper-hint">
@@ -446,27 +447,27 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       </small>
       <!-- 启动免密提醒（取消提醒设置） -->
       <div class="helper-card-row" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 14px">
-        <span class="helper-label">启动免密提醒</span>
+        <span class="helper-label">{{ $t("bs.snoozeLabel") }}</span>
         <span class="grow" style="flex: 1"></span>
         <template v-if="snoozeLabel">
           <span style="color: var(--text-faint); margin-right: 8px">{{ snoozeLabel }}</span>
-          <button type="button" class="btn sm ghost" @click="clearSnooze">恢复提醒</button>
+          <button type="button" class="btn sm ghost" @click="clearSnooze">{{ $t("bs.restoreReminder") }}</button>
         </template>
         <template v-else>
-          <span style="color: var(--text-faint); margin-right: 8px">取消提醒：</span>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">1天</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">7天</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">30天</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">永久</button>
+          <span style="color: var(--text-faint); margin-right: 8px">{{ $t("bs.cancelReminder") }}</span>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">{{ $t("bs.daysN", { n: 1 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">{{ $t("bs.daysN", { n: 7 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">{{ $t("bs.daysN", { n: 30 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">{{ $t("helper.forever") }}</button>
         </template>
       </div>
     </section>
     <!-- Linux 分区扫描策略：**单独一张卡片**（仅 Linux 显示） -->
     <section v-if="isLinux" class="card helper-card" id="linux-scan-card">
       <div class="helper-card-row">
-        <span class="helper-label">Linux 分区扫描策略</span>
+        <span class="helper-label">{{ $t("bs.linuxScanPolicy") }}</span>
       </div>
-      <div class="seg" role="group" aria-label="Linux 分区扫描策略" style="margin-top: 6px">
+      <div class="seg" role="group" :aria-label="$t('bs.linuxScanPolicy')" style="margin-top: 6px">
         <button
           v-for="m in LINUX_EXT4_MODES"
           :key="m.key"
