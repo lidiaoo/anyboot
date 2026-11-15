@@ -351,12 +351,17 @@ function openView(rid: string) {
   // 旧版 frame.title：本机页面 / 服务端页面
   viewTitle.value = rid === "local" ? "本机页面" : "服务端页面";
   const info = infoOf(rid);
-  if (!info?.addr) {
+  // 统一化（用户 2026-11-15）：电脑页访问网址优先用**嗅探可用**的地址
+  // （probe_results 里 ok=true 的第一个），都不通/还没探测才回退 info.addr
+  // （后端当前连接地址）—— 否则点卡片进电脑页会加载一个探测不通的地址白屏。
+  const okAddr = (info?.probe_results ?? [])
+    .find((r) => r?.ok && r.address)?.address ?? "";
+  if (!okAddr && !info?.addr) {
     viewUrl.value = "";
   } else {
     // 旧版 pcConnUrl（lan 赢家）：origin + /?token=...
     const token = encodeURIComponent(row?.token ?? "");
-    let url = `http://${info.addr}/?token=${token}`;
+    let url = `http://${okAddr || info!.addr}/?token=${token}`;
     // withGuestTheme：当前页亮暗 + 引导页主题偏好（本机查看方偏好）
     const dark = document.documentElement.classList.contains("dark") ? "dark" : "light";
     let theme = "";
