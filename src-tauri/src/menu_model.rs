@@ -1184,13 +1184,13 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     // 某块为空 = 该引导器没检测到 / 没读到条目，整块不出现。
     let loaders = loader_menu_nodes(state);
     if loaders.is_empty() {
-        nodes.push(menu_item("boot-empty", "没有可用的引导项（先扫描）", false));
+        nodes.push(menu_item("boot-empty", crate::t!(crate::i18n::current(),"没有可用的引导项（先扫描）","沒有可用的引導項（先掃描）","No usable boot entry (scan first)","利用可能な起動項目なし（先にスキャン）","사용 가능한 부팅 항목 없음(먼저 스캔)","Kein nutzbarer Starteintrag (zuerst scannen)","Нет доступной записи загрузки (сначала сканируйте)","Sem entrada utilizável (escaneie antes)","Sin entrada utilizable (escanea primero)"), false));
     } else {
         nodes.extend(loaders);
     }
     nodes.push(menu_separator());
     if state.status.temporary_mount {
-        nodes.push(menu_item("unmount-temporary", "卸载临时挂载", !busy));
+        nodes.push(menu_item("unmount-temporary", crate::t!(crate::i18n::current(),"卸载临时挂载","卸載臨時掛載","Unmount temporary mount","一時マウントを解除","임시 마운트 해제","Temporäre Einbindung lösen","Отмонтировать временное","Desmontar montagem temporária","Desmontar montaje temporal"), !busy));
     }
     nodes.push(menu_item("show", crate::t!(crate::i18n::current(),"显示主窗口","顯示主視窗","Show main window","メイン画面を表示","메인 창 표시","Hauptfenster anzeigen","Показать окно","Mostrar janela principal","Mostrar ventana principal"), true));
     // 远程管理（server-hub）独立窗口的入口：托盘是唯一新增入口，主窗口零改动。
@@ -1209,7 +1209,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     // 这个后缀同时也让「重复点同一项」是幂等的（不会来回翻）。
     nodes.push(menu_choice_item(
         toggle_menu_id("setting-start-in-tray", !settings.start_in_tray),
-        toggle_label(settings.start_in_tray, "启动时隐藏主界面"),
+        toggle_label(settings.start_in_tray, crate::t!(crate::i18n::current(),"启动时隐藏主界面","啟動時隱藏主介面","Hide main window at startup","起動時にメイン画面を隠す","시작 시 메인 창 숨기기","Hauptfenster beim Start ausblenden","Скрывать окно при запуске","Ocultar janela ao iniciar","Ocultar ventana al arrancar")),
         true,
     ));
     nodes.push(menu_choice_item(
@@ -1217,7 +1217,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
             "setting-hide-from-dock-taskbar",
             !settings.hide_from_dock_taskbar,
         ),
-        toggle_label(settings.hide_from_dock_taskbar, "隐藏程序（任务栏/Dock）"),
+        toggle_label(settings.hide_from_dock_taskbar, crate::t!(crate::i18n::current(),"隐藏程序（任务栏/Dock）","隱藏程式（工作列/Dock）","Hide app (taskbar/Dock)","アプリを隠す（タスクバー/Dock）","앱 숨기기(작업 표시줄/Dock)","App ausblenden (Taskleiste/Dock)","Скрыть приложение (панель/Dock)","Ocultar app (barra/Dock)","Ocultar app (barra/Dock)")),
         true,
     ));
     // 贴边自动隐藏是高频功能开关，托盘给个快捷入口（与 HTTP 服务/远程请求通知同级）。
@@ -1225,20 +1225,20 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     // 切回其他落位方式即可用）。
     nodes.push(menu_choice_item(
         toggle_menu_id("setting-main-auto-hide", !settings.main_auto_hide),
-        toggle_label(settings.main_auto_hide, "贴边自动隐藏"),
+        toggle_label(settings.main_auto_hide, crate::t!(crate::i18n::current(),"贴边自动隐藏","貼邊自動隱藏","Auto-hide at edge","端で自動非表示","가장자리 자동 숨김","Am Rand automatisch ausblenden","Автоскрытие у края","Ocultar na borda","Ocultar en el borde")),
         normalize_window_position(&settings.main_window_position) != "center",
     ));
     // 窗口大小在设置页能随意调（滑条 / 拖边框），托盘里放一个「重置」入口：
     // 窗口被拖到怪尺寸（或锁定态想恢复标称）时，不用打开主窗口去找
-    nodes.push(menu_item("reset-window-size", "重置窗口大小", !busy));
+    nodes.push(menu_item("reset-window-size", crate::t!(crate::i18n::current(),"重置窗口大小","重設視窗大小","Reset window size","ウィンドウサイズをリセット","창 크기 초기화","Fenstergröße zurücksetzen","Сбросить размер окна","Redefinir tamanho da janela","Restablecer tamaño de ventana"), !busy));
     // 与设置页「重置位置」同源：窗口被拖丢/飞出屏幕时一键回正中
-    nodes.push(menu_item("reset-window-position", "重置窗口位置", !busy));
+    nodes.push(menu_item("reset-window-position", crate::t!(crate::i18n::current(),"重置窗口位置","重設視窗位置","Reset window position","ウィンドウ位置をリセット","창 위치 초기화","Fensterposition zurücksetzen","Сбросить позицию окна","Redefinir posição da janela","Restablecer posición de ventana"), !busy));
     // 固定显示位置（与设置页「固定显示位置」下拉同源）：三种模式各一个单选项
     let position_now = normalize_window_position(&settings.main_window_position);
     nodes.push(menu_submenu(
         "setting-window-position",
-        "固定显示位置",
-        [("free", "自由摆放"), ("center", "屏幕中间"), ("last", "上次位置")]
+        crate::t!(crate::i18n::current(),"固定显示位置","固定顯示位置","Fix display position","表示位置を固定","표시 위치 고정","Anzeigeposition fixieren","Фиксировать позицию","Fixar posição de exibição","Fijar posición de pantalla"),
+        [("free", crate::t!(crate::i18n::current(),"自由摆放","自由擺放","Free placement","自由配置","자유 배치","Frei platzieren","Свободно","Posição livre","Colocación libre")), ("center", crate::t!(crate::i18n::current(),"屏幕中间","螢幕中間","Screen center","画面中央","화면 중앙","Bildschirmmitte","По центру экрана","Centro da tela","Centro de pantalla")), ("last", crate::t!(crate::i18n::current(),"上次位置","上次位置","Last position","前回の位置","마지막 위치","Letzte Position","Прошлая позиция","Última posição","Última posición"))]
             .into_iter()
             .map(|(mode, label)| {
                 menu_choice_item(
@@ -1255,7 +1255,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     let fixed_now = normalize_fixed_monitor(&settings.main_fixed_monitor);
     let mut monitors = vec![menu_choice_item(
         "setting-main-fixed-monitor:auto",
-        radio_label(fixed_now == "auto", "自动（不固定）"),
+        radio_label(fixed_now == "auto", crate::t!(crate::i18n::current(),"自动（不固定）","自動（不固定）","Auto (not fixed)","自動（固定しない）","자동(고정 안 함)","Automatisch (nicht fixiert)","Авто (не фиксировать)","Automático (não fixo)","Automático (no fijo)")),
         true,
     )];
     monitors.extend(state.settings.main_monitor_options.iter().map(|name| {
@@ -1267,12 +1267,12 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     }));
     nodes.push(menu_submenu(
         "setting-main-fixed-monitor",
-        "固定显示器",
+        crate::t!(crate::i18n::current(),"固定显示器","固定顯示器","Pin display","ディスプレイを固定","모니터 고정","Bildschirm fixieren","Закрепить монитор","Fixar monitor","Fijar monitor"),
         monitors,
     ));
     nodes.push(menu_submenu(
         "setting-close-action",
-        "点击窗口 ❌ 时",
+        crate::t!(crate::i18n::current(),"点击窗口 ❌ 时","點擊視窗 ❌ 時","When clicking window ❌","ウィンドウの ❌ 時","창 ❌ 클릭 시","Beim Klick auf ❌","При клике на ❌","Ao clicar em ❌","Al pulsar ❌"),
         [(CloseAction::Tray, "最小化到托盘"), (CloseAction::Quit, crate::t!(crate::i18n::current(),"退出程序","結束程式","Quit","終了","종료","Beenden","Выйти","Sair","Salir"))]
             .into_iter()
             .map(|(action, label)| {
@@ -1313,12 +1313,12 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     ));
     nodes.push(menu_choice_item(
         toggle_menu_id("setting-http-enabled", !settings.http_enabled),
-        toggle_label(settings.http_enabled, "HTTP 服务"),
+        toggle_label(settings.http_enabled, crate::t!(crate::i18n::current(),"HTTP 服务","HTTP 服務","HTTP service","HTTP サービス","HTTP 서비스","HTTP-Dienst","Служба HTTP","Serviço HTTP","Servicio HTTP")),
         true,
     ));
     nodes.push(menu_choice_item(
         toggle_menu_id("setting-notify-enabled", !settings.notify_enabled),
-        toggle_label(settings.notify_enabled, "远程请求通知"),
+        toggle_label(settings.notify_enabled, crate::t!(crate::i18n::current(),"远程请求通知","遠端請求通知","Notify on remote requests","リモート要求の通知","원격 요청 알림","Bei Fernanfragen benachrichtigen","Уведомлять о запросах","Notificar pedidos remotos","Notificar solicitudes remotas")),
         true,
     ));
     let delay_now = settings.channels.http.delay_seconds;
@@ -1344,7 +1344,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     ));
     // 检查更新：结果不在这里弹，交给主窗「关于与更新」区块展示（有进度/日志）
     nodes.push(menu_item("check-update", crate::t!(crate::i18n::current(),"检查更新…","檢查更新…","Check for updates…","更新を確認…","업데이트 확인…","Nach Updates suchen…","Проверить обновления…","Verificar atualizações…","Buscar actualizaciones…"), true));
-    nodes.push(menu_item("show-remote", "远程控制设置…", true));
+    nodes.push(menu_item("show-remote", crate::t!(crate::i18n::current(),"远程控制设置…","遠端控制設定…","Remote control settings…","リモート制御設定…","원격 제어 설정…","Fernsteuerungseinstellungen…","Настройки удалённого управления…","Configurações de controle remoto…","Ajustes de control remoto…"), true));
     // 用系统浏览器打开 Web 控制页（带 token，点开即用）。
     // 没在监听时置灰：没有页面可开，免得点了弹一个必然失败的错误。
     nodes.push(menu_item("open-web", crate::t!(crate::i18n::current(),"打开 Web 页面","開啟 Web 頁面","Open web page","Web ページを開く","웹 페이지 열기","Webseite öffnen","Открыть веб-страницу","Abrir página web","Abrir página web"), state.http.listening));
