@@ -86,7 +86,7 @@ class UpdateState(
         error = ""
         Thread({
             try {
-                val found = AppUpdate.check()
+                val found = AppUpdate.check(activity)
                 AppUpdate.rememberCheck(activity, found.version)
                 activity.runOnUiThread {
                     release = found

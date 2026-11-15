@@ -65,13 +65,13 @@ object AppUpdate {
      * 检查最新版本。失败抛 [IOException]（文案已带下一步），成功返回带安装包地址的结果。
      * 调用方自己决定「有新版本」还是「已最新」——这里不做判断，避免口径分散。
      */
-    fun check(): AppRelease {
-        val tag = probeTag()
+    fun check(ctx: Context): AppRelease {
+        val tag = probeTag(ctx)
         val version = UpdateCore.normalize(tag)
-        val api = fetchApi()
+        val api = fetchApi(ctx)
         val notes = api?.optString("body").orEmpty()
         val publishedAt = api?.optString("published_at").orEmpty()
-        val chosen = pickFromApi(api, version) ?: probeApk(tag, version)
+        val chosen = pickFromApi(ctx, api, version) ?: probeApk(ctx, tag, version)
         return AppRelease(
             tag = tag,
             version = version,
@@ -84,7 +84,7 @@ object AppUpdate {
     }
 
     /** 主通道：`HEAD /releases/latest` → 302 `Location` → tag（零速率限制） */
-    private fun probeTag(): String {
+    private fun probeTag(ctx: Context): String {
         val request = Request.Builder()
             .url(UpdateCore.LATEST_PAGE)
             .head()
@@ -96,15 +96,15 @@ object AppUpdate {
                 response.header("Location") ?: response.header("location")
             }
         } catch (error: Exception) {
-            throw IOException("探测最新版本失败：${error.message ?: "网络不可用"}")
+            throw IOException(ctx.getString(R.string.and_probeVerFail, error.message ?: ctx.getString(R.string.and_netUnavailable)))
         }
         val tag = UpdateCore.tagFromLocation(location)
-            ?: throw IOException("探测最新版本失败：响应里没有可用的版本号")
+            ?: throw IOException(ctx.getString(R.string.and_probeVerNoVer))
         return tag
     }
 
     /** 补充通道：匿名 API（只用来取更新日志与 assets，403 时静默放弃） */
-    private fun fetchApi(): JSONObject? {
+    private fun fetchApi(ctx: Context): JSONObject? {
         val request = Request.Builder()
             .url(UpdateCore.API_LATEST)
             .header("User-Agent", "AnyBootRemote")
@@ -122,7 +122,7 @@ object AppUpdate {
     }
 
     /** API 的 assets 里按候选名挑（地址必须可信）；挑不到返回 null，交给命名规则兜底 */
-    private fun pickFromApi(api: JSONObject?, version: String): Triple<String, String, Long>? {
+    private fun pickFromApi(ctx: Context, api: JSONObject?, version: String): Triple<String, String, Long>? {
         if (api == null) return null
         val assets = api.optJSONArray("assets") ?: return null
         for (wanted in UpdateCore.apkCandidates(version)) {
@@ -138,9 +138,9 @@ object AppUpdate {
     }
 
     /** API 不可用时的兜底：按固定资产名拼地址并 HEAD 探测存在性 */
-    private fun probeApk(tag: String, version: String): Triple<String, String, Long> {
+    private fun probeApk(ctx: Context, tag: String, version: String): Triple<String, String, Long> {
         val candidates = UpdateCore.apkCandidates(version)
-        if (candidates.isEmpty()) throw IOException("版本号解析失败（$tag），无法确定安装包名")
+        if (candidates.isEmpty()) throw IOException(ctx.getString(R.string.and_verParseFail, tag))
         for (name in candidates) {
             val url = UpdateCore.assetUrl(tag, name)
             val request = Request.Builder()
@@ -158,7 +158,7 @@ object AppUpdate {
                 // 这一个候选不通就试下一个
             }
         }
-        throw IOException("这个版本还没有本机可用的安装包（$tag），可到 Releases 页手动下载")
+        throw IOException(ctx.getString(R.string.and_noApkForDevice, tag))
     }
 
     // ── 下载 + 校验 ─────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ object AppUpdate {
         onProgress: (Long, Long, String) -> Unit = { _, _, _ -> },
     ): DownloadOutcome {
         if (!UpdateCore.isTrustedUrl(release.apkUrl)) {
-            throw IOException("安装包地址不在可信域名内（只接受 github.com）")
+            throw IOException(context.getString(R.string.and_untrustedDomain))
         }
         val dir = File(context.filesDir, "update")
         dir.mkdirs()
@@ -190,23 +190,22 @@ object AppUpdate {
                 val finalFile = File(dir, release.apkName)
                 try {
                     val url = UpdateCore.applyPrefix(prefix, release.apkUrl)
-                    val fetched = downloadTo(url, temp, release.apkSize, label, onProgress)
+                    val fetched = downloadTo(context, url, temp, release.apkSize, label, onProgress)
                     onProgress(fetched.bytes, fetched.bytes, label)
 
                     // 先把「下到的到底是不是这个包」查清楚，再花时间算 SHA-256：
                     // 代理塞回来的拦截页 / 半截包在这里就该被拦下，而不是报一句笼统的「校验失败」。
                     if (fetched.contentType.contains("text/html", ignoreCase = true)) {
-                        throw IOException("这个源返回的是网页而不是安装包（网络被劫持或代理拦截）")
+                        throw IOException(context.getString(R.string.and_notApkWeb))
                     }
                     if (fetched.declared > 0 && fetched.bytes != fetched.declared) {
                         throw IOException(
-                            "传输中断：只收到 ${humanSize(fetched.bytes)}，应为 ${humanSize(fetched.declared)}"
+                            context.getString(R.string.and_transferInterrupted, humanSize(fetched.bytes), humanSize(fetched.declared))
                         )
                     }
                     if (release.apkSize > 0 && fetched.bytes != release.apkSize) {
                         throw IOException(
-                            "包大小不符：收到 ${humanSize(fetched.bytes)}，" +
-                                "官方是 ${humanSize(release.apkSize)}（传输被中间环节改写）"
+                            context.getString(R.string.and_sizeMismatch, humanSize(fetched.bytes), humanSize(release.apkSize))
                         )
                     }
 
@@ -214,32 +213,29 @@ object AppUpdate {
                     // 必须按资产名解析出那一行的 64 位十六进制再比。
                     // v0.2.1 / v0.2.2 就是漏了这一步：把整份文本当 expected 去跟 64 位实测值比，
                     // 结果每个源都判「不匹配」——包本身是好的，是比对写错了。
-                    val sumsText = fetchSumsText(release.tag, prefix)
-                        ?: throw IOException("取不到 SHA256SUMS.txt")
+                    val sumsText = fetchSumsText(context, release.tag, prefix)
+                        ?: throw IOException(context.getString(R.string.and_noSums))
                     val expected = UpdateCore.parseSums(sumsText, release.apkName)
                         ?: throw IOException(
-                            "SHA256SUMS.txt 里没有 ${release.apkName}（文件可能被代理换成了网页）"
+                            context.getString(R.string.and_sumsNoApk, release.apkName)
                         )
                     val actual = sha256(temp)
                     if (!actual.equals(expected, ignoreCase = true)) {
                         throw IOException(
-                            "SHA-256 不匹配：已收到完整 ${humanSize(fetched.bytes)}，" +
-                                "实测 ${actual.take(12)}… / 官方 ${expected.take(12)}…" +
-                                "（文件在传输中被改写）"
+                            context.getString(R.string.and_shaMismatch, humanSize(fetched.bytes), actual.take(12), expected.take(12))
                         )
                     }
-                    if (!temp.renameTo(finalFile)) throw IOException("落盘失败（重命名临时文件）")
+                    if (!temp.renameTo(finalFile)) throw IOException(context.getString(R.string.and_renameFail))
                     return DownloadOutcome(finalFile, label)
                 } catch (error: Exception) {
                     temp.delete()
-                    lastError = error.message ?: "下载失败"
+                    lastError = error.message ?: context.getString(R.string.and_dlFailShort)
                 }
             }
             failures += "$label：$lastError"
         }
         throw IOException(
-            "下载失败（已尝试 ${failures.size} 个源）：${failures.joinToString("；")}。" +
-                "下一步：点「重试」重新下载；反复失败请换个网络或稍后再试。"
+            context.getString(R.string.and_allSourcesFail, failures.size, failures.joinToString("；"))
         )
     }
 
@@ -247,7 +243,7 @@ object AppUpdate {
      * 取 `SHA256SUMS.txt` 的**原文**（不解析）。
      * 名字里带 Text 是刻意的：这里返回的不是哈希，拿它直接跟 SHA-256 比就是错的。
      */
-    private fun fetchSumsText(tag: String, prefix: String): String? {
+    private fun fetchSumsText(ctx: Context, tag: String, prefix: String): String? {
         val url = UpdateCore.applyPrefix(prefix, UpdateCore.sumsUrl(tag))
         val request = Request.Builder().url(url).header("User-Agent", "AnyBootRemote").build()
         return try {
@@ -267,6 +263,7 @@ object AppUpdate {
     private data class Fetched(val bytes: Long, val declared: Long, val contentType: String)
 
     private fun downloadTo(
+        context: Context,
         url: String,
         target: File,
         knownSize: Long,
@@ -279,7 +276,7 @@ object AppUpdate {
             if (!response.isSuccessful) {
                 throw IOException("HTTP ${response.code}")
             }
-            val body = response.body ?: throw IOException("响应为空")
+            val body = response.body ?: throw IOException(context.getString(R.string.and_emptyResponse))
             val declared = body.contentLength()
             val total = if (declared > 0) declared else knownSize
             val contentType = response.header("Content-Type").orEmpty()
@@ -306,7 +303,7 @@ object AppUpdate {
                 }
             }
             onProgress(written, if (total > 0) total else written, label)
-            if (written == 0L) throw IOException("下载到 0 字节")
+            if (written == 0L) throw IOException(context.getString(R.string.and_zeroBytes))
             return Fetched(written, declared, contentType)
         }
     }
@@ -357,7 +354,7 @@ object AppUpdate {
         try {
             context.startActivity(intent)
         } catch (error: Exception) {
-            context.toast("打不开授权页面：${error.message ?: "系统限制"}")
+            context.toast(context.getString(R.string.and_cannotOpenAuth, error.message ?: context.getString(R.string.gw_unknownErr)))
         }
     }
 
@@ -367,7 +364,7 @@ object AppUpdate {
      */
     fun install(context: Context, file: File) {
         if (!file.isFile || file.length() <= 0) {
-            throw IOException("安装包不存在或为空，请重新下载")
+            throw IOException(context.getString(R.string.and_apkMissing))
         }
         val uri = FileProvider.getUriForFile(
             context,
