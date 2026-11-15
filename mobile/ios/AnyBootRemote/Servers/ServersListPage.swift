@@ -148,9 +148,9 @@ struct ServerCardRow: View {
                 Spacer().frame(height: ABMetric.px(12))
 
                 HStack(spacing: ABMetric.px(8)) {
-                    infoCell("用户", name.isEmpty ? "root" : (server.username.isEmpty ? "root" : server.username))
-                    infoCell("认证", server.authLabel)
-                    infoCell("端口", "\(server.port)")
+                    infoCell(L("server.kUser"), name.isEmpty ? "root" : (server.username.isEmpty ? "root" : server.username))
+                    infoCell(L("and.authShort"), server.authLabel)
+                    infoCell(L("srvEdit.port"), "\(server.port)")
                 }
                 if !server.note.trimmingCharacters(in: .whitespaces).isEmpty {
                     ABSecondaryText("备注：" + server.note).padding(.top, ABMetric.px(8))
@@ -167,16 +167,16 @@ struct ServerCardRow: View {
 
                 HStack(spacing: ABMetric.px(8)) {
                     if server.isSsh {
-                        cardAction("终端", filled: true) {
+                        cardAction(L("nav.terminal"), filled: true) {
                             store.openTerminal(jumpId: server.id)
                         }
-                        cardAction("文件", filled: false) {
+                        cardAction(L("nav.files"), filled: false) {
                             store.page = .files
                             FilesStackBridge.open(server: server)
                         }
                     }
-                    cardAction("测试", filled: false) { test() }
-                    cardAction("编辑", filled: false) {
+                    cardAction(L("and.test"), filled: false) { test() }
+                    cardAction(L("common.edit"), filled: false) {
                         store.editTarget = server
                         store.editOpen = true
                     }

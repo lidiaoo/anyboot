@@ -21,7 +21,7 @@ struct FilesPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if store.server == nil {
-                    ABEmptyHint("没有 SSH 服务器 —— 先到「服务器」页添加。Telnet 不支持文件传输。")
+                    ABEmptyHint(L("and.noSshForFiles"))
                         .padding(.top, ABMetric.px(12))
                 } else {
                     serverPicker

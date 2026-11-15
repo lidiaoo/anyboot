@@ -368,7 +368,7 @@ struct TerminalPage: View {
     @ViewBuilder
     private var dialogs: some View {
         ABDialogHost(isPresented: killTarget != nil, onDismiss: { killTarget = nil }) {
-            ABDialogCard("结束会话") {
+            ABDialogCard(L("and.endSessionTitle")) {
                 if let item = killTarget {
                     ABDialogNote(L("and.endSessionConfirm", item.server.displayName), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "结束",
@@ -436,15 +436,15 @@ struct TerminalSettingsSheet: View {
 
     private var settingsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABSectionTitle("终端配色")
-            radio("暗色（OLED 上省电，长时间看更舒服）", on: jumps.terminalDark) {
+            ABSectionTitle(L("and.termColor"))
+            radio(L("and.termThemeDark"), on: jumps.terminalDark) {
                 jumps.setTerminalDark(true)
             }
-            radio("亮色", on: !jumps.terminalDark) {
+            radio(L("theme.light"), on: !jumps.terminalDark) {
                 jumps.setTerminalDark(false)
             }
 
-            ABSectionTitle("终端字号")
+            ABSectionTitle(L("and.termFontSize"))
             HStack(spacing: 0) {
                 ABChipButton(text: "−") {
                     jumps.setTerminalFontSize(jumps.terminalFontSize - 1)
@@ -478,7 +478,7 @@ struct TerminalSettingsSheet: View {
                 .padding(.horizontal, ABMetric.px(12))
                 .padding(.vertical, ABMetric.px(2))
 
-            ABSectionTitle("终端字体族")
+            ABSectionTitle(L("and.termFontFamily"))
             VStack(alignment: .leading, spacing: ABMetric.px(4)) {
                 ABDialogInput(placeholder: L("and.termFontPh"),
                               text: Binding(
@@ -491,7 +491,7 @@ struct TerminalSettingsSheet: View {
             }
             .padding(.horizontal, ABMetric.px(12))
 
-            ABSectionTitle("终端行为")
+            ABSectionTitle(L("and.termBehavior"))
             check("进入终端自动弹出键盘",
                   hint: L("and.termAutoKeyboardDesc"),
                   on: jumps.terminalAutoKeyboard) {

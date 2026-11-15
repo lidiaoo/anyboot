@@ -75,7 +75,7 @@ struct SystemInfoOverlay: View {
 
     var body: some View {
         ABDialogHost(isPresented: center.isOpen, onDismiss: { center.dismiss() }) {
-            ABDialogCard("系统信息") {
+            ABDialogCard(L("and.menuSysinfo")) {
                 Text(center.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(ABColor.fg)

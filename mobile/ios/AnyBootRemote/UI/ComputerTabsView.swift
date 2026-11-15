@@ -632,7 +632,7 @@ struct ComputerTabsView: View {
     @ViewBuilder
     private var failReloadOverlay: some View {
         ABDialogHost(isPresented: failReloadOpen, onDismiss: { failReloadOpen = false }) {
-            ABDialogCard("连不上时自动重载") {
+            ABDialogCard(L("and.failReloadTitle")) {
                 Text(L("and.introFailReload"))
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fgDim)
@@ -662,7 +662,7 @@ struct ComputerTabsView: View {
                                 .strokeBorder(ABColor.lineStrong, lineWidth: 1))
                     Button(L("settings.apply")) {
                         guard let parsed = Int(customSec), parsed >= 0 else {
-                            ABToastBus.shared.show("间隔要是不小于 0 的整数秒")
+                            ABToastBus.shared.show(L("menu.toastInvalid"))
                             return
                         }
                         setFailReloadSec(parsed)
@@ -687,7 +687,7 @@ struct ComputerTabsView: View {
     /// 与「连不上时自动重载」是两件事 —— 这里管「正常时多久刷一次数据」。
     private var dataRefreshOverlay: some View {
         ABDialogHost(isPresented: dataRefreshOpen, onDismiss: { dataRefreshOpen = false }) {
-            ABDialogCard("数据刷新") {
+            ABDialogCard(L("and.dataRefreshTitle")) {
                 Text("正常时每隔多久刷一次列表数据（在线状态 + 引导项），" +
                      "让手机端看到电脑那边的变更。\n与「连不上时自动重载」不同：" +
                      "那个只管失败后要不要重试。")
@@ -747,7 +747,7 @@ struct ComputerTabsView: View {
 
     private var transportOverlay: some View {
         ABDialogHost(isPresented: transportOpen, onDismiss: { transportOpen = false }) {
-            ABDialogCard("传输方式") {
+            ABDialogCard(L("and.transportLabel")) {
                 ForEach(ServerStore.transports, id: \.self) { value in
                     radioRow(selected: store.transport == value,
                              label: label(for: value)) {
@@ -807,7 +807,7 @@ struct ComputerTabsView: View {
     @ViewBuilder
     private var serverListDialog: some View {
         ABDialogHost(isPresented: serverListOpen, onDismiss: { serverListOpen = false }) {
-            ABDialogCard("切换服务端（长按标签也能编辑）") {
+            ABDialogCard(L("and.switchServerTitle")) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if store.servers.isEmpty {

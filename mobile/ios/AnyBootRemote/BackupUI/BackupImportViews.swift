@@ -317,7 +317,7 @@ struct BackupImportPreview: View {
     /// L13 合并策略
     private var strategyCard: some View {
         VStack(alignment: .leading, spacing: ABMetric.px(8)) {
-            ABFieldLabel("合并策略")
+            ABFieldLabel(L("and.mergeStrategy"))
             ForEach([BackupStrategy.skipExisting, .overwrite]) { s in
                 Button {
                     strategy = s

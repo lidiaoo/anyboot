@@ -255,7 +255,7 @@ struct FileRenameDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.askRename != nil,
                      onDismiss: { store.askRename = nil }) {
-            ABDialogCard("重命名") {
+            ABDialogCard(L("fb.rename")) {
                 if let entry = store.askRename {
                     ABSecondaryText(entry.name)
                     ABDialogInput(placeholder: L("fb.newName"), text: $name)
@@ -286,7 +286,7 @@ struct FileDeleteDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.askDelete != nil,
                      onDismiss: { store.askDelete = nil }) {
-            ABDialogCard("删除") {
+            ABDialogCard(L("common.delete")) {
                 if let entry = store.askDelete {
                     Text(entry.dir
                          ? "删除目录「\(entry.name)」？\n里面的东西会一起删掉，删了就找不回来。"
@@ -315,7 +315,7 @@ struct FileMkdirDialog: View {
 
     var body: some View {
         ABDialogHost(isPresented: store.mkdirOpen, onDismiss: { store.mkdirOpen = false }) {
-            ABDialogCard("新建目录") {
+            ABDialogCard(L("fb.newDir")) {
                 ABSecondaryText(L("and.location", store.path))
                 ABDialogInput(placeholder: L("and.dirName"), text: $name)
                 ABDialogButtons(confirmTitle: "新建",
@@ -342,7 +342,7 @@ struct FileLocateDialog: View {
 
     var body: some View {
         ABDialogHost(isPresented: store.locateOpen, onDismiss: { store.locateOpen = false }) {
-            ABDialogCard("定位路径") {
+            ABDialogCard(L("and.locatePath")) {
                 ABDialogInput(placeholder: "/home/pi 或 ~/logs", text: $path)
                 ABSecondaryText(L("and.pathHint"))
                 ABDialogButtons(confirmTitle: "前往",

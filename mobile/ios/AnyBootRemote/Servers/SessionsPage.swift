@@ -9,10 +9,10 @@ struct SessionsPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ABSectionTitle("进行中")
+                ABSectionTitle(L("and.ongoing"))
                 let live = TerminalSessionsRegistry.all
                 if live.isEmpty {
-                    ABEmptyHint("没有进行中的会话。到「服务器」页点「▶ 打开终端」开始。")
+                    ABEmptyHint(L("and.noActiveSessionHint"))
                 }
                 ForEach(live) { session in
                     HStack(spacing: 0) {
@@ -44,10 +44,10 @@ struct SessionsPage: View {
                     .padding(.vertical, ABMetric.px(12))
                 }
 
-                ABSectionTitle("历史")
+                ABSectionTitle(L("and.history"))
                 let history = jumps.history.filter { $0.endedAt > $0.startedAt }
                 if jumps.history.isEmpty {
-                    ABEmptyHint("还没有会话历史。")
+                    ABEmptyHint(L("and.noHistory"))
                 }
                 ForEach(history) { entry in
                     VStack(alignment: .leading, spacing: ABMetric.px(2)) {
@@ -95,7 +95,7 @@ struct SessionsPage: View {
     private var killDialog: some View {
         ABDialogHost(isPresented: store.killTarget != nil,
                      onDismiss: { store.killTarget = nil }) {
-            ABDialogCard("结束会话") {
+            ABDialogCard(L("and.endSessionTitle")) {
                 if let session = store.killTarget {
                     ABDialogNote(L("and.endSessionConfirm", session.server.displayName), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "结束",

@@ -26,10 +26,10 @@ struct TransfersPage: View {
                     TransferRow(task: task)
                 }
 
-                ABSectionTitle("已完成 / 失败")
+                ABSectionTitle(L("and.doneFailed"))
                 let finished = center.finished
                 if finished.isEmpty {
-                    ABEmptyHint("还没有传输记录。")
+                    ABEmptyHint(L("and.noTransferRecord"))
                 }
                 ForEach(finished) { task in
                     TransferRow(task: task)

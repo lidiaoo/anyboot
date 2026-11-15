@@ -38,7 +38,7 @@ struct KeysPage: View {
     private var deleteDialog: some View {
         ABDialogHost(isPresented: store.deleteKeyTarget != nil,
                      onDismiss: { store.deleteKeyTarget = nil }) {
-            ABDialogCard("删除密钥") {
+            ABDialogCard(L("keysWin.delKey")) {
                 if let entry = store.deleteKeyTarget {
                     ABDialogNote(L("and.delKeyConfirm", entry.name), color: ABColor.fg)
                     ABDialogButtons(confirmTitle: "删除", confirmColor: ABColor.bad,
@@ -169,10 +169,10 @@ struct GenerateKeyDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.generateKeyOpen,
                      onDismiss: { store.generateKeyOpen = false }) {
-            ABDialogCard("生成密钥对") {
+            ABDialogCard(L("and.genKeypair")) {
                 ABDialogInput(placeholder: L("and.keyNamePh"), text: $name)
                 HStack(spacing: ABMetric.px(6)) {
-                    radio("Ed25519（推荐）", on: ed25519) { ed25519 = true }
+                    radio(L("and.ed25519Rec"), on: ed25519) { ed25519 = true }
                     Spacer(minLength: ABMetric.px(8))
                     radio("RSA 4096", on: !ed25519) { ed25519 = false }
                 }

@@ -2025,7 +2025,7 @@ struct ComputerListView: View {
     @ViewBuilder
     private var deleteDialog: some View {
         ABDialogHost(isPresented: deleteTarget != nil, onDismiss: { deleteTarget = nil }) {
-            ABDialogCard("删除这台电脑") {
+            ABDialogCard(L("rowMenu.delete")) {
                 Text("确定删除「\(deleteTarget?.displayName ?? "")」？\n\n"
                      + "只删掉手机上的这条档案，不会动目标电脑上的 AnyBoot。")
                     .font(.system(size: 13))
@@ -2050,7 +2050,7 @@ struct ComputerListView: View {
     private var serverListDialog: some View {
         ABDialogHost(isPresented: serverListOpen,
                      onDismiss: { serverListOpen = false }) {
-            ABDialogCard("服务端列表（点一台进行编辑）") {
+            ABDialogCard(L("and.serverListTitle")) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if store.servers.isEmpty {
@@ -2495,7 +2495,7 @@ struct ComputerListView: View {
     private var failReloadDialog: some View {
         ABDialogHost(isPresented: failReloadOpen,
                      onDismiss: { failReloadOpen = false }) {
-            ABDialogCard("连不上时自动重载") {
+            ABDialogCard(L("and.failReloadTitle")) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(L("and.introFailReload"))
                         .font(.system(size: 13))
@@ -2551,7 +2551,7 @@ struct ComputerListView: View {
     private var transportDialog: some View {
         ABDialogHost(isPresented: transportOpen,
                      onDismiss: { transportOpen = false }) {
-            ABDialogCard("传输方式") {
+            ABDialogCard(L("and.transportLabel")) {
                 VStack(alignment: .leading, spacing: 0) {
                     radioRow(store.transport == ServerStore.transportAuto,
                              "自动（推送优先，连不上退回轮询）", "") {
@@ -2578,7 +2578,7 @@ struct ComputerListView: View {
     private var openPickDialog: some View {
         ABDialogHost(isPresented: !openPickCandidates.isEmpty,
                      onDismiss: { openPickCandidates = [] }) {
-            ABDialogCard("选择打开使用的连接") {
+            ABDialogCard(L("cl.pickConn")) {
                 let hits = boots[openPickProfileId]?.hits ?? []
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {

@@ -96,7 +96,7 @@ struct BackupWebDavView: View {
 
     private var serverCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABFieldLabel("服务器地址")
+            ABFieldLabel(L("bk.serverUrl"))
             ABDialogInput(placeholder: "https://dav.jianguoyun.com/dav/", text: $serverURL)
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
@@ -105,7 +105,7 @@ struct BackupWebDavView: View {
             ABDialogInput(placeholder: L("and.accountEmail"), text: $username)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-            ABFieldLabel("密码")
+            ABFieldLabel(L("and.password"))
             HStack(spacing: ABMetric.px(8)) {
                 Group {
                     if showPassword {
@@ -135,11 +135,11 @@ struct BackupWebDavView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("切换密码明文")
             }
-            ABFieldLabel("远端同步目录")
+            ABFieldLabel(L("and.remoteSyncDir"))
             ABDialogInput(placeholder: "AnyBoot", text: $directory)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-            ABFieldLabel("同步周期")
+            ABFieldLabel(L("and.syncPeriod"))
             Picker("同步周期", selection: $periodMinutes) {
                 Text(L("bk.manual")).tag(0)
                 Text(L("bk.min15")).tag(15)
@@ -185,7 +185,7 @@ struct BackupWebDavView: View {
 
     private var typeCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ABFieldLabel("同步的数据类型")
+            ABFieldLabel(L("and.syncDataTypes"))
             ForEach(BackupCategory.allCases) { cat in
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -248,7 +248,7 @@ struct BackupWebDavView: View {
                 }
             }
             if encrypt {
-                ABFieldLabel("同步口令（≥6 位）")
+                ABFieldLabel(L("and.syncPwdHint"))
                 SecureField(L("bk.syncPw"), text: $encryptPassword)
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fg)
@@ -343,7 +343,7 @@ struct BackupWebDavView: View {
     private func save() {
         applyToConfig()
         SyncEngine.shared.restartPeriodic()
-        ABToastBus.shared.show("已保存")
+        ABToastBus.shared.show(L("and.saved"))
         dismiss()
     }
 

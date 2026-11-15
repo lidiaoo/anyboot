@@ -117,7 +117,7 @@ struct ServerModuleView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         menuItem("会话（进行中 / 历史）") { store.page = .sessions }
                         menuItem("传输管理") { store.page = .transfers }
-                        menuItem("终端设置") { store.terminalSettingsOpen = true }
+                        menuItem(L("nav.termSettings")) { store.terminalSettingsOpen = true }
                     }
                     .frame(width: ABMetric.px(190))
                     .background(
@@ -157,8 +157,8 @@ struct ServerModuleView: View {
                 .overlay(alignment: .topTrailing) {
                     if fabMenuOpen {
                         VStack(alignment: .leading, spacing: 0) {
-                            menuItem("生成密钥对") { store.generateKeyOpen = true }
-                            menuItem("导入私钥文件") { store.keyImportOpen = true }
+                            menuItem(L("and.genKeypair")) { store.generateKeyOpen = true }
+                            menuItem(L("and.importKeyFile")) { store.keyImportOpen = true }
                         }
                         .frame(width: ABMetric.px(170))
                         .background(
@@ -292,22 +292,22 @@ struct ServerModuleView: View {
 
     private var bottomNav: some View {
         HStack(spacing: 0) {
-            navItem("服务器", active: store.page == .servers, icon: { tint in
+            navItem(L("nav.servers"), active: store.page == .servers, icon: { tint in
                 DrawnIcon.serverStack(tint, size: 20)
             }) { store.page = .servers }
 
             // 「终端」是动作项：跳最近一个活会话，不是本模块里的一页
-            navItem("终端", active: false, icon: { tint in
+            navItem(L("nav.terminal"), active: false, icon: { tint in
                 DrawnIcon.term(tint, size: 20)
             }) {
                 if let id = store.openLatestSession() { store.openTerminal(jumpId: id) }
             }
 
-            navItem("密钥", active: store.page == .keys, icon: { tint in
+            navItem(L("nav.keys"), active: store.page == .keys, icon: { tint in
                 DrawnIcon.key(tint, size: 20)
             }) { store.page = .keys }
 
-            navItem("文件", active: store.page == .files, icon: { tint in
+            navItem(L("nav.files"), active: store.page == .files, icon: { tint in
                 DrawnIcon.folder(tint, size: 20)
             }) { store.page = .files }
         }
@@ -359,7 +359,7 @@ struct DeleteJumpDialog: View {
     var body: some View {
         ABDialogHost(isPresented: store.deleteTarget != nil,
                      onDismiss: { store.deleteTarget = nil }) {
-            ABDialogCard("删除服务器") {
+            ABDialogCard(L("server.deleteAria")) {
                 if let server = store.deleteTarget {
                     let via = jumps.computersVia(server.id)
                     let viaServers = jumps.jumps.filter {

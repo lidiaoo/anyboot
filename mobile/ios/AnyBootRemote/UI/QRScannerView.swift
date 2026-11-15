@@ -150,7 +150,7 @@ struct QRScannerView: View {
     private func openSystemSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url) { ok in
-            if !ok { ABToastBus.shared.show("打不开设置，请手动到系统设置里授权") }
+            if !ok { ABToastBus.shared.show(L("and.openSettingsFail")) }
         }
     }
 }
