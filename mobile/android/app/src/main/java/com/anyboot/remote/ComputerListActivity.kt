@@ -3846,6 +3846,7 @@ class ComputerListActivity : ComponentActivity() {
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = false
+        connection.setRequestProperty("Accept-Language", AppLocale.acceptLanguage(this))
         try {
             val status = connection.responseCode
             if (status == 401) {
@@ -3885,6 +3886,7 @@ class ComputerListActivity : ComponentActivity() {
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = false
+        connection.setRequestProperty("Accept-Language", AppLocale.acceptLanguage(this))
         try {
             val status = connection.responseCode
             if (status == 401) {

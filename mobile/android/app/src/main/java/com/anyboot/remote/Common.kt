@@ -394,6 +394,7 @@ fun fetchSysInfoRows(ctx: Context, endpoint: String, token: String, timeoutMs: I
     connection.connectTimeout = timeoutMs
     connection.readTimeout = timeoutMs
     connection.instanceFollowRedirects = false
+    connection.setRequestProperty("Accept-Language", AppLocale.acceptLanguage(ctx))
     try {
         val status = connection.responseCode
         if (status == 401) throw Exception(ctx.getString(R.string.and_tokenRejected401))

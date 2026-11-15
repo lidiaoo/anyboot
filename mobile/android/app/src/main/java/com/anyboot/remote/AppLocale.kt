@@ -32,6 +32,12 @@ object AppLocale {
     fun currentTag(ctx: Context): String =
         ctx.getSharedPreferences(SP, Context.MODE_PRIVATE).getString(KEY, "auto") ?: "auto"
 
+    /** 给 HTTP 请求的 Accept-Language 用：auto 时回落到系统语言 */
+    fun acceptLanguage(ctx: Context): String {
+        val tag = currentTag(ctx)
+        return if (tag == "auto" || tag.isBlank()) Locale.getDefault().toLanguageTag() else tag
+    }
+
     fun setLocale(ctx: Context, tag: String) {
         ctx.getSharedPreferences(SP, Context.MODE_PRIVATE).edit().putString(KEY, tag).apply()
     }
