@@ -2696,7 +2696,7 @@ class ServersActivity : ComponentActivity() {
                         list == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
-                            SecondaryText("读取中 …")
+                            SecondaryText(stringResource(R.string.hub_state_reading))
                         }
                         else -> list.forEach { row ->
                             Row(Modifier.padding(vertical = 3.dp)) {
@@ -2712,11 +2712,11 @@ class ServersActivity : ComponentActivity() {
             confirmButton = {
                 TextButton(onClick = {
                     sftpAskDetail = null
-                    copyClipboard("路径", path)
-                }) { Text("复制路径") }
+                    copyClipboard(getString(R.string.fb_path), path)
+                }) { Text(stringResource(R.string.fb_copyPath)) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpAskDetail = null }) { Text("关闭") }
+                TextButton(onClick = { sftpAskDetail = null }) { Text(stringResource(R.string.common_close)) }
             },
         )
     }
@@ -2728,7 +2728,7 @@ class ServersActivity : ComponentActivity() {
             onDismissRequest = { sftpAskRename = null },
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
-            title = { Text("重命名") },
+            title = { Text(stringResource(R.string.fb_rename)) },
             text = {
                 Column {
                     SecondaryText(entry.name)
@@ -2737,7 +2737,7 @@ class ServersActivity : ComponentActivity() {
                         value = name,
                         onValueChange = { name = it },
                         singleLine = true,
-                        placeholder = { Text("新名称", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.fb_newName), fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -2746,18 +2746,18 @@ class ServersActivity : ComponentActivity() {
                 TextButton(onClick = {
                     val target = name.trim()
                     when {
-                        target.isEmpty() -> toast("名称不能为空")
-                        target.contains('/') -> toast("名称里不能带 /")
+                        target.isEmpty() -> toast(getString(R.string.and_nameEmpty))
+                        target.contains('/') -> toast(getString(R.string.and_nameNoSlash))
                         target == entry.name -> sftpAskRename = null
                         else -> {
                             sftpAskRename = null
                             renameEntry(server, entry, target)
                         }
                     }
-                }) { Text("重命名") }
+                }) { Text(stringResource(R.string.fb_rename)) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpAskRename = null }) { Text("取消") }
+                TextButton(onClick = { sftpAskRename = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2767,13 +2767,13 @@ class ServersActivity : ComponentActivity() {
         val palette = LocalPalette.current
         AlertDialog(
             onDismissRequest = { sftpAskDelete = null },
-            title = { Text("删除") },
+            title = { Text(stringResource(R.string.fb_delTitle)) },
             text = {
                 Text(
                     if (entry.dir) {
-                        "删除目录「" + entry.name + "」？\n里面的东西会一起删掉，删了就找不回来。"
+                        stringResource(R.string.and_delDirConfirm, entry.name)
                     } else {
-                        "删除文件「" + entry.name + "」？删了就找不回来。"
+                        stringResource(R.string.and_delFileConfirm, entry.name)
                     },
                     fontSize = 14.sp,
                     color = palette.fg,
@@ -2783,10 +2783,10 @@ class ServersActivity : ComponentActivity() {
                 TextButton(onClick = {
                     sftpAskDelete = null
                     deleteEntry(server, entry)
-                }) { Text("删除", color = palette.bad) }
+                }) { Text(stringResource(R.string.fb_delete), color = palette.bad) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpAskDelete = null }) { Text("取消") }
+                TextButton(onClick = { sftpAskDelete = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2798,16 +2798,16 @@ class ServersActivity : ComponentActivity() {
             onDismissRequest = { sftpMkdirOpen = false },
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
-            title = { Text("新建目录") },
+            title = { Text(stringResource(R.string.fb_mkdirTitle)) },
             text = {
                 Column {
-                    SecondaryText("位置：" + sftpPath)
+                    SecondaryText(stringResource(R.string.and_location, sftpPath))
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
                         singleLine = true,
-                        placeholder = { Text("目录名", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.and_dirName), fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -2816,17 +2816,17 @@ class ServersActivity : ComponentActivity() {
                 TextButton(onClick = {
                     val target = name.trim()
                     when {
-                        target.isEmpty() -> toast("目录名不能为空")
-                        target.contains('/') -> toast("目录名里不能带 /")
+                        target.isEmpty() -> toast(getString(R.string.and_dirNameEmpty))
+                        target.contains('/') -> toast(getString(R.string.and_dirNameNoSlash))
                         else -> {
                             sftpMkdirOpen = false
                             mkdirHere(server, target)
                         }
                     }
-                }) { Text("新建") }
+                }) { Text(stringResource(R.string.fb_create)) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpMkdirOpen = false }) { Text("取消") }
+                TextButton(onClick = { sftpMkdirOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2838,7 +2838,7 @@ class ServersActivity : ComponentActivity() {
             onDismissRequest = { sftpLocateOpen = false },
             modifier = Modifier.imePadding(),
             properties = DialogProperties(decorFitsSystemWindows = false),
-            title = { Text("定位路径") },
+            title = { Text(stringResource(R.string.and_locatePath)) },
             text = {
                 Column {
                     OutlinedTextField(
@@ -2849,17 +2849,17 @@ class ServersActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(6.dp))
-                    SecondaryText("绝对路径、~ 开头（家目录）、或相对当前目录都行")
+                    SecondaryText(stringResource(R.string.and_pathHint))
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     sftpLocateOpen = false
                     locate(server, path)
-                }) { Text("前往") }
+                }) { Text(stringResource(R.string.and_go)) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpLocateOpen = false }) { Text("取消") }
+                TextButton(onClick = { sftpLocateOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2902,7 +2902,7 @@ class ServersActivity : ComponentActivity() {
 
         AlertDialog(
             onDismissRequest = { sftpPick = null },
-            title = { Text(if (request.cut) "移动到…" else "复制到…") },
+            title = { Text(if (request.cut) stringResource(R.string.fb_moveTo) else stringResource(R.string.fb_copyTo)) },
             text = {
                 Column {
                     SecondaryText(request.label)
@@ -2917,7 +2917,7 @@ class ServersActivity : ComponentActivity() {
                             modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(6.dp))
-                        ChipButton("上级") { path = SftpOps.parent(path) }
+                        ChipButton(stringResource(R.string.and_parentDir)) { path = SftpOps.parent(path) }
                     }
                     when {
                         busy -> Row(
@@ -2935,7 +2935,7 @@ class ServersActivity : ComponentActivity() {
                                 .heightIn(max = 280.dp)
                                 .verticalScroll(rememberScrollState())
                         ) {
-                            if (dirs.isEmpty()) SecondaryText("（没有子目录）")
+                            if (dirs.isEmpty()) SecondaryText(stringResource(R.string.and_noSubdirs))
                             dirs.forEach { dir ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -2964,10 +2964,10 @@ class ServersActivity : ComponentActivity() {
                     val dest = path
                     sftpPick = null
                     transferInto(server, request, dest)
-                }) { Text("选这里") }
+                }) { Text(stringResource(R.string.and_pickHere)) }
             },
             dismissButton = {
-                TextButton(onClick = { sftpPick = null }) { Text("取消") }
+                TextButton(onClick = { sftpPick = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2984,25 +2984,24 @@ class ServersActivity : ComponentActivity() {
             val paused = pending.count { it.state == TransferManager.STATE_PAUSED }
             SectionTitle(
                 when {
-                    pending.isEmpty() -> "进行中"
-                    paused == 0 -> "进行中（${pending.size}）"
-                    else -> "进行中（${pending.size - paused}）· 已暂停（$paused）"
+                    pending.isEmpty() -> getString(R.string.and_ongoing)
+                    paused == 0 -> getString(R.string.and_ongoingN, pending.size)
+                    else -> getString(R.string.and_ongoingPausedN, pending.size - paused, paused)
                 }
             )
             if (pending.isEmpty()) {
                 EmptyHint(
-                    "没有正在传输的文件。到「文件」页点「上传」，或点一个远端文件下载 —— "
-                            + "任务都会出现在这里，可以看进度、暂停 / 继续、取消。"
+                    stringResource(R.string.and_noTransfersHint)
                 )
             }
             for (task in pending) {
                 TransferRow(task, transferTick)
             }
 
-            SectionTitle("已完成 / 失败")
+            SectionTitle(stringResource(R.string.and_doneFailed))
             val finished = TransferManager.finished()
             if (finished.isEmpty()) {
-                EmptyHint("还没有传输记录。")
+                EmptyHint(stringResource(R.string.and_noTransferRecord))
             }
             for (task in finished) {
                 TransferRow(task, transferTick)
@@ -3011,7 +3010,7 @@ class ServersActivity : ComponentActivity() {
                 TextButton(
                     onClick = { TransferManager.clearFinished() },
                     modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) { Text("清空记录") }
+                ) { Text(stringResource(R.string.and_clearRecords)) }
             }
             Spacer(Modifier.height(12.dp))
         }
@@ -3032,7 +3031,7 @@ class ServersActivity : ComponentActivity() {
         val uploading = task.direction == TransferManager.DIR_UPLOAD
         val paused = task.state == TransferManager.STATE_PAUSED
         // 续传的标一下，一眼看得出这条是从断点接着传的（不是重头来）
-        val resumedTag = if (task.resumed) " · 续传" else ""
+        val resumedTag = if (task.resumed) stringResource(R.string.and_resumedTag) else ""
         Column(
             Modifier
                 .fillMaxWidth()
@@ -3047,23 +3046,23 @@ class ServersActivity : ComponentActivity() {
                 Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                     PrimaryText(task.name)
                     SecondaryText(
-                        "${if (uploading) "上传到 " else "下载自 "}${task.serverName} · ${task.remoteDir}$resumedTag"
+                        (if (uploading) stringResource(R.string.and_uploadTo, task.serverName) else stringResource(R.string.and_downloadFrom, task.serverName)) + " · ${task.remoteDir}$resumedTag"
                     )
                 }
                 when (task.state) {
                     TransferManager.STATE_RUNNING -> {
-                        ChipButton("暂停") { TransferManager.pause(task.id) }
+                        ChipButton(stringResource(R.string.tx_pause)) { TransferManager.pause(task.id) }
                         Spacer(Modifier.width(6.dp))
-                        ChipButton("取消") { TransferManager.cancel(this@ServersActivity, task.id) }
+                        ChipButton(stringResource(R.string.common_cancel)) { TransferManager.cancel(this@ServersActivity, task.id) }
                     }
                     TransferManager.STATE_PAUSED -> {
-                        ChipButton("继续") { resumeTransfer(task) }
+                        ChipButton(stringResource(R.string.tx_resume)) { resumeTransfer(task) }
                         Spacer(Modifier.width(6.dp))
-                        ChipButton("取消") { TransferManager.cancel(this@ServersActivity, task.id) }
+                        ChipButton(stringResource(R.string.common_cancel)) { TransferManager.cancel(this@ServersActivity, task.id) }
                     }
                     // 已被新任务接替：没有可点的动作，只留一行说明
                     TransferManager.STATE_SUPERSEDED -> Unit
-                    else -> ChipButton("重试") { retryTransfer(task) }
+                    else -> ChipButton(stringResource(R.string.common_retry)) { retryTransfer(task) }
                 }
             }
             if (task.isPending()) {
@@ -3102,7 +3101,7 @@ class ServersActivity : ComponentActivity() {
             bus.confirm(title, message)
         }
         if (reason == null) {
-            toast("接着传：${task.name}（进度见上面「进行中」）")
+            toast(getString(R.string.and_resumeTransfer, task.name))
         } else {
             toast(reason, long = true)
         }
@@ -3113,7 +3112,7 @@ class ServersActivity : ComponentActivity() {
             bus.confirm(title, message)
         }
         if (reason == null) {
-            toast("已重新加入传输：${task.name}（进度见上面「进行中」）")
+            toast(getString(R.string.and_reAddedTransfer, task.name))
         } else {
             toast(reason, long = true)
         }
