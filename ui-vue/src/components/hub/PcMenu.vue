@@ -3,6 +3,7 @@ const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 
 /**
@@ -37,8 +38,8 @@ function setGuestTheme(v: string) {
   // 旧版 toast 提示（复刻原文案）
   toast.show(
     guestTheme.value === ""
-      ? "引导页主题：跟随电脑 —— 看哪台就用哪台自己保存的主题"
-      : "引导页主题：" + (guestTheme.value === "K" ? "不套用主题" : "方案 " + guestTheme.value) + "（重载页面后生效，不改电脑自己保存的主题）",
+      ? t("menu.themeToastFollow")
+      : (guestTheme.value === "K" ? t("menu.themeToastNone") : t("menu.themeToastScheme", { x: guestTheme.value })),
   );
 }
 
@@ -53,7 +54,7 @@ function pickOffretry(n: number) {
   // 旧版 cqFailCount.clear()：改完立即按新阈值判定，不受旧计数影响
   void import("@/stores/remote").then(({ useRemoteStore }) => useRemoteStore().clearFailCounts());
   open.value = false;
-  toast.show(`连续失败 ${n} 次才判离线`);
+  toast.show(t("menu.tipFailThreshold", { n }));
 }
 
 function pickReprobe(always: boolean) {
@@ -62,8 +63,8 @@ function pickReprobe(always: boolean) {
   // 旧版 toast（复刻原文案）
   toast.show(
     always
-      ? "每次刷新都会重新探测地址（换 IP 能最快跟上）"
-      : "复用上次成功的地址（省电、地址稳定）",
+      ? t("menu.tipReprobe")
+      : t("menu.tipReuse"),
   );
 }
 
@@ -74,8 +75,8 @@ function setOpenMode(v: string) {
   // 旧版 toast（复刻原文案）
   toast.show(
     openMode.value === "goto"
-      ? "列表里「打开页面」会跳到「电脑」页并选中那台"
-      : "列表里「打开页面」用内嵌弹窗查看",
+      ? t("menu.tipGoto")
+      : t("menu.tipInline"),
   );
 }
 
@@ -115,7 +116,7 @@ function toggleConnectAll() {
 
 
 function customReload() {
-  const input = window.prompt("连不上时每隔多少秒自动重载？（填 0 = 永不）", String(settings.failReloadSec));
+  const input = window.prompt(t("menu.promptFailReload"), String(settings.failReloadSec));
   if (input === null) return;
   const parsed = Number.parseInt(input, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return;
@@ -127,20 +128,20 @@ function pickRefresh(sec: number) {
   settings.setDataRefreshSec(sec);
   open.value = false;
   // 旧版 toast（复刻原文案）
-  toast.show(sec > 0 ? `数据每 ${sec} 秒刷新一次` : "已关闭数据刷新");
+  toast.show(sec > 0 ? t("menu.toastRefreshOn", { sec }) : t("menu.toastRefreshOff"));
 }
 
 function pickCustom() {
-  const input = window.prompt("数据刷新间隔（秒，0 = 关闭）", String(settings.dataRefreshSec));
+  const input = window.prompt(t("menu.promptRefresh"), String(settings.dataRefreshSec));
   if (input === null) return;
   const parsed = Number.parseInt(input, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    toast.show("间隔要是不小于 0 的整数秒", "bad");
+    toast.show(t("menu.toastInvalid"), "bad");
     return;
   }
   settings.setDataRefreshSec(parsed);
   open.value = false;
-  toast.show(parsed > 0 ? `数据每 ${parsed} 秒刷新一次` : "已关闭数据刷新");
+  toast.show(parsed > 0 ? t("menu.toastRefreshOn", { sec: parsed }) : t("menu.toastRefreshOff"));
 }
 
 function toggle() {
@@ -164,7 +165,7 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
     <button
       type="button"
       class="icon-btn"
-      aria-label="更多"
+      :aria-label="$t('menu.more')"
       aria-haspopup="menu"
       :aria-expanded="open"
       @click.stop="toggle"
@@ -173,37 +174,37 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
     </button>
 
     <div v-if="open" id="pcMenu" class="menu" role="menu" @click.stop>
-      <button role="menuitem" type="button" data-act="add" @click="menuAct('add')">添加电脑</button>
-      <button role="menuitem" type="button" data-act="edit" @click="menuAct('edit')">编辑当前服务端</button>
-      <button role="menuitem" type="button" data-act="list" @click="menuAct('list')">服务端列表</button>
-      <button role="menuitem" type="button" data-act="reloadCurrent" @click="menuAct('reloadCurrent')">重载当前电脑</button>
-      <button role="menuitem" type="button" data-act="reloadAll" @click="menuAct('reloadAll')">全部重载</button>
+      <button role="menuitem" type="button" data-act="add" @click="menuAct('add')">{{ $t("menu.add") }}</button>
+      <button role="menuitem" type="button" data-act="edit" @click="menuAct('edit')">{{ $t("menu.edit") }}</button>
+      <button role="menuitem" type="button" data-act="list" @click="menuAct('list')">{{ $t("menu.list") }}</button>
+      <button role="menuitem" type="button" data-act="reloadCurrent" @click="menuAct('reloadCurrent')">{{ $t("menu.reloadCurrent") }}</button>
+      <button role="menuitem" type="button" data-act="reloadAll" @click="menuAct('reloadAll')">{{ $t("menu.reloadAll") }}</button>
       <button role="menuitem" type="button" id="pcConnectAllItem" :class="{ 'is-on': connectAll }" @click="toggleConnectAll">
-        <span id="pcConnectAllText">启动时连接全部服务端</span>
+        <span id="pcConnectAllText">{{ $t("menu.connectAll") }}</span>
       </button>
-      <button role="menuitem" type="button" data-act="transport" disabled title="PC 端经系统浏览器内核直连服务端页面，无需选择传输方式（手机端才需要）">传输方式（直连）</button>
+      <button role="menuitem" type="button" data-act="transport" disabled title="PC 端经系统浏览器内核直连服务端页面，无需选择传输方式（手机端才需要）">{{ $t("menu.transport") }}</button>
       <div class="divider" />
 
-      <div class="caption">引导页主题（看别人时 · 本机偏好）</div>
-      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">{{ guestTheme === '' ? '✓ ' : '' }}跟随电脑（不带回退）</button>
-      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">{{ guestTheme === 'K' ? '✓ ' : '' }}不套用主题</button>
-      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">{{ guestTheme === 'A' ? '✓ ' : '' }}方案 A（卡片流）</button>
-      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">{{ guestTheme === 'B' ? '✓ ' : '' }}方案 B（左栏通道）</button>
-      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">{{ guestTheme === 'C' ? '✓ ' : '' }}方案 C（顶部固定）</button>
-      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">{{ guestTheme === 'G' ? '✓ ' : '' }}方案 G（命令面板）</button>
-      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">{{ guestTheme === 'I' ? '✓ ' : '' }}方案 I（Bento）</button>
-      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">{{ guestTheme === 'J' ? '✓ ' : '' }}方案 J（三栏）</button>
+      <div class="caption">{{ $t("menu.capGuest") }}</div>
+      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">{{ guestTheme === '' ? '✓ ' : '' }}{{ $t("menu.themeFollow") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">{{ guestTheme === 'K' ? '✓ ' : '' }}{{ $t("menu.themeNone") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">{{ guestTheme === 'A' ? '✓ ' : '' }}{{ $t("menu.schemeA") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">{{ guestTheme === 'B' ? '✓ ' : '' }}{{ $t("menu.schemeB") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">{{ guestTheme === 'C' ? '✓ ' : '' }}{{ $t("menu.schemeC") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">{{ guestTheme === 'G' ? '✓ ' : '' }}{{ $t("menu.schemeG") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">{{ guestTheme === 'I' ? '✓ ' : '' }}{{ $t("menu.schemeI") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">{{ guestTheme === 'J' ? '✓ ' : '' }}{{ $t("menu.schemeJ") }}</button>
       <div class="divider" />
 
-      <div class="caption">数据刷新（PC 端列表）</div>
-      <button role="menuitem" type="button" data-refresh="2" :class="{ 'is-on': settings.dataRefreshSec === 2 }" @click="pickRefresh(2)">每 2 秒（默认）</button>
-      <button role="menuitem" type="button" data-refresh="5" :class="{ 'is-on': settings.dataRefreshSec === 5 }" @click="pickRefresh(5)">每 5 秒</button>
-      <button role="menuitem" type="button" data-refresh="10" :class="{ 'is-on': settings.dataRefreshSec === 10 }" @click="pickRefresh(10)">每 10 秒</button>
-      <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">每 30 秒</button>
-      <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">关闭数据刷新</button>
-      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">自定义间隔…</button>
-      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="pickReprobe(false)">{{ settings.reprobeAlways ? '' : '✓ ' }}复用上次地址（省电、地址稳）</button>
-      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="pickReprobe(true)">{{ settings.reprobeAlways ? '✓ ' : '' }}每次重新探测地址（换 IP 抓得最快）</button>
+      <div class="caption">{{ $t("menu.capRefresh") }}</div>
+      <button role="menuitem" type="button" data-refresh="2" :class="{ 'is-on': settings.dataRefreshSec === 2 }" @click="pickRefresh(2)">{{ $t("menu.everyNDefault", { n: 2 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="5" :class="{ 'is-on': settings.dataRefreshSec === 5 }" @click="pickRefresh(5)">{{ $t("menu.everyN", { n: 5 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="10" :class="{ 'is-on': settings.dataRefreshSec === 10 }" @click="pickRefresh(10)">{{ $t("menu.everyN", { n: 10 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">{{ $t("menu.everyN", { n: 30 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">{{ $t("menu.offRefresh") }}</button>
+      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">{{ $t("menu.custom") }}</button>
+      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="pickReprobe(false)">{{ settings.reprobeAlways ? '' : '✓ ' }}{{ $t("menu.reuseAddr") }}</button>
+      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="pickReprobe(true)">{{ settings.reprobeAlways ? '✓ ' : '' }}{{ $t("menu.alwaysProbe") }}</button>
 
       <div class="divider" />
       <button
@@ -212,7 +213,7 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
         :class="{ 'is-on': !settings.reprobeAlways }"
         @click="settings.setReprobeAlways(false)"
       >
-        复用上次成功的地址（省电、地址稳）
+        {{ $t("menu.reuseAddrLong") }}
       </button>
       <button
         role="menuitem"
@@ -220,43 +221,43 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
         :class="{ 'is-on': settings.reprobeAlways }"
         @click="settings.setReprobeAlways(true)"
       >
-        每次刷新都重新探测（换 IP 抓得最快）
+        {{ $t("menu.alwaysProbeLong") }}
       </button>
 
       <div class="divider" />
-      <div class="caption">连续失败多少次才判离线（弱网容忍）</div>
-      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="pickOffretry(1)">1 次（最灵敏）</button>
-      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="pickOffretry(2)">2 次</button>
-      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="pickOffretry(3)">3 次（默认）</button>
-      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="pickOffretry(5)">5 次</button>
+      <div class="caption">{{ $t("menu.capOffRetry") }}</div>
+      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="pickOffretry(1)">{{ $t("menu.times1Most") }}</button>
+      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="pickOffretry(2)">{{ $t("menu.timesN", { n: 2 }) }}</button>
+      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="pickOffretry(3)">{{ $t("menu.timesNDefault", { n: 3 }) }}</button>
+      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="pickOffretry(5)">{{ $t("menu.timesN", { n: 5 }) }}</button>
 
       <div class="divider" />
-      <div class="caption">连不上时自动重载（全局）</div>
-      <button role="menuitem" type="button" data-reload="5" :class="{ 'is-on': settings.failReloadSec === 5 }" @click="settings.setFailReloadSec(5)">每 5 秒（默认）</button>
-      <button role="menuitem" type="button" data-reload="10" :class="{ 'is-on': settings.failReloadSec === 10 }" @click="settings.setFailReloadSec(10)">每 10 秒</button>
-      <button role="menuitem" type="button" data-reload="30" :class="{ 'is-on': settings.failReloadSec === 30 }" @click="settings.setFailReloadSec(30)">每 30 秒</button>
-      <button role="menuitem" type="button" data-reload="60" :class="{ 'is-on': settings.failReloadSec === 60 }" @click="settings.setFailReloadSec(60)">每 60 秒</button>
-      <button role="menuitem" type="button" data-reload="0" :class="{ 'is-on': settings.failReloadSec === 0 }" @click="settings.setFailReloadSec(0)">永不（关闭自动重载）</button>
-      <button role="menuitem" type="button" data-reload="custom" @click="customReload">自定义间隔…</button>
+      <div class="caption">{{ $t("menu.capFailReload") }}</div>
+      <button role="menuitem" type="button" data-reload="5" :class="{ 'is-on': settings.failReloadSec === 5 }" @click="settings.setFailReloadSec(5)">{{ $t("menu.everyNDefault", { n: 5 }) }}</button>
+      <button role="menuitem" type="button" data-reload="10" :class="{ 'is-on': settings.failReloadSec === 10 }" @click="settings.setFailReloadSec(10)">{{ $t("menu.everyN", { n: 10 }) }}</button>
+      <button role="menuitem" type="button" data-reload="30" :class="{ 'is-on': settings.failReloadSec === 30 }" @click="settings.setFailReloadSec(30)">{{ $t("menu.everyN", { n: 30 }) }}</button>
+      <button role="menuitem" type="button" data-reload="60" :class="{ 'is-on': settings.failReloadSec === 60 }" @click="settings.setFailReloadSec(60)">{{ $t("menu.everyN", { n: 60 }) }}</button>
+      <button role="menuitem" type="button" data-reload="0" :class="{ 'is-on': settings.failReloadSec === 0 }" @click="settings.setFailReloadSec(0)">{{ $t("menu.never") }}</button>
+      <button role="menuitem" type="button" data-reload="custom" @click="customReload">{{ $t("menu.custom") }}</button>
 
       <div class="divider" />
-      <div class="caption">列表里「打开页面」的方式</div>
-      <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">内嵌弹窗查看</button>
-      <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">跳到「电脑」页</button>
+      <div class="caption">{{ $t("menu.capOpenMode") }}</div>
+      <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">{{ $t("menu.openInline") }}</button>
+      <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">{{ $t("menu.openGoto") }}</button>
 
       <div class="divider" />
-      <div class="caption">GRUB 条目文字（全局显示格式）</div>
-      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">极简（内核短名）</button>
-      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">简易（内核短名 · 带位置）</button>
-      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">中等（完整内核名）</button>
-      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">原始（菜单标题）</button>
-      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">复杂（标题 + 内核）</button>
+      <div class="caption">{{ $t("menu.capGrubFmt") }}</div>
+      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">{{ $t("menu.grubMinimal") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">{{ $t("menu.grubSimple") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">{{ $t("menu.grubMedium") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">{{ $t("menu.grubRaw") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">{{ $t("menu.grubDetailed") }}</button>
 
       <div class="divider" />
-      <div class="caption">排序方式</div>
-      <button role="menuitem" type="button" data-order="custom" :class="{ 'is-on': order === 'custom' }" @click="setOrderMode('custom')">自定义（我用 ↑ ↓ 排的）</button>
-      <button role="menuitem" type="button" data-order="name" :class="{ 'is-on': order === 'name' }" @click="setOrderMode('name')">名称 A → Z</button>
-      <button role="menuitem" type="button" data-order="recent" :class="{ 'is-on': order === 'recent' }" @click="setOrderMode('recent')">最近连接</button>
+      <div class="caption">{{ $t("menu.capOrder") }}</div>
+      <button role="menuitem" type="button" data-order="custom" :class="{ 'is-on': order === 'custom' }" @click="setOrderMode('custom')">{{ $t("menu.orderCustom") }}</button>
+      <button role="menuitem" type="button" data-order="name" :class="{ 'is-on': order === 'name' }" @click="setOrderMode('name')">{{ $t("menu.orderName") }}</button>
+      <button role="menuitem" type="button" data-order="recent" :class="{ 'is-on': order === 'recent' }" @click="setOrderMode('recent')">{{ $t("menu.orderRecent") }}</button>
     </div>
   </div>
 </template>
