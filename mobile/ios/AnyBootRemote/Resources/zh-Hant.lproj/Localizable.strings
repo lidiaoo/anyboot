@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "從檔案匯入備份";
 "and.nComputersJumpMissing" = "{n} 台電腦關聯的跳板機未包含在本次匯出";
 "and.userShort" = "使用者";
+"and.defaultParen" = "（預設）";
+"and.jumpDeletedParen" = "（跳板機已刪除）";
+"and.noBrowserApp2" = "沒有可用的瀏覽器";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

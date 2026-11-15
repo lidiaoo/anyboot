@@ -1990,6 +1990,9 @@ Telnet：実験的端末のみ。</string>
     <string name="and_importFromFileBackup">ファイルからバックアップを取り込み</string>
     <string name="and_nComputersJumpMissing">%1$d 台の PC の踏み台が今回の書き出しに含まれない</string>
     <string name="and_userShort">ユーザー</string>
+    <string name="and_defaultParen">（既定）</string>
+    <string name="and_jumpDeletedParen">（踏み台削除済み）</string>
+    <string name="and_noBrowserApp2">利用可能なブラウザなし</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

@@ -1990,6 +1990,9 @@ Telnet：只有实验性终端。</string>
     <string name="and_importFromFileBackup">从文件导入备份</string>
     <string name="and_nComputersJumpMissing">%1$d 台电脑关联的跳板机未包含在本次导出</string>
     <string name="and_userShort">用户</string>
+    <string name="and_defaultParen">（默认）</string>
+    <string name="and_jumpDeletedParen">（跳板机已删除）</string>
+    <string name="and_noBrowserApp2">没有可用的浏览器</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

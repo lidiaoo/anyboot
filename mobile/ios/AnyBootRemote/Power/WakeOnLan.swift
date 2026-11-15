@@ -180,17 +180,16 @@ enum WakeOnLan {
         }
 
         if sent == 0 {
-            throw PowerError.message(whereFrom + "一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，"
-                + "或者广播地址填错了（手机要能访问到那个网段）")
+            throw PowerError.message(L("and.noPacketSent"))
         }
 
-        var message = "已从\(whereFrom)按路由发送\(ServerProfile.powerActionLabel(wanted))："
+        var message = L("and.sentFromRoute", whereFrom, ServerProfile.powerActionLabel(wanted))
             + described.joined(separator: " · ")
         if !waking {
-            message += "。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应"
+            message += L("and.solListenNote")
         }
         if !problems.isEmpty {
-            message += "（跳过 \(problems.count) 条：\(problems.joined(separator: "；"))）"
+            message += L("and.skippedN", problems.count, problems.joined(separator: "；"))
         }
         return message
     }

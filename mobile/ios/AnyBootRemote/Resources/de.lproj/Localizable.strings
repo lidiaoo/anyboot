@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "Sicherung aus Datei importieren";
 "and.nComputersJumpMissing" = "{n} Computer-Sprungserver fehlen in diesem Export";
 "and.userShort" = "Benutzer";
+"and.defaultParen" = "(Standard)";
+"and.jumpDeletedParen" = "(Sprungserver gelöscht)";
+"and.noBrowserApp2" = "Kein Browser verfügbar";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

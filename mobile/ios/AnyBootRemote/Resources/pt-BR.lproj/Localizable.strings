@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "Importar backup do arquivo";
 "and.nComputersJumpMissing" = "Jump hosts de {n} computadores fora deste export";
 "and.userShort" = "Usuário";
+"and.defaultParen" = "(padrão)";
+"and.jumpDeletedParen" = "(jump host excluído)";
+"and.noBrowserApp2" = "Nenhum navegador disponível";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

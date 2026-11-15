@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "ファイルからバックアップを取り込み";
 "and.nComputersJumpMissing" = "{n} 台の PC の踏み台が今回の書き出しに含まれない";
 "and.userShort" = "ユーザー";
+"and.defaultParen" = "（既定）";
+"and.jumpDeletedParen" = "（踏み台削除済み）";
+"and.noBrowserApp2" = "利用可能なブラウザなし";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

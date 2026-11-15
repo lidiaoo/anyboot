@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "Импорт копии из файла";
 "and.nComputersJumpMissing" = "Серверы-посредники для {n} компьютеров не в этой копии";
 "and.userShort" = "Пользователь";
+"and.defaultParen" = "(по умолчанию)";
+"and.jumpDeletedParen" = "(узел удалён)";
+"and.noBrowserApp2" = "Нет браузера";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

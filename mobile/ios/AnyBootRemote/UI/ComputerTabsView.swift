@@ -601,7 +601,7 @@ struct ComputerTabsView: View {
     private func setFailReloadSec(_ sec: Int) {
         FailReloadPref.sec = sec
         // Android saveFailReloadSec（1055-1061）
-        ABToastBus.shared.show(sec > 0 ? L("and.toastFailReloadOn", sec) : "已关闭自动重载")
+        ABToastBus.shared.show(sec > 0 ? L("and.toastFailReloadOn", sec) : L("and.failReloadOff"))
     }
 
     private var transportLabel: String {
@@ -624,7 +624,7 @@ struct ComputerTabsView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach([5, 10, 30, 60, 0], id: \.self) { sec in
                     radioRow(selected: failReloadSec == sec,
-                             label: sec == 0 ? "永不（关闭自动重载）" : L("menu.everyN", sec)) {
+                             label: sec == 0 ? L("menu.never") : L("menu.everyN", sec)) {
                         setFailReloadSec(sec)
                     }
                 }
@@ -686,10 +686,10 @@ struct ComputerTabsView: View {
                 ForEach([2, 5, 10, 30, 0], id: \.self) { sec in
                     radioRow(selected: dataRefreshSec == sec,
                              label: sec == 0 ? L("and.closeDataRefresh")
-                                : L("menu.everyN", sec) + (sec == 2 ? "（默认）" : "")) {
+                                : L("menu.everyN", sec) + (sec == 2 ? L("and.defaultParen") : "")) {
                         DataRefreshPref.sec = sec
                         ABToastBus.shared.show(sec > 0
-                            ? L("menu.toastRefreshOn", sec) : "已关闭数据刷新")
+                            ? L("menu.toastRefreshOn", sec) : L("and.dataRefreshOff"))
                     }
                 }
 

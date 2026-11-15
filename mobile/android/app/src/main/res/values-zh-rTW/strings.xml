@@ -1990,6 +1990,9 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_importFromFileBackup">從檔案匯入備份</string>
     <string name="and_nComputersJumpMissing">%1$d 台電腦關聯的跳板機未包含在本次匯出</string>
     <string name="and_userShort">使用者</string>
+    <string name="and_defaultParen">（預設）</string>
+    <string name="and_jumpDeletedParen">（跳板機已刪除）</string>
+    <string name="and_noBrowserApp2">沒有可用的瀏覽器</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

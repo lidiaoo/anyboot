@@ -1953,6 +1953,9 @@
 "and.importFromFileBackup" = "Import backup from file";
 "and.nComputersJumpMissing" = "{n} computers' jump hosts aren't in this export";
 "and.userShort" = "User";
+"and.defaultParen" = "(default)";
+"and.jumpDeletedParen" = "(jump host deleted)";
+"and.noBrowserApp2" = "No browser available";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

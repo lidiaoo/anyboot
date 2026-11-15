@@ -44,7 +44,7 @@ extension ServerProfile {
                 // 一址一跳板机（用户 2026-11-01）：绑了几个地址就有几行，
                 // origin 用那个直连地址（探测结果按它回填这一行）
                 for binding in jumpBindings {
-                    let name = jumpName(binding.jumpId) ?? "（跳板机已删除）"
+                    let name = jumpName(binding.jumpId) ?? L("and.jumpDeletedParen")
                     rows.append(ComputerChannel(
                         id: "jump|\(binding.address)|\(binding.jumpId)", kind: kind,
                         title: ServerProfile.routeLabel(kind),

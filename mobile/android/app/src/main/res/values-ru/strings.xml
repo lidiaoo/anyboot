@@ -1990,6 +1990,9 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_importFromFileBackup">Импорт копии из файла</string>
     <string name="and_nComputersJumpMissing">Серверы-посредники для %1$d компьютеров не в этой копии</string>
     <string name="and_userShort">Пользователь</string>
+    <string name="and_defaultParen">(по умолчанию)</string>
+    <string name="and_jumpDeletedParen">(узел удалён)</string>
+    <string name="and_noBrowserApp2">Нет браузера</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

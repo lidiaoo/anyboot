@@ -1990,6 +1990,9 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_importFromFileBackup">Import backup from file</string>
     <string name="and_nComputersJumpMissing">%1$d computers\' jump hosts aren\'t in this export</string>
     <string name="and_userShort">User</string>
+    <string name="and_defaultParen">(default)</string>
+    <string name="and_jumpDeletedParen">(jump host deleted)</string>
+    <string name="and_noBrowserApp2">No browser available</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>
