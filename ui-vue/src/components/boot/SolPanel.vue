@@ -481,37 +481,37 @@ async function pickDir() {
       </span>
       <div class="sol-token-line">
         <span class="sol-token-value mono" id="sol-http-token-current" :title="$t('sol.tokenCurrentTitle')">{{ status?.token || "—" }}</span>
-        <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">复制</button>
+        <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">{{ $t("common.copy") }}</button>
       </div>
       <div class="sol-token-line">
-        <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" placeholder="新 token（≥8 位），留空不改动" style="flex: 1 1 220px" />
-        <button type="button" id="sol-http-token-generate" class="secondary" @click="generateToken">生成</button>
-        <button type="button" id="sol-http-token-save" class="secondary" @click="saveToken">应用</button>
+        <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" :placeholder="$t('sol.newTokenPh')" style="flex: 1 1 220px" />
+        <button type="button" id="sol-http-token-generate" class="secondary" @click="generateToken">{{ $t("sol.generate") }}</button>
+        <button type="button" id="sol-http-token-save" class="secondary" @click="saveToken">{{ $t("settings.apply") }}</button>
       </div>
     </div>
 
     <!-- 动作区 -->
     <div class="actions">
-      <button type="button" id="sol-one-click" class="primary-sol" @click="oneClick">一键安装（静默）</button>
-      <button type="button" id="sol-one-click-terminal" class="secondary" @click="manualInstall">手动安装（调终端）</button>
+      <button type="button" id="sol-one-click" class="primary-sol" @click="oneClick">{{ $t("sol.oneClick") }}</button>
+      <button type="button" id="sol-one-click-terminal" class="secondary" @click="manualInstall">{{ $t("sol.manualInstall") }}</button>
     </div>
 
     <small class="sol-hint" id="sol-install-hint">
-      安装 = 下载 → <b>清空安装目录</b> → 解压到安装目录 → 官方 install.sh（静默 = 无人值守自动确认；手动 = 呼出终端由你回答脚本问句）。<b>解压前会清空安装目录，但保留 sol.yaml 配置文件</b>（端口、token 等设置不丢）；包内容直接铺在安装目录下，不保留 sol-v* 子目录。配置 sol.yaml 就在安装目录里；卸载保留它以便回滚。<br />
-      已经解压好（比如用「选择安装包…」自己挑的包）时，「手动安装（调终端）」直接在终端里跑官方脚本，不再重新下载。<br />
-      落点：三端全部在用户目录 —— Linux/macOS <code>~/sol</code>（二进制 <code>bin/sol</code>）；Windows <code>%USERPROFILE%\sol</code>（二进制 <code>sol.exe</code> 同目录）。
+      ${{ $t("sol.installDoc1") }}<br />
+      ${{ $t("sol.installDoc2") }}<br />
+      ${{ $t("sol.installDoc3") }}
     </small>
 
     <!-- 安装包 -->
     <div class="setting-block sol-pkg-block">
       <span class="setting-text">
-        <strong>安装包</strong>
+        <strong>{{ $t("sol.pkg") }}</strong>
         <small class="setting-state" id="sol-pkg-state">{{
           downloading
-            ? `下载中 ${progress}%`
+            ? t("sol.downloadingPct", { n: progress })
             : localPkg?.archive
-              ? `已下载 · ${fmtSize(localPkg.size)}${localPkg.verified ? " · md5 一致" : " · md5 未校验"}${localPkg.extracted ? " · 已解压" : ""}`
-              : "未下载"
+              ? t("sol.downloaded", { size: fmtSize(localPkg.size), md5: localPkg.verified ? t("sol.md5Ok") : t("sol.md5Unchecked"), extracted: localPkg.extracted ? t("sol.extractedTag") : "" })
+              : t("sol.notDownloaded")
         }}</small>
       </span>
 
@@ -522,18 +522,18 @@ async function pickDir() {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>安装目录</strong>
+          <strong>{{ $t("sol.installDir") }}</strong>
           <small class="setting-state" id="sol-dir-state">{{ installDir || "—" }}</small>
         </span>
         <span class="remote-inline">
-          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" :placeholder="installDirPlaceholder || '~/sol（默认）'" style="width: 280px" />
-          <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">选择…</button>
-          <button type="button" id="sol-open-dir-input" class="secondary" title="打开当前填写的目录" @click="openDir">打开</button>
+          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" :placeholder="installDirPlaceholder || $t('sol.installDirPh')" style="width: 280px" />
+          <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">{{ $t("sol.pick") }}</button>
+          <button type="button" id="sol-open-dir-input" class="secondary" :title="$t('sol.openDirTitle')" @click="openDir">{{ $t("sol.open") }}</button>
         </span>
       </div>
 
       <span class="remote-inline">
-        <select id="sol-mirror" v-model="mirror" title="GitHub 下载加速（默认直连）" @change="saveMirror">
+        <select id="sol-mirror" v-model="mirror" :title="$t('sol.mirrorTitle')" @change="saveMirror">
           <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ $t(preset.label) }}</option>
         </select>
         <input
@@ -542,38 +542,38 @@ async function pickDir() {
           v-model="mirrorCustom"
           spellcheck="false"
           type="text"
-          placeholder="自定义前缀，如 https://ghfast.top/（拼在 GitHub URL 前）"
+          :placeholder="$t('sol.mirrorPh')"
           style="width: 280px"
           @change="saveMirror"
         />
-        <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">下载</button>
-        <button v-if="downloading" type="button" id="sol-download-cancel" class="secondary" @click="cancelDownload">取消下载</button>
-        <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" title="跳过「已有包复用」，删旧包重新下" @click="redownload">重新下载</button>
+        <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">{{ $t("about.download") }}</button>
+        <button v-if="downloading" type="button" id="sol-download-cancel" class="secondary" @click="cancelDownload">{{ $t("sol.cancelDownload") }}</button>
+        <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" :title="$t('sol.redownloadTitle')" @click="redownload">{{ $t("sol.redownload") }}</button>
         <button
           type="button"
           id="sol-delete-package"
           class="secondary"
           :disabled="downloading || !localPkg?.archive"
-          :title="deleteArmed ? '再点一次确认删除（含 md5 旁车，不动已解压内容）' : '删除已下载的安装包'"
+          :title="deleteArmed ? $t('sol.deleteTitleArmed') : $t('sol.deleteTitle')"
           @click="deletePackage"
-        >{{ deleteArmed ? "确认删除？" : "删除安装包" }}</button>
-        <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">选择安装包…</button>
-        <button type="button" id="sol-extract" class="secondary" disabled title="解压前会先清空安装目录（保留 sol.yaml 配置文件），再把包内容直接铺到安装目录，不再保留 sol-v* 子目录" @click="extract">
-          解压到安装目录
+        >{{ deleteArmed ? $t("sol.deleteArmedConfirm") : $t("sol.deletePkg") }}</button>
+        <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">{{ $t("sol.pickArchive") }}</button>
+        <button type="button" id="sol-extract" class="secondary" disabled :title="$t('sol.extractTitle')" @click="extract">
+          {{ $t("sol.extract") }}
         </button>
       </span>
 
-      <small class="sol-hint" id="sol-pkg-url" title="「下载」按钮实际请求的地址（含当前加速前缀）；可复制到浏览器/curl 排查">
-        下载地址：<code style="word-break: break-all">{{ downloadUrl || "解析中…" }}</code>
+      <small class="sol-hint" id="sol-pkg-url" :title="$t('sol.dlAddrTitle')">
+        {{ $t("sol.dlAddrLabel") }}<code style="word-break: break-all">{{ downloadUrl || $t("sol.resolving") }}</code>
       </small>
       <small class="sol-hint" id="sol-pkg-hint">
-        从 GitHub release 下载当前平台的 sol-<span id="sol-pkg-target">…</span> 包；也可以点「选择安装包…」从文件管理器挑一个已有包（.tar.gz / .zip），解压完回到上面点「手动安装（调终端）」即可安装。
+        {{ $t("sol.pkgHint", { t: "…" }) }}
       </small>
       <small class="sol-hint" id="sol-project-line">
-        项目：
-        <a href="#" id="sol-project-repo" title="打开 GitHub 仓库" @click.prevent="openProject('repo')">lidiaoo/sol</a>
+        {{ $t("sol.project") }}
+        <a href="#" id="sol-project-repo" :title="$t('sol.repoTitle')" @click.prevent="openProject('repo')">lidiaoo/sol</a>
         ·
-        <a href="#" id="sol-project-releases" title="打开 Releases 页面" @click.prevent="openProject('releases')">Releases</a>
+        <a href="#" id="sol-project-releases" :title="$t('sol.releasesTitle')" @click.prevent="openProject('releases')">Releases</a>
         ·
         <span id="sol-project-version">{{ projectVersion || status?.version || "…" }}</span>
       </small>
@@ -582,7 +582,7 @@ async function pickDir() {
     <!-- 配置文件编辑（旧版 .setting-block 里的 sol-config-*） -->
     <div class="setting-block">
       <span class="setting-text">
-        <strong>配置文件</strong>
+        <strong>{{ $t("sol.configFile") }}</strong>
         <small class="setting-state" id="sol-config-path">{{ configStatus }}</small>
       </span>
       <textarea
@@ -591,26 +591,26 @@ async function pickDir() {
         class="sol-config-editor"
         spellcheck="false"
         rows="16"
-        placeholder="正在读取配置…"
+        :placeholder="$t('sol.configReadingPh')"
       />
       <span class="remote-inline">
-        <button type="button" id="sol-config-refresh" class="secondary" @click="refreshConfig">刷新配置</button>
-        <button type="button" id="sol-config-save" class="primary-sol" @click="saveConfig">保存配置</button>
-        <button type="button" id="sol-config-reload" class="secondary" @click="refreshConfig">放弃修改</button>
+        <button type="button" id="sol-config-refresh" class="secondary" @click="refreshConfig">{{ $t("sol.refreshConfig") }}</button>
+        <button type="button" id="sol-config-save" class="primary-sol" @click="saveConfig">{{ $t("sol.saveConfig") }}</button>
+        <button type="button" id="sol-config-reload" class="secondary" @click="refreshConfig">{{ $t("sol.discardChanges") }}</button>
       </span>
       <small class="sol-hint">
-        保存后 sol 自动热重载（改坏了也不会顶掉正在跑的那份）；原文件自动备份为 *.bak-anyboot。配置在安装时会自动放宽为 0644（本机所有登录用户可读），所以读取不再需要密码；配置里有控制面 token，请勿在不信任的多用户机器上使用。
+        {{ $t("sol.configDoc") }}
       </small>
     </div>
 
     <!-- 执行日志（旧版 .sol-log-block） -->
     <div class="sol-log-block">
       <span class="setting-text">
-        <strong>执行日志</strong>
-        <small class="setting-state" id="sol-log-count">{{ logs.length }} 行</small>
+        <strong>{{ $t("sol.execLog") }}</strong>
+        <small class="setting-state" id="sol-log-count">{{ $t("sol.logCount", { n: logs.length }) }}</small>
       </span>
-      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || "（还没有日志）" }}</pre>
-      <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">清空</button>
+      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || $t("sol.noLog") }}</pre>
+      <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">{{ $t("sol.clear") }}</button>
     </div>
 
     <p v-if="errorText" class="sol-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>
