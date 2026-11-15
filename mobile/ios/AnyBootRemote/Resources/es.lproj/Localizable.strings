@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "Introduce la contraseña SSH";
 "and.checkUpdateFailNet" = "Error al buscar actualizaciones: {x}. Luego: comprueba la red y reinténtalo, o abre la página Releases.";
 "and.checkUpdateFailVer" = "Error al buscar: sin versión válida en la respuesta. Luego: reintenta más tarde o abre Releases.";
+"and.userPrefix" = "· usuario {x}";
+"and.pwdRememberPh" = "Introduce una vez y guarda (sin pedir luego)";
+"and.pwdOncePh" = "Válido solo para esta conexión; no se guarda";
+"and.savePwdEncrypted" = "Guardar contraseña (cifrada local · sin pedir luego)";
+"and.savePwd" = "Guardar contraseña";
+"and.connectBtn" = "Conectar";
+"and.pwdSaveFailKeychain" = "Error al guardar la contraseña cifrada (llavero); ahora conecta, pero la pedirá de nuevo";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

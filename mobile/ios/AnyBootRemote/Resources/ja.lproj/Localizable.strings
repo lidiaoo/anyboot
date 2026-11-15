@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "SSH パスワードを入力";
 "and.checkUpdateFailNet" = "更新確認失敗：{x}。次：ネットワークを確認して再試行、または Releases ページを開く。";
 "and.checkUpdateFailVer" = "更新確認失敗：応答に有効なバージョンなし。次：後で再試行、または Releases ページ。";
+"and.userPrefix" = "· ユーザー {x}";
+"and.pwdRememberPh" = "一度入力で保存（次回は入力不要）";
+"and.pwdOncePh" = "今回の接続のみ有効。保存しません";
+"and.savePwdEncrypted" = "パスワードを保存（ローカル暗号化・次回入力不要）";
+"and.savePwd" = "パスワードを保存";
+"and.connectBtn" = "接続";
+"and.pwdSaveFailKeychain" = "パスワードの暗号化保存に失敗（キーチェーン異常）。今回は接続可、次回は再入力が必要";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

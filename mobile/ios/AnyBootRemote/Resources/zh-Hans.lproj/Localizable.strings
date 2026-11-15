@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "输入 SSH 密码";
 "and.checkUpdateFailNet" = "检查更新失败：{x}。下一步：检查网络后重试，或直接打开 Releases 页。";
 "and.checkUpdateFailVer" = "检查更新失败：响应里没有可用的版本号。下一步：稍后重试，或直接打开 Releases 页。";
+"and.userPrefix" = "· 用户 {x}";
+"and.pwdRememberPh" = "输一次就存下来（下次免输）";
+"and.pwdOncePh" = "仅本次连接有效，不保存";
+"and.savePwdEncrypted" = "保存密码（加密存本机 · 下次免输）";
+"and.savePwd" = "保存密码";
+"and.connectBtn" = "连接";
+"and.pwdSaveFailKeychain" = "密码加密保存失败（钥匙串异常），本次仍可连接，下次需重输";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

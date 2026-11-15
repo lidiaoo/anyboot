@@ -1947,6 +1947,13 @@ Is this the server you want to connect to? (Remembered after confirming)</string
     <string name="and_inputSshPwd">Enter SSH password</string>
     <string name="and_checkUpdateFailNet">Update check failed: %1$s. Next: check the network and retry, or open the Releases page.</string>
     <string name="and_checkUpdateFailVer">Update check failed: no usable version in the response. Next: retry later, or open the Releases page.</string>
+    <string name="and_userPrefix">· user %1$s</string>
+    <string name="and_pwdRememberPh">Enter once and save (no prompt next time)</string>
+    <string name="and_pwdOncePh">Valid for this connection only; not saved</string>
+    <string name="and_savePwdEncrypted">Save password (encrypted locally · no prompt next time)</string>
+    <string name="and_savePwd">Save password</string>
+    <string name="and_connectBtn">Connect</string>
+    <string name="and_pwdSaveFailKeychain">Failed to save the password encrypted (keychain error); you can still connect now but must re-enter next time</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

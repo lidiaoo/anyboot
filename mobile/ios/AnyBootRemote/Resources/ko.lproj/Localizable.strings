@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "SSH 비밀번호 입력";
 "and.checkUpdateFailNet" = "업데이트 확인 실패: {x}. 다음: 네트워크 확인 후 재시도 또는 Releases 페이지.";
 "and.checkUpdateFailVer" = "업데이트 확인 실패: 응답에 유효 버전 없음. 다음: 나중에 재시도 또는 Releases 페이지.";
+"and.userPrefix" = "· 사용자 {x}";
+"and.pwdRememberPh" = "한 번 입력 후 저장(다음엔 입력 불필요)";
+"and.pwdOncePh" = "이번 연결에서만 유효. 저장 안 함";
+"and.savePwdEncrypted" = "비밀번호 저장(로컬 암호화 · 다음 입력 불필요)";
+"and.savePwd" = "비밀번호 저장";
+"and.connectBtn" = "연결";
+"and.pwdSaveFailKeychain" = "비밀번호 암호화 저장 실패(키체인 오류). 이번엔 연결 가능, 다음엔 다시 입력";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

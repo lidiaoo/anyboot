@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "Enter SSH password";
 "and.checkUpdateFailNet" = "Update check failed: {x}. Next: check the network and retry, or open the Releases page.";
 "and.checkUpdateFailVer" = "Update check failed: no usable version in the response. Next: retry later, or open the Releases page.";
+"and.userPrefix" = "· user {x}";
+"and.pwdRememberPh" = "Enter once and save (no prompt next time)";
+"and.pwdOncePh" = "Valid for this connection only; not saved";
+"and.savePwdEncrypted" = "Save password (encrypted locally · no prompt next time)";
+"and.savePwd" = "Save password";
+"and.connectBtn" = "Connect";
+"and.pwdSaveFailKeychain" = "Failed to save the password encrypted (keychain error); you can still connect now but must re-enter next time";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

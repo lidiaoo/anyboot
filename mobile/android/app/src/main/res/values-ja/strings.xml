@@ -1947,6 +1947,13 @@ Telnet：実験的端末のみ。</string>
     <string name="and_inputSshPwd">SSH パスワードを入力</string>
     <string name="and_checkUpdateFailNet">更新確認失敗：%1$s。次：ネットワークを確認して再試行、または Releases ページを開く。</string>
     <string name="and_checkUpdateFailVer">更新確認失敗：応答に有効なバージョンなし。次：後で再試行、または Releases ページ。</string>
+    <string name="and_userPrefix">· ユーザー %1$s</string>
+    <string name="and_pwdRememberPh">一度入力で保存（次回は入力不要）</string>
+    <string name="and_pwdOncePh">今回の接続のみ有効。保存しません</string>
+    <string name="and_savePwdEncrypted">パスワードを保存（ローカル暗号化・次回入力不要）</string>
+    <string name="and_savePwd">パスワードを保存</string>
+    <string name="and_connectBtn">接続</string>
+    <string name="and_pwdSaveFailKeychain">パスワードの暗号化保存に失敗（キーチェーン異常）。今回は接続可、次回は再入力が必要</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

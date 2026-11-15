@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "Digite a senha SSH";
 "and.checkUpdateFailNet" = "Verificação de atualização falhou: {x}. A seguir: verifique a rede e tente de novo, ou abra a página Releases.";
 "and.checkUpdateFailVer" = "Verificação falhou: sem versão válida na resposta. A seguir: tente mais tarde ou abra Releases.";
+"and.userPrefix" = "· usuário {x}";
+"and.pwdRememberPh" = "Digite uma vez e salve (sem pedir depois)";
+"and.pwdOncePh" = "Válido só para esta conexão; não salvo";
+"and.savePwdEncrypted" = "Salvar senha (criptografada local · sem pedir depois)";
+"and.savePwd" = "Salvar senha";
+"and.connectBtn" = "Conectar";
+"and.pwdSaveFailKeychain" = "Falha ao salvar a senha criptografada (erro do keychain); conecta agora, mas pede de novo depois";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

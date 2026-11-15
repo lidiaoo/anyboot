@@ -1947,6 +1947,13 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_inputSshPwd">輸入 SSH 密碼</string>
     <string name="and_checkUpdateFailNet">檢查更新失敗：%1$s。下一步：檢查網路後重試，或直接開啟 Releases 頁。</string>
     <string name="and_checkUpdateFailVer">檢查更新失敗：回應裡沒有可用的版本號。下一步：稍後重試，或直接開啟 Releases 頁。</string>
+    <string name="and_userPrefix">· 使用者 %1$s</string>
+    <string name="and_pwdRememberPh">輸入一次就存下來（下次免輸）</string>
+    <string name="and_pwdOncePh">僅本次連線有效，不儲存</string>
+    <string name="and_savePwdEncrypted">儲存密碼（加密存本機 · 下次免輸）</string>
+    <string name="and_savePwd">儲存密碼</string>
+    <string name="and_connectBtn">連線</string>
+    <string name="and_pwdSaveFailKeychain">密碼加密儲存失敗（鑰匙串異常），本次仍可連線，下次需重輸</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

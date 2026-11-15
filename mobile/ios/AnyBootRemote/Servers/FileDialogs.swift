@@ -289,7 +289,7 @@ struct FileDeleteDialog: View {
             ABDialogCard(L("common.delete")) {
                 if let entry = store.askDelete {
                     Text(entry.dir
-                         ? "删除目录「\(entry.name)」？\n里面的东西会一起删掉，删了就找不回来。"
+                         ? L("and.delDirConfirm", entry.name)
                          : L("and.delFileConfirm", entry.name))
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fg)
@@ -318,7 +318,7 @@ struct FileMkdirDialog: View {
             ABDialogCard(L("fb.newDir")) {
                 ABSecondaryText(L("and.location", store.path))
                 ABDialogInput(placeholder: L("and.dirName"), text: $name)
-                ABDialogButtons(confirmTitle: "新建",
+                ABDialogButtons(confirmTitle: L("fb.create"),
                                 onConfirm: {
                                     let target = name.trimmingCharacters(in: .whitespaces)
                                     if target.isEmpty { store.toast(L("and.dirNameEmpty")); return }
@@ -345,7 +345,7 @@ struct FileLocateDialog: View {
             ABDialogCard(L("and.locatePath")) {
                 ABDialogInput(placeholder: "/home/pi 或 ~/logs", text: $path)
                 ABSecondaryText(L("and.pathHint"))
-                ABDialogButtons(confirmTitle: "前往",
+                ABDialogButtons(confirmTitle: L("and.go"),
                                 onConfirm: {
                                     store.locateOpen = false
                                     store.locate(path)
@@ -387,7 +387,7 @@ struct DestPickerDialog: View {
                         HStack(spacing: ABMetric.px(8)) {
                             ProgressView().scaleEffect(0.7)
                                 .frame(width: ABMetric.px(16), height: ABMetric.px(16))
-                            ABSecondaryText("读取中 …")
+                            ABSecondaryText(L("hub.state.reading"))
                         }
                         .padding(.vertical, ABMetric.px(10))
                     } else if !error.isEmpty {

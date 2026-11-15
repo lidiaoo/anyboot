@@ -22,8 +22,8 @@ struct ManualPasswordBody: View {
     }
 
     var body: some View {
-        ABDialogNote(request.server.addressLabel + " · 用户 " + userLabel)
-        ABDialogInput(placeholder: remember ? "输一次就存下来（下次免输）" : "仅本次连接有效，不保存",
+        ABDialogNote(request.server.addressLabel + " " + L("and.userPrefix", userLabel))
+        ABDialogInput(placeholder: remember ? L("and.pwdRememberPh") : L("and.pwdOncePh"),
                       text: $password, secure: true)
         Button {
             remember.toggle()
@@ -35,7 +35,7 @@ struct ManualPasswordBody: View {
                         RoundedRectangle(cornerRadius: ABMetric.px(3), style: .continuous)
                             .fill(remember ? ABColor.accent : .clear))
                     .frame(width: ABMetric.px(16), height: ABMetric.px(16))
-                Text("保存密码（加密存本机 · 下次免输）")
+                Text(L("and.savePwdEncrypted"))
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fg)
                 Spacer(minLength: 0)
@@ -43,16 +43,15 @@ struct ManualPasswordBody: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("保存密码")
+        .accessibilityLabel(L("and.savePwd"))
         .accessibilityValue(remember ? "已勾选" : "未勾选")
-        ABDialogButtons(confirmTitle: "连接",
+        ABDialogButtons(confirmTitle: L("and.connectBtn"),
                         onConfirm: {
                             SshSessionManager.shared.setManualPassword(request.server.id, password)
                             if remember && !password.isEmpty
                                 && !JumpStore.shared.rememberPassword(request.server.id, password) {
                                 // 与 Android 一致：写盘失败要说出来，但这次连接照常继续
-                                ServerModuleStore.shared.toast("密码加密保存失败（钥匙串异常），"
-                                                               + "本次仍可连接，下次需重输", long: true)
+                                ServerModuleStore.shared.toast(L("and.pwdSaveFailKeychain"), long: true)
                             }
                             onDone()
                             request.onReady()

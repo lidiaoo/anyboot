@@ -1947,6 +1947,13 @@ Huella del host (SHA256): %2$s</string>
     <string name="and_inputSshPwd">Introduce la contraseña SSH</string>
     <string name="and_checkUpdateFailNet">Error al buscar actualizaciones: %1$s. Luego: comprueba la red y reinténtalo, o abre la página Releases.</string>
     <string name="and_checkUpdateFailVer">Error al buscar: sin versión válida en la respuesta. Luego: reintenta más tarde o abre Releases.</string>
+    <string name="and_userPrefix">· usuario %1$s</string>
+    <string name="and_pwdRememberPh">Introduce una vez y guarda (sin pedir luego)</string>
+    <string name="and_pwdOncePh">Válido solo para esta conexión; no se guarda</string>
+    <string name="and_savePwdEncrypted">Guardar contraseña (cifrada local · sin pedir luego)</string>
+    <string name="and_savePwd">Guardar contraseña</string>
+    <string name="and_connectBtn">Conectar</string>
+    <string name="and_pwdSaveFailKeychain">Error al guardar la contraseña cifrada (llavero); ahora conecta, pero la pedirá de nuevo</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

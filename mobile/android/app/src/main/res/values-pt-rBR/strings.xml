@@ -1947,6 +1947,13 @@ Impressão do host (SHA256): %2$s</string>
     <string name="and_inputSshPwd">Digite a senha SSH</string>
     <string name="and_checkUpdateFailNet">Verificação de atualização falhou: %1$s. A seguir: verifique a rede e tente de novo, ou abra a página Releases.</string>
     <string name="and_checkUpdateFailVer">Verificação falhou: sem versão válida na resposta. A seguir: tente mais tarde ou abra Releases.</string>
+    <string name="and_userPrefix">· usuário %1$s</string>
+    <string name="and_pwdRememberPh">Digite uma vez e salve (sem pedir depois)</string>
+    <string name="and_pwdOncePh">Válido só para esta conexão; não salvo</string>
+    <string name="and_savePwdEncrypted">Salvar senha (criptografada local · sem pedir depois)</string>
+    <string name="and_savePwd">Salvar senha</string>
+    <string name="and_connectBtn">Conectar</string>
+    <string name="and_pwdSaveFailKeychain">Falha ao salvar a senha criptografada (erro do keychain); conecta agora, mas pede de novo depois</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

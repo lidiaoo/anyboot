@@ -1910,6 +1910,13 @@
 "and.inputSshPwd" = "SSH-Passwort eingeben";
 "and.checkUpdateFailNet" = "Update-Prüfung fehlgeschlagen: {x}. Als Nächstes: Netzwerk prüfen und erneut, oder Releases-Seite öffnen.";
 "and.checkUpdateFailVer" = "Update-Prüfung fehlgeschlagen: keine gültige Version. Als Nächstes: später erneut oder Releases-Seite öffnen.";
+"and.userPrefix" = "· Benutzer {x}";
+"and.pwdRememberPh" = "Einmal eingeben und speichern (nächstes Mal ohne)";
+"and.pwdOncePh" = "Nur für diese Verbindung; nicht gespeichert";
+"and.savePwdEncrypted" = "Passwort speichern (lokal verschlüsselt · nächstes Mal ohne)";
+"and.savePwd" = "Passwort speichern";
+"and.connectBtn" = "Verbinden";
+"and.pwdSaveFailKeychain" = "Passwort verschlüsselt speichern fehlgeschlagen (Keychain-Fehler); jetzt verbinden möglich, nächstes Mal erneut";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

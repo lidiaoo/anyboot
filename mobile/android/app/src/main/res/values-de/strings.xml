@@ -1947,6 +1947,13 @@ Ist das der Server, zu dem du verbinden willst? (Nach Bestätigung gemerkt)</str
     <string name="and_inputSshPwd">SSH-Passwort eingeben</string>
     <string name="and_checkUpdateFailNet">Update-Prüfung fehlgeschlagen: %1$s. Als Nächstes: Netzwerk prüfen und erneut, oder Releases-Seite öffnen.</string>
     <string name="and_checkUpdateFailVer">Update-Prüfung fehlgeschlagen: keine gültige Version. Als Nächstes: später erneut oder Releases-Seite öffnen.</string>
+    <string name="and_userPrefix">· Benutzer %1$s</string>
+    <string name="and_pwdRememberPh">Einmal eingeben und speichern (nächstes Mal ohne)</string>
+    <string name="and_pwdOncePh">Nur für diese Verbindung; nicht gespeichert</string>
+    <string name="and_savePwdEncrypted">Passwort speichern (lokal verschlüsselt · nächstes Mal ohne)</string>
+    <string name="and_savePwd">Passwort speichern</string>
+    <string name="and_connectBtn">Verbinden</string>
+    <string name="and_pwdSaveFailKeychain">Passwort verschlüsselt speichern fehlgeschlagen (Keychain-Fehler); jetzt verbinden möglich, nächstes Mal erneut</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

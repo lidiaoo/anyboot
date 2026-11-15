@@ -1947,6 +1947,13 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_inputSshPwd">Введите пароль SSH</string>
     <string name="and_checkUpdateFailNet">Проверка обновлений не удалась: %1$s. Далее: проверьте сеть и повторите или откройте страницу Releases.</string>
     <string name="and_checkUpdateFailVer">Проверка обновлений не удалась: в ответе нет версии. Далее: повторите позже или откройте Releases.</string>
+    <string name="and_userPrefix">· пользователь %1$s</string>
+    <string name="and_pwdRememberPh">Введите один раз и сохраните (далее без ввода)</string>
+    <string name="and_pwdOncePh">Только для этого подключения; не сохраняется</string>
+    <string name="and_savePwdEncrypted">Сохранить пароль (шифруется локально · далее без ввода)</string>
+    <string name="and_savePwd">Сохранить пароль</string>
+    <string name="and_connectBtn">Подключиться</string>
+    <string name="and_pwdSaveFailKeychain">Не удалось сохранить пароль (ошибка связки ключей); сейчас подключиться можно, в следующий раз вводите заново</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

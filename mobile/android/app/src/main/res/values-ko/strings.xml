@@ -1947,6 +1947,13 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_inputSshPwd">SSH 비밀번호 입력</string>
     <string name="and_checkUpdateFailNet">업데이트 확인 실패: %1$s. 다음: 네트워크 확인 후 재시도 또는 Releases 페이지.</string>
     <string name="and_checkUpdateFailVer">업데이트 확인 실패: 응답에 유효 버전 없음. 다음: 나중에 재시도 또는 Releases 페이지.</string>
+    <string name="and_userPrefix">· 사용자 %1$s</string>
+    <string name="and_pwdRememberPh">한 번 입력 후 저장(다음엔 입력 불필요)</string>
+    <string name="and_pwdOncePh">이번 연결에서만 유효. 저장 안 함</string>
+    <string name="and_savePwdEncrypted">비밀번호 저장(로컬 암호화 · 다음 입력 불필요)</string>
+    <string name="and_savePwd">비밀번호 저장</string>
+    <string name="and_connectBtn">연결</string>
+    <string name="and_pwdSaveFailKeychain">비밀번호 암호화 저장 실패(키체인 오류). 이번엔 연결 가능, 다음엔 다시 입력</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>
