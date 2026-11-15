@@ -6350,15 +6350,9 @@ mod core_tests {
         };
         let nodes = channel_loader_nodes(&channel, false);
         let labels: Vec<&str> = nodes.iter().map(|node| node.label.as_str()).collect();
-        // 统一化：行尾追加「类型 · 来源」标签（与电脑列表弹窗同一份）
         assert_eq!(
             labels,
-            vec![
-                "🪟 WINDOWS-EFI · Windows · bless 扫描",
-                "ARCH-EFI · Windows · bless 扫描",
-                "Reset NVRAM · Windows · bless 扫描",
-                "🍎 MacOS-efi · Windows · bless 扫描",
-            ],
+            vec!["🪟 WINDOWS-EFI", "ARCH-EFI", "Reset NVRAM", "🍎 MacOS-efi"],
             "可切换的置顶/随后，没有 spec 的行也要镜像（置灰），与主窗卡片同一份内容"
         );
         assert_eq!(nodes[0].checked, Some(true), "预演里的 default 项置顶打勾");
@@ -6439,10 +6433,9 @@ mod core_tests {
         // 「OpenCore 右键菜单依旧不对」）。但它是禁用项：点了没有值域可发。
         let nodes = channel_loader_nodes(&channel, false);
         assert_eq!(nodes.len(), 2, "可切换行 + 无 spec 的默认行");
-        // 统一化：行尾追加「类型 · 来源」标签（与电脑列表弹窗同一份）
-        assert_eq!(nodes[0].label, "🪟 WINDOWS-EFI · Windows · APFS Preboot");
+        assert_eq!(nodes[0].label, "🪟 WINDOWS-EFI");
         assert_eq!(nodes[0].checked, Some(false), "默认项是 MAC，它不打勾");
-        assert_eq!(nodes[1].label, "🍎 MAC · macOS · APFS Preboot");
+        assert_eq!(nodes[1].label, "🍎 MAC");
         // 可用但点了没动作（id 不在解析白名单）—— 勾才不会被 Windows 画成灰色
         assert!(nodes[1].enabled, "没有值域的默认行也保持可用，对勾样式与其它块一致");
         assert_eq!(nodes[1].checked, Some(true), "默认行打勾");
@@ -6815,23 +6808,20 @@ mod core_tests {
         assert_eq!(labels[0], "🐧 Linux › cachyos", "labels={labels:?}");
         // 顶层 Windows 原位照常出行（原始顺序）
         assert_eq!(labels[1], "🪟 Windows 11", "labels={labels:?}");
-        // 组头带图标与条目数（极简格式不带 ESP 位置）—— 现在是级联子菜单
+        // 组头带图标与条目数（极简格式不带 ESP 位置）
         assert_eq!(labels[2], "▸ 🐧 Linux（2 项）", "labels={labels:?}");
         // 同名折叠：组内只出一行，标 2 个变体（条目名 CachyOS 不含系统关键字 → 无图标）
-        // 子项收进组的**级联子菜单**（用户 2026-11-15：组做级联，不是一级平铺折叠）
-        assert_eq!(nodes[2].kind, "sub", "组是级联子菜单");
-        assert_eq!(nodes[2].children[0].label, "↳ cachyos · 2 个变体");
+        assert_eq!(labels[3], "↳ cachyos · 2 个变体", "labels={labels:?}");
 
-        // 渲染器契约（classic 原生菜单也照它翻译）：
-        // * 子菜单 kind=sub、组内子项 kind=item 且带动作 id；
+        // 这两条是「各端渲染器」共同依赖的契约（classic 原生菜单也照它翻译）：
+        // * 组头 kind=header（原生菜单据此渲染成禁用标题而不是可点条目），
+        //   其余 kind=item 且带动作 id；
         // * 「当前项」是数据字段 checked（原生菜单拿它决定挂不挂绿勾），
         //   不在 label 文字里 —— 把 ◉/○ 画进文字是文字型宿主（dbusmenu/自绘窗）的事。
+        assert_eq!(nodes[2].kind, "header");
         assert_eq!(nodes[2].id.as_deref(), Some("grub-group:linux"));
-        assert_eq!(nodes[2].children[0].kind, "item");
-        assert_eq!(
-            nodes[2].children[0].id.as_deref(),
-            Some("grub-switch:l1")
-        );
+        assert_eq!(nodes[3].kind, "item");
+        assert_eq!(nodes[3].id.as_deref(), Some("grub-switch:l1"));
         assert_eq!(nodes[0].checked, Some(true), "置顶的当前项要带标记");
         assert_eq!(nodes[1].checked, Some(false));
     }
@@ -6852,10 +6842,12 @@ mod core_tests {
         }];
         // 当前项是 Windows → 组内那条原位出行（带 ↳ 缩进），置顶的是 Windows
         let view = next_boot_grub_view(entries, groups, Some("w"), "minimal");
-        let nodes: Vec<MenuNode> = grub_menu_nodes(&view, false);
-        let labels: Vec<String> = nodes.iter().map(|node| node.label.clone()).collect();
+        let labels: Vec<String> = grub_menu_nodes(&view, false)
+            .into_iter()
+            .map(|node| node.label)
+            .collect();
         assert_eq!(labels[2], "▸ 🐧 Linux（1 项）", "labels={labels:?}");
-        assert_eq!(nodes[2].children[0].label, "↳ 🐧 linux", "labels={labels:?}");
+        assert_eq!(labels[3], "↳ 🐧 linux", "labels={labels:?}");
     }
 
     /// 原始格式：完整标题、不做折叠，变体数用解析期合并的 `entry.variants`，

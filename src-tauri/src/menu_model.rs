@@ -304,8 +304,14 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
             .get(submenu_id.as_str())
             .map(Vec::len)
             .unwrap_or(0);
-        // 级联子菜单（用户 2026-11-15：组做级联，不是一级平铺折叠）——
-        // 组名作为子菜单，组内子项收进二级；一级只留置顶副本与顶层条目。
+        items.push(menu_header(
+            format!("grub-group:{submenu_id}"),
+            format!(
+                "▸ {}{title}（{count} 项{}）",
+                grub_os_icon(title),
+                location
+            ),
+        ));
         let counts = grub_collapse(
             format,
             children_of
@@ -315,10 +321,9 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
                 .copied(),
         );
         let mut emitted = std::collections::HashSet::new();
-        let mut group_children: Vec<MenuNode> = Vec::new();
         for child in children_of.get(submenu_id.as_str()).into_iter().flatten() {
             grub_push_entry(
-                &mut group_children,
+                &mut items,
                 format,
                 child,
                 false,
@@ -330,15 +335,6 @@ pub(crate) fn grub_menu_nodes(grub: &GrubView, busy: bool) -> Vec<MenuNode> {
                 active,
             );
         }
-        items.push(menu_submenu(
-            format!("grub-group:{submenu_id}"),
-            format!(
-                "▸ {}{title}（{count} 项{}）",
-                grub_os_icon(title),
-                location
-            ),
-            group_children,
-        ));
     }
     items
 }
@@ -809,23 +805,20 @@ pub(crate) fn refind_loader_nodes(rows: &[RefindRow], busy: bool, channel: &str)
             items.push(row(entry));
             continue;
         }
-        // 级联子菜单（用户 2026-11-15：组做级联）——子菜单第一项是父条目本身
-        // （可点=设父为默认），其余是内核子项；父条目行不再占一级。
-        let mut group_children: Vec<MenuNode> = Vec::new();
-        group_children.push(row(entry));
-        for kernel in &entry.children {
-            group_children.push(kernel_row(entry, kernel));
-        }
-        items.push(menu_submenu(
-            format!("{}:{}", prefix("group"), entry.value),
+        items.push(menu_marked_choice_item(
+            format!("{}:{}", prefix("switch"), entry.value),
             format!(
                 "▸ {}{}（{} 个内核）",
                 grub_os_icon(&entry.label),
                 entry.label,
                 entry.children.len()
             ),
-            group_children,
+            !busy,
+            entry.is_default,
         ));
+        for kernel in &entry.children {
+            items.push(kernel_row(entry, kernel));
+        }
     }
     items
 }
@@ -838,38 +831,23 @@ pub(crate) fn channel_loader_nodes(
     channel: &channels::ChannelView,
     busy: bool,
 ) -> Vec<MenuNode> {
-    // 统一化（用户 2026-11-15）：托盘 OC 行走与本机/远程同一份 boot_options_from_menu_entries
-    // —— label 追加「 · 类型 · 来源」标签，与电脑列表弹窗一致。
-    let rows = channel_switch_rows(channel);
-    let unified: std::collections::HashMap<String, String> = channel
-        .menu_preview
-        .as_ref()
-        .map(|preview| {
-            crate::remote_servers::boot_options_from_menu_entries(&preview.entries)
-                .into_iter()
-                .filter(|o| !o.tag.is_empty())
-                .map(|o| (o.label, format!(" · {}", o.tag)))
-                .collect()
-        })
-        .unwrap_or_default();
-    let label_of = |title: &str| match unified.get(title) {
-        Some(suffix) => format!("{}{}{suffix}", grub_os_icon(title), title),
-        None => format!("{}{}", grub_os_icon(title), title),
-    };
-    let node_of = |row: &ChannelRow, label: String| {
+    let node_of = |row: &ChannelRow| {
         menu_marked_choice_item(
             format!("channel-switch:{}", row.spec),
-            label,
+            format!("{}{}", grub_os_icon(&row.title), row.title),
+            // 需要提权的条目照样可点：链路里会走服务优先 / 授权兜底（与主窗一致），
+            // 不在这里预先拦掉，否则 Windows 上「设为默认」这类条目在托盘里永远点不动。
             !busy,
             row.is_default,
         )
     };
+    let rows = channel_switch_rows(channel);
     let mut items: Vec<MenuNode> = Vec::new();
     if let Some(picked) = rows.iter().find(|row| row.is_default) {
-        items.push(node_of(picked, label_of(&picked.title)));
+        items.push(node_of(picked));
     }
     for row in rows.iter().filter(|row| !row.is_default) {
-        items.push(node_of(row, label_of(&row.title)));
+        items.push(node_of(row));
     }
     // 预演里**没有值域**的行也要列进来（macOS 默认项在 Preboot 卷上没有
     // `opencore-default:` 值域、协议驱动、Reset NVRAM 这类工具）—— 托盘下拉
@@ -896,7 +874,7 @@ pub(crate) fn channel_loader_nodes(
                 // 灰色，跟 GRUB/rEFInd 那些可用行的绿勾长得不一样（用户要求对勾
                 // 必须一致）。点了没反应是安全的 —— id 不在解析白名单里。
                 format!("channel-fixed:{}", title),
-                label_of(title),
+                format!("{}{}", grub_os_icon(title), title),
                 true,
                 entry.default,
             ));
