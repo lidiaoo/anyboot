@@ -344,6 +344,13 @@ function localTitle(kind: string): string {
 function echoLabel(groupLabel: string, name: string): string {
   return groupLabel ? `${groupLabel} › ${name}` : name;
 }
+/** 对端 /api/grub JSON → 与本机 linuxGrub 完全同构的 EntryData 集（回显/弹窗一字不差） */
+function grubEntriesFromJson(src: any): { entries: EntryData[]; active: string; groupTitles: Record<string, string> } {
+  const groupTitles: Record<string, string> = {};
+  for (const g of (src?.groups ?? []) as any[]) if (g.id) groupTitles[g.id] = g.name ?? "";
+  const entries: EntryData[] = ((src?.entries ?? []) as any[]).map((e) => ({ selector: e.selector ?? e.id, name: e.name, class: e.class, kernels: e.kernels, variants: e.variants, chainloader: e.chainloader, submenu: e.submenu } as EntryData));
+  return { entries, active: String(src?.nextEntry || src?.savedEntry || ""), groupTitles };
+}
 function bootState(kind: string): { label: string; none: boolean; dot: string } {
   if (isLocal.value) {
     const le = localEntries(kind);
@@ -357,6 +364,21 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
   if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
   if (!group.available) return { label: "未检测到", none: true, dot: "" };
   if (!online.value) return { label: "离线不可改", none: true, dot: "" };
+  // 统一化：对端原始 JSON 透传（group.raw）→ 与本机**同一套规则**（回显一字不差）：
+  // GRUB = 「组名 › 完整名」（groupTitles）；rEFInd/RefindPlus 的 lastBoot 在父条目上
+  // → 直接显示父条目名（trim 尾空格），与各端页面字面一致。
+  const rawJson = (group as any)?.raw;
+  if (rawJson) {
+    if (kind === "grub") {
+      const le = grubEntriesFromJson(rawJson);
+      let hit = le.entries.find((e) => String(e.selector) === le.active);
+      if (!hit) hit = le.entries.find((e) => le.active && e.name && String(e.name).indexOf(le.active) >= 0);
+      const gl = hit?.submenu ? (le.groupTitles?.[String(hit.submenu)] ?? "") : "";
+      return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
+    }
+    const lastBoot = String(((rawJson?.entries ?? []) as any[]).find((e) => e.lastBoot)?.title ?? "").trim();
+    return { label: lastBoot || "未选择", none: false, dot: "" };
+  }
   const options = (group as { options?: { value?: string; label?: string; class?: string; header?: boolean }[] }).options || [];
   const current = String(group.current || "");
   const hit =
