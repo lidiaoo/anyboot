@@ -127,7 +127,7 @@ struct BackupWebDavView: View {
                 Button {
                     showPassword.toggle()
                 } label: {
-                    Text(showPassword ? "隐藏" : "显示")
+                    Text(showPassword ? L("and.hide") : L("settings.show"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.accent)
                         .frame(minHeight: ABMetric.px(44))
@@ -292,7 +292,7 @@ struct BackupWebDavView: View {
         } label: {
             HStack(spacing: ABMetric.px(8)) {
                 if testing { ProgressView().tint(ABColor.accent) }
-                Text(testing ? "测试中…" : "测试连接")
+                Text(testing ? L("remote.testing") : L("bk.testConn"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(formValid ? ABColor.accent : ABColor.fgFaint)
             }
@@ -361,7 +361,7 @@ struct BackupWebDavView: View {
             switch await client.testConnection() {
             case .success:
                 testOK = true
-                testResult = "连接成功"
+                testResult = L("and.connOk")
             case .failure(.notFound):
                 testing = false
                 confirmCreateDir = true
@@ -385,7 +385,7 @@ struct BackupWebDavView: View {
             switch await client.createDirectory() {
             case .success:
                 testOK = true
-                testResult = "目录已创建，连接成功"
+                testResult = L("and.dirCreated")
             case .failure(let e):
                 testOK = false
                 testResult = e.errorDescription ?? "创建失败"

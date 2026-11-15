@@ -174,7 +174,7 @@ struct ComputerEditorView: View {
             // 「只有保存、没有取消」）。现在任何情况都保留关闭入口。
             HStack(spacing: 8) {
                 Text(editing ? "编辑这台电脑"
-                     : (firstRun ? "连接 AnyBoot 服务端" : "添加电脑"))
+                     : (firstRun ? L("remote.connectTitle") : L("menu.add")))
                     .font(.system(size: 15, weight: .bold))
                     .foregroundColor(ABColor.fg)
                     .lineLimit(1)
@@ -393,7 +393,7 @@ struct ComputerEditorView: View {
                     Button {
                         tokenShown.toggle()
                     } label: {
-                        Text(tokenShown ? "隐藏" : "显示")
+                        Text(tokenShown ? L("and.hide") : L("settings.show"))
                             .font(.system(size: 11))
                             .foregroundColor(ABColor.accent)
                     }
@@ -431,7 +431,7 @@ struct ComputerEditorView: View {
                 Button {
                     clearPairs()
                 } label: {
-                    Text(hasPairs ? "全部清空" : "清空")
+                    Text(hasPairs ? L("and.clearAll") : L("sol.clear"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.fgDim)
                 }
@@ -534,12 +534,12 @@ struct ComputerEditorView: View {
     private func recognizeQuick() {
         let raw = quickText.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.isEmpty {
-            quickHint = "先粘点东西进来，比如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF"
+            quickHint = L("and.pasteFirstHint")
             return
         }
         let parsed = ServerProfile.parseAddressInput(raw, strict: true)
         if parsed.hosts.isEmpty {
-            quickHint = "没认出地址 —— 要有 IP 或主机名，比如 192.168.0.120"
+            quickHint = L("and.unrecognizedAddr")
             return
         }
         var added = 0
@@ -574,7 +574,7 @@ struct ComputerEditorView: View {
     private func addManualAddress() {
         let address = newHost.trimmingCharacters(in: .whitespacesAndNewlines)
         if address.isEmpty {
-            quickHint = "地址不对：填 IP 或主机名，端口可带可不带"
+            quickHint = L("and.addrWrong")
             return
         }
         let macs = newMacs
@@ -629,7 +629,7 @@ struct ComputerEditorView: View {
     private func clearPairs() {
         draft.pairs.removeAll()
         remoteText = ""
-        remoteHint = "已清空 —— 点「保存」即解除配对（地址与配对令牌一起删掉）"
+        remoteHint = L("and.clearedHint")
     }
 
     /// 一个区块卡片：常驻（空的时候也在，显示「未配」+ 空态文案）
@@ -769,7 +769,7 @@ struct ComputerEditorView: View {
     private func probeShort(_ mode: String) -> String {
         switch mode {
         case ServerProfile.probeParallelAll: return "并发全部"
-        case ServerProfile.probeSerial: return "串行"
+        case ServerProfile.probeSerial: return L("remote.probeSerial")
         default: return "并发首个"
         }
     }
@@ -965,7 +965,7 @@ struct ComputerEditorView: View {
 
     /// 跳板机名字（找不到 = 已删除）
     private func jumpName(_ id: String) -> String {
-        guard let jump = jumps.jumps.first(where: { $0.id == id }) else { return "已删除的跳板机" }
+        guard let jump = jumps.jumps.first(where: { $0.id == id }) else { return L("and.jumpDeletedShort") }
         return jump.displayName.isEmpty ? jump.host : jump.displayName
     }
 
@@ -1070,17 +1070,17 @@ struct ComputerEditorView: View {
             let bound = addressEntries.filter {
                 !$0.address.trimmedAnyBoot.isEmpty && !$0.jump.isEmpty
             }
-            if bound.isEmpty { return "未选跳板机档案" }
+            if bound.isEmpty { return L("and.noJumpProfile") }
             if bound.count == 1 { return "经 " + jumpName(bound[0].jump) + " → " + bound[0].address }
             // 三个直连三台跳板机：副标只报数量，明细在各自的地址卡片里
             return "\(bound.count) 个地址各走跳板机"
         default:
             let empty: String
             switch kind {
-            case ServerProfile.routeTunnel: empty = "未配置隧道地址"
-            case ServerProfile.routeTS: empty = "未配置 100.x 直连地址"
-            case ServerProfile.routeFunnel: empty = "未配置（系统 Tailscale 的 *.ts.net 地址）"
-            case ServerProfile.routeTSNet: empty = "未配置（内置引擎的 *.ts.net 地址）"
+            case ServerProfile.routeTunnel: empty = L("and.noTunnelAddr")
+            case ServerProfile.routeTS: empty = L("and.noTsAddr")
+            case ServerProfile.routeFunnel: empty = L("and.noFunnelAddr")
+            case ServerProfile.routeTSNet: empty = L("and.noTsnetAddr")
             default: empty = ""
             }
             return draft.pairs.first {
@@ -1420,7 +1420,7 @@ private struct PairEditRowView: View {
                 Button {
                     tokenShown.toggle()
                 } label: {
-                    Text(tokenShown ? "打码" : "改/看")
+                    Text(tokenShown ? L("and.mask") : L("and.editView"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.accent)
                 }
@@ -1587,7 +1587,7 @@ private struct PowerRouteCardView: View {
 
             // 发包数 / 重试：value 只认「用户自己填的数」，空着用占位符显示默认值
             HStack(spacing: 8) {
-                countsField(label: route.actionOrWake == PowerRoute.actionWake ? "每块发几个包" : "发几个包",
+                countsField(label: route.actionOrWake == PowerRoute.actionWake ? L("and.packetsPerNic") : L("and.packets"),
                             value: Binding(
                                 get: { route.burst > 0 ? route.burst : nil },
                                 set: { route.burst = min(50, $0 ?? 0) }),

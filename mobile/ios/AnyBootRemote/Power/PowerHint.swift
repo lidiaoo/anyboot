@@ -27,8 +27,8 @@ enum PowerHint {
         // 唤醒走不了隧道（魔术包是局域网 UDP 广播，公网发不出去）：
         // 未配 MAC / 隧道使用中分别直说，别给会误导的提示
         if action == PowerRoute.actionWake {
-            if !profile.hasMacs { return "未配 MAC" }
-            if remoteActive { return "发不出 · 魔术包仅局域网有效" }
+            if !profile.hasMacs { return L("hub.power.noMac") }
+            if remoteActive { return L("and.cannotSendMacLan") }
             return "魔法包"
         }
         return fallback.isEmpty ? badge : "\(badge) · \(fallback)"
@@ -42,7 +42,7 @@ enum PowerHint {
         let packetOk = !remoteActive
         if routes.isEmpty {
             if action == PowerRoute.actionWake {
-                if !profile.hasMacs { return "未配 MAC" }
+                if !profile.hasMacs { return L("hub.power.noMac") }
                 return packetOk ? "魔法包" : "发不出"
             }
             return "HTTP"

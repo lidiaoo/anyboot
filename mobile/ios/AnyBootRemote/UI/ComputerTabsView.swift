@@ -261,17 +261,17 @@ struct ComputerTabsView: View {
     private func connLabel(_ profile: ServerProfile, tab: ComputerTab?) -> String {
         let state = heartbeat.state(profile.id)
         let online = state.reach == .online
-        if !online && tab?.status != .ok { return "未连接" }
+        if !online && tab?.status != .ok { return L("hub.state.notConnected") }
         if online && !state.kind.isEmpty {
             return ServerProfile.routeLabel(state.kind)
         }
-        if tab?.usingRemote == true { return "远程" }
+        if tab?.usingRemote == true { return L("and.remoteShort") }
         // 一址一跳板机：任一地址绑了跳板机就算（老字段单值不再作数）
         if !profile.jumpBindings.isEmpty
             && !profile.routeDisabled.contains(ServerProfile.routeJump) {
-            return "跳板机"
+            return L("remote.jumpLabel")
         }
-        return "直连"
+        return L("hub.conn.lan")
     }
 
     private var overflowMenu: some View {
@@ -300,7 +300,7 @@ struct ComputerTabsView: View {
                 let next = !store.connectAll
                 store.setConnectAll(next)
                 if next { center.connectAll() }
-                ABToastBus.shared.show(next ? "已开启：启动时把所有服务端一起连上" : "已关闭：只连当前标签")
+                ABToastBus.shared.show(next ? L("and.connectAllOn") : L("and.connectAllOff"))
             }
             Button(failReloadSec > 0
                    ? "连不上时自动重载（每 \(failReloadSec) 秒）"
@@ -445,7 +445,7 @@ struct ComputerTabsView: View {
 
                 powerChip(profile, action: PowerRoute.actionWake, label: L("hub.power.wake"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionWake,
-                                               fallback: profile.hasMacs ? "MAC 魔术包" : "未配 MAC",
+                                               fallback: profile.hasMacs ? L("and.macMagic") : L("hub.power.noMac"),
                                                remoteActive: activeTab?.usingRemote == true))
                 powerChip(profile, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionSleep,
@@ -625,9 +625,9 @@ struct ComputerTabsView: View {
 
     private var transportLabel: String {
         switch store.transport {
-        case ServerStore.transportPush: return "推送"
-        case ServerStore.transportPoll: return "轮询"
-        default: return "自动"
+        case ServerStore.transportPush: return L("and.shortPush")
+        case ServerStore.transportPoll: return L("and.shortPoll")
+        default: return L("and.shortAuto")
         }
     }
 
@@ -771,9 +771,9 @@ struct ComputerTabsView: View {
 
     private func label(for transport: String) -> String {
         switch transport {
-        case ServerStore.transportPush: return "推送（WebSocket）"
-        case ServerStore.transportPoll: return "轮询（HTTP，间隔见「数据刷新」）"
-        default: return "自动（推送优先，连不上退回轮询）"
+        case ServerStore.transportPush: return L("and.transportPush")
+        case ServerStore.transportPoll: return L("and.transportPoll")
+        default: return L("and.transportAuto")
         }
     }
 

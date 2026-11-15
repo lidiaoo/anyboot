@@ -214,9 +214,9 @@ struct ServerCardRow: View {
     }
 
     private var statusLabel: String {
-        if server.isSsh && up { return "在线" }
-        if !server.isSsh { return "实验性" }
-        return "未连接"
+        if server.isSsh && up { return L("hub.list.online") }
+        if !server.isSsh { return L("and.experimental") }
+        return L("hub.state.notConnected")
     }
 
     private func infoCell(_ label: String, _ value: String) -> some View {

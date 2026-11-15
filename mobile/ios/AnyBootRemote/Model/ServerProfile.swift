@@ -420,12 +420,12 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     /// 通道 id → 中文文案（列表徽章 / 连接标注共用）
     static func routeLabel(_ kind: String) -> String {
         switch kind {
-        case routeLan: return "直连"
-        case routeJump: return "跳板机"
+        case routeLan: return L("hub.conn.lan")
+        case routeJump: return L("remote.jumpLabel")
         case routeTunnel: return "隧道"
-        case routeTS: return "TS 直连"
+        case routeTS: return L("and.tsDirectShort")
         case routeFunnel: return "TS Funnel"
-        case routeTSNet: return "内置 Funnel"
+        case routeTSNet: return L("and.builtinFunnel")
         default: return ""
         }
     }
@@ -444,10 +444,10 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     /// 动作的中文名（提示文案用）
     static func powerActionLabel(_ action: String) -> String {
         switch normalizePowerAction(action) {
-        case PowerRoute.actionReboot: return "重启"
-        case PowerRoute.actionShutdown: return "关机"
-        case PowerRoute.actionSleep: return "睡眠"
-        default: return "唤醒"
+        case PowerRoute.actionReboot: return L("hub.power.restart")
+        case PowerRoute.actionShutdown: return L("hub.power.shutdown")
+        case PowerRoute.actionSleep: return L("hub.power.sleep")
+        default: return L("hub.power.wake")
         }
     }
 
@@ -886,11 +886,11 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     /// 发送模式的展示文案（与 PC 端一致）
     static func modeLabel(_ mode: String) -> String {
         switch mode {
-        case "http_first": return "优先 HTTP"
-        case "http_only": return "仅 HTTP"
-        case "packet_only": return "仅广播包"
+        case "http_first": return L("remote.httpFirst")
+        case "http_only": return L("remote.httpOnly")
+        case "packet_only": return L("remote.packetOnly")
         case "hybrid": return "混合（同时发）"
-        default: return "优先广播包"
+        default: return L("remote.powerAuto")
         }
     }
 

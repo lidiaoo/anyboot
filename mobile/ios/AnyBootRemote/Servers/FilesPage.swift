@@ -237,7 +237,7 @@ struct FilesPage: View {
                             store.sortDesc.toggle()
                             sortMenuOpen = false
                         } label: {
-                            Text(store.sortDesc ? "改为升序 ↑" : "改为降序 ↓")
+                            Text(store.sortDesc ? L("and.toAsc") : L("and.toDesc"))
                                 .font(.system(size: 13))
                                 .foregroundColor(ABColor.fg)
                                 .frame(maxWidth: .infinity, alignment: .leading)

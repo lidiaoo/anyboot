@@ -166,9 +166,9 @@ enum SftpOps {
         if detail.link {
             detail.typeLabel = "软链接"
         } else if detail.dir {
-            detail.typeLabel = "目录"
+            detail.typeLabel = L("bk.dir")
         } else {
-            detail.typeLabel = "文件"
+            detail.typeLabel = L("nav.files")
         }
     }
 

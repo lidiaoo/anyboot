@@ -12,8 +12,8 @@ enum KeyFactory {
 
         var errorDescription: String? {
             switch self {
-            case .notPem: return "不像 PEM 格式的私钥（应以 -----BEGIN 开头）"
-            case .tooBig: return "文件太大，不像私钥"
+            case .notPem: return L("and.notPem")
+            case .tooBig: return L("and.fileTooBigKey")
             case .unsupported: return "这个私钥格式暂不支持"
             }
         }

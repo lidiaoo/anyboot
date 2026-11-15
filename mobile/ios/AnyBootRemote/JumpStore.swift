@@ -67,7 +67,7 @@ struct JumpServer: Identifiable, Hashable, Codable {
     var protocolLabel: String { protocolRaw == Self.telnet ? "Telnet" : "SSH" }
 
     /// 认证方式的中文短标签（卡片三格信息里的「认证」）
-    var authLabel: String { authType == Self.authKey ? "密钥" : "密码" }
+    var authLabel: String { authType == Self.authKey ? L("nav.keys") : L("and.password") }
 
     var displayName: String {
         let value = name.trimmedAnyBoot

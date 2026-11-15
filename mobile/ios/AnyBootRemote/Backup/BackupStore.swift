@@ -12,7 +12,7 @@ enum BackupStrategy: String, Identifiable {
     var id: String { rawValue }
 
     var label: String {
-        self == .skipExisting ? "跳过本机已有" : "备份覆盖本机"
+        self == .skipExisting ? L("and.skipExisting") : L("and.backupOverwrite")
     }
 }
 
@@ -25,8 +25,8 @@ enum BackupError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .tooLarge: return "文件超过 10MB，已拒绝"
-        case .badFormat: return "不是有效的 AnyBoot 备份文件"
+        case .tooLarge: return L("and.tooBig")
+        case .badFormat: return L("and.invalidFile")
         case .fromNewerVersion: return "备份来自更新版本，请先升级 App"
         case .decryptFailed: return "口令错误或文件已损坏"
         case .emptyPassword: return "请输入备份口令"

@@ -71,7 +71,7 @@ struct BackupPasswordSheet: View {
                 Button {
                     showPassword.toggle()
                 } label: {
-                    Text(showPassword ? "隐藏" : "显示")
+                    Text(showPassword ? L("and.hide") : L("settings.show"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.accent)
                         .frame(minWidth: ABMetric.px(32), minHeight: ABMetric.px(44))
@@ -525,7 +525,7 @@ struct BackupImportReport: View {
             Button {
                 dismiss()
             } label: {
-                Text(report.totalAdded + report.totalUpdated > 0 ? "完成" : "返回")
+                Text(report.totalAdded + report.totalUpdated > 0 ? L("bk.done") : L("and.back"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(ABColor.onAccent)
                     .frame(maxWidth: .infinity)

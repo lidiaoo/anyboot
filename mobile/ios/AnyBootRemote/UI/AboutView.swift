@@ -144,11 +144,11 @@ struct AboutView: View {
 
     /// 收起时也要能看出当前状态，别让用户为了看一句话再点开一次
     private var capsuleLabel: String {
-        if checkingUpdate { return "检查中…" }
+        if checkingUpdate { return L("about.checkingNow") }
         if let version = latestVersion { return "发现新版本 v\(version)" }
         if updateUpToDate { return "已是最新 v\(Self.versionName)" }
         if updateError != nil { return "更新检查失败" }
-        return "检查更新"
+        return L("about.checkUpdate")
     }
 
     private func toggleUpdate() {
@@ -221,11 +221,11 @@ struct AboutView: View {
     }
 
     private var statusText: String {
-        if checkingUpdate { return "正在检查新版本…" }
+        if checkingUpdate { return L("about.checking") }
         if let version = latestVersion { return "发现新版本 v\(version)" }
-        if updateUpToDate { return "已是最新版本" }
+        if updateUpToDate { return L("about.upToDate") }
         if updateError != nil { return "更新检查没有完成" }
-        return "还没检查过"
+        return L("about.notChecked")
     }
 
     private var statusTint: Color {

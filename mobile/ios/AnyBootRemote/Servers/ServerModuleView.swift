@@ -198,11 +198,11 @@ struct ServerModuleView: View {
 
     private var title: String {
         switch store.page {
-        case .keys: return "密钥"
-        case .files: return "文件"
-        case .sessions: return "会话"
-        case .transfers: return "传输"
-        default: return "服务器"
+        case .keys: return L("nav.keys")
+        case .files: return L("nav.files")
+        case .sessions: return L("nav.sessions")
+        case .transfers: return L("nav.transfers")
+        default: return L("nav.servers")
         }
     }
 
@@ -222,7 +222,7 @@ struct ServerModuleView: View {
                 Circle()
                     .fill(up ? ABColor.accent : ABColor.fgFaint)
                     .frame(width: ABMetric.px(6), height: ABMetric.px(6))
-                Text(up ? "SFTP 就绪" : "未连接")
+                Text(up ? L("and.sftpReady") : L("hub.state.notConnected"))
                     .font(.system(size: 10))
                     .foregroundColor(up ? ABColor.accent : ABColor.fgDim)
             }

@@ -145,7 +145,7 @@ enum WakeOnLan {
 
         // 电源包走**首选地址**那台跳板机（一址一跳板机：别的地址的跳板机到不了这个网段）
         let jumpId = profile.primaryJumpServerId
-        var whereFrom = "本机"
+        var whereFrom = L("sysinfo.local")
         var sent = 0
         if jumpId.isEmpty {
             sent = try sendLocal(deliveries)

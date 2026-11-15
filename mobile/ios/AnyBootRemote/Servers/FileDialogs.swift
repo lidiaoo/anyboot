@@ -372,7 +372,7 @@ struct DestPickerDialog: View {
 
     var body: some View {
         ABDialogHost(isPresented: store.pick != nil, onDismiss: { store.pick = nil }) {
-            ABDialogCard(store.pick?.cut == true ? "移动到…" : "复制到…") {
+            ABDialogCard(store.pick?.cut == true ? L("fb.moveTo") : L("fb.copyTo")) {
                 ABSecondaryText(store.pick?.label ?? "")
                 HStack(spacing: ABMetric.px(6)) {
                     Text(path)

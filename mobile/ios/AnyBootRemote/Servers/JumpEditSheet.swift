@@ -51,7 +51,7 @@ struct JumpEditSheet: View {
                             .padding(.bottom, ABMetric.px(4))
 
                         HStack {
-                            Text(editing ? "编辑服务器" : "添加服务器")
+                            Text(editing ? L("server.editAria") : L("server.add"))
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(ABColor.fg)
                             Spacer(minLength: 0)
@@ -336,9 +336,9 @@ struct JumpEditSheet: View {
     }
 
     private var jumpLabel: String {
-        if jumpId.isEmpty { return "直连（默认）" }
+        if jumpId.isEmpty { return L("srvEdit.jumpDirect") }
         if let choice = jumpChoices.first(where: { $0.id == jumpId }) { return choice.name }
-        return "（已删除，保存后回到直连）"
+        return L("and.jumpDeletedPd")
     }
 
     private var savedPassword: String {
@@ -347,11 +347,11 @@ struct JumpEditSheet: View {
     }
 
     private var passwordPlaceholder: String {
-        if !savedPassword.isEmpty { return "已保存密码（可改）" }
+        if !savedPassword.isEmpty { return L("and.pwdSavedEditable") }
         if let target = store.editTarget, !target.passwordRef.isEmpty {
-            return "已存密码已失效，请重新输入一次"
+            return L("and.pwdExpired")
         }
-        return "留空保持原密码不变"
+        return L("and.pwdKeepBlank")
     }
 
     // MARK: - 载入

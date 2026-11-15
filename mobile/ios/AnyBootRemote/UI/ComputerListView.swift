@@ -250,7 +250,7 @@ struct ComputerListView: View {
             Button(store.connectAll ? "✓ 启动时连接全部服务端" : "启动时连接全部服务端") {
                 let next = !store.connectAll
                 store.setConnectAll(next)
-                toast(next ? "已开启：启动时把所有服务端一起连上" : "已关闭：只连当前标签")
+                toast(next ? L("and.connectAllOn") : L("and.connectAllOff"))
             }
             Button(failReloadSec > 0
                    ? "连不上时自动重载（每 \(failReloadSec) 秒）"
@@ -578,9 +578,9 @@ struct ComputerListView: View {
         // **没在线的不能写「直连」**：只有这一轮确实探通才描述走的哪条通道
         let conn: String
         if state != Reach.online {
-            conn = "未连接"
+            conn = L("hub.state.notConnected")
         } else if info?.winnerKind == ServerProfile.routeLan {
-            conn = "直连"
+            conn = L("hub.conn.lan")
         } else if info?.winnerKind == ServerProfile.routeJump {
             if let jump = JumpStore.shared.jump(jumpId) {
                 let name = jump.name.trimmingCharacters(in: .whitespaces)
@@ -589,15 +589,15 @@ struct ComputerListView: View {
                 conn = "跳板机 · 已删除"
             }
         } else if hitPair?.routeKind == ServerProfile.routeTSNet {
-            conn = "内置 Funnel"
+            conn = L("and.builtinFunnel")
         } else if hitPair?.routeKind == ServerProfile.routeFunnel {
             conn = "TS Funnel"
         } else if hitPair?.routeKind == ServerProfile.routeTS {
-            conn = "TS 直连"
+            conn = L("and.tsDirectShort")
         } else if hitPair != nil {
-            conn = "远程隧道"
+            conn = L("and.remoteTunnel")
         } else {
-            conn = "直连"
+            conn = L("hub.conn.lan")
         }
 
         let hits = info?.hits ?? []
@@ -618,7 +618,7 @@ struct ComputerListView: View {
                 if inUse && hit?.ok == true {
                     stateText = "使用中 \(hit?.ms ?? 0)ms"
                 } else if inUse {
-                    stateText = "使用中"
+                    stateText = L("and.inUse")
                 } else {
                     stateText = probeStateText(hit)
                 }
@@ -680,10 +680,10 @@ struct ComputerListView: View {
     /// 通 = 延迟；失败 / 被抢跑 / 没轮到 一律「不通」短词。
     /// 完整失败原因走 [probeReason]，垫在地址行下面。
     private func probeStateText(_ hit: ProbeEngine.Hit?) -> String {
-        guard let hit else { return "未探测" }
+        guard let hit else { return L("and.notProbed") }
         if hit.ok { return "通 \(hit.ms)ms" }
-        if hit.error.contains("未测出") || hit.error.contains("未探测") { return "不通" }
-        return "不通"
+        if hit.error.contains("未测出") || hit.error.contains("未探测") { return L("hub.conn.fail") }
+        return L("hub.conn.fail")
     }
 
     /// 完整失败原因（样式 3：地址行下面的小字，换行铺全）；空 = 不垫
@@ -924,7 +924,7 @@ struct ComputerListView: View {
         }
         let jump = JumpStore.shared.jump(jumpId)
         let name: String = {
-            guard let jump else { return "已删除的跳板机" }
+            guard let jump else { return L("and.jumpDeletedShort") }
             let value = jump.name.trimmingCharacters(in: .whitespaces)
             return value.isEmpty ? jump.host : value
         }()
@@ -939,7 +939,7 @@ struct ComputerListView: View {
         if inUse && hit?.ok == true {
             stateText = "使用中 \(hit?.ms ?? 0)ms"
         } else if inUse {
-            stateText = "使用中"
+            stateText = L("and.inUse")
         } else {
             stateText = probeStateText(hit)
         }
@@ -1052,13 +1052,13 @@ struct ComputerListView: View {
         let color: Color
         let label: String
         switch state {
-        case Reach.online: color = ABColor.toneOnline; label = "在线"
-        case Reach.offline: color = ABColor.toneOfflineText; label = "离线"
-        case Reach.waking: color = ABColor.toneBusy; label = "唤醒中"
-        case Reach.shutting: color = ABColor.toneBusy; label = "关机中"
-        case Reach.rebooting: color = ABColor.toneBusy; label = "重启中"
-        case Reach.sleeping: color = ABColor.toneSleep; label = "已睡眠"
-        default: color = ABColor.fgFaint; label = "检测中…"
+        case Reach.online: color = ABColor.toneOnline; label = L("hub.list.online")
+        case Reach.offline: color = ABColor.toneOfflineText; label = L("hub.list.offline")
+        case Reach.waking: color = ABColor.toneBusy; label = L("and.stateWaking")
+        case Reach.shutting: color = ABColor.toneBusy; label = L("and.stateShutting")
+        case Reach.rebooting: color = ABColor.toneBusy; label = L("and.stateRebooting")
+        case Reach.sleeping: color = ABColor.toneSleep; label = L("and.stateSleeping")
+        default: color = ABColor.fgFaint; label = L("and.stateDetecting")
         }
         return HStack(spacing: ABMetric.px(4)) {
             Circle().fill(color).frame(width: ABMetric.px(5), height: ABMetric.px(5))
@@ -1249,8 +1249,8 @@ struct ComputerListView: View {
             // 顶层空 → 动作可能全在 OC 预演行里：值区显示预演里的默认项 / 首行
             let previewRows = group.menuPreview?.rows ?? []
             if previewRows.isEmpty {
-                if row.state == Reach.unknown { valueLabel = "读取中…" }
-                else if row.state == Reach.offline { valueLabel = "离线不可改" }
+                if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
+                else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
                 else { valueLabel = "没有可用动作" }
             } else if let defaultRow = previewRows.first(where: { $0.isDefault && !$0.spec.isEmpty }) {
                 valueLabel = defaultRow.title
@@ -1364,9 +1364,9 @@ struct ComputerListView: View {
         var dotKind = ""
         var iconOverride = ""
         if !group.available {
-            if row.state == Reach.unknown { valueLabel = "读取中…" }
-            else if row.state == Reach.offline { valueLabel = "离线不可改" }
-            else { valueLabel = "未检测到" }
+            if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
+            else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
+            else { valueLabel = L("hub.state.notDetected") }
         } else {
             // 统一化：rEFInd 与 GRUB 同走 GrubFormat.displayRows（数据已填 GRUB 原料）——
             // 当前值取拼装行 text（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
@@ -1562,7 +1562,7 @@ struct ComputerListView: View {
         HStack(spacing: ABMetric.px(6)) {
             powerButton(row, action: PowerRoute.actionWake, label: L("hub.power.wake"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionWake,
-                                             fallback: row.profile.hasMacs ? "MAC 魔术包" : "未配 MAC",
+                                             fallback: row.profile.hasMacs ? L("and.macMagic") : L("hub.power.noMac"),
                                              remoteActive: row.connRemote))
             powerButton(row, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionSleep,
@@ -2484,9 +2484,9 @@ struct ComputerListView: View {
 
     private var transportLabel: String {
         switch store.transport {
-        case ServerStore.transportPush: return "推送"
-        case ServerStore.transportPoll: return "轮询"
-        default: return "自动"
+        case ServerStore.transportPush: return L("and.shortPush")
+        case ServerStore.transportPoll: return L("and.shortPoll")
+        default: return L("and.shortAuto")
         }
     }
 
@@ -2750,8 +2750,8 @@ final class BootFormatStore: ObservableObject {
 }
 
 private func kindLabel(_ k: String) -> String {
-    switch k { case "macos": return "macOS"; case "windows": return "Windows"; case "generic": return "泛型"; case "linux": return "Linux"; case "tool": return "工具项"; default: return "未知" }
+    switch k { case "macos": return "macOS"; case "windows": return "Windows"; case "generic": return L("hub.class.generic"); case "linux": return "Linux"; case "tool": return L("hub.class.tool"); default: return L("boot.unknown") }
 }
 private func sourceLabel(_ s: String) -> String {
-    switch s { case "bootorder": return "OC 私有 OCBtOrder"; case "bless": return "bless 扫描"; case "preboot": return "APFS Preboot"; case "protocol": return "协议驱动"; default: return "OC 私有 OCBtOrder" }
+    switch s { case "bootorder": return L("hub.oc.private"); case "bless": return L("oc.blessScan"); case "preboot": return "APFS Preboot"; case "protocol": return L("oc.protocolDriver"); default: return L("hub.oc.private") }
 }

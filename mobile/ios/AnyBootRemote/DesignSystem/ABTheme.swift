@@ -186,9 +186,9 @@ enum ABThemeMode: String, CaseIterable {
 
     var label: String {
         switch self {
-        case .auto: return "跟随系统"
-        case .dark: return "暗色"
-        case .light: return "亮色"
+        case .auto: return L("settings.optSystem")
+        case .dark: return L("theme.dark")
+        case .light: return L("theme.light")
         }
     }
 

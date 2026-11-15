@@ -76,7 +76,7 @@ struct BootInfo {
     var winnerAddr: String = ""
 
     static func offline(_ addr: String, _ error: String, hits: [ProbeEngine.Hit] = []) -> BootInfo {
-        let note = "电脑离线，无法读取引导项"
+        let note = L("and.offlineCannotReadBoot")
         return BootInfo(
             ok: false, online: false, addr: addr, error: error,
             refind: BootGroup(kind: BootKind.refind, title: "rEFInd", available: false,
@@ -385,12 +385,12 @@ enum GrubFormat {
 
     static func label(_ format: String) -> String {
         switch format {
-        case "minimal": return "极简"
-        case "simple": return "简易"
-        case "medium": return "中等"
-        case "raw": return "原始"
-        case "detailed": return "复杂"
-        default: return "跟随电脑"
+        case "minimal": return L("hub.picker.fmt.minimal")
+        case "simple": return L("hub.picker.fmt.simple")
+        case "medium": return L("hub.picker.fmt.medium")
+        case "raw": return L("hub.picker.fmt.raw")
+        case "detailed": return L("hub.picker.fmt.detailed")
+        default: return L("hub.picker.fmt.follow")
         }
     }
 
@@ -411,10 +411,10 @@ enum GrubFormat {
 
     static func childSourceLabel(_ source: String) -> String {
         switch source {
-        case "default": return "默认项"
+        case "default": return L("hub.child.default")
         case "options": return "refind_linux.conf"
-        case "kernel": return "折叠内核"
-        case "macos": return "macOS 诊断"
+        case "kernel": return L("hub.child.kernel")
+        case "macos": return L("hub.child.macosDiag")
         case "stanza": return "submenuentry"
         default: return ""
         }
@@ -527,7 +527,7 @@ enum GrubFormat {
                 if option.grubKernels.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) {
                     tag = option.grubKernels.first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
                 } else if option.grubChainloader {
-                    tag = "转交引导"
+                    tag = L("grub.handoff")
                 } else {
                     tag = option.grubClassRaw
                 }
@@ -885,7 +885,7 @@ enum BootService {
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }
         if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
-            return "已设置下次启动项"
+            return L("and.nextBootSet")
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
         return failure.isEmpty ? "请求被拒绝" : failure
@@ -929,7 +929,7 @@ enum BootService {
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }
         if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
-            return "已设置下次启动项"
+            return L("and.nextBootSet")
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
         return failure.isEmpty ? "请求被拒绝" : failure

@@ -78,7 +78,7 @@ struct TransferTask: Identifiable, Codable, Hashable {
         return Int64(Double(transferred - baseline) / span)
     }
 
-    var directionLabel: String { direction == .upload ? "上传" : "下载" }
+    var directionLabel: String { direction == .upload ? L("fb.upload") : L("about.download") }
     /// 「已传 1.2 MB / 3.4 MB」
     var progressLabel: String {
         guard total > 0 else {

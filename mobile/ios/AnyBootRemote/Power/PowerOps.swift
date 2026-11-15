@@ -68,11 +68,11 @@ enum PowerOps {
 
         switch mode {
         case "http_only":
-            return "（仅 HTTP 模式）" + (try await http())
+            return L("and.httpOnlyMode") + (try await http())
 
         case "http_first":
             do {
-                return "（优先 HTTP 模式）" + (try await http())
+                return L("and.httpFirstMode") + (try await http())
             } catch {
                 do {
                     return "HTTP 没通（\(error.localizedDescription)），已改发广播包："

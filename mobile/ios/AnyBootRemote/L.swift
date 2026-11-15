@@ -39,8 +39,13 @@ enum AppLanguage {
     }
 
     static func string(_ key: String, _ args: [CVarArg]) -> String {
-        let fmt = bundle.localizedString(forKey: key, value: nil, table: nil)
-        return args.isEmpty ? fmt : String(format: fmt, arguments: args)
+        var fmt = bundle.localizedString(forKey: key, value: nil, table: nil)
+        // 资源用 {name}/{n}/{x} 等命名占位；按参数顺序逐个替换任意 {…}
+        for a in args {
+            guard let r = fmt.range(of: "\\{[^}]*\\}", options: .regularExpression) else { break }
+            fmt.replaceSubrange(r, with: String(describing: a))
+        }
+        return fmt
     }
 }
 

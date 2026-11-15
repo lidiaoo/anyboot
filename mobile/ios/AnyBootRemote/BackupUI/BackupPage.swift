@@ -197,11 +197,11 @@ struct BackupPage: View {
 
     private func subtitle(_ cat: BackupCategory) -> String {
         switch cat {
-        case .servers: return "电脑档案、配对通道、电源路由"
+        case .servers: return L("and.catServers")
         case .jumps: return "地址、账号；登录密码不在本文件内" + (selected.contains(.keys) ? "" : "")
-        case .keys: return "私钥将以明文写入备份，务必设置口令"
-        case .terminal: return "终端外观、传输方式等本机偏好"
-        case .history: return "会话记录与已信任的主机指纹"
+        case .keys: return L("and.catKeys")
+        case .terminal: return L("and.catPrefs")
+        case .history: return L("and.catTrust")
         }
     }
 
@@ -280,7 +280,7 @@ struct BackupPage: View {
                 Button {
                     showPassword.toggle()
                 } label: {
-                    Text(showPassword ? "隐藏" : "显示")
+                    Text(showPassword ? L("and.hide") : L("settings.show"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.accent)
                 }
@@ -494,12 +494,12 @@ struct BackupPage: View {
     }
 
     private var statusLabel: String {
-        if syncingNow { return "同步中…" }
+        if syncingNow { return L("and.syncing") }
         switch sync.status {
         case .idle:
             if let last = sync.lastSyncAt { return "上次同步 \(SyncStatus.timeText(last))" }
             return "未同步过"
-        case .running: return "同步中…"
+        case .running: return L("and.syncing")
         case .success(let date): return "上次同步 \(SyncStatus.timeText(date)) · 成功"
         case .failed(let reason): return "同步失败：\(reason)"
         }

@@ -83,7 +83,7 @@ struct RemotePair: Identifiable, Hashable, Codable {
         switch block.trimmedAnyBoot {
         case kindCloudflare: return "Cloudflare"
         case kindTS: return "Tailscale"
-        case kindTSNet: return "Tailscale（内建）"
+        case kindTSNet: return L("remote.tsnetLabel")
         default: return ""
         }
     }

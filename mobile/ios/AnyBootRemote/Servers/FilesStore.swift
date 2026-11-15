@@ -15,9 +15,9 @@ final class FilesStore: ObservableObject {
 
         var label: String {
             switch self {
-            case .name: return "名称"
-            case .size: return "大小"
-            case .time: return "时间"
+            case .name: return L("keysWin.name")
+            case .size: return L("fb.colSize")
+            case .time: return L("and.timeLabel")
             }
         }
     }
@@ -298,7 +298,7 @@ final class FilesStore: ObservableObject {
             return
         }
         let current = path
-        opLabel = "定位路径"
+        opLabel = L("and.locatePath")
         Task {
             do {
                 var value = raw
@@ -352,7 +352,7 @@ final class FilesStore: ObservableObject {
     /// 剪切是「移动」，静默改个名会让用户以为东西没了，不如让他自己决定。
     func transferInto(_ request: PickRequest, destDir: String) {
         guard let jump = server else { return }
-        run(request.cut ? "移动" : "复制") {
+        run(request.cut ? L("and.move") : L("common.copy")) {
             for source in request.paths {
                 // 剪到自己待的目录：没意义，跳过
                 if request.cut && SftpOps.parent(source) == destDir { continue }
@@ -370,7 +370,7 @@ final class FilesStore: ObservableObject {
                     }
                 } catch {
                     throw FilesOpError(SftpOps.reason(error,
-                        action: request.cut ? "移动" : "复制", path: name))
+                        action: request.cut ? L("and.move") : L("common.copy"), path: name))
                 }
             }
             if request.cut {

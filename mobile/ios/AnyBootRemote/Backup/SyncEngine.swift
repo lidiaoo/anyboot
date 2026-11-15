@@ -37,7 +37,7 @@ final class SyncEngine {
     @discardableResult
     func syncNow() async -> String? {
         guard !running else { return "正在同步，请稍后" }
-        guard store.config.isConfigured else { return "请先配置 WebDAV 服务器和同步内容" }
+        guard store.config.isConfigured else { return L("and.cfgFirst") }
         running = true
         store.setStatus(.running)
         defer {

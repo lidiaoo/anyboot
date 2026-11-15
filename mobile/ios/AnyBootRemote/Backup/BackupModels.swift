@@ -15,11 +15,11 @@ enum BackupCategory: String, CaseIterable, Identifiable, Codable {
     /// UI 文案（docs/backup-design.md §6 逐字）
     var label: String {
         switch self {
-        case .servers: return "电脑列表"
-        case .jumps: return "SSH 服务器"
-        case .keys: return "SSH 密钥"
-        case .terminal: return "偏好设置"
-        case .history: return "连接记录"
+        case .servers: return L("nav.computerList")
+        case .jumps: return L("bk.catJumps")
+        case .keys: return L("bk.catKeys")
+        case .terminal: return L("bk.catTerminal")
+        case .history: return L("bk.catHistory")
         }
     }
 }

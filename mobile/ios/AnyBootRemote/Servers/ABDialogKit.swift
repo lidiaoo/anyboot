@@ -57,7 +57,7 @@ struct ABDialogButtons: View {
 
     var confirmTitle: String
     var confirmColor: Color = ABColor.accent
-    var dismissTitle: String = "取消"
+    var dismissTitle: String = L("common.cancel")
     var onConfirm: () -> Void
     var onDismiss: () -> Void
 

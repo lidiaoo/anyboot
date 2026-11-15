@@ -13,7 +13,7 @@ struct TransfersPage: View {
                 let pending = center.active
                 let paused = pending.filter { $0.state == .paused }.count
                 let heading: String = {
-                    if pending.isEmpty { return "进行中" }
+                    if pending.isEmpty { return L("and.ongoing") }
                     if paused == 0 { return "进行中（\(pending.count)）" }
                     return "进行中（\(pending.count - paused)）· 已暂停（\(paused)）"
                 }()

@@ -273,7 +273,7 @@ final class ABConfirmBus {
 
     func confirm(title: String,
                  message: String,
-                 confirmTitle: String = "信任并连接") async -> Bool {
+                 confirmTitle: String = L("and.trustAndConnect")) async -> Bool {
         let key = "\(title)|\(confirmTitle)|\(message)"
         if waiters[key] != nil {
             // 已有同样的确认在等/在弹：挂上去共享答案，不再重复弹

@@ -15,7 +15,7 @@ struct TerminalPage: View {
     @ObservedObject private var jumps = JumpStore.shared
 
     @State private var currentId = ""
-    @State private var statusMessage: String? = "正在连接 …"
+    @State private var statusMessage: String? = L("and.connecting")
     @State private var ctrlArmed = false
     @State private var killTarget: TerminalSessionRef?
     @State private var manualPassword: ServerModuleStore.ManualPasswordRequest?
@@ -173,7 +173,7 @@ struct TerminalPage: View {
     }
 
     private var title: String {
-        guard let server = session?.server else { return "终端" }
+        guard let server = session?.server else { return L("nav.terminal") }
         return server.name.isEmpty ? server.addressLabel : server.name
     }
 
@@ -181,7 +181,7 @@ struct TerminalPage: View {
 
     private var statusText: String {
         if let statusMessage { return statusMessage }
-        guard let session else { return "未连接" }
+        guard let session else { return L("hub.state.notConnected") }
         return "已连接 · " + ABFormat.duration(Int64(Date().timeIntervalSince(session.startedAt) * 1000))
     }
 
@@ -304,7 +304,7 @@ struct TerminalPage: View {
 
     private func ensureSession(jumpId: String, alreadyOpen: Bool) async {
         guard let server = jumps.jump(jumpId) else {
-            statusMessage = "服务器不存在（可能已删除）"
+            statusMessage = L("and.serverNotExist")
             return
         }
         if let live = TerminalSessionsRegistry.get(jumpId) {
@@ -350,7 +350,7 @@ struct TerminalPage: View {
             NotificationCenter.default.post(name: .init("anyboot-term-\(id)"), object: data)
         }
         target.onClosed = { reason in
-            statusMessage = "会话已结束" + (reason.isEmpty ? "" : "：\(reason)")
+            statusMessage = L("and.sessionEnded") + (reason.isEmpty ? "" : "：\(reason)")
             ServerModuleStore.shared.toast("会话结束" + (reason.isEmpty ? "" : "：\(reason)"),
                                            long: true)
         }
