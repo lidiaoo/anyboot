@@ -4151,7 +4151,7 @@ fn menu_entry_from_json(item: &serde_json::Value) -> channels::oc_menu::MenuEntr
 
 /// MenuEntry 列表 → 统一 BootOption（可切在前、只读在后；带 tag/sub/note）。
 /// GRUB/rEFInd/OC 四端共用的唯一行构建。
-fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuEntry]) -> Vec<BootOption> {
+pub(crate) fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuEntry]) -> Vec<BootOption> {
     let kind_label = |k: &str| match k {
         "macos" => "macOS".to_string(),
         "windows" => "Windows".to_string(),

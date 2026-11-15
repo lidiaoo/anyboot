@@ -2337,19 +2337,13 @@ class ComputerListActivity : ComponentActivity() {
             }
             dot = ""
         } else {
-            // rEFInd / RefindPlus 直接用 label（走 GRUB 拼装会被折叠成「· N 个变体」）；
-            // GRUB 的当前值取托盘同款拼装出来的 **GrubRow.label** —— 不能取
-            // option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
+            // 统一化：rEFInd/RefindPlus 与 GRUB 同走 grubDisplayRows（数据已填 GRUB 原料）——
+            // 当前值取拼装出来的 **GrubRow.label**（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
+            // 不能取 option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
             // 直接取会显示空白（正是「GRUB 选中项空白」的根因）
-            if (kind == KIND_REFIND || kind == KIND_REFINDPLUS) {
-                val hit = group.options.firstOrNull { it.value == group.current }
-                valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
-                dot = hit?.kind ?: "linux"
-            } else {
-                val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
-                valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
-                dot = hit?.option?.kind ?: "linux"
-            }
+            val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
+            valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+            dot = hit?.option?.kind ?: "linux"
         }
 
         val shape = RoundedCornerShape(11.dp)

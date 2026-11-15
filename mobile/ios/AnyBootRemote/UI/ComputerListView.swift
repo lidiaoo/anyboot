@@ -1366,11 +1366,9 @@ struct ComputerListView: View {
             if row.state == Reach.unknown { valueLabel = "读取中…" }
             else if row.state == Reach.offline { valueLabel = "离线不可改" }
             else { valueLabel = "未检测到" }
-        } else if kind == Kind.refind {
-            let hit = group.options.first { $0.value == group.current }
-            valueLabel = hit?.label ?? (group.current.isEmpty ? "未设置" : group.current)
-            dotKind = hit?.kind ?? "linux"
         } else {
+            // 统一化：rEFInd 与 GRUB 同走 GrubFormat.displayRows（数据已填 GRUB 原料）——
+            // 当前值取拼装行 text（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
             let rows = GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
             let hit = rows.first { $0.option?.value == group.current && !$0.isGroup }
             if let hit {

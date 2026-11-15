@@ -307,13 +307,18 @@ function localTitle(kind: string): string {
   const id = kind.startsWith("channel:") ? kind.slice(8) : kind;
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
+/** 卡片回显：与弹窗置顶副本同口径 —— 当前项是组内子项时拼「组名 › 子名」，顶层显原名 */
+function echoLabel(groupLabel: string, name: string): string {
+  return groupLabel ? `${groupLabel} › ${name}` : name;
+}
 function bootState(kind: string): { label: string; none: boolean; dot: string } {
   if (isLocal.value) {
     const le = localEntries(kind);
     if (!le || !le.entries.length) return { label: "未检测到", none: true, dot: "" };
     let hit = le.entries.find((e) => String(e.selector) === le.active);
     if (!hit) hit = le.entries.find((e) => le.active && e.name && String(e.name).indexOf(le.active) >= 0);
-    return { label: hit ? String(hit.name) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
+    const gl = hit?.submenu ? (le.groupTitles?.[String(hit.submenu)] ?? "") : "";
+    return { label: hit ? echoLabel(gl, String(hit.name)) : (le.active || "未选择"), none: false, dot: (hit as any)?.class || "" };
   }
   const group = kind === "refind" || kind === "refindplus" || kind === "grub" ? props.info?.[kind] : undefined;
   if (!group) return { label: online.value === null || loading.value ? "读取中…" : "未检测到", none: true, dot: "" };
@@ -328,8 +333,22 @@ function bootState(kind: string): { label: string; none: boolean; dot: string } 
       const text = String(o.label || "").trim();
       return !!text && (text === current || text.indexOf(current) >= 0 || current.indexOf(text) >= 0);
     })[0];
+  // 组名：命中子项时向上找最近的组头行（去 ▾ 前缀与计数括号）
+  let gl = "";
+  if (hit) {
+    const hi = options.indexOf(hit);
+    for (let k = hi - 1; k >= 0; k--) {
+      if (options[k].header) {
+        gl = String(options[k].label ?? "")
+          .replace(/^[▾▸\s]+/, "")
+          .replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "")
+          .trim();
+        break;
+      }
+    }
+  }
   return {
-    label: hit?.label || current || "未选择",
+    label: hit ? echoLabel(gl, String(hit.label ?? current ?? "")) : (current || "未选择"),
     none: options.length === 0,
     dot: hit?.class || "",
   };
