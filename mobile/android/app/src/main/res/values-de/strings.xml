@@ -1423,6 +1423,19 @@ Inhalte werden mitgelöscht, nicht wiederherstellbar.</string>
     <string name="and_downloadFrom">Herunterladen von %1$s</string>
     <string name="and_resumeTransfer">Fortsetzen: %1$s (siehe „Aktiv“ oben)</string>
     <string name="and_reAddedTransfer">Erneut zu Übertragungen: %1$s (siehe „Aktiv“ oben)</string>
+    <string name="and_sortWith">Sortieren %1$s</string>
+    <string name="and_toAsc">Aufsteigend ↑</string>
+    <string name="and_toDesc">Absteigend ↓</string>
+    <string name="and_showHidden">Versteckte zeigen</string>
+    <string name="and_filter">Filter</string>
+    <string name="and_filterHint">Nach Name filtern (Groß-/Kleinschreibung egal); leer = alle</string>
+    <string name="and_doingOp">%1$s…</string>
+    <string name="and_clipCopiedNames">Kopiert: %1$s</string>
+    <string name="and_clipCutNames">Ausgeschnitten: %1$s</string>
+    <string name="and_pasteHere2">In aktuellen Ordner einfügen</string>
+    <string name="and_sftpNeedsSession">(Zuerst auf „Server“ verbinden oder in der Zeile „Terminal“ antippen – SFTP nutzt dieselbe SSH-Sitzung)</string>
+    <string name="and_namePubkey">%1$s öffentlicher Schlüssel</string>
+    <string name="and_readAction">Lesen</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

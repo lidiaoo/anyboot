@@ -1574,7 +1574,7 @@ class ServersActivity : ComponentActivity() {
                             if (JumpStore.text(entry.publicKey).isEmpty()) {
                                 toast(getString(R.string.and_noPubkey))
                             } else {
-                                copyClipboard(JumpStore.text(entry.name) + " 公钥", entry.publicKey)
+                                copyClipboard(getString(R.string.and_namePubkey, JumpStore.text(entry.name)), entry.publicKey)
                             }
                         },
                     contentAlignment = Alignment.Center,
@@ -1902,13 +1902,13 @@ class ServersActivity : ComponentActivity() {
                 ChipButton(stringResource(R.string.and_parentDir)) { gotoDir(SftpOps.parent(sftpPath)) }
                 ChipButton(stringResource(R.string.fb_upload)) { uploadLauncher.launch(arrayOf("*/*")) }
                 ChipButton(stringResource(R.string.and_newDirPlus)) { sftpMkdirOpen = true }
-                ChipButton("刷新") { reloadDir() }
-                ChipButton("路径") { sftpLocateOpen = true }
-                ChipButton("终端") { openTerminalAt(server, sftpPath) }
+                ChipButton(stringResource(R.string.common_refresh)) { reloadDir() }
+                ChipButton(stringResource(R.string.fb_path)) { sftpLocateOpen = true }
+                ChipButton(stringResource(R.string.nav_terminal)) { openTerminalAt(server, sftpPath) }
 
                 var sortOpen by remember { mutableStateOf(false) }
                 Box {
-                    ChipButton("排序 " + sortName(sftpSort) + (if (sftpSortDesc) " ↓" else " ↑")) {
+                    ChipButton(stringResource(R.string.and_sortWith, sortName(sftpSort) + (if (sftpSortDesc) " ↓" else " ↑"))) {
                         sortOpen = true
                     }
                     DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
@@ -1919,16 +1919,16 @@ class ServersActivity : ComponentActivity() {
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text(if (sftpSortDesc) "改为升序 ↑" else "改为降序 ↓") },
+                            text = { Text(if (sftpSortDesc) stringResource(R.string.and_toAsc) else stringResource(R.string.and_toDesc)) },
                             onClick = { sftpSortDesc = !sftpSortDesc; sortOpen = false },
                         )
                     }
                 }
 
-                ChipButton("显示隐藏", selected = sftpShowHidden) {
+                ChipButton(stringResource(R.string.and_showHidden), selected = sftpShowHidden) {
                     sftpShowHidden = !sftpShowHidden
                 }
-                ChipButton("过滤", selected = sftpFilterOpen) {
+                ChipButton(stringResource(R.string.and_filter), selected = sftpFilterOpen) {
                     sftpFilterOpen = !sftpFilterOpen
                     if (!sftpFilterOpen) sftpFilter = ""
                 }
@@ -1940,7 +1940,7 @@ class ServersActivity : ComponentActivity() {
                     onValueChange = { sftpFilter = it },
                     singleLine = true,
                     placeholder = {
-                        Text("按名称过滤（不区分大小写），清空就全显示", fontSize = 12.sp)
+                        Text(stringResource(R.string.and_filterHint), fontSize = 12.sp)
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1955,7 +1955,7 @@ class ServersActivity : ComponentActivity() {
                 ) {
                     CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(8.dp))
-                    SecondaryText("正在$sftpOpLabel …")
+                    SecondaryText(stringResource(R.string.and_doingOp, sftpOpLabel))
                 }
             }
 
@@ -1967,22 +1967,21 @@ class ServersActivity : ComponentActivity() {
                         .padding(vertical = 6.dp),
                 ) {
                     Text(
-                        (if (sftpClip == SftpClip.COPY) "📋 已复制 " else "✂️ 已剪切 ") + sftpClipNames,
+                        (if (sftpClip == SftpClip.COPY) "📋 " + stringResource(R.string.and_clipCopiedNames, sftpClipNames) else "✂️ " + stringResource(R.string.and_clipCutNames, sftpClipNames)),
                         fontSize = 12.sp,
                         color = LocalPalette.current.fgDim,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    ChipButton("粘贴到当前目录") { pasteClipboard(server, sftpPath) }
+                    ChipButton(stringResource(R.string.and_pasteHere2)) { pasteClipboard(server, sftpPath) }
                     Spacer(Modifier.width(6.dp))
-                    ChipButton("取消") { clearClip() }
+                    ChipButton(stringResource(R.string.common_cancel)) { clearClip() }
                 }
             }
 
             if (!SshSessionManager.shared().isUp(sftpServerId)) {
-                SecondaryText("　（先在「服务器」页连上这台服务器，或点行内「终端」——"
-                        + " SFTP 复用同一条 SSH 会话）")
+                SecondaryText("　" + stringResource(R.string.and_sftpNeedsSession))
             }
 
             // 设计稿的三列表头：名称 / 大小 / 修改时间
@@ -1993,9 +1992,9 @@ class ServersActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
-                    Text("名称", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.weight(1f))
-                    Text("大小", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(64.dp))
-                    Text("修改时间", fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    Text(stringResource(R.string.fb_colName), fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.weight(1f))
+                    Text(stringResource(R.string.fb_colSize), fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(64.dp))
+                    Text(stringResource(R.string.fb_colMtime), fontSize = 10.sp, color = palette.fgFaint, modifier = Modifier.width(72.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                     Spacer(Modifier.width(30.dp)) // 行末 ⋮ 的占位
                 }
             }
@@ -2324,7 +2323,7 @@ class ServersActivity : ComponentActivity() {
                     bus.confirm(title, message)
                 }
             } catch (failure: Exception) {
-                error = sftpReason("读取", path, failure)
+                error = sftpReason(getString(R.string.and_readAction), path, failure)
             }
             val result = entries
             val failureMessage = error

@@ -1423,6 +1423,19 @@ El contenido también se borra sin vuelta.</string>
     <string name="and_downloadFrom">Descargar de %1$s</string>
     <string name="and_resumeTransfer">Reanudando: %1$s (ver «Activas» arriba)</string>
     <string name="and_reAddedTransfer">Reañadido a transferencias: %1$s (ver «Activas» arriba)</string>
+    <string name="and_sortWith">Ordenar %1$s</string>
+    <string name="and_toAsc">Ascendente ↑</string>
+    <string name="and_toDesc">Descendente ↓</string>
+    <string name="and_showHidden">Mostrar ocultos</string>
+    <string name="and_filter">Filtrar</string>
+    <string name="and_filterHint">Filtrar por nombre (sin distinguir mayúsculas); vacío = todos</string>
+    <string name="and_doingOp">%1$s…</string>
+    <string name="and_clipCopiedNames">Copiado: %1$s</string>
+    <string name="and_clipCutNames">Cortado: %1$s</string>
+    <string name="and_pasteHere2">Pegar en la carpeta actual</string>
+    <string name="and_sftpNeedsSession">(Conecta el servidor en «Servidores» o toca «Terminal» en la fila: SFTP reusa la misma sesión SSH)</string>
+    <string name="and_namePubkey">Clave pública %1$s</string>
+    <string name="and_readAction">Lectura</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
