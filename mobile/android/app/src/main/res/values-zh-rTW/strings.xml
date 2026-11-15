@@ -1255,6 +1255,11 @@
     <string name="and_mixedBothFail">（混合模式）兩邊都失敗 —— 廣播封包：%1$s；HTTP：%2$s</string>
     <string name="and_mixedBothSent">（混合模式）HTTP 與廣播封包已同時發送 —— HTTP：%1$s；廣播封包：%2$s</string>
     <string name="and_mixedHttpDonePacketFail">（混合模式）HTTP 介面已執行：%1$s；廣播封包沒發出去（%2$s）</string>
+    <string name="and_back">返回</string>
+    <string name="and_themeWith">主題：%1$s</string>
+    <string name="and_drawerFooter">心跳 10s · 並行探測
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">外網連家裡的電腦：先把家裡能公網存取的機器加成 SSH 伺服器，再在電腦的「經由跳板機」裡選它。</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

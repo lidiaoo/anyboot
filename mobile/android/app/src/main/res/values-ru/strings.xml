@@ -1255,6 +1255,11 @@
     <string name="and_mixedBothFail">(смешанно) оба не удались — пакет: %1$s; HTTP: %2$s</string>
     <string name="and_mixedBothSent">(смешанно) HTTP и magic packet отправлены вместе — HTTP: %1$s; пакет: %2$s</string>
     <string name="and_mixedHttpDonePacketFail">(смешанно) HTTP API выполнен: %1$s; magic packet не отправлен (%2$s)</string>
+    <string name="and_back">Назад</string>
+    <string name="and_themeWith">Тема: %1$s</string>
+    <string name="and_drawerFooter">Heartbeat 10s · параллельная проверка
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">Доступ к домашнему ПК извне: добавьте доступную извне машину дома как сервер SSH и выберите её в «Через промежуточный узел».</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

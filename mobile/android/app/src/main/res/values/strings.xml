@@ -1255,6 +1255,11 @@
     <string name="and_mixedBothFail">（混合模式）两边都失败 —— 广播包：%1$s；HTTP：%2$s</string>
     <string name="and_mixedBothSent">（混合模式）HTTP 与广播包已同时发送 —— HTTP：%1$s；广播包：%2$s</string>
     <string name="and_mixedHttpDonePacketFail">（混合模式）HTTP 接口已执行：%1$s；广播包没发出去（%2$s）</string>
+    <string name="and_back">返回</string>
+    <string name="and_themeWith">主题：%1$s</string>
+    <string name="and_drawerFooter">心跳 10s · 并发探测
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，再在电脑的「经由跳板机」里选它。</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

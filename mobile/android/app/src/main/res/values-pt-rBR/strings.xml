@@ -1255,6 +1255,11 @@ Adicione em “Servidores” e a energia e entradas aparecerão aqui</string>
     <string name="and_mixedBothFail">(misto) ambos falharam — pacote: %1$s; HTTP: %2$s</string>
     <string name="and_mixedBothSent">(misto) HTTP e magic packet enviados juntos — HTTP: %1$s; pacote: %2$s</string>
     <string name="and_mixedHttpDonePacketFail">(misto) API HTTP executada: %1$s; magic packet não enviado (%2$s)</string>
+    <string name="and_back">Voltar</string>
+    <string name="and_themeWith">Tema: %1$s</string>
+    <string name="and_drawerFooter">Heartbeat 10s · sondagem paralela
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">Acessar o PC de casa de fora: adicione uma máquina acessível publicamente em casa como servidor SSH e escolha em “Via jump host”.</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

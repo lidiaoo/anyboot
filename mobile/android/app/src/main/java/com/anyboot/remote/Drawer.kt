@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.app.Activity
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -114,42 +115,42 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                 }
                 // 导航
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp)) {
-                    DrawerNavRow("🖥", "电脑", selected = current == DRAWER_COMPUTERS,
+                    DrawerNavRow("🖥", stringResource(R.string.nav_computer), selected = current == DRAWER_COMPUTERS,
                         iconSlot = { tint, size -> DesktopIcon(tint, size) }) {
                         onDismiss()
                         if (current != DRAWER_COMPUTERS) {
                             context.startActivity(Intent(context, MainActivity::class.java))
                         }
                     }
-                    DrawerNavRow("🎛", "电脑列表", selected = current == DRAWER_COMPUTER_LIST,
+                    DrawerNavRow("🎛", stringResource(R.string.nav_computerList), selected = current == DRAWER_COMPUTER_LIST,
                         iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
                         onDismiss()
                         if (current != DRAWER_COMPUTER_LIST) {
                             context.startActivity(Intent(context, ComputerListActivity::class.java))
                         }
                     }
-                    DrawerNavRow("🖧", "服务器", selected = current == DRAWER_SERVERS,
+                    DrawerNavRow("🖧", stringResource(R.string.nav_servers), selected = current == DRAWER_SERVERS,
                         iconSlot = { tint, size -> ServerStackIcon(tint, size) }) {
                         onDismiss()
                         if (current != DRAWER_SERVERS) {
                             context.startActivity(Intent(context, ServersActivity::class.java))
                         }
                     }
-                    DrawerNavRow("⇅", "备份与恢复", selected = current == DRAWER_BACKUP,
+                    DrawerNavRow("⇅", stringResource(R.string.bk_titleFull), selected = current == DRAWER_BACKUP,
                         iconSlot = { tint, size ->
                             SwapVerticalIcon(tint, size)
                         }) {
                         onDismiss()
                         context.startActivity(Intent(context, BackupActivity::class.java))
                     }
-                    DrawerNavRow("ⓘ", "关于", iconSlot = { tint, size ->
-                        Icon(Icons.Filled.Info, "关于", tint = tint,
+                    DrawerNavRow("ⓘ", stringResource(R.string.nav_about), iconSlot = { tint, size ->
+                        Icon(Icons.Filled.Info, stringResource(R.string.nav_about), tint = tint,
                             modifier = Modifier.size(size))
                     }) {
                         onDismiss()
                         context.startActivity(Intent(context, AboutActivity::class.java))
                     }
-                    DrawerNavRow("🌓", "主题：" + Ui.modeLabel(context)) {
+                    DrawerNavRow("🌓", stringResource(R.string.and_themeWith, Ui.modeLabel(context))) {
                         Ui.cycle(context)
                         onDismiss()
                         (context as? Activity)?.recreate()
@@ -163,14 +164,13 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                         .padding(16.dp),
                 ) {
                     Text(
-                        "心跳 10s · 并发探测\nGitHub · lidiaoo/anyboot",
+                        stringResource(R.string.and_drawerFooter),
                         fontSize = 10.sp,
                         lineHeight = 16.sp,
                         color = palette.fgFaint,
                     )
                     Text(
-                        "外网连家里的电脑：先把家里能公网访问的机器加成 SSH 服务器，"
-                                + "再在电脑的「经由跳板机」里选它。",
+                        stringResource(R.string.and_drawerJumpHint),
                         fontSize = 10.sp,
                         lineHeight = 15.sp,
                         color = palette.fgFaint,

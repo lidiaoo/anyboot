@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.Intent
+import androidx.compose.ui.res.stringResource
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
@@ -91,8 +92,8 @@ class AboutActivity : ComponentActivity() {
                         .background(palette.base)
                         .padding(start = 4.dp, top = 10.dp, bottom = 8.dp),
                 ) {
-                    BarIcon("‹", "返回") { finish() }
-                    Text("关于", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.fg)
+                    BarIcon("‹", stringResource(R.string.and_back)) { finish() }
+                    Text(stringResource(R.string.nav_about), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = palette.fg)
                 }
 
                 Column(
@@ -126,7 +127,7 @@ class AboutActivity : ComponentActivity() {
                             modifier = Modifier.padding(top = 12.dp),
                         )
                         Text(
-                            "v" + versionName() + " · 多系统启动管理器",
+                            stringResource(R.string.about_verLine, versionName()),
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             color = palette.fgFaint,
@@ -134,7 +135,7 @@ class AboutActivity : ComponentActivity() {
                         )
                         Text(
                             // 与 PC（ui/hub.html #page-about）逐字一致，改文案三端一起改
-                            "多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输",
+                            stringResource(R.string.about_desc),
                             fontSize = 12.sp,
                             color = palette.fgDim,
                             textAlign = TextAlign.Center,
@@ -197,7 +198,7 @@ class AboutActivity : ComponentActivity() {
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    "开源项目主页",
+                                    stringResource(R.string.about_repoHome),
                                     fontSize = 11.sp,
                                     color = palette.fgDim,
                                     modifier = Modifier.padding(top = 1.dp),
@@ -234,7 +235,7 @@ class AboutActivity : ComponentActivity() {
                             StatText(statsLabel("open_issues_count", "Issues"), Modifier.weight(1f))
                         }
                         Text(
-                            "点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。",
+                            stringResource(R.string.about_starTip),
                             fontSize = 11.sp,
                             color = palette.fgFaint,
                             lineHeight = 16.sp,
@@ -251,11 +252,11 @@ class AboutActivity : ComponentActivity() {
                             .background(palette.card)
                             .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
                     ) {
-                        LinkRow("更新日志", REPO_URL + "/releases")
+                        LinkRow(stringResource(R.string.about_tabReleases), REPO_URL + "/releases")
                         LinkDivider()
-                        LinkRow("问题反馈（Issues）", REPO_URL + "/issues")
+                        LinkRow(stringResource(R.string.about_tabIssues), REPO_URL + "/issues")
                         LinkDivider()
-                        LinkRow("开源许可", REPO_URL + "/blob/main/LICENSE", suffix = "MIT")
+                        LinkRow(stringResource(R.string.about_tabLicense), REPO_URL + "/blob/main/LICENSE", suffix = "MIT")
                     }
 
                     Text(

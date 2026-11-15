@@ -1255,6 +1255,11 @@
     <string name="and_mixedBothFail">（混合）両方失敗 — ブロードキャスト：%1$s；HTTP：%2$s</string>
     <string name="and_mixedBothSent">（混合）HTTP とブロードキャストを同時送信 — HTTP：%1$s；ブロードキャスト：%2$s</string>
     <string name="and_mixedHttpDonePacketFail">（混合）HTTP API 実行済み：%1$s；ブロードキャスト未送信（%2$s）</string>
+    <string name="and_back">戻る</string>
+    <string name="and_themeWith">テーマ：%1$s</string>
+    <string name="and_drawerFooter">ハートビート 10s · 並列検出
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">外部から自宅 PC へ：自宅で公開できるマシンを SSH サーバーとして追加し、PC の「踏み台経由」で選択。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

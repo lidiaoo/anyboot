@@ -1255,6 +1255,11 @@ Unter „Server“ hinzufügen, dann erscheinen hier Energie und Starteinträge<
     <string name="and_mixedBothFail">(gemischt) beide fehlgeschlagen – Paket: %1$s; HTTP: %2$s</string>
     <string name="and_mixedBothSent">(gemischt) HTTP und Magic Packet zusammen gesendet – HTTP: %1$s; Paket: %2$s</string>
     <string name="and_mixedHttpDonePacketFail">(gemischt) HTTP-API ausgeführt: %1$s; Magic Packet nicht gesendet (%2$s)</string>
+    <string name="and_back">Zurück</string>
+    <string name="and_themeWith">Design: %1$s</string>
+    <string name="and_drawerFooter">Heartbeat 10s · parallele Prüfung
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">Von außen zum Heim-PC: ein öffentlich erreichbares Gerät zu Hause als SSH-Server hinzufügen und unter „Über Sprungserver“ wählen.</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

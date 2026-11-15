@@ -1255,6 +1255,11 @@
     <string name="and_mixedBothFail">(혼합) 둘 다 실패 — 브로드캐스트: %1$s; HTTP: %2$s</string>
     <string name="and_mixedBothSent">(혼합) HTTP와 브로드캐스트 동시 전송 — HTTP: %1$s; 브로드캐스트: %2$s</string>
     <string name="and_mixedHttpDonePacketFail">(혼합) HTTP API 실행됨: %1$s; 브로드캐스트 미전송 (%2$s)</string>
+    <string name="and_back">뒤로</string>
+    <string name="and_themeWith">테마: %1$s</string>
+    <string name="and_drawerFooter">하트비트 10s · 병렬 감지
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">외부에서 집 컴퓨터로: 집에서 공개 접근 가능한 기기를 SSH 서버로 추가한 뒤 컴퓨터의 ‘점프 호스트 경유’에서 선택.</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

@@ -1255,6 +1255,11 @@ Add one under “Servers” and its power and boot entries appear here</string>
     <string name="and_mixedBothFail">(mixed) both failed — packet: %1$s; HTTP: %2$s</string>
     <string name="and_mixedBothSent">(mixed) HTTP and magic packet sent together — HTTP: %1$s; packet: %2$s</string>
     <string name="and_mixedHttpDonePacketFail">(mixed) HTTP API executed: %1$s; magic packet not sent (%2$s)</string>
+    <string name="and_back">Back</string>
+    <string name="and_themeWith">Theme: %1$s</string>
+    <string name="and_drawerFooter">Heartbeat 10s · parallel probe
+GitHub · lidiaoo/anyboot</string>
+    <string name="and_drawerJumpHint">Reach a home computer from outside: add a publicly reachable machine at home as an SSH server, then pick it under the computer\'s “Via jump host”.</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>
