@@ -1369,10 +1369,13 @@ struct ComputerListView: View {
         } else {
             // 统一化：rEFInd 与 GRUB 同走 GrubFormat.displayRows（数据已填 GRUB 原料）——
             // 当前值取拼装行 text（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
+            // text 自带 ↳/图标 —— 卡片左侧已画图标，回显文字要去掉行首符号（双图标残留）。
             let rows = GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
             let hit = rows.first { $0.option?.value == group.current && !$0.isGroup }
             if let hit {
                 valueLabel = hit.text
+                    .replacingOccurrences(of: "^[^\\p{L}\\p{Nd}›·]+", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
                 dotKind = hit.option?.kind ?? "linux"
             } else {
                 valueLabel = group.current.isEmpty ? "未设置" : group.current

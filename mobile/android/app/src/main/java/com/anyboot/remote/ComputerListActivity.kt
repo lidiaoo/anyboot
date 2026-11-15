@@ -2340,9 +2340,13 @@ class ComputerListActivity : ComponentActivity() {
             // 统一化：rEFInd/RefindPlus 与 GRUB 同走 grubDisplayRows（数据已填 GRUB 原料）——
             // 当前值取拼装出来的 **GrubRow.label**（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
             // 不能取 option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
-            // 直接取会显示空白（正是「GRUB 选中项空白」的根因）
+            // 直接取会显示空白（正是「GRUB 选中项空白」的根因）。
+            // label 自带 grub_os_icon 图标 —— 卡片左侧已画图标，回显文字要去掉行首图标，
+            // 否则一行两个（用户 2026-11-15 报「图标重复了 残留」）。
             val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
-            valueLabel = hit?.label ?: group.current.ifEmpty { "未设置" }
+            valueLabel = (hit?.label ?: group.current.ifEmpty { "未设置" })
+                .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
+                .trim()
             dot = hit?.option?.kind ?: "linux"
         }
 
