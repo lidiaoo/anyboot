@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">Reset to defaults: dark · size %1$d · shortcut bar on</string>
     <string name="and_termResetBtn">Restore defaults</string>
     <string name="and_termLiveHint">Changes apply immediately: open terminal pages pick them up on return; you can also use A- / A+ in the terminal top bar to adjust size temporarily (also saved).</string>
+    <string name="and_noSysInfo">The peer returned no system info</string>
+    <string name="and_nothingToCopy">Nothing to copy for %1$s</string>
+    <string name="and_copiedLabel">Copied %1$s</string>
+    <string name="and_copyLabelFail">Copy %1$s failed: %2$s</string>
+    <string name="and_trustAndConnect">Trust and connect</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

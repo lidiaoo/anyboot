@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">已恢復預設：暗色 · 字級 %1$d · 快速鍵列開</string>
     <string name="and_termResetBtn">恢復預設設定</string>
     <string name="and_termLiveHint">改動即時生效：已開啟的終端機頁返回時會自動套用，也可以直接用終端機頁頂欄的 A- / A+ 臨時調字級（同樣會存下來）。</string>
+    <string name="and_noSysInfo">對方沒有回傳任何系統資訊</string>
+    <string name="and_nothingToCopy">沒有可複製的%1$s</string>
+    <string name="and_copiedLabel">已複製%1$s</string>
+    <string name="and_copyLabelFail">複製%1$s 失敗：%2$s</string>
+    <string name="and_trustAndConnect">信任並連線</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

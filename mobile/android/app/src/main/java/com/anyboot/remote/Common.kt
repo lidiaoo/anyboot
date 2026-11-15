@@ -1,6 +1,7 @@
 package com.anyboot.remote
 
 import android.content.ClipData
+import androidx.compose.ui.res.stringResource
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
@@ -132,7 +133,7 @@ fun Context.toast(message: String, long: Boolean = false) {
 fun Context.copyRemoteSlot(label: String, value: String) {
     val text = value.trim()
     if (text.isEmpty()) {
-        toast("没有可复制的$label", long = true)
+        toast(getString(R.string.and_nothingToCopy, label), long = true)
         return
     }
     try {
@@ -140,10 +141,10 @@ fun Context.copyRemoteSlot(label: String, value: String) {
         // Android 13+ 系统自带「已复制」浮层，但各家 ROM 行为不一致（有的静默），
         // 我们照旧吐自己的 toast —— 有总比没有好，用户要的是确定感。
         manager.setPrimaryClip(ClipData.newPlainText("anyboot-$label", text))
-        toast("已复制$label")
+        toast(getString(R.string.and_copiedLabel, label))
     } catch (e: Exception) {
         // 剪贴板在某些定制 ROM / 无窗口场景会抛异常，别让它把页面带崩
-        toast("复制$label 失败：${e.message ?: e.javaClass.simpleName}", long = true)
+        toast(getString(R.string.and_copyLabelFail, label, e.message ?: e.javaClass.simpleName), long = true)
     }
 }
 
@@ -182,10 +183,10 @@ fun ConfirmDialog(bus: ConfirmBus) {
         title = { Text(request.title) },
         text = { Text(request.message) },
         confirmButton = {
-            TextButton(onClick = { bus.complete(true) }) { Text("信任并连接") }
+            TextButton(onClick = { bus.complete(true) }) { Text(stringResource(R.string.and_trustAndConnect)) }
         },
         dismissButton = {
-            TextButton(onClick = { bus.complete(false) }) { Text("取消") }
+            TextButton(onClick = { bus.complete(false) }) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
@@ -511,7 +512,7 @@ fun SystemInfoDialog(
     val palette = LocalPalette.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("系统信息") },
+        title = { Text(stringResource(R.string.and_menuSysinfo)) },
         text = {
             Column(
                 Modifier
@@ -546,17 +547,17 @@ fun SystemInfoDialog(
                         }
                     }
                     if (rows.isEmpty()) {
-                        Text("对方没有返回任何系统信息", fontSize = 12.sp, color = palette.fgFaint)
+                        Text(stringResource(R.string.and_noSysInfo), fontSize = 12.sp, color = palette.fgFaint)
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close)) }
         },
         dismissButton = {
             if (!loading && error.isEmpty() && rows.isNotEmpty()) {
-                TextButton(onClick = onCopy) { Text("复制") }
+                TextButton(onClick = onCopy) { Text(stringResource(R.string.common_copy)) }
             }
         },
     )

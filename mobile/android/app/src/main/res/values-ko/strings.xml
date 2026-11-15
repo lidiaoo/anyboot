@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">기본값 복원: 다크 · %1$d · 단축키 바 켜짐</string>
     <string name="and_termResetBtn">기본값 복원</string>
     <string name="and_termLiveHint">변경 즉시 적용: 열린 터미널 페이지는 돌아오면 적용. 터미널 상단 바의 A- / A+로 임시 조정 가능(저장됨).</string>
+    <string name="and_noSysInfo">상대가 시스템 정보를 반환하지 않음</string>
+    <string name="and_nothingToCopy">복사할 %1$s 없음</string>
+    <string name="and_copiedLabel">%1$s 복사됨</string>
+    <string name="and_copyLabelFail">%1$s 복사 실패: %2$s</string>
+    <string name="and_trustAndConnect">신뢰하고 연결</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

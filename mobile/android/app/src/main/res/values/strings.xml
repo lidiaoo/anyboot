@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">已恢复默认：暗色 · 字号 %1$d · 快捷键栏开</string>
     <string name="and_termResetBtn">恢复默认设置</string>
     <string name="and_termLiveHint">改动即时生效：已经打开的终端页返回时会自动套用，也可以直接用终端页顶栏的 A- / A+ 临时调字号（同样会存下来）。</string>
+    <string name="and_noSysInfo">对方没有返回任何系统信息</string>
+    <string name="and_nothingToCopy">没有可复制的%1$s</string>
+    <string name="and_copiedLabel">已复制%1$s</string>
+    <string name="and_copyLabelFail">复制%1$s 失败：%2$s</string>
+    <string name="and_trustAndConnect">信任并连接</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

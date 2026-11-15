@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">Сброшено: тёмная · %1$d · панель ярлыков вкл</string>
     <string name="and_termResetBtn">Сбросить к умолчанию</string>
     <string name="and_termLiveHint">Изменения сразу: открытые страницы терминала применят при возврате; A- / A+ в верхней панели для временной подстройки (сохраняется).</string>
+    <string name="and_noSysInfo">Партнёр не вернул системную информацию</string>
+    <string name="and_nothingToCopy">Нечего копировать: %1$s</string>
+    <string name="and_copiedLabel">Скопировано: %1$s</string>
+    <string name="and_copyLabelFail">Ошибка копирования %1$s: %2$s</string>
+    <string name="and_trustAndConnect">Доверять и подключиться</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

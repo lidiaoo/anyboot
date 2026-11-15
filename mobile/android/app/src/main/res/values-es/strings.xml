@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">Restablecido: oscuro · %1$d · barra de atajos activa</string>
     <string name="and_termResetBtn">Restablecer valores</string>
     <string name="and_termLiveHint">Cambios inmediatos: las páginas abiertas los aplican al volver; A- / A+ arriba ajustan temporalmente (también se guarda).</string>
+    <string name="and_noSysInfo">El otro no devolvió información del sistema</string>
+    <string name="and_nothingToCopy">Nada que copiar de %1$s</string>
+    <string name="and_copiedLabel">Copiado %1$s</string>
+    <string name="and_copyLabelFail">Error al copiar %1$s: %2$s</string>
+    <string name="and_trustAndConnect">Confiar y conectar</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

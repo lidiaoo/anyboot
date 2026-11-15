@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">Padrões restaurados: escuro · %1$d · barra de atalhos ativa</string>
     <string name="and_termResetBtn">Restaurar padrões</string>
     <string name="and_termLiveHint">Mudanças imediatas: páginas de terminal abertas aplicam ao voltar; A- / A+ no topo ajustam temporariamente (também salvo).</string>
+    <string name="and_noSysInfo">O par não retornou informações do sistema</string>
+    <string name="and_nothingToCopy">Nada para copiar de %1$s</string>
+    <string name="and_copiedLabel">Copiado %1$s</string>
+    <string name="and_copyLabelFail">Falha ao copiar %1$s: %2$s</string>
+    <string name="and_trustAndConnect">Confiar e conectar</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

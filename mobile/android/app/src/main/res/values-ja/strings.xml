@@ -1284,6 +1284,11 @@ GitHub · lidiaoo/anyboot</string>
     <string name="and_termResetDone">既定に戻しました：ダーク · %1$d · ショートカットバー オン</string>
     <string name="and_termResetBtn">既定に戻す</string>
     <string name="and_termLiveHint">変更は即時反映：開いている端末ページは戻ると適用。端末トップバーの A- / A+ で一時的に文字サイズ調整可（保存もされます）。</string>
+    <string name="and_noSysInfo">相手がシステム情報を返しませんでした</string>
+    <string name="and_nothingToCopy">コピーできる%1$sがありません</string>
+    <string name="and_copiedLabel">%1$s をコピーしました</string>
+    <string name="and_copyLabelFail">%1$s のコピーに失敗：%2$s</string>
+    <string name="and_trustAndConnect">信頼して接続</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
