@@ -276,8 +276,8 @@ const entries = computed<EntryData[]>(() => {
   return channelEntries.value;
 });
 
-/** 三通道不显示组头（OC 的 menuPreview 是平铺的） */
-const showGroups = computed(() => !isChannel.value);
+// 统一化：所有引导器共用 GRUB 列表样式，showGroups 恒开（OC 等通道的条目 submenu 为空，天然无组头，不会画组头行） */
+const showGroups = computed(() => true);
 
 /** 有动作在跑时禁用 */
 const disabled = computed(() => Boolean(ui.busy?.switching));

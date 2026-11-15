@@ -675,7 +675,7 @@ function onRowClick() {
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
       <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="`${picker.title} · 选择启动项`">
         <div class="cq-picker-head">{{ picker.title }} · 选择下次启动</div>
-        <div v-if="picker.kind === 'grub' || picker.kind === 'channel:grub'" class="cq-picker-fmt">
+        <div v-if="picker" class="cq-picker-fmt">
           <span class="cq-picker-fmt-label">条目文字格式</span>
           <div class="cq-picker-fmt-chips">
             <button v-for="c in fmtChoices" :key="c.v" type="button"

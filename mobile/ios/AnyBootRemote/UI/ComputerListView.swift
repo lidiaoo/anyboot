@@ -1883,17 +1883,7 @@ struct ComputerListView: View {
     /// 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区）
     @ViewBuilder
     private func channelPickerContent(_ profile: ServerProfile, channel: ChannelGroup) -> some View {
-        // 说明与健康检查：收进感叹号（用户 2026-10-28：不要占位置），点了才展开
-        let ocNote = channel.id == "opencore"
-            ? "「设为默认 ⤴」等价于 OC 菜单里的 Ctrl+Enter：写 OCBt0080 / OCBtOrder，不碰被 macOS 挡住的 Boot* 变量；电脑端弹授权时批准即可"
-            : ""
-        let nvramNote = channel.permission == "nvram"
-            ? "⤴ 切换必经 NVRAM 写（电脑端可能弹管理员授权）"
-            : ""
-        ChannelNoteDisclosure(
-            detail: channel.detail.trimmingCharacters(in: .whitespaces),
-            issues: channel.health,
-            extra: [nvramNote, ocNote].filter { !$0.isEmpty }.joined(separator: "\n"))
+        // 统一化：PC 电脑列表 OC 弹窗无提示区/提示词（提示按钮与提示词在本系统不可见）
         // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
         // 排序与 PC / 安卓一致：**可选中的（spec 非空）一组在前，不可选中的一组在后**，
         // 只按 spec 分组、与是否选中无关 → 顺序恒定，选中只在原位高亮，不跳变。
