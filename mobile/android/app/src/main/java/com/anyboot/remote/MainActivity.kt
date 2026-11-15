@@ -838,7 +838,7 @@ class MainActivity : ComponentActivity() {
         val index = tab?.addressIndex ?: 0
         val address = profile.hostAt(index)
         if (address.isEmpty()) {
-            throw Exception("这台电脑还没有可用地址")
+            throw Exception(getString(R.string.error_noAddress))
         }
         val tunnel = tab?.effectiveAddress ?: ""
         // 一址一跳板机：这个标签当前用的地址绑了哪台就查哪台（不是档案级的单值字段）
@@ -847,7 +847,7 @@ class MainActivity : ComponentActivity() {
             return if (tunnel.isNotEmpty()) tunnel else address
         }
         val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
-            ?: throw Exception("跳板机不存在，请到「服务器」页检查")
+            ?: throw Exception(getString(R.string.and_jumpNotExistCheck))
         return SshSessionManager.shared().tunnelAddress(this, jump, address) { title, message ->
             bus.confirm(title, message)
         }
@@ -892,17 +892,16 @@ class MainActivity : ComponentActivity() {
                         // 没配路由：老路 —— 唤醒广播 / 其余直接调接口（都在 packets() 里）
                         routes.isEmpty() -> packets()
                         // 仅 HTTP：一个广播包都不发
-                        mode == "http_only" -> "（仅 HTTP 模式）" + http()
+                        mode == "http_only" -> getString(R.string.and_httpOnlyMode) + http()
                         // 优先 HTTP：接口通了就完事；没通退回广播包，两边错误都要让人看到
                         mode == "http_first" -> try {
-                            "（优先 HTTP 模式）" + http()
+                            getString(R.string.and_httpFirstMode) + http()
                         } catch (httpError: Exception) {
                             try {
-                                "HTTP 没通（${httpError.message ?: "未知错误"}），已改发广播包：${packets()}"
+                                getString(R.string.and_httpFailedFallback, httpError.message ?: getString(R.string.gw_unknownErr), packets())
                             } catch (packetError: Exception) {
                                 throw Exception(
-                                    "HTTP 没通（${httpError.message ?: "未知错误"}）；" +
-                                        "广播包也没发出去：${packetError.message ?: "未知错误"}"
+                                    getString(R.string.and_httpAndPacketFail, httpError.message ?: getString(R.string.gw_unknownErr), packetError.message ?: getString(R.string.gw_unknownErr))
                                 )
                             }
                         }
@@ -929,20 +928,16 @@ class MainActivity : ComponentActivity() {
                             httpThread.join()
                             when (val httpValue = httpOutcome.get()) {
                                 is Exception -> if (packetMessage != null) {
-                                    "（混合模式）广播包已发出：$packetMessage；" +
-                                        "HTTP 接口失败：${httpValue.message ?: "未知错误"}"
+                                    getString(R.string.and_mixedPacketSentHttpFail, packetMessage, httpValue.message ?: getString(R.string.gw_unknownErr))
                                 } else {
                                     throw Exception(
-                                        "（混合模式）两边都失败 —— 广播包：" +
-                                            "${packetError?.message ?: "未知错误"}；" +
-                                            "HTTP：${httpValue.message ?: "未知错误"}"
+                                        getString(R.string.and_mixedBothFail, packetError?.message ?: getString(R.string.gw_unknownErr), httpValue.message ?: getString(R.string.gw_unknownErr))
                                     )
                                 }
                                 else -> if (packetMessage != null) {
-                                    "（混合模式）HTTP 与广播包已同时发送 —— HTTP：$httpValue；广播包：$packetMessage"
+                                    getString(R.string.and_mixedBothSent, httpValue, packetMessage)
                                 } else {
-                                    "（混合模式）HTTP 接口已执行：$httpValue；" +
-                                        "广播包没发出去（${packetError?.message ?: "未知错误"}）"
+                                    getString(R.string.and_mixedHttpDonePacketFail, httpValue, packetError?.message ?: getString(R.string.gw_unknownErr))
                                 }
                             }
                         }
@@ -957,11 +952,10 @@ class MainActivity : ComponentActivity() {
                                 http()
                             } catch (httpError: Exception) {
                                 throw Exception(
-                                    "${packetError.message ?: "sol 包没发出去"}；" +
-                                        "HTTP 兜底也失败：${httpError.message ?: "未知错误"}"
+                                    getString(R.string.and_solAndHttpFail, packetError.message ?: getString(R.string.and_sendFail), httpError.message ?: getString(R.string.gw_unknownErr))
                                 )
                             }
-                            "sol 包没发出去（${packetError.message ?: "未知错误"}），已改走它自己的 AnyBoot 接口：$http"
+                            getString(R.string.and_solFallbackHttp, packetError.message ?: getString(R.string.gw_unknownErr), http)
                         }
                     }
                 }
@@ -977,7 +971,7 @@ class MainActivity : ComponentActivity() {
                 )
                 runOnUiThread {
                     powerBusy = false
-                    toast("${ServerProfile.powerActionLabel(action)}没发出去：${error.message ?: "未知错误"}")
+                    toast(getString(R.string.and_powerNotSent, ServerProfile.powerActionLabel(action), error.message ?: getString(R.string.gw_unknownErr)))
                 }
             }
         }, "anyboot-power").start()
@@ -1010,11 +1004,11 @@ class MainActivity : ComponentActivity() {
         var custom by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { failReloadOpen = false },
-            title = { Text("连不上时自动重载") },
+            title = { Text(stringResource(R.string.and_failReloadTitle)) },
             text = {
                 Column {
                     Text(
-                        "连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。",
+                        stringResource(R.string.and_introFailReload),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -1031,7 +1025,7 @@ class MainActivity : ComponentActivity() {
                                 },
                             )
                             Text(
-                                if (sec == 0) "永不（关闭自动重载）" else "每 $sec 秒",
+                                if (sec == 0) stringResource(R.string.menu_never) else stringResource(R.string.menu_everyN, sec),
                                 fontSize = 13.sp, color = palette.fg,
                             )
                         }
@@ -1046,7 +1040,7 @@ class MainActivity : ComponentActivity() {
                                 if (failReloadSec in listOf(5, 10, 30, 60, 0)) "" else failReloadSec.toString()
                             },
                             onValueChange = { custom = it.filter(Char::isDigit) },
-                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.and_customSeconds), fontSize = 11.sp) },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.bodySmall,
                             modifier = Modifier.weight(1f),
@@ -1055,18 +1049,18 @@ class MainActivity : ComponentActivity() {
                         TextButton(onClick = {
                             val parsed = custom.toIntOrNull()
                             if (parsed == null || parsed < 0) {
-                                toast("间隔要是不小于 0 的整数秒")
+                                toast(getString(R.string.menu_toastInvalid))
                                 return@TextButton
                             }
                             failReloadSec = parsed
                             saveFailReloadSec()
                             failReloadOpen = false
-                        }) { Text("应用") }
+                        }) { Text(stringResource(R.string.settings_apply)) }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { failReloadOpen = false }) { Text("完成") }
+                TextButton(onClick = { failReloadOpen = false }) { Text(stringResource(R.string.bk_done)) }
             },
         )
     }
@@ -1074,8 +1068,8 @@ class MainActivity : ComponentActivity() {
     private fun saveFailReloadSec() {
         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putInt("failReloadSec", failReloadSec).apply()
         toast(
-            if (failReloadSec > 0) "连不上时每 $failReloadSec 秒自动重载"
-            else "已关闭自动重载"
+            if (failReloadSec > 0) getString(R.string.and_failReloadOnN, failReloadSec)
+            else getString(R.string.and_failReloadOff)
         )
     }
 
@@ -1085,38 +1079,28 @@ class MainActivity : ComponentActivity() {
         val palette = LocalPalette.current
         AlertDialog(
             onDismissRequest = { sleepHelpOpen = false },
-            title = { Text("电源 · 睡眠与唤醒") },
+            title = { Text(stringResource(R.string.hub_home_fabHelpTitle)) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        "电源按钮点了**立即执行**，不再弹确认框 —— 各动作的后果都在这里：",
+                        stringResource(R.string.and_powerIntro),
                         fontSize = 13.sp, color = palette.fg,
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "· 睡眠 = 挂起到内存：几乎立刻能醒，但网络服务全停 —— 这个标签会显示离线、页面打不开，这是预期的。叫醒请点「唤醒」（需配好 MAC 并开启网络唤醒）；\n" +
-                            "· 关机：电脑立刻关机，网页服务随之中断 —— 之后只能用「唤醒」开机（需配好 MAC），或到机器旁按电源键；\n" +
-                            "· 重启：电脑立刻重启，网页会话断开 —— 重启完成后心跳会自动恢复在线；\n" +
-                            "· 唤醒：发魔术包让电脑开机，需配好 MAC 并在主板开启网络唤醒。",
+                        stringResource(R.string.and_powerNotes),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("这些按钮怎么执行（局域网 / sol）", fontSize = 13.sp, color = palette.fg)
+                    Text(stringResource(R.string.and_powerHowExec), fontSize = 13.sp, color = palette.fg)
                     Text(
-                        "给这台电脑配了「局域网电源路由」的动作，会往路由里的**广播地址:端口**发一个 UDP 包，" +
-                            "由目标机上装着的 **sol** 按端口执行 —— 这样机器睡着、网页服务没起来也能操作。" +
-                            "没装 sol，包发得出去但没人执行。\n" +
-                            "没配路由的动作走老路：唤醒发标准 WOL（魔术包），重启/关机/睡眠调电脑端的网页接口。",
+                        stringResource(R.string.and_powerExecNote),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("唤醒包从哪发：", fontSize = 13.sp, color = palette.fg)
+                    Text(stringResource(R.string.and_powerWakeFrom), fontSize = 13.sp, color = palette.fg)
                     Text(
-                        "· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；\n" +
-                            "· 配了 SSH 跳板机 → 由跳板机在内网广播（在外网也能用）；\n" +
-                            "· 都没有 → 手机自己往局域网广播（手机必须和电脑同一网段）；\n" +
-                            "· 只有「远程接入」可用（出门经公网隧道） → 唤醒发不出去：" +
-                            "魔术包是局域网 UDP 广播，走不了隧道。重启/关机/睡眠调电脑网页接口，隧道照常可用。",
+                        stringResource(R.string.and_powerWakeFromNote),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))

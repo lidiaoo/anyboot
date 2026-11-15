@@ -1452,6 +1452,28 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_autoRetryN">%1$d초마다 자동 재시도 (⋮에서 변경)</string>
     <string name="and_autoRetryOff">자동 재시도 꺼짐 (⋮에서 변경)</string>
     <string name="and_editServer">이 서버 편집</string>
+    <string name="and_jumpNotExistCheck">점프 호스트가 없습니다. ‘서버’에서 확인하세요</string>
+    <string name="and_solAndHttpFail">%1$s; HTTP 대체도 실패: %2$s</string>
+    <string name="and_solFallbackHttp">sol 패킷 미전송(%1$s). 대신 AnyBoot API: %2$s</string>
+    <string name="and_powerIntro">전원 버튼은 즉시 실행, 확인 없음 — 각 동작의 결과는 다음과 같습니다:</string>
+    <string name="and_powerNotes">· 잠자기 = RAM 절전: 거의 즉시 깨어나지만 네트워크 서비스 중지 — 이 탭은 오프라인 표시·페이지 불가(예상됨). 깨우기는 ‘깨우기’(MAC·WoL 필요);
+· 종료: 즉시 전원 오프, 웹 서비스 중지 — 이후엔 ‘깨우기’(MAC 필요) 또는 본체 버튼;
+· 재시작: 즉시 재부팅, 웹 세션 끊김 — 재부팅 후 하트비트로 자동 복귀;
+· 깨우기: 매직 패킷으로 전원 온. MAC·BIOS WoL 필요.</string>
+    <string name="and_powerHowExec">이 버튼들의 실행 방식 (LAN / sol)</string>
+    <string name="and_powerExecNote">‘LAN 전원 라우트’가 설정된 동작은 라우트의 브로드캐스트:포트로 UDP를 보내 대상의 sol이 포트별 실행 — 절전/웹 중지 중에도 동작. sol이 없으면 전송만 되고 실행 안 됨.
+라우트 없는 동작은 기존 방식: 깨우기는 표준 WOL, 재시작/종료/잠자기는 PC의 웹 API.</string>
+    <string name="and_powerWakeFrom">깨우기 패킷 발신 위치:</string>
+    <string name="and_powerWakeFromNote">· ‘깨우기’ 라우트 설정 → 라우트 addr/port로 전송(MAC 선택 가능);
+· SSH 점프 호스트 설정 → 점프 호스트가 내부에서 브로드캐스트(외부에서도 가능);
+· 둘 다 없음 → 휴대폰이 LAN에서 브로드캐스트(같은 서브넷 필요);
+· ‘원격 접속’만 가능(외출 시 공용 터널) → 깨우기 불가: 매직 패킷은 LAN UDP 브로드캐스트로 터널 통과 불가. 재시작/종료/잠자기는 웹 API로 터널 경유 가능.</string>
+    <string name="and_powerCheck">반응 없으면 순서대로 확인:</string>
+    <string name="and_powerCheckNote">① BIOS에서 Wake on LAN 활성화(깨우기만 영향);
+② 유선 NIC의 MAC 사용 — 대부분 무선 NIC는 전원 꺼짐 깨우기 미지원;
+③ MAC은 ‘서버 편집’의 해당 주소 행에(예 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ 라우트의 브로드캐스트/포트가 올바른지(sol과 일치);
+⑤ 대상과 휴대폰이 같은 서브넷인지(LAN 브로드캐스트는 동일 서브넷만).</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

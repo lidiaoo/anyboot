@@ -1452,6 +1452,28 @@ O conteúdo também é removido sem volta.</string>
     <string name="and_autoRetryN">Repetir a cada %1$ds (em ⋮)</string>
     <string name="and_autoRetryOff">Repetição automática desligada (em ⋮)</string>
     <string name="and_editServer">Editar este servidor</string>
+    <string name="and_jumpNotExistCheck">Jump host não existe; verifique em Servidores</string>
+    <string name="and_solAndHttpFail">%1$s; o fallback HTTP também falhou: %2$s</string>
+    <string name="and_solFallbackHttp">Pacote sol não enviado (%1$s); usei a API AnyBoot: %2$s</string>
+    <string name="and_powerIntro">Botões de energia executam na hora, sem confirmação — efeitos de cada um:</string>
+    <string name="and_powerNotes">· Suspender = suspende para a RAM: acorda quase na hora, mas os serviços de rede param — esta aba fica offline e as páginas não abrem (esperado). Acorde com “Acordar” (requer MAC + WoL);
+· Desligar: desliga na hora; o serviço web para — depois só “Acordar” (requer MAC) ou o botão físico;
+· Reiniciar: reinicia na hora; a sessão web cai — o heartbeat volta online sozinho;
+· Acordar: envia magic packet para ligar; requer MAC e WoL na BIOS.</string>
+    <string name="and_powerHowExec">Como estes botões executam (LAN / sol)</string>
+    <string name="and_powerExecNote">Ações com “rota de energia LAN” enviam um pacote UDP para broadcast:porta da rota, executado pelo sol no destino por porta — funciona suspenso ou com o serviço web parado. Sem sol, o pacote sai mas nada executa.
+Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/desligar/suspender chamam a API web do computador.</string>
+    <string name="and_powerWakeFrom">De onde sai o pacote de ativação:</string>
+    <string name="and_powerWakeFromNote">· Rota “acordar” configurada → envia ao addr/porta da rota (MACs selecionáveis);
+· Jump host SSH configurado → transmite na intranet (funciona de fora);
+· Nenhum → o celular transmite na LAN (mesma sub-rede);
+· Só “acesso remoto” (túnel público fora de casa) → acordar não envia: magic packet é broadcast UDP de LAN, não passa túnel. Reiniciar/desligar/suspender usam a API web via túnel.</string>
+    <string name="and_powerCheck">Sem resposta — verifique em ordem:</string>
+    <string name="and_powerCheckNote">① Wake on LAN ativo na BIOS (só afeta acordar);
+② Usar o MAC da NIC com fio — a maioria das Wi-Fi não acorda desligada;
+③ MAC na linha de endereço certa em “Editar servidor” (ex. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/porta da rota corretos (iguais ao listener do sol);
+⑤ Destino e celular na mesma sub-rede (broadcast LAN só nela).</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

@@ -1452,6 +1452,28 @@ Inhalte werden mitgelöscht, nicht wiederherstellbar.</string>
     <string name="and_autoRetryN">Automatisch alle %1$ds erneut (in ⋮ änderbar)</string>
     <string name="and_autoRetryOff">Automatisch erneut aus (in ⋮ änderbar)</string>
     <string name="and_editServer">Diesen Server bearbeiten</string>
+    <string name="and_jumpNotExistCheck">Sprungserver existiert nicht; auf der Server-Seite prüfen</string>
+    <string name="and_solAndHttpFail">%1$s; HTTP-Fallback auch fehlgeschlagen: %2$s</string>
+    <string name="and_solFallbackHttp">sol-Paket nicht gesendet (%1$s); stattdessen AnyBoot-API: %2$s</string>
+    <string name="and_powerIntro">Energietasten laufen sofort, keine Bestätigung – die Wirkung je Aktion:</string>
+    <string name="and_powerNotes">· Ruhezustand = Suspend in RAM: fast wach, aber Netzwerkdienste stoppen – dieser Tab zeigt offline, Seiten laden nicht (erwartet). Aufwecken via „Aufwecken“ (MAC + WoL);
+· Herunterfahren: sofort aus, Webdienst stoppt – danach nur „Aufwecken“ (MAC) oder Netzschalter;
+· Neustart: sofort neu, Websitzung endet – Heartbeat kommt danach automatisch online;
+· Aufwecken: Magic Packet zum Einschalten; MAC und WoL im BIOS nötig.</string>
+    <string name="and_powerHowExec">So laufen diese Tasten (LAN / sol)</string>
+    <string name="and_powerExecNote">Aktionen mit „LAN-Energieroute“ senden ein UDP-Paket an Broadcast:Port der Route, ausgeführt von sol am Ziel je Port – funktioniert im Ruhezustand/bei aus. Ohne sol wird gesendet, aber nichts ausgeführt.
+Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Herunterfahren/Ruhezustand = Web-API des PCs.</string>
+    <string name="and_powerWakeFrom">Woher das Aufweckpaket kommt:</string>
+    <string name="and_powerWakeFromNote">· „Aufweck“-Route konfiguriert → an Adresse/Port der Route senden (MACs auswählbar);
+· SSH-Sprungserver konfiguriert → sendet im Intranet (auch von außen);
+· Keines → das Handy sendet im LAN (gleiches Subnetz nötig);
+· Nur „Fernzugriff“ (öffentlicher Tunnel unterwegs) → Aufwecken nicht möglich: Magic Packet ist LAN-UDP-Broadcast, kein Tunnel. Neustart/Herunterfahren/Ruhezustand über Web-API, Tunnel funktioniert.</string>
+    <string name="and_powerCheck">Keine Reaktion – der Reihe nach prüfen:</string>
+    <string name="and_powerCheckNote">① Wake on LAN im BIOS aktiv (nur Aufwecken);
+② MAC der kabelgebundenen NIC – die meisten WLAN-NICs unterstützen kein Aufwecken aus dem Aus;
+③ MAC in der passenden Adresszeile unter „Server bearbeiten“ (z. B. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/Port der Route korrekt (passend zum sol-Listener);
+⑤ Ziel und Handy im selben Subnetz (LAN-Broadcast nur dort).</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

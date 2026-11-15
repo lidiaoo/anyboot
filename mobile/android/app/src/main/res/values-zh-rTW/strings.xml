@@ -1452,6 +1452,28 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_autoRetryN">每 %1$d 秒自動重試（⋮ 裡可改）</string>
     <string name="and_autoRetryOff">自動重試已關閉（⋮ 裡可改）</string>
     <string name="and_editServer">修改這個伺服器</string>
+    <string name="and_jumpNotExistCheck">跳板機不存在，請到「伺服器」頁檢查</string>
+    <string name="and_solAndHttpFail">%1$s；HTTP 兜底也失敗：%2$s</string>
+    <string name="and_solFallbackHttp">sol 封包沒發出去（%1$s），已改走它自己的 AnyBoot 介面：%2$s</string>
+    <string name="and_powerIntro">電源按鈕點了立即執行，不再彈確認框 —— 各動作的後果都在這裡：</string>
+    <string name="and_powerNotes">· 睡眠 = 暫存到記憶體：幾乎立刻能醒，但網路服務全停 —— 這個標籤會顯示離線、頁面打不開，這是預期的。叫醒請點「喚醒」（需設好 MAC 並開啟網路喚醒）；
+· 關機：電腦立刻關機，網頁服務隨之中斷 —— 之後只能用「喚醒」開機（需設好 MAC），或到機器旁按電源鍵；
+· 重新啟動：電腦立刻重新啟動，網頁工作階段斷開 —— 重新啟動完成後心跳會自動恢復上線；
+· 喚醒：發魔術封包讓電腦開機，需設好 MAC 並在主機板開啟網路喚醒。</string>
+    <string name="and_powerHowExec">這些按鈕怎麼執行（區域網路 / sol）</string>
+    <string name="and_powerExecNote">給這台電腦設了「區域網路電源路由」的動作，會往路由裡的廣播位址:埠發一個 UDP 封包，由目標機上裝著的 sol 按埠執行 —— 這樣機器睡著、網頁服務沒起來也能操作。沒裝 sol，封包發得出去但沒人執行。
+沒設路由的動作走老路：喚醒發標準 WOL（魔術封包），重新啟動/關機/睡眠調電腦端的網頁介面。</string>
+    <string name="and_powerWakeFrom">喚醒封包從哪發：</string>
+    <string name="and_powerWakeFromNote">· 設了「喚醒」路由 → 按路由裡的位址和埠發（MAC 可只挑幾塊網卡）；
+· 設了 SSH 跳板機 → 由跳板機在內網廣播（在外網也能用）；
+· 都沒有 → 手機自己往區域網路廣播（手機必須和電腦同一網段）；
+· 只有「遠端存取」可用（出門經公網通道） → 喚醒發不出去：魔術封包是區域網路 UDP 廣播，走不了通道。重新啟動/關機/睡眠調電腦網頁介面，通道照常可用。</string>
+    <string name="and_powerCheck">點了沒反應，按順序檢查：</string>
+    <string name="and_powerCheckNote">① 主機板 BIOS 裡開啟了 Wake on LAN / 網路喚醒（只影響喚醒）；
+② 用的是有線網卡的 MAC —— 絕大多數無線網卡不支援關機喚醒；
+③ MAC 填在「編輯伺服器」裡對應位址那一列（如 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
+④ 路由裡的廣播位址和埠對不對（要和 sol 側監聽的一致）；
+⑤ 目標機與手機是否在同一網段（區域網路廣播僅在同網段生效）。</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

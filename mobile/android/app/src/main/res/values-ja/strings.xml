@@ -1452,6 +1452,28 @@ Telnet：実験的端末のみ。</string>
     <string name="and_autoRetryN">%1$d 秒ごとに自動再試行（⋮ で変更）</string>
     <string name="and_autoRetryOff">自動再試行オフ（⋮ で変更）</string>
     <string name="and_editServer">このサーバーを編集</string>
+    <string name="and_jumpNotExistCheck">踏み台が存在しません。「サーバー」で確認してください</string>
+    <string name="and_solAndHttpFail">%1$s；HTTP フォールバックも失敗：%2$s</string>
+    <string name="and_solFallbackHttp">sol パケット未送信（%1$s）。代わりに AnyBoot API：%2$s</string>
+    <string name="and_powerIntro">電源ボタンは即実行、確認なし — 各動作の影響はこちら：</string>
+    <string name="and_powerNotes">· スリープ = メモリにサスペンド：ほぼ即復帰するがネットワーク全停止 — このタブはオフライン表示・ページ不可（想定内）。解除は「スリープ解除」（MAC と WoL 必要）；
+· シャットダウン：即電源オフ、Web 停止 — 以降は「スリープ解除」（MAC 必要）か本体ボタン；
+· 再起動：即再起動、Web セッション切断 — 再起動後ハートビートで自動復帰；
+· スリープ解除：マジックパケットで電源オン。MAC と BIOS の WoL が必要。</string>
+    <string name="and_powerHowExec">これらのボタンの実行方法（LAN / sol）</string>
+    <string name="and_powerExecNote">「LAN 電源ルート」設定済みの動作は、ルートのブロードキャスト:ポートへ UDP を送り、対象機の sol がポート別に実行 — スリープ中や Web 停止中でも動作。sol が無いと送るだけで実行されません。
+ルート未設定の動作は従来通り：スリープ解除は標準 WOL、再起動/シャットダウン/スリープは PC の Web API。</string>
+    <string name="and_powerWakeFrom">スリープ解除パケットの送信元：</string>
+    <string name="and_powerWakeFromNote">· 「スリープ解除」ルート設定済み → ルートの addr/port へ送信（MAC を選択可）；
+· SSH 踏み台設定済み → 踏み台が社内でブロードキャスト（外部からも可）；
+· どちらも無し → スマホが LAN でブロードキャスト（同じサブネット必須）；
+· 「リモートアクセス」のみ（外出時の公衆トンネル） → スリープ解除は送れません：マジックパケットは LAN UDP ブロードキャストでトンネル不可。再起動/シャットダウン/スリープは Web API でトンネル経由可。</string>
+    <string name="and_powerCheck">反応がない場合は順に確認：</string>
+    <string name="and_powerCheckNote">① BIOS で Wake on LAN を有効化（スリープ解除のみ影響）；
+② 有線 NIC の MAC を使用 — 多くの無線 NIC は電源オフからの解除非対応；
+③ MAC は「サーバーを編集」の該当アドレス行に（例 192.168.0.120:12300 AA:BB:CC:DD:EE:FF）；
+④ ルートのブロードキャスト/ポートが正しいか（sol 側と一致）；
+⑤ 対象とスマホが同じサブネットか（LAN ブロードキャストは同サブネットのみ）。</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

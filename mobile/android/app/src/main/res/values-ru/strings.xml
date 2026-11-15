@@ -1452,6 +1452,28 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_autoRetryN">Автоповтор каждые %1$d с (в ⋮)</string>
     <string name="and_autoRetryOff">Автоповтор выкл (в ⋮)</string>
     <string name="and_editServer">Изменить этот сервер</string>
+    <string name="and_jumpNotExistCheck">Узел не существует; проверьте на странице «Серверы»</string>
+    <string name="and_solAndHttpFail">%1$s; запасной HTTP тоже не удался: %2$s</string>
+    <string name="and_solFallbackHttp">Пакет sol не отправлен (%1$s); использован API AnyBoot: %2$s</string>
+    <string name="and_powerIntro">Кнопки питания выполняются сразу, без подтверждения — эффекты:</string>
+    <string name="and_powerNotes">· Сон = приостановка в ОЗУ: просыпается почти сразу, но сетевые службы стоп — вкладка показывает offline, страницы не грузятся (ожидаемо). Будить «Разбудить» (нужны MAC + WoL);
+· Выключение: сразу выкл, веб-служба стоп — далее только «Разбудить» (нужен MAC) или кнопка питания;
+· Перезагрузка: сразу перезагрузка, веб-сеанс рвётся — после неё heartbeat вернёт online;
+· Пробуждение: magic packet для включения; нужны MAC и WoL в BIOS.</string>
+    <string name="and_powerHowExec">Как выполняются эти кнопки (LAN / sol)</string>
+    <string name="and_powerExecNote">Действия с «маршрутом питания LAN» шлют UDP на broadcast:порт маршрута, выполняет sol на цели по порту — работает в сне/при остановленной веб-службе. Без sol пакет уходит, но никто не выполняет.
+Действия без маршрута — старый путь: пробуждение = стандартный WOL; перезагрузка/выключение/сон = веб-API ПК.</string>
+    <string name="and_powerWakeFrom">Откуда отправляется пакет пробуждения:</string>
+    <string name="and_powerWakeFromNote">· Маршрут «пробуждение» → на адрес/порт маршрута (можно выбрать MAC);
+· SSH-узел → узел шлёт в интранет (работает извне);
+· Ничего → телефон шлёт в LAN (нужна та же подсеть);
+· Только «удалённый доступ» (публичный туннель) → пробуждение невозможно: magic packet — LAN UDP broadcast, туннель не пройдёт. Перезагрузка/выключение/сон через веб-API, туннель работает.</string>
+    <string name="and_powerCheck">Нет реакции — проверьте по порядку:</string>
+    <string name="and_powerCheckNote">① Wake on LAN в BIOS включён (влияет только на пробуждение);
+② MAC проводного NIC — большинство Wi-Fi не поддерживают пробуждение из выкл;
+③ MAC в нужной строке адреса в «Изменить сервер» (напр. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/порт маршрута верны (совпадают со слушателем sol);
+⑤ Цель и телефон в одной подсети (LAN-broadcast только там).</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

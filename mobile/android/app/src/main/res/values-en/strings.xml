@@ -1452,6 +1452,28 @@ Everything inside is removed and can\'t be recovered.</string>
     <string name="and_autoRetryN">Auto-retry every %1$ds (change in ⋮)</string>
     <string name="and_autoRetryOff">Auto-retry off (change in ⋮)</string>
     <string name="and_editServer">Edit this server</string>
+    <string name="and_jumpNotExistCheck">Jump host doesn\'t exist; check the Servers page</string>
+    <string name="and_solAndHttpFail">%1$s; HTTP fallback also failed: %2$s</string>
+    <string name="and_solFallbackHttp">sol packet not sent (%1$s); used its own AnyBoot API instead: %2$s</string>
+    <string name="and_powerIntro">Power buttons run immediately, no confirmation — the effects of each are here:</string>
+    <string name="and_powerNotes">· Sleep = suspend to RAM: wakes almost instantly, but network services stop — this tab shows offline and pages won\'t load (expected). Wake it with “Wake” (needs MAC + WoL);
+· Shut down: powers off at once; web service stops — afterwards only “Wake” (needs MAC) or the physical button;
+· Restart: reboots at once; the web session drops — heartbeat returns online automatically after reboot;
+· Wake: sends a magic packet to power on; needs MAC and WoL enabled in BIOS.</string>
+    <string name="and_powerHowExec">How these buttons run (LAN / sol)</string>
+    <string name="and_powerExecNote">Actions with a “LAN power route” configured send a UDP packet to the route\'s broadcast addr:port, executed by sol on the target by port — so it works while asleep or with the web service down. Without sol, the packet goes out but nothing runs it.
+Actions without a route use the old path: wake sends standard WOL (magic packet); restart/shutdown/sleep call the computer\'s web API.</string>
+    <string name="and_powerWakeFrom">Where the wake packet is sent from:</string>
+    <string name="and_powerWakeFromNote">· Wake route configured → send to the route\'s address/port (select specific MACs);
+· SSH jump host configured → it broadcasts on the intranet (works from outside);
+· Neither → the phone broadcasts on the LAN (phone must be on the same subnet);
+· Only “remote access” available (public tunnel while away) → wake can\'t be sent: a magic packet is a LAN UDP broadcast and can\'t cross a tunnel. Restart/shutdown/sleep call the web API, which works over the tunnel.</string>
+    <string name="and_powerCheck">No response — check in order:</string>
+    <string name="and_powerCheckNote">① Wake on LAN enabled in BIOS (affects wake only);
+② Using the wired NIC\'s MAC — most wireless NICs don\'t support wake-from-off;
+③ MAC entered on the matching address row in “Edit server” (e.g. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast address/port in the route correct (matching sol\'s listener);
+⑤ Target and phone on the same subnet (LAN broadcast only works within it).</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

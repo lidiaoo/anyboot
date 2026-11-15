@@ -1452,6 +1452,28 @@ El contenido también se borra sin vuelta.</string>
     <string name="and_autoRetryN">Reintentar cada %1$ds (en ⋮)</string>
     <string name="and_autoRetryOff">Reintento automático desactivado (en ⋮)</string>
     <string name="and_editServer">Editar este servidor</string>
+    <string name="and_jumpNotExistCheck">El host de salto no existe; compruébalo en Servidores</string>
+    <string name="and_solAndHttpFail">%1$s; el HTTP de reserva también falló: %2$s</string>
+    <string name="and_solFallbackHttp">Paquete sol no enviado (%1$s); usé la API AnyBoot: %2$s</string>
+    <string name="and_powerIntro">Los botones de energía se ejecutan al instante, sin confirmación: efectos de cada uno:</string>
+    <string name="and_powerNotes">· Suspender = suspende a la RAM: despierta casi al instante, pero los servicios de red se detienen — esta pestaña queda sin conexión y las páginas no cargan (esperado). Despiértalo con «Despertar» (requiere MAC + WoL);
+· Apagar: se apaga al instante; el servicio web se detiene — después solo «Despertar» (requiere MAC) o el botón físico;
+· Reiniciar: reinicia al instante; la sesión web cae — el latido vuelve online solo;
+· Despertar: envía un magic packet para encender; requiere MAC y WoL en la BIOS.</string>
+    <string name="and_powerHowExec">Cómo se ejecutan estos botones (LAN / sol)</string>
+    <string name="and_powerExecNote">Las acciones con «ruta de energía LAN» envían un paquete UDP a broadcast:puerto de la ruta, ejecutado por sol en el destino por puerto: funciona suspendido o con el servicio web parado. Sin sol, el paquete sale pero nada lo ejecuta.
+Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; reiniciar/apagar/suspender llaman a la API web del equipo.</string>
+    <string name="and_powerWakeFrom">Desde dónde se envía el paquete de activación:</string>
+    <string name="and_powerWakeFromNote">· Ruta “despertar” configurada → envía a addr/puerto de la ruta (MACs seleccionables);
+· Host de salto SSH configurado → transmite en la intranet (funciona desde fuera);
+· Ninguno → el móvil transmite en la LAN (misma subred);
+· Solo “acceso remoto” (túnel público fuera) → despertar no se envía: el magic packet es broadcast UDP de LAN, no cruza túnel. Reiniciar/apagar/suspender usan la API web por el túnel.</string>
+    <string name="and_powerCheck">Sin respuesta: comprueba en orden:</string>
+    <string name="and_powerCheckNote">① Wake on LAN activado en la BIOS (solo afecta a despertar);
+② Usar el MAC de la NIC cableada — la mayoría de las Wi-Fi no despiertan apagadas;
+③ MAC en la fila de dirección correcta en «Editar servidor» (p. ej. 192.168.0.120:12300 AA:BB:CC:DD:EE:FF);
+④ Broadcast/puerto de la ruta correctos (coinciden con el listener de sol);
+⑤ Destino y móvil en la misma subred (el broadcast LAN solo funciona ahí).</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
