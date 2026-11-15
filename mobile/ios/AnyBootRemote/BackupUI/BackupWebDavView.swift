@@ -71,7 +71,7 @@ struct BackupWebDavView: View {
 
     private var navBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "返回") { dismiss() }
+            ABBarIcon(text: "‹", description: L("and.back")) { dismiss() }
             Text(L("and.webdavTitle"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
@@ -101,7 +101,7 @@ struct BackupWebDavView: View {
                 .keyboardType(.URL)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
-            ABFieldLabel("用户名")
+            ABFieldLabel(L("server.kUser"))
             ABDialogInput(placeholder: L("and.accountEmail"), text: $username)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -133,14 +133,14 @@ struct BackupWebDavView: View {
                         .frame(minHeight: ABMetric.px(44))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("切换密码明文")
+                .accessibilityLabel(L("and.switchPwdPlain"))
             }
             ABFieldLabel(L("and.remoteSyncDir"))
             ABDialogInput(placeholder: "AnyBoot", text: $directory)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             ABFieldLabel(L("and.syncPeriod"))
-            Picker("同步周期", selection: $periodMinutes) {
+            Picker(L("and.syncPeriod"), selection: $periodMinutes) {
                 Text(L("bk.manual")).tag(0)
                 Text(L("bk.min15")).tag(15)
                 Text(L("bk.min30")).tag(30)
@@ -388,7 +388,7 @@ struct BackupWebDavView: View {
                 testResult = L("and.dirCreated")
             case .failure(let e):
                 testOK = false
-                testResult = e.errorDescription ?? "创建失败"
+                testResult = e.errorDescription ?? L("and.createFailed")
             }
             testing = false
         }

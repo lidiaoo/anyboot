@@ -77,10 +77,10 @@ struct BackupPasswordSheet: View {
                         .frame(minWidth: ABMetric.px(32), minHeight: ABMetric.px(44))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("切换口令明文")
+                .accessibilityLabel(L("and.switchPwdPlain"))
             }
             if let error {
-                Text(error + (attempts >= 3 ? "，请确认文件来源" : ""))
+                Text(error + (attempts >= 3 ? L("and.confirmSource") : ""))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.bad)
                     .fixedSize(horizontal: false, vertical: true)
@@ -207,7 +207,7 @@ struct BackupImportPreview: View {
 
     private var navBar: some View {
         HStack(spacing: 0) {
-            ABBarIcon(text: "‹", description: "取消") { dismiss() }
+            ABBarIcon(text: "‹", description: L("common.cancel")) { dismiss() }
             Text(L("bk.prevTitle"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
@@ -222,10 +222,10 @@ struct BackupImportPreview: View {
         HStack(spacing: ABMetric.px(10)) {
             DrawnIcon.docFile(ABColor.accent, size: ABMetric.px(22))
             VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                Text("来自 \(Self.platformName(sum.platform))")
+                Text(L("and.fromPlatform", Self.platformName(sum.platform)))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(ABColor.fg)
-                Text("\(Self.dateText(sum.exportedAt)) · AnyBoot \(sum.app.isEmpty ? "?" : sum.app)")
+                Text(L("and.anybootVer", Self.dateText(sum.exportedAt) + " · AnyBoot " + (sum.app.isEmpty ? "?" : sum.app)))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgDim)
             }
@@ -342,7 +342,7 @@ struct BackupImportPreview: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("合并策略：\(s.label)")
+                .accessibilityLabel(L("and.mergeStrategy") + "：" + s.label)
             }
             if strategy == .overwrite {
                 Text(L("and.replaceWarn"))
@@ -379,7 +379,7 @@ struct BackupImportPreview: View {
     private func bottomBar(_ sum: BackupSummary) -> some View {
         VStack(spacing: 0) {
             if importing, let current = currentCategory {
-                Text("正在导入 \(current.label)…")
+                Text(L("and.importingCat", current.label))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgDim)
                     .frame(maxWidth: .infinity)
@@ -428,16 +428,16 @@ struct BackupImportPreview: View {
     private func overwriteMessage(_ sum: BackupSummary) -> String {
         var parts: [String] = []
         if selected.contains(.servers), let r = sum.rows[.servers] {
-            parts.append("\(r.localCount) 台电脑")
+            parts.append(L("and.nComputers", r.localCount))
         }
         if selected.contains(.jumps), let r = sum.rows[.jumps] {
-            parts.append("\(r.localCount) 台服务器")
+            parts.append(L("and.nServersU", r.localCount))
         }
         if selected.contains(.keys), let r = sum.rows[.keys] {
-            parts.append("\(r.localCount) 把密钥")
+            parts.append(L("and.nKeysU", r.localCount))
         }
-        let who = parts.isEmpty ? "所选分类" : "本机 " + parts.joined(separator: "、")
-        return "\(who)将被替换为备份内容。"
+        let who = parts.isEmpty ? L("and.selectedCats") : L("and.localPrefix", parts.joined(separator: "、"))
+        return L("and.willReplace", who)
     }
 
     /// L14 执行导入：逐类推进展示；单条失败不中断
@@ -462,8 +462,8 @@ struct BackupImportPreview: View {
         switch raw {
         case "ios": return "iOS"
         case "android": return "Android"
-        case "desktop", "macos", "windows", "linux": return "桌面端"
-        default: return raw.isEmpty ? "未知设备" : raw
+        case "desktop", "macos", "windows", "linux": return L("and.desktopPlatform")
+        default: return raw.isEmpty ? L("and.unknownDevice") : raw
         }
     }
 
@@ -485,12 +485,12 @@ struct BackupImportReport: View {
     /// 三态：✅ 全成功 / ⚠ 部分失败 / ❌ 全失败
     private var outcome: (icon: String, color: Color, title: String) {
         if report.totalFailed == 0 {
-            return ("✓", ABColor.ok, "导入完成")
+            return ("✓", ABColor.ok, L("and.importDone"))
         }
         if report.totalAdded + report.totalUpdated > 0 {
-            return ("⚠", ABColor.warn, "导入完成（有失败项）")
+            return ("⚠", ABColor.warn, L("and.importDoneWithFail"))
         }
-        return ("✕", ABColor.bad, "导入失败")
+        return ("✕", ABColor.bad, L("and.importFailed"))
     }
 
     var body: some View {
