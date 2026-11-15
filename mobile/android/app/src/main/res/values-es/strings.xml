@@ -1664,6 +1664,15 @@ Las acciones sin ruta usan el camino antiguo: despertar envía WOL estándar; re
     <string name="and_probeMethodLabel">Modo de sondeo (estrategia general de la prioridad; aplica a cada ruta arriba)</string>
     <string name="and_probeMethodHint">Paralelo·primero: un hilo por dirección, usa la primera respuesta; Paralelo·todos: espera todos e informa por línea; Serie: prueba en orden, para en la primera que funcione</string>
     <string name="and_defaultProbeTimeout">Tiempo límite de sondeo predeterminado (s): se usa cuando la casilla de la ruta está vacía</string>
+    <string name="and_seconds">s</string>
+    <string name="and_timeoutFallbackHint">Si la casilla de la ruta está rellena, manda ella; las vacías usan este valor (máx. 30 s)</string>
+    <string name="and_lanPowerRoute">Ruta de energía LAN</string>
+    <string name="and_lanPowerRouteLabel">Ruta de energía LAN (opcional: dirección/puerto de cada acción. Con sol en el destino se ejecuta por puerto — sin sol solo despertar vía WOL)</string>
+    <string name="and_noRouteHint">Sin configurar: los botones de energía usan el camino antiguo: despertar envía WOL estándar; reiniciar/apagar/suspender llaman a la API del equipo.</string>
+    <string name="and_routeIndexN">Ruta %1$s / %2$d</string>
+    <string name="and_modeWith">Modo: %1$s</string>
+    <string name="and_broadcastPacket">Paquete de broadcast</string>
+    <string name="and_broadcastAddrLabel">Dirección de broadcast (vacío = automático: global + /24 de cada dirección)</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

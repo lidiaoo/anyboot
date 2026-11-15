@@ -1664,6 +1664,15 @@ Actions without a route use the old path: wake sends standard WOL (magic packet)
     <string name="and_probeMethodLabel">Probe mode (overall strategy of connection priority; applies to each route above)</string>
     <string name="and_probeMethodHint">Parallel·first: a thread per address, use the first response; Parallel·all: wait for all and report per line; Serial: try in order, stop at the first that works</string>
     <string name="and_defaultProbeTimeout">Default probe timeout (s) — used when a route\'s box is blank</string>
+    <string name="and_seconds">s</string>
+    <string name="and_timeoutFallbackHint">If a route\'s box is filled it wins; only routes left blank use this default (max 30 s)</string>
+    <string name="and_lanPowerRoute">LAN power route</string>
+    <string name="and_lanPowerRouteLabel">LAN power route (optional: address/port each action goes to. With sol on the target it runs per port — without sol only wake works via WOL)</string>
+    <string name="and_noRouteHint">Not configured yet: power buttons use the old path — wake sends standard WOL; restart/shutdown/sleep call the computer\'s API.</string>
+    <string name="and_routeIndexN">Route %1$s / %2$d</string>
+    <string name="and_modeWith">Mode: %1$s</string>
+    <string name="and_broadcastPacket">Broadcast packet</string>
+    <string name="and_broadcastAddrLabel">Broadcast address (blank = auto: global + each address\'s /24)</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

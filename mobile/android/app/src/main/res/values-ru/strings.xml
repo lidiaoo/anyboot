@@ -1664,6 +1664,15 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_probeMethodLabel">Режим проверки (общая стратегия приоритета; для каждого маршрута выше)</string>
     <string name="and_probeMethodHint">Параллельно·первый: поток на адрес, первый ответ; Параллельно·все: ждать все, отчёт по строкам; Последовательно: по порядку, стоп на первом успешном</string>
     <string name="and_defaultProbeTimeout">Таймаут проверки по умолчанию (с) — когда поле маршрута пусто</string>
+    <string name="and_seconds">с</string>
+    <string name="and_timeoutFallbackHint">Если поле маршрута заполнено, оно главнее; пустые используют это значение (макс. 30 с)</string>
+    <string name="and_lanPowerRoute">Маршрут питания LAN</string>
+    <string name="and_lanPowerRouteLabel">Маршрут питания LAN (опционально: адрес/порт для каждого действия. С sol на цели выполняется по порту — без sol только пробуждение через WOL)</string>
+    <string name="and_noRouteHint">Не настроено: кнопки питания используют старый путь — пробуждение = WOL; перезагрузка/выключение/сон = API ПК.</string>
+    <string name="and_routeIndexN">Маршрут %1$s / %2$d</string>
+    <string name="and_modeWith">Режим: %1$s</string>
+    <string name="and_broadcastPacket">Broadcast-пакет</string>
+    <string name="and_broadcastAddrLabel">Адрес broadcast (пусто = авто: глобальный + /24 каждого адреса)</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

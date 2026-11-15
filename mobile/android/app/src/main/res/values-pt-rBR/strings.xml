@@ -1664,6 +1664,15 @@ Ações sem rota usam o caminho antigo: acordar envia WOL padrão; reiniciar/des
     <string name="and_probeMethodLabel">Modo de sondagem (estratégia geral da prioridade; vale para cada rota acima)</string>
     <string name="and_probeMethodHint">Paralelo·primeiro: uma thread por endereço, usa a primeira resposta; Paralelo·todos: espera todos e informa por linha; Serial: tenta em ordem, para na primeira que funcionar</string>
     <string name="and_defaultProbeTimeout">Timeout de sondagem padrão (s) — usado quando a caixa da rota está vazia</string>
+    <string name="and_seconds">s</string>
+    <string name="and_timeoutFallbackHint">Se a caixa da rota estiver preenchida, vale ela; rotas vazias usam este padrão (máx. 30 s)</string>
+    <string name="and_lanPowerRoute">Rota de energia LAN</string>
+    <string name="and_lanPowerRouteLabel">Rota de energia LAN (opcional: endereço/porta de cada ação. Com sol no destino executa por porta — sem sol só acordar via WOL)</string>
+    <string name="and_noRouteHint">Não configurado: botões de energia usam o caminho antigo — acordar envia WOL padrão; reiniciar/desligar/suspender chamam a API do PC.</string>
+    <string name="and_routeIndexN">Rota %1$s / %2$d</string>
+    <string name="and_modeWith">Modo: %1$s</string>
+    <string name="and_broadcastPacket">Pacote de broadcast</string>
+    <string name="and_broadcastAddrLabel">Endereço de broadcast (vazio = automático: global + /24 de cada endereço)</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

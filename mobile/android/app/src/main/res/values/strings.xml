@@ -1664,6 +1664,15 @@ Telnet：只有实验性终端。</string>
     <string name="and_probeMethodLabel">探测方式（连接优先级整体的策略，对上面每一个通道都生效）</string>
     <string name="and_probeMethodHint">并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停</string>
     <string name="and_defaultProbeTimeout">默认探测超时（秒）—— 通道那格留空时用它</string>
+    <string name="and_seconds">秒</string>
+    <string name="and_timeoutFallbackHint">通道那格填了就以它自己为准；没填的通道才用这个默认值（上限 30 秒）</string>
+    <string name="and_lanPowerRoute">局域网电源路由</string>
+    <string name="and_lanPowerRouteLabel">局域网电源路由（可选：每个动作发到哪个地址、哪个端口。目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）</string>
+    <string name="and_noRouteHint">还没配：电源按钮仍走老路 —— 唤醒发标准 WOL，重启/关机/睡眠调电脑端接口。</string>
+    <string name="and_routeIndexN">路由 %1$s / %2$d</string>
+    <string name="and_modeWith">模式：%1$s</string>
+    <string name="and_broadcastPacket">广播包</string>
+    <string name="and_broadcastAddrLabel">广播地址（留空 = 自动：全局 + 各地址的 /24）</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

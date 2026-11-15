@@ -1664,6 +1664,15 @@ Aktionen ohne Route nutzen den alten Weg: Aufwecken = Standard-WOL; Neustart/Her
     <string name="and_probeMethodLabel">Prüfmodus (Gesamtstrategie der Verbindungspriorität; gilt für jede Route oben)</string>
     <string name="and_probeMethodHint">Parallel·erster: Thread je Adresse, erste Antwort nutzen; Parallel·alle: auf alle warten, zeilenweise melden; Seriell: der Reihe nach, Stop beim ersten Erfolg</string>
     <string name="and_defaultProbeTimeout">Standard-Prüf-Timeout (s) – wenn das Routenfeld leer ist</string>
+    <string name="and_seconds">s</string>
+    <string name="and_timeoutFallbackHint">Ist das Routenfeld gefüllt, gilt es; nur leere Routen nutzen diesen Standard (max. 30 s)</string>
+    <string name="and_lanPowerRoute">LAN-Energieroute</string>
+    <string name="and_lanPowerRouteLabel">LAN-Energieroute (optional: Adresse/Port je Aktion. Mit sol am Ziel läuft es je Port – ohne sol nur Aufwecken via WOL)</string>
+    <string name="and_noRouteHint">Noch nicht konfiguriert: Energietasten nutzen den alten Weg – Aufwecken = Standard-WOL; Neustart/Herunterfahren/Ruhezustand = API des PCs.</string>
+    <string name="and_routeIndexN">Route %1$s / %2$d</string>
+    <string name="and_modeWith">Modus: %1$s</string>
+    <string name="and_broadcastPacket">Broadcast-Paket</string>
+    <string name="and_broadcastAddrLabel">Broadcast-Adresse (leer = auto: global + /24 jeder Adresse)</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

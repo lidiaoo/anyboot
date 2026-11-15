@@ -1664,6 +1664,15 @@ Telnet：実験的端末のみ。</string>
     <string name="and_probeMethodLabel">検出方式（接続優先度全体の戦略、上の各チャネルに適用）</string>
     <string name="and_probeMethodHint">並行·最初：アドレス毎にスレッド、最初の応答を使用；並行·全て：全部完了後に逐行報告；直列：順に試し最初の成功で停止</string>
     <string name="and_defaultProbeTimeout">既定の検出タイムアウト（秒）— チャネルの欄が空のとき使用</string>
+    <string name="and_seconds">秒</string>
+    <string name="and_timeoutFallbackHint">チャネルの欄が埋まっていればそれを優先。空のチャネルだけこの既定値を使用（上限 30 秒）</string>
+    <string name="and_lanPowerRoute">LAN 電源ルート</string>
+    <string name="and_lanPowerRouteLabel">LAN 電源ルート（任意：各動作の送信先アドレス/ポート。対象機に sol があればポート別に実行。sol 無しでは起動のみ WOL で動作）</string>
+    <string name="and_noRouteHint">未設定：電源ボタンは従来通り — 起動は標準 WOL、再起動/シャットダウン/スリープは PC の API。</string>
+    <string name="and_routeIndexN">ルート %1$s / %2$d</string>
+    <string name="and_modeWith">モード：%1$s</string>
+    <string name="and_broadcastPacket">ブロードキャスト</string>
+    <string name="and_broadcastAddrLabel">ブロードキャストアドレス（空欄 = 自動：グローバル + 各アドレスの /24）</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

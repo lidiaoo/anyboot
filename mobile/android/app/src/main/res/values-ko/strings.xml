@@ -1664,6 +1664,15 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_probeMethodLabel">감지 방식(연결 우선순위 전체 전략, 위 각 채널에 적용)</string>
     <string name="and_probeMethodHint">병렬·첫 번째: 주소당 스레드, 첫 응답 사용; 병렬·전체: 모두 완료 후 행별 보고; 직렬: 순서대로 시도, 처음 성공 시 중지</string>
     <string name="and_defaultProbeTimeout">기본 감지 타임아웃(초) — 채널 칸이 비었을 때 사용</string>
+    <string name="and_seconds">초</string>
+    <string name="and_timeoutFallbackHint">채널 칸이 채워졌으면 그것 우선; 빈 채널만 이 기본값 사용(최대 30초)</string>
+    <string name="and_lanPowerRoute">LAN 전원 라우트</string>
+    <string name="and_lanPowerRouteLabel">LAN 전원 라우트(선택: 각 동작의 주소/포트. 대상에 sol이 있으면 포트별 실행, sol 없으면 깨우기만 WOL로)</string>
+    <string name="and_noRouteHint">미설정: 전원 버튼은 기존 방식 — 깨우기는 표준 WOL, 재시작/종료/잠자기는 PC API.</string>
+    <string name="and_routeIndexN">라우트 %1$s / %2$d</string>
+    <string name="and_modeWith">모드: %1$s</string>
+    <string name="and_broadcastPacket">브로드캐스트 패킷</string>
+    <string name="and_broadcastAddrLabel">브로드캐스트 주소(비우면 자동: 전역 + 각 주소 /24)</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

@@ -1134,15 +1134,15 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         FieldLabel(stringResource(R.string.and_multiNicProbeLabel))
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ProbeModeChoice(
-                "并发·首个", state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
+                stringResource(R.string.and_probeParallelFirst), state.probeMode == ServerProfile.PROBE_PARALLEL_FIRST,
                 Modifier.weight(1f),
             ) { state.probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
             ProbeModeChoice(
-                "并发·全部", state.probeMode == ServerProfile.PROBE_PARALLEL_ALL,
+                stringResource(R.string.and_probeParallelAll), state.probeMode == ServerProfile.PROBE_PARALLEL_ALL,
                 Modifier.weight(1f),
             ) { state.probeMode = ServerProfile.PROBE_PARALLEL_ALL }
             ProbeModeChoice(
-                "串行", state.probeMode == ServerProfile.PROBE_SERIAL,
+                stringResource(R.string.and_probeSerial), state.probeMode == ServerProfile.PROBE_SERIAL,
                 Modifier.weight(1f),
             ) { state.probeMode = ServerProfile.PROBE_SERIAL }
         }
@@ -1188,13 +1188,13 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         .padding(top = 2.dp),
                 ) {
                     val mode = state.blockModes[block] ?: ServerProfile.PROBE_PARALLEL_FIRST
-                    ProbeModeChoice("并发·首个", mode == ServerProfile.PROBE_PARALLEL_FIRST, Modifier.weight(1f)) {
+                    ProbeModeChoice(stringResource(R.string.and_probeParallelFirst), mode == ServerProfile.PROBE_PARALLEL_FIRST, Modifier.weight(1f)) {
                         state.blockModes[block] = ServerProfile.PROBE_PARALLEL_FIRST
                     }
-                    ProbeModeChoice("全部", mode == ServerProfile.PROBE_PARALLEL_ALL, Modifier.weight(1f)) {
+                    ProbeModeChoice(stringResource(R.string.and_probeParallelAll), mode == ServerProfile.PROBE_PARALLEL_ALL, Modifier.weight(1f)) {
                         state.blockModes[block] = ServerProfile.PROBE_PARALLEL_ALL
                     }
-                    ProbeModeChoice("串行", mode == ServerProfile.PROBE_SERIAL, Modifier.weight(1f)) {
+                    ProbeModeChoice(stringResource(R.string.and_probeSerial), mode == ServerProfile.PROBE_SERIAL, Modifier.weight(1f)) {
                         state.blockModes[block] = ServerProfile.PROBE_SERIAL
                     }
                 }
@@ -1211,7 +1211,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         )
         Text(
             if (state.jumps.isEmpty()) {
-                "还没有跳板机档案 —— 先去「☰ → 服务器」加一台 SSH 服务器，回来才能在这里选。"
+                stringResource(R.string.and_noJumpProfiles)
             } else {
                 stringResource(R.string.and_jumpPerAddrHint)
             },
@@ -1228,7 +1228,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_FIRST }
             )
             Text(
-                "并发·首个",
+                stringResource(R.string.and_probeParallelFirst),
                 fontSize = 13.sp, color = palette.fg,
                 modifier = Modifier.weight(1f, fill = false),
             )
@@ -1238,7 +1238,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 onClick = { state.probeMode = ServerProfile.PROBE_PARALLEL_ALL }
             )
             Text(
-                "并发·全部",
+                stringResource(R.string.and_probeParallelAll),
                 fontSize = 13.sp, color = palette.fg,
                 modifier = Modifier.weight(1f, fill = false),
             )
@@ -1273,7 +1273,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     }
                     state.probeTimeoutText = filtered.take(5)
                 },
-                label = { Text("秒", fontSize = 10.sp) },
+                label = { Text(stringResource(R.string.and_seconds), fontSize = 10.sp) },
                 placeholder = { Text("2", fontSize = 12.sp) },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodySmall,
@@ -1282,7 +1282,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             )
             Spacer(Modifier.width(10.dp))
             Text(
-                "通道那格填了就以它自己为准；没填的通道才用这个默认值（上限 30 秒）",
+                stringResource(R.string.and_timeoutFallbackHint),
                 fontSize = 10.sp, color = palette.fgFaint,
                 modifier = Modifier.weight(1f),
             )
@@ -1290,19 +1290,18 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
         } // end if (state.connFoldOpen)
 
         FoldHeader(
-            title = "局域网电源路由",
-            summary = if (state.routeList.isEmpty()) "未配置" else "${state.routeList.size} 条",
+            title = stringResource(R.string.and_lanPowerRoute),
+            summary = if (state.routeList.isEmpty()) stringResource(R.string.and_notConfigured) else stringResource(R.string.and_nItems, state.routeList.size),
             open = state.powerFoldOpen,
             onToggle = { state.powerFoldOpen = !state.powerFoldOpen },
         )
         if (state.powerFoldOpen) {
         FieldLabel(
-            "局域网电源路由（可选：每个动作发到哪个地址、哪个端口。" +
-                "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）"
+            stringResource(R.string.and_lanPowerRouteLabel)
         )
         if (state.routeList.isEmpty()) {
             Text(
-                "还没配：电源按钮仍走老路 —— 唤醒发标准 WOL，重启/关机/睡眠调电脑端接口。",
+                stringResource(R.string.and_noRouteHint),
                 fontSize = 11.sp, color = palette.fgFaint,
             )
         }
@@ -1318,7 +1317,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     .alpha(if (route.enabled) 1f else 0.55f),
             ) {
                 Text(
-                    "路由 ${index + 1} / ${state.routeList.size}",
+                    stringResource(R.string.and_routeIndexN, index + 1, state.routeList.size),
                     fontSize = 10.sp, color = palette.fgFaint,
                     modifier = Modifier.padding(bottom = 2.dp),
                 )
@@ -1378,7 +1377,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             },
                             modifier = Modifier.scale(0.7f),
                         )
-                        Text("启用", fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
+                        Text(stringResource(R.string.and_enable), fontSize = 9.sp, color = palette.fgFaint, maxLines = 1)
                     }
                     TextButton(onClick = {
                         state.routeList.removeAt(index)
@@ -1386,7 +1385,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         state.modeMenuIndex = -1
                         state.macMenuIndex = -1
                     }) {
-                        Text("删除", fontSize = 12.sp, color = palette.bad)
+                        Text(stringResource(R.string.common_delete), fontSize = 12.sp, color = palette.bad)
                     }
                 }
 
@@ -1400,7 +1399,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                     ) {
                         Text(
-                            "模式：" + ServerProfile.modeLabel(route.effectiveMode()),
+                            stringResource(R.string.and_modeWith, ServerProfile.modeLabel(route.effectiveMode())),
                             fontSize = 12.sp,
                         )
                     }
@@ -1422,7 +1421,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
 
                 // —— 广播包设置区：端口 / 地址 / MAC / 发包数 / 重试 ——
                 Text(
-                    "广播包",
+                    stringResource(R.string.and_broadcastPacket),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = palette.fgDim,
@@ -1437,7 +1436,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             route.macs, route.enabled,
                         )
                     },
-                    label = { Text("端口", fontSize = 10.sp) },
+                    label = { Text(stringResource(R.string.server_kPort), fontSize = 10.sp) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1450,7 +1449,7 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                             route.action, value, route.port, route.macs, route.enabled,
                         )
                     },
-                    label = { Text("广播地址（留空 = 自动：全局 + 各地址的 /24）", fontSize = 10.sp) },
+                    label = { Text(stringResource(R.string.and_broadcastAddrLabel), fontSize = 10.sp) },
                     placeholder = { Text("192.168.0.255", fontSize = 12.sp) },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall,
