@@ -1144,8 +1144,8 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
         .iter()
         .find(|variable| variable.active)
         .map_or_else(
-            || "下次启动：未知".to_string(),
-            |variable| format!("下次启动：{}", variable.display_name),
+            || crate::t!(crate::i18n::current(),"下次启动：未知","下次啟動：未知","Next boot: unknown","次回起動：不明","다음 부팅: 알 수 없음","Nächster Start: unbekannt","Следующая загрузка: неизвестно","Próximo boot: desconhecido","Próximo arranque: desconocido").to_string(),
+            |variable| crate::t!(crate::i18n::current(),"下次启动：{x}","下次啟動：{x}","Next boot: {x}","次回起動：{x}","다음 부팅: {x}","Nächster Start: {x}","Следующая загрузка: {x}","Próximo boot: {x}","Próximo arranque: {x}").replace("{x}", &variable.display_name),
         );
     // 顶部那行：**与主窗「下次启动」同源** —— 每个引导器一行（见 next_boot_rows）。
     let boot_rows = next_boot_rows(state);
@@ -1341,7 +1341,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     nodes.push(menu_item("open-web", crate::t!(crate::i18n::current(),"打开 Web 页面","開啟 Web 頁面","Open web page","Web ページを開く","웹 페이지 열기","Webseite öffnen","Открыть веб-страницу","Abrir página web","Abrir página web"), state.http.listening));
 
     nodes.push(menu_separator());
-    nodes.push(menu_item("quit", "退出程序", true));
+    nodes.push(menu_item("quit", crate::t!(crate::i18n::current(),"退出程序","結束程式","Quit","終了","종료","Beenden","Выйти","Sair","Salir"), true));
     nodes
 }
 
