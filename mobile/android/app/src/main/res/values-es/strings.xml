@@ -1203,6 +1203,17 @@ Solo se quita el registro de este móvil; el AnyBoot del equipo destino no se to
     <string name="and_noChannelAction">No hay acciones %1$s en este dispositivo</string>
     <string name="and_powerNoConfirm">Las acciones de energía no muestran confirmación</string>
     <string name="and_switchAction">Cambiar</string>
+    <string name="and_noActionAvailable">No hay acción disponible</string>
+    <string name="and_noBootOption">No hay entradas disponibles</string>
+    <string name="and_tunnelShared">El túnel %1$s lo comparten %2$d emparejamientos: un túnel para varios sistemas; las solicitudes van al azar</string>
+    <string name="and_deletedShort">Eliminado</string>
+    <string name="and_builtinFunnel">Funnel integrado</string>
+    <string name="and_tsDirectShort">TS directo</string>
+    <string name="and_remoteTunnel">Túnel remoto</string>
+    <string name="and_probeFailed">Error de sondeo</string>
+    <string name="and_readFailed">Error de lectura</string>
+    <string name="and_remoteOlderRefindplus">El anyboot del otro es antiguo y no admite el canal RefindPlus</string>
+    <string name="and_offlineCannotReadBoot">Equipo sin conexión: no se pueden leer las entradas</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

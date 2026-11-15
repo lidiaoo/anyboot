@@ -1203,6 +1203,17 @@ Apenas o registro neste celular é removido; o AnyBoot no computador de destino 
     <string name="and_noChannelAction">Sem ações %1$s neste dispositivo</string>
     <string name="and_powerNoConfirm">Ações de energia não mostram confirmação</string>
     <string name="and_switchAction">Alternar</string>
+    <string name="and_noActionAvailable">Nenhuma ação disponível</string>
+    <string name="and_noBootOption">Nenhuma entrada disponível</string>
+    <string name="and_tunnelShared">Túnel %1$s é compartilhado por %2$d pareamentos — um túnel para vários sistemas; requisições vão aleatoriamente</string>
+    <string name="and_deletedShort">Excluído</string>
+    <string name="and_builtinFunnel">Funnel integrado</string>
+    <string name="and_tsDirectShort">TS direto</string>
+    <string name="and_remoteTunnel">Túnel remoto</string>
+    <string name="and_probeFailed">Falha na sondagem</string>
+    <string name="and_readFailed">Falha na leitura</string>
+    <string name="and_remoteOlderRefindplus">O anyboot do par é antigo e não suporta o canal RefindPlus</string>
+    <string name="and_offlineCannotReadBoot">Computador offline — não é possível ler as entradas</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

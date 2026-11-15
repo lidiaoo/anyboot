@@ -1203,6 +1203,17 @@
     <string name="and_noChannelAction">이 기기에 사용 가능한 %1$s 작업이 없습니다</string>
     <string name="and_powerNoConfirm">전원 작업은 확인 창을 띄우지 않습니다</string>
     <string name="and_switchAction">전환</string>
+    <string name="and_noActionAvailable">실행 가능한 작업 없음</string>
+    <string name="and_noBootOption">선택 가능한 부팅 항목 없음</string>
+    <string name="and_tunnelShared">터널 %1$s은(는) %2$d개 페어링이 공유 — 여러 시스템이 한 터널을 공유, 요청은 무작위로 분배</string>
+    <string name="and_deletedShort">삭제됨</string>
+    <string name="and_builtinFunnel">내장 Funnel</string>
+    <string name="and_tsDirectShort">TS 직접</string>
+    <string name="and_remoteTunnel">원격 터널</string>
+    <string name="and_probeFailed">감지 실패</string>
+    <string name="and_readFailed">읽기 실패</string>
+    <string name="and_remoteOlderRefindplus">상대 anyboot가 구버전이라 RefindPlus 채널 미지원</string>
+    <string name="and_offlineCannotReadBoot">컴퓨터 오프라인 — 부팅 항목 읽기 불가</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

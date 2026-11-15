@@ -1203,6 +1203,17 @@
     <string name="and_noChannelAction">Нет доступных действий %1$s на этом устройстве</string>
     <string name="and_powerNoConfirm">Команды питания не запрашивают подтверждение</string>
     <string name="and_switchAction">Переключить</string>
+    <string name="and_noActionAvailable">Нет доступного действия</string>
+    <string name="and_noBootOption">Нет доступных записей загрузки</string>
+    <string name="and_tunnelShared">Туннель %1$s используется %2$d сопряжениями — один туннель на несколько систем; запросы распределяются случайно</string>
+    <string name="and_deletedShort">Удалено</string>
+    <string name="and_builtinFunnel">Встроенный Funnel</string>
+    <string name="and_tsDirectShort">TS напрямую</string>
+    <string name="and_remoteTunnel">Удалённый туннель</string>
+    <string name="and_probeFailed">Ошибка проверки</string>
+    <string name="and_readFailed">Ошибка чтения</string>
+    <string name="and_remoteOlderRefindplus">У партнёра старая версия anyboot без канала RefindPlus</string>
+    <string name="and_offlineCannotReadBoot">Компьютер offline — записи загрузки недоступны</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

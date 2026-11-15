@@ -3099,12 +3099,12 @@ class ComputerListActivity : ComponentActivity() {
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            Text("选择后将在下次重启时生效", fontSize = 11.sp, color = palette.fgFaint)
+                            Text(stringResource(R.string.hub_picker_footer), fontSize = 11.sp, color = palette.fgFaint)
                         } else {
                             Text(
                                 when {
-                                    channel != null -> channel.error.ifEmpty { "没有可执行的动作" }
-                                    else -> group?.note?.ifEmpty { "没有可选的启动项" } ?: "没有可选的启动项"
+                                    channel != null -> channel.error.ifEmpty { getString(R.string.and_noActionAvailable) }
+                                    else -> group?.note?.ifEmpty { getString(R.string.and_noBootOption) } ?: getString(R.string.and_noBootOption)
                                 },
                                 fontSize = 12.5.sp,
                                 color = palette.fgDim,
@@ -3142,7 +3142,7 @@ class ComputerListActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .padding(8.dp),
                 ) {
-                    Text("取消", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    Text(stringResource(R.string.common_cancel), fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -3195,7 +3195,7 @@ class ComputerListActivity : ComponentActivity() {
         for ((id, count) in seen) {
             if (count > 1) {
                 val short = if (id.length > 8) id.substring(0, 8) else id
-                return "隧道 $short 被 $count 条配对共用 —— 同一隧道被多套系统共用，请求会随机落到其中一个"
+                return getString(R.string.and_tunnelShared, short, count)
             }
         }
         return ""
@@ -3239,21 +3239,21 @@ class ComputerListActivity : ComponentActivity() {
         // 卡片第一行的连接 chip 空间只有 ~110dp（名称要活），文案必须短：
         // 完整通道描述在配对行与编辑表单里都有，这里是摘要。
         val conn = if (state != STATE_ONLINE) {
-            "未连接"
+            getString(R.string.hub_state_notConnected)
         } else when {
-            info?.winnerKind == ServerProfile.ROUTE_LAN -> "直连"
+            info?.winnerKind == ServerProfile.ROUTE_LAN -> getString(R.string.hub_route_lan)
             info?.winnerKind == ServerProfile.ROUTE_JUMP -> {
                 val jump = JumpStore.findJump(JumpStore.loadJumps(this), jumpId)
                 "跳板机 · " + (if (ServerProfile.text(jump?.name).isNotEmpty()) {
                     jump!!.name
                 } else {
-                    jump?.host ?: "已删除"
+                    jump?.host ?: getString(R.string.and_deletedShort)
                 })
             }
-            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> "内置 Funnel"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TSNET -> getString(R.string.and_builtinFunnel)
             hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "TS Funnel"
-            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> "TS 直连"
-            hitPair != null -> "远程隧道"
+            hitPair?.routeKind() == ServerProfile.ROUTE_TS -> getString(R.string.and_tsDirectShort)
+            hitPair != null -> getString(R.string.and_remoteTunnel)
             else -> "直连"
         }
         val hits = info?.hits.orEmpty()
@@ -3274,8 +3274,8 @@ class ComputerListActivity : ComponentActivity() {
                 val inUse = pair.id == hitPair?.id
                 // 「使用中」也要带耗时：选了谁 + 探测快不慢一起说，别只剩一句「使用中」
                 val stateText = when {
-                    inUse && hit != null && hit.ok -> "使用中 " + hit.ms + "ms"
-                    inUse -> "使用中"
+                    inUse && hit != null && hit.ok -> getString(R.string.and_inUseNMs, hit.ms)
+                    inUse -> getString(R.string.and_inUse)
                     else -> probeStateText(hit)
                 }
                 // 浏览器地址带这条配对自己的令牌（不同配对各带各的网关客户端令牌）
@@ -3305,7 +3305,7 @@ class ComputerListActivity : ComponentActivity() {
         }
         CqRow(
             profile = profile,
-            name = profile.displayName().ifEmpty { "(未命名)" },
+            name = profile.displayName().ifEmpty { getString(R.string.server_untitled) },
             pairs = rows,
             tunnelNote = tunnelShareNote(profile),
             ip = displayAddress(profile),
@@ -3325,7 +3325,7 @@ class ComputerListActivity : ComponentActivity() {
 
     private fun displayAddress(profile: ServerProfile): String {
         val value = ServerProfile.normalizeHost(profile.host())
-        if (value.isEmpty()) return "(未填地址)"
+        if (value.isEmpty()) return getString(R.string.remote_addrUnfilled)
         val suffix = ":" + ServerProfile.DEFAULT_PORT
         return if (value.endsWith(suffix)) value.substring(0, value.length - suffix.length) else value
     }
@@ -3373,7 +3373,7 @@ class ComputerListActivity : ComponentActivity() {
                 val info = try {
                     fetchBootInfo(profile)
                 } catch (error: Throwable) {
-                    offlineInfo("", error.message ?: "探测失败")
+                    offlineInfo("", error.message ?: getString(R.string.and_probeFailed))
                 }
                 runOnUiThread {
                     boots[profile.id] = info
@@ -3489,7 +3489,7 @@ class ComputerListActivity : ComponentActivity() {
             val info = try {
                 fetchBootInfo(profile)
             } catch (error: Throwable) {
-                offlineInfo("", error.message ?: "读取失败")
+                offlineInfo("", error.message ?: getString(R.string.and_readFailed))
             }
             runOnUiThread {
                 boots[id] = info
@@ -3539,7 +3539,7 @@ class ComputerListActivity : ComponentActivity() {
 
         val choice = chooseEndpoint(profile) ?: run {
             consecutiveFailures[profile.id] = (consecutiveFailures[profile.id] ?: 0) + 1
-            return offlineInfo("", "这台电脑还没有可用地址")
+            return offlineInfo("", getString(R.string.error_noAddress))
         }
         if (!choice.alive) {
             val fails = (consecutiveFailures[profile.id] ?: 0) + 1
@@ -3599,7 +3599,7 @@ class ComputerListActivity : ComponentActivity() {
         val refindplus = BootGroup(
             kind = KIND_REFINDPLUS, title = "RefindPlus", available = false,
             current = "", next = "", saved = "",
-            note = "对端 anyboot 版本较旧，不支持 RefindPlus 通道", options = emptyList(),
+            note = getString(R.string.and_remoteOlderRefindplus), options = emptyList(),
         )
         val grub = try {
             parseGrub(httpJson(endpoint, token, "/api/grub"))
@@ -3645,7 +3645,7 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     private fun offlineInfo(endpoint: String, error: String, hits: List<ProbeEngine.Hit> = emptyList()): BootInfo {
-        val note = "电脑离线，无法读取引导项"
+        val note = getString(R.string.and_offlineCannotReadBoot)
         return BootInfo(
             ok = false,
             hits = hits,

@@ -1203,6 +1203,17 @@ Only the record on this phone is removed; AnyBoot on the target computer is unto
     <string name="and_noChannelAction">No %1$s actions available on this device</string>
     <string name="and_powerNoConfirm">Power actions won\'t show a confirmation</string>
     <string name="and_switchAction">Switch</string>
+    <string name="and_noActionAvailable">No action available</string>
+    <string name="and_noBootOption">No boot entries available</string>
+    <string name="and_tunnelShared">Tunnel %1$s is shared by %2$d pairings — one tunnel used by multiple systems; requests land on one at random</string>
+    <string name="and_deletedShort">Deleted</string>
+    <string name="and_builtinFunnel">Built-in Funnel</string>
+    <string name="and_tsDirectShort">TS direct</string>
+    <string name="and_remoteTunnel">Remote tunnel</string>
+    <string name="and_probeFailed">Probe failed</string>
+    <string name="and_readFailed">Read failed</string>
+    <string name="and_remoteOlderRefindplus">The peer\'s anyboot is older and doesn\'t support the RefindPlus channel</string>
+    <string name="and_offlineCannotReadBoot">Computer offline — can\'t read boot entries</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

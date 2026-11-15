@@ -1203,6 +1203,17 @@
     <string name="and_noChannelAction">该设备没有可用的 %1$s 动作</string>
     <string name="and_powerNoConfirm">电源操作不会弹出确认框</string>
     <string name="and_switchAction">切换</string>
+    <string name="and_noActionAvailable">没有可执行的动作</string>
+    <string name="and_noBootOption">没有可选的启动项</string>
+    <string name="and_tunnelShared">隧道 %1$s 被 %2$d 条配对共用 —— 同一隧道被多套系统共用，请求会随机落到其中一个</string>
+    <string name="and_deletedShort">已删除</string>
+    <string name="and_builtinFunnel">内置 Funnel</string>
+    <string name="and_tsDirectShort">TS 直连</string>
+    <string name="and_remoteTunnel">远程隧道</string>
+    <string name="and_probeFailed">探测失败</string>
+    <string name="and_readFailed">读取失败</string>
+    <string name="and_remoteOlderRefindplus">对端 anyboot 版本较旧，不支持 RefindPlus 通道</string>
+    <string name="and_offlineCannotReadBoot">电脑离线，无法读取引导项</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

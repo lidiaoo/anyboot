@@ -1203,6 +1203,17 @@ Nur der Eintrag auf diesem Handy wird entfernt; AnyBoot auf dem Zielcomputer ble
     <string name="and_noChannelAction">Keine %1$s-Aktionen auf diesem Gerät</string>
     <string name="and_powerNoConfirm">Energiebefehle zeigen keine Bestätigung</string>
     <string name="and_switchAction">Wechseln</string>
+    <string name="and_noActionAvailable">Keine Aktion verfügbar</string>
+    <string name="and_noBootOption">Keine Starteinträge verfügbar</string>
+    <string name="and_tunnelShared">Tunnel %1$s wird von %2$d Kopplungen geteilt – ein Tunnel für mehrere Systeme; Anfragen landen zufällig</string>
+    <string name="and_deletedShort">Gelöscht</string>
+    <string name="and_builtinFunnel">Integriertes Funnel</string>
+    <string name="and_tsDirectShort">TS direkt</string>
+    <string name="and_remoteTunnel">Remote-Tunnel</string>
+    <string name="and_probeFailed">Prüfung fehlgeschlagen</string>
+    <string name="and_readFailed">Lesen fehlgeschlagen</string>
+    <string name="and_remoteOlderRefindplus">Das anyboot des Gegenübers ist älter und unterstützt den RefindPlus-Kanal nicht</string>
+    <string name="and_offlineCannotReadBoot">Computer offline – Starteinträge nicht lesbar</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

@@ -1203,6 +1203,17 @@
     <string name="and_noChannelAction">該裝置沒有可用的 %1$s 動作</string>
     <string name="and_powerNoConfirm">電源操作不會彈出確認框</string>
     <string name="and_switchAction">切換</string>
+    <string name="and_noActionAvailable">沒有可執行的動作</string>
+    <string name="and_noBootOption">沒有可選的啟動項</string>
+    <string name="and_tunnelShared">通道 %1$s 被 %2$d 條配對共用 —— 同一通道被多套系統共用，請求會隨機落到其中一個</string>
+    <string name="and_deletedShort">已刪除</string>
+    <string name="and_builtinFunnel">內建 Funnel</string>
+    <string name="and_tsDirectShort">TS 直連</string>
+    <string name="and_remoteTunnel">遠端通道</string>
+    <string name="and_probeFailed">探測失敗</string>
+    <string name="and_readFailed">讀取失敗</string>
+    <string name="and_remoteOlderRefindplus">對端 anyboot 版本較舊，不支援 RefindPlus 通道</string>
+    <string name="and_offlineCannotReadBoot">電腦離線，無法讀取啟動項</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

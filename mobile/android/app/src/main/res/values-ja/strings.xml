@@ -1203,6 +1203,17 @@
     <string name="and_noChannelAction">このデバイスに利用可能な %1$s 操作がありません</string>
     <string name="and_powerNoConfirm">電源操作は確認ダイアログを出しません</string>
     <string name="and_switchAction">切替</string>
+    <string name="and_noActionAvailable">実行できる操作がありません</string>
+    <string name="and_noBootOption">選択できる起動項目がありません</string>
+    <string name="and_tunnelShared">トンネル %1$s は %2$d 件のペアリングで共用 — 複数システムで 1 つのトンネルを共有し、要求はランダムに振り分け</string>
+    <string name="and_deletedShort">削除済み</string>
+    <string name="and_builtinFunnel">内蔵 Funnel</string>
+    <string name="and_tsDirectShort">TS 直接</string>
+    <string name="and_remoteTunnel">リモートトンネル</string>
+    <string name="and_probeFailed">検出失敗</string>
+    <string name="and_readFailed">読み取り失敗</string>
+    <string name="and_remoteOlderRefindplus">相手の anyboot が古く、RefindPlus チャネル非対応</string>
+    <string name="and_offlineCannotReadBoot">PC はオフラインで起動項目を読み取れません</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
