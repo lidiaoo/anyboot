@@ -4581,26 +4581,8 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let group_titles = grub_submenu_titles(value);
     let mut options: Vec<BootOption> = Vec::new();
 
-    // 置顶当前选中项（回显带「组名 › 」前缀 —— 与旧版 grub 回显一致：二级菜单拼接「一级 › 二级」）
-    if let Some(pinned) = entries.iter().find(|entry| entry.selector == active) {
-        let prefix = pinned
-            .submenu
-            .as_deref()
-            .filter(|id| !id.is_empty())
-            .and_then(|id| group_titles.get(id))
-            .map(|name| format!("{name} › "))
-            .unwrap_or_default();
-        push_grub_option(
-            &mut options,
-            format,
-            pinned,
-            true,
-            &prefix,
-            &std::collections::HashMap::new(),
-            &mut std::collections::HashSet::new(),
-        );
-    }
-
+    // 置顶副本由前端 GrubList 统一渲染（activeSelector 命中即置顶+「下次启动」徽标）——
+    // 后端不再造回显行，否则与置顶副本重复（用户 2026-11-15 报「非本机重复了 残留没清理」）。
     // 组内子项索引（与托盘同一份 children_of）；空串 submenu（老数据/手写 cfg）
     // 按「没有父级」算 —— 真服务端顶层条目的 submenu 是 null。
     let mut children_of: std::collections::HashMap<&str, Vec<&crate::grub::GrubEntry>> =
@@ -6282,13 +6264,20 @@ mod tests {
         assert_eq!(group.current, "0>1");
         assert_eq!(group.next, "");
         assert_eq!(group.saved, "0>1");
-        // 当前选中项置顶（第一条），原位照常保留 —— 与托盘同一行为
-        assert_eq!(group.options[0].value, "0>1");
-        assert_eq!(group.options[1].value, "0");
-        assert_eq!(group.options[2].value, "0>1");
-        assert_eq!(group.options[3].class, "win");
+        // 统一化：后端不再造置顶回显行 —— 置顶副本由前端 GrubList 渲染（activeSelector 命中）。
+        // 原位照常保留：每条 selector 只出现一次（不再有回显重复行）。
+        assert_eq!(
+            group
+                .options
+                .iter()
+                .filter(|o| o.value == "0>1")
+                .count(),
+            1
+        );
+        assert!(group.options.iter().any(|o| o.value == "0"));
+        assert!(group.options.iter().any(|o| o.class == "win"));
         // selector 原样保留（含 `>`，切换时要转义但不能被改写）
-        assert_eq!(group.options[0].value, "0>1");
+        assert!(group.options.iter().any(|o| o.value == "0>1"));
     }
 
     #[test]
@@ -6418,26 +6407,30 @@ mod tests {
             ]
         });
         let group = grub_from_json(&value, "simple");
-        // 置顶行在最前（回显带「组名 › 子项」前缀，对齐旧版）
-        assert_eq!(group.options[0].value, "g>1");
+        // 统一化：后端不造置顶行（前端 GrubList 渲染置顶副本）——
+        // "g>1" 只出现一次，且不再有带「组名 › 」前缀的回显行。
+        assert_eq!(group.options.iter().filter(|o| o.value == "g>1").count(), 1);
         assert!(
-            group.options[0].label.contains("cachyos-fallback"),
-            "{}",
-            group.options[0].label
+            group
+                .options
+                .iter()
+                .all(|o| !o.label.contains("Advanced options for CachyOS › ")),
+            "{:?}",
+            group.options.iter().map(|o| &o.label).collect::<Vec<_>>()
         );
-        assert!(group.options[0].label.contains("Advanced options for CachyOS › "), "{}", group.options[0].label);
         // 顶层条目照常在原位出现（置顶行之外它还在）
-        assert_eq!(group.options[1].value, "0");
+        assert!(group.options.iter().any(|o| o.value == "0"));
         // 组头带计数与 ESP 位置（simple 档带，极简/原始不带）
-        assert!(group.options[2].header);
-        assert!(group.options[2].label.contains("（2 项"), "{}", group.options[2].label);
-        assert!(group.options[2].label.contains("位于H:\\ UUID=abcd-1234"));
+        let gh = group.options.iter().find(|o| o.header).expect("有组头");
+        assert!(gh.label.contains("（2 项"), "{}", gh.label);
+        assert!(gh.label.contains("位于H:\\ UUID=abcd-1234"));
         // 子项是纯文字（箭头由前端 GrubList 自带）
-        assert!(!group.options[3].label.starts_with("↳ "));
+        assert!(group.options.iter().all(|o| !o.label.starts_with("↳ ")));
         // 极简档组头不带位置
         let minimal = grub_from_json(&value, "minimal");
-        assert!(minimal.options[2].label.contains("（2 项）"));
-        assert!(!minimal.options[2].label.contains("位于"));
+        let mgh = minimal.options.iter().find(|o| o.header).expect("有组头");
+        assert!(mgh.label.contains("（2 项）"), "{}", mgh.label);
+        assert!(!mgh.label.contains("位于"));
 
         // 同名条目折叠成一条并标变体数（非原始格式；原始格式不折叠）
         let dup = serde_json::json!({
