@@ -145,6 +145,7 @@ hub: {
     fail: "Inacessível",
     openBrowser: "Abrir no navegador",
     probeTimeout: "Sondagem expirou (>2000ms)",
+    okShort: "OK",
     local: "Local",
     direct: "Direto",
     disconnected: "Desconectado",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "Mono embutida",
   scrollback: "Linhas de histórico",
   scrollbackNote: "Histórico no buffer (500–100000)",
+  downloadPath: "Caminho de download",
+  downloadPathPh: "Pasta de downloads do sistema",
 },
 about: {
   title: "Sobre",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "Frase-senha (opcional)",
   passPh: "Vazio = sem frase-senha",
   passTip: "Com frase-senha, desbloqueie uma vez por conexão no terminal; sem ela, pronto a usar mas com risco um pouco maior",
+  genNote: "Após gerar, o fingerprint é mostrado com dica para copiar ao servidor de destino",
+  delTitleQ: "Excluir chave?",
 },
 termWin: {
   loadFail: "Falha ao carregar: {src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "Desconhecido",
   healthItems: "{src} · {n} itens",
   notRead: "Ainda não carregado",
+},
+cl: {
+  pickConn: "Escolha a conexão para abrir",
+},
+srv: {
+  delConfirm: "Excluir “{name}”? Não pode ser desfeito.",
 },
 api: {
   invalidToken: "Token de acesso inválido (401)",

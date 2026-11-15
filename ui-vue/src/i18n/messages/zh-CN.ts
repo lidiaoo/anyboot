@@ -145,6 +145,7 @@ hub: {
     fail: "不通",
     openBrowser: "浏览器打开",
     probeTimeout: "探测超时 (>2000ms)",
+    okShort: "通",
     local: "本机",
     direct: "直连",
     disconnected: "未连接",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "内置等宽",
   scrollback: "滚动回滚行数",
   scrollbackNote: "缓冲区保留的历史输出（500–100000）",
+  downloadPath: "下载路径",
+  downloadPathPh: "系统下载目录",
 },
 about: {
   title: "关于",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "口令（可选）",
   passPh: "留空则不设口令",
   passTip: "设口令后每次连接需在终端里解锁一次；不设则开箱即用，泄露风险略高",
+  genNote: "生成后将展示公钥指纹，并提示复制公钥到目标服务器",
+  delTitleQ: "删除密钥？",
 },
 termWin: {
   loadFail: "加载失败：{src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "未知",
   healthItems: "{src} · {n} 个条目",
   notRead: "还没读取",
+},
+cl: {
+  pickConn: "选择打开使用的连接",
+},
+srv: {
+  delConfirm: "确定删除「{name}」吗？此操作不可恢复。",
 },
 api: {
   invalidToken: "访问令牌无效（401）",

@@ -145,6 +145,7 @@ hub: {
     fail: "Nicht erreichbar",
     openBrowser: "Im Browser öffnen",
     probeTimeout: "Prüfung abgelaufen (>2000ms)",
+    okShort: "OK",
     local: "Lokal",
     direct: "Direkt",
     disconnected: "Nicht verbunden",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "Eingebautes Mono",
   scrollback: "Scrollback-Zeilen",
   scrollbackNote: "Im Puffer gehaltener Verlauf (500–100000)",
+  downloadPath: "Download-Pfad",
+  downloadPathPh: "System-Downloadordner",
 },
 about: {
   title: "Über",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "Passphrase (optional)",
   passPh: "Leer = keine Passphrase",
   passTip: "Mit Passphrase einmal pro Verbindung im Terminal entsperren; ohne sofort nutzbar, aber etwas höheres Risiko",
+  genNote: "Nach dem Erzeugen wird der Fingerabdruck angezeigt mit Hinweis zum Kopieren auf den Zielserver",
+  delTitleQ: "Schlüssel löschen?",
 },
 termWin: {
   loadFail: "Laden fehlgeschlagen: {src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "Unbekannt",
   healthItems: "{src} · {n} Einträge",
   notRead: "Noch nicht geladen",
+},
+cl: {
+  pickConn: "Zu öffnende Verbindung wählen",
+},
+srv: {
+  delConfirm: "„{name}“ löschen? Nicht umkehrbar.",
 },
 api: {
   invalidToken: "Ungültiges Zugriffstoken (401)",

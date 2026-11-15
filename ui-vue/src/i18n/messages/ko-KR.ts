@@ -145,6 +145,7 @@ hub: {
     fail: "연결 안 됨",
     openBrowser: "브라우저에서 열기",
     probeTimeout: "감지 시간 초과 (>2000ms)",
+    okShort: "연결됨",
     local: "로컬",
     direct: "직접",
     disconnected: "연결 안 됨",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "내장 고정폭",
   scrollback: "스크롤백 줄 수",
   scrollbackNote: "버퍼에 보관할 기록 (500~100000)",
+  downloadPath: "다운로드 경로",
+  downloadPathPh: "시스템 다운로드 폴더",
 },
 about: {
   title: "정보",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "암호 (선택)",
   passPh: "비우면 암호 없음",
   passTip: "암호를 설정하면 연결마다 터미널에서 1회 해제; 미설정 시 바로 사용 가능하나 유출 위험이 약간 높음",
+  genNote: "생성 후 공개 키 지문을 표시하고 대상 서버로 복사를 안내합니다",
+  delTitleQ: "키를 삭제할까요?",
 },
 termWin: {
   loadFail: "로드 실패: {src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "알 수 없음",
   healthItems: "{src} · {n}개",
   notRead: "아직 읽지 않음",
+},
+cl: {
+  pickConn: "열 연결 선택",
+},
+srv: {
+  delConfirm: "“{name}”을(를) 삭제할까요? 되돌릴 수 없습니다.",
 },
 api: {
   invalidToken: "액세스 토큰 무효 (401)",

@@ -212,7 +212,7 @@ function pickDownDir() {
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">下载路径</p>
+          <p class="ts-t">{{ $t("termset.downloadPath") }}</p>
           <p class="ts-s">
             文件下载到本机的目录（留空 = 系统下载目录；<span class="mono">~</span> = 用户主目录）
           </p>
@@ -223,7 +223,7 @@ function pickDownDir() {
             v-model="settings.downDir"
             class="ts-num"
             type="text"
-            placeholder="系统下载目录"
+            :placeholder="$t('termset.downloadPathPh')"
             style="width: min(210px, 100%)"
           />
           <button type="button" id="tsDownBrowse" class="btn" style="height: 32px; padding: 0 12px" @click="pickDownDir">

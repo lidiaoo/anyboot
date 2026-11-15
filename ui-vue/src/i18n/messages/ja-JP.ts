@@ -145,6 +145,7 @@ hub: {
     fail: "接続不可",
     openBrowser: "ブラウザで開く",
     probeTimeout: "検出タイムアウト (>2000ms)",
+    okShort: "接続可",
     local: "ローカル",
     direct: "直接",
     disconnected: "未接続",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "内蔵等幅",
   scrollback: "スクロールバック行数",
   scrollbackNote: "バッファに保持する履歴（500〜100000）",
+  downloadPath: "ダウンロード先",
+  downloadPathPh: "システムのダウンロード先",
 },
 about: {
   title: "情報",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "パスフレーズ（任意）",
   passPh: "空欄でパスフレーズなし",
   passTip: "パスフレーズ設定時は接続ごとに端末で 1 回解除。未設定ならすぐ使えますが漏洩リスクはやや高め",
+  genNote: "生成後に公開鍵の指紋を表示し、対象サーバーへのコピーを促します",
+  delTitleQ: "キーを削除しますか？",
 },
 termWin: {
   loadFail: "読み込み失敗：{src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "不明",
   healthItems: "{src} · {n} 件",
   notRead: "未読み込み",
+},
+cl: {
+  pickConn: "開く接続を選択",
+},
+srv: {
+  delConfirm: "「{name}」を削除しますか？元に戻せません。",
 },
 api: {
   invalidToken: "アクセストークンが無効（401）",

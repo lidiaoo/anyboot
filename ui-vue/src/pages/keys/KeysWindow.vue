@@ -299,8 +299,7 @@ async function confirmDelete() {
   </div>
 
   <footer>
-    使用方式：在服务器编辑里把认证方式切到「密钥」并选择钥匙；把对应<b>公钥</b>追加到服务器的
-    <code>~/.ssh/authorized_keys</code> 即可。私钥不离开本机，删除服务器不会删除密钥。
+    {{ $t("keysWin.usage") }}
   </footer>
 
   <p v-if="message" class="hint" style="color: rgb(var(--ok))">{{ message }}</p>
@@ -311,7 +310,7 @@ async function confirmDelete() {
     <div class="modal-card">
       <div class="modal-head">
         <h3 id="genTitle">{{ $t("keysWin.genTitle") }}</h3>
-        <button type="button" id="genClose" aria-label="关闭" @click="genOpen = false">✕</button>
+        <button type="button" id="genClose" :aria-label="$t('common.close')" @click="genOpen = false">✕</button>
       </div>
       <form id="genForm" class="modal-body" @submit.prevent="confirmGenerate">
         <div>
@@ -334,10 +333,10 @@ async function confirmDelete() {
           <input id="genPass" v-model="genPassphrase" type="password" :placeholder="$t('keysWin.passPh')" autocomplete="new-password" />
           <span class="field-tip">{{ $t("keysWin.passTip") }}</span>
         </div>
-        <p class="modal-note">生成后将展示公钥指纹，并提示复制公钥到目标服务器</p>
+        <p class="modal-note">{{ $t("keysWin.genNote") }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="genCancel" @click="genOpen = false">取消</button>
-          <button type="submit" class="btn primary">生成</button>
+          <button type="button" class="btn plain" id="genCancel" @click="genOpen = false">{{ $t("common.cancel") }}</button>
+          <button type="submit" class="btn primary">{{ $t("keysWin.gen") }}</button>
         </div>
       </form>
     </div>
@@ -352,12 +351,12 @@ async function confirmDelete() {
             <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
           </svg>
         </span>
-        <h3 id="delTitle">删除密钥？</h3>
+        <h3 id="delTitle">{{ $t("keysWin.delTitleQ") }}</h3>
       </div>
       <p id="delBody" class="del-body">{{ delBody }}</p>
       <div class="modal-foot">
-        <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">取消</button>
-        <button type="button" class="btn danger" id="delOk" @click="confirmDelete">删除</button>
+        <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">{{ $t("common.cancel") }}</button>
+        <button type="button" class="btn danger" id="delOk" @click="confirmDelete">{{ $t("common.delete") }}</button>
       </div>
     </div>
   </div>

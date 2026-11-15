@@ -145,6 +145,7 @@ hub: {
     fail: "Inaccesible",
     openBrowser: "Abrir en el navegador",
     probeTimeout: "Sondeo agotado (>2000ms)",
+    okShort: "OK",
     local: "Local",
     direct: "Directo",
     disconnected: "Desconectado",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "Mono integrada",
   scrollback: "Líneas de desplazamiento",
   scrollbackNote: "Historial en el búfer (500–100000)",
+  downloadPath: "Ruta de descarga",
+  downloadPathPh: "Carpeta de descargas del sistema",
 },
 about: {
   title: "Acerca de",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "Frase de contraseña (opcional)",
   passPh: "Vacío = sin frase",
   passTip: "Con frase, desbloqueas una vez por conexión en el terminal; sin ella, listo pero con algo más de riesgo",
+  genNote: "Tras generar, se muestra la huella con una pista para copiarla al servidor destino",
+  delTitleQ: "¿Eliminar clave?",
 },
 termWin: {
   loadFail: "Error al cargar: {src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "Desconocido",
   healthItems: "{src} · {n} elementos",
   notRead: "Aún sin cargar",
+},
+cl: {
+  pickConn: "Elige la conexión para abrir",
+},
+srv: {
+  delConfirm: "¿Eliminar «{name}»? No se puede deshacer.",
 },
 api: {
   invalidToken: "Token de acceso no válido (401)",

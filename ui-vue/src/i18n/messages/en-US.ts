@@ -145,6 +145,7 @@ hub: {
     fail: "Unreachable",
     openBrowser: "Open in browser",
     probeTimeout: "Probe timed out (>2000ms)",
+    okShort: "OK",
     local: "Local",
     direct: "Direct",
     disconnected: "Disconnected",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "Built-in mono",
   scrollback: "Scrollback lines",
   scrollbackNote: "History output kept in the buffer (500–100000)",
+  downloadPath: "Download path",
+  downloadPathPh: "System download folder",
 },
 about: {
   title: "About",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "Passphrase (optional)",
   passPh: "Blank = no passphrase",
   passTip: "With a passphrase you unlock once per connection in the terminal; without it, ready to use but slightly higher leak risk",
+  genNote: "After generating, the public key fingerprint is shown with a hint to copy it to the target server",
+  delTitleQ: "Delete key?",
 },
 termWin: {
   loadFail: "Load failed: {src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "Unknown",
   healthItems: "{src} · {n} entries",
   notRead: "Not loaded yet",
+},
+cl: {
+  pickConn: "Choose the connection to open",
+},
+srv: {
+  delConfirm: "Delete “{name}”? This can't be undone.",
 },
 api: {
   invalidToken: "Invalid access token (401)",

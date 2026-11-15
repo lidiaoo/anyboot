@@ -145,6 +145,7 @@ hub: {
     fail: "不通",
     openBrowser: "用瀏覽器開啟",
     probeTimeout: "探測逾時 (>2000ms)",
+    okShort: "通",
     local: "本機",
     direct: "直連",
     disconnected: "未連線",
@@ -840,6 +841,8 @@ termset: {
   fontFamilyPh: "內建等寬",
   scrollback: "捲動回捲行數",
   scrollbackNote: "緩衝區保留的歷史輸出（500–100000）",
+  downloadPath: "下載路徑",
+  downloadPathPh: "系統下載目錄",
 },
 about: {
   title: "關於",
@@ -905,6 +908,8 @@ keysWin: {
   pass: "口令（選填）",
   passPh: "留空則不設口令",
   passTip: "設口令後每次連線需在終端機裡解鎖一次；不設則開箱即用，洩露風險略高",
+  genNote: "產生後將展示公鑰指紋，並提示複製公鑰到目標伺服器",
+  delTitleQ: "刪除金鑰？",
 },
 termWin: {
   loadFail: "載入失敗：{src}",
@@ -1342,6 +1347,12 @@ boot: {
   unknown: "未知",
   healthItems: "{src} · {n} 個項目",
   notRead: "還沒讀取",
+},
+cl: {
+  pickConn: "選擇開啟使用的連線",
+},
+srv: {
+  delConfirm: "確定刪除「{name}」嗎？此操作不可復原。",
 },
 api: {
   invalidToken: "存取權杖無效（401）",

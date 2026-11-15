@@ -766,8 +766,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
     <div v-if="browserPickOpen" class="overlay" @click.self="browserPickOpen = false">
       <div class="dialog" role="dialog" aria-modal="true" style="max-width: 460px">
         <div class="dialog-head">
-          <h3>选择打开使用的连接</h3>
-          <button type="button" class="icon-btn" aria-label="关闭" @click="browserPickOpen = false">✕</button>
+          <h3>{{ $t("cl.pickConn") }}</h3>
+          <button type="button" class="icon-btn" :aria-label="$t('common.close')" @click="browserPickOpen = false">✕</button>
         </div>
         <div class="dialog-body" style="display:flex;flex-direction:column;gap:8px">
           <button
@@ -780,12 +780,12 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           >
             <span class="cq-remote-kind" :class="{ 'ok': c.ok === true, 'bad': c.ok === false }">{{ c.label }}</span>
             <span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.address }}</span>
-            <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">通</span>
-            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">不通</span>
+            <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">{{ $t("hub.conn.okShort") }}</span>
+            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">{{ $t("hub.conn.fail") }}</span>
           </button>
         </div>
         <div class="dialog-foot">
-          <button type="button" class="btn" @click="browserPickOpen = false">取消</button>
+          <button type="button" class="btn" @click="browserPickOpen = false">{{ $t("common.cancel") }}</button>
         </div>
       </div>
     </div>

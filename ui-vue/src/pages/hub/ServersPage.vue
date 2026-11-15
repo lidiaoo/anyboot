@@ -561,15 +561,15 @@ async function testOne(server: HubServer) {
         <div class="dialog" role="dialog" aria-modal="true" :aria-label="$t('server.deleteAria')">
           <div class="dialog-head">
             <h3>{{ $t("server.deleteAria") }}</h3>
-            <button type="button" class="icon-btn" id="deleteX" aria-label="关闭" @click="deleteTarget = null">✕</button>
+            <button type="button" class="icon-btn" id="deleteX" :aria-label="$t('common.close')" @click="deleteTarget = null">✕</button>
           </div>
           <div class="dialog-body">
-            <p class="d-text">确定删除「<b id="deleteName">{{ deleteTarget?.name ?? "" }}</b>」吗？此操作不可恢复。</p>
+            <p class="d-text">{{ $t("srv.delConfirm", { name: deleteTarget?.name ?? "" }) }}</p>
           </div>
           <div class="dialog-foot">
             <span class="spacer" />
-            <button type="button" class="btn ghost" id="deleteCancel" @click="deleteTarget = null">取消</button>
-            <button type="button" class="btn danger" id="deleteConfirm" @click="confirmDelete">删除</button>
+            <button type="button" class="btn ghost" id="deleteCancel" @click="deleteTarget = null">{{ $t("common.cancel") }}</button>
+            <button type="button" class="btn danger" id="deleteConfirm" @click="confirmDelete">{{ $t("common.delete") }}</button>
           </div>
         </div>
       </div>
