@@ -59,9 +59,9 @@
 - [ ] **P4.4** `pages/hub/TransfersPage.vue`
 - [ ] **P4.5** `pages/hub/SessionsPage.vue`
 - [ ] **P4.6** `pages/hub/GatewayPage.vue`（远程接入/隧道/配对）
-- [ ] **P4.7**（KeysPage 已完成；KeysWindow 待） `pages/hub/KeysPage.vue`、`keys/*`
+- [x] **P4.7** KeysPage + KeysWindow 已完成 `pages/hub/KeysPage.vue`、`keys/*`
 - [ ] **P4.8** `pages/hub/FilesPage.vue`、`files/*`
-- [ ] **P4.9** `pages/hub/AboutPage.vue`（版本/更新/检查更新/仓库链接）
+- [x] **P4.9** `pages/hub/AboutPage.vue`
 - [ ] **P4.10** 更新流程文案：`stores/update.ts`（或等价）+ 更新面板按钮/进度/错误
 
 ### P5 PC 收尾

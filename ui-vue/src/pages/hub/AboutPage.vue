@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { t } from "@/i18n";
 import { call, isTauri } from "@/api/tauri";
 
 /**
@@ -77,31 +78,31 @@ async function loadGitHubStats(): Promise<void> {
 }
 
 const LINK_ITEMS = [
-  { id: "releases", label: "更新日志", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
-  { id: "issues", label: "问题反馈（Issues）", icon: '<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>' },
-  { id: "license", label: "开源许可", icon: '<path d="M6 2.5h7.5L20 9v11.5H6z"/><path d="M13.5 2.5V9H20"/><path d="M9 14h6"/>', suffix: "MIT" },
+  { id: "releases", label: "about.tabReleases", icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>' },
+  { id: "issues", label: "about.tabIssues", icon: '<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>' },
+  { id: "license", label: "about.tabLicense", icon: '<path d="M6 2.5h7.5L20 9v11.5H6z"/><path d="M13.5 2.5V9H20"/><path d="M9 14h6"/>', suffix: "MIT" },
 ];
 
 const phaseText = computed(() => {
   switch (update.value?.phase) {
     case "checking":
-      return "正在检查新版本…";
+      return t("about.checking");
     case "up_to_date":
-      return "已是最新版本";
+      return t("about.upToDate");
     case "available":
-      return `发现新版本 ${update.value.latestVersion}`;
+      return t("about.foundNew", { v: update.value.latestVersion });
     case "downloading":
-      return `正在下载 v${update.value?.latestVersion ?? ""}…`;
+      return t("about.downloading", { v: update.value?.latestVersion ?? "" });
     case "verifying":
-      return `正在校验 v${update.value?.latestVersion ?? ""}…`;
+      return t("about.verifying", { v: update.value?.latestVersion ?? "" });
     case "ready_to_install":
-      return "可以安装";
+      return t("about.canInstall");
     case "installing":
-      return `正在安装 v${update.value?.latestVersion ?? ""}，应用即将退出并重启…`;
+      return t("about.installing", { v: update.value?.latestVersion ?? "" });
     case "error":
-      return `出错：${update.value.error}`;
+      return t("about.errorMsg", { msg: String(update.value.error) });
     default:
-      return "还没检查过";
+      return t("about.notChecked");
   }
 });
 
@@ -222,7 +223,7 @@ function openPage(which: string) {
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>关于</h2></div>
+    <div class="page-head"><h2>{{ $t("about.title") }}</h2></div>
     <div class="hub-page-body">
       <div class="about-wrap">
         <!-- 版本卡 -->
@@ -234,12 +235,12 @@ function openPage(which: string) {
             </svg>
           </span>
           <h2 class="about-title">AnyBoot</h2>
-          <p class="about-ver mono" id="aboutVersion">v{{ version }} · 多系统启动管理器</p>
-          <p class="about-desc">多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输</p>
+          <p class="about-ver mono" id="aboutVersion">{{ $t("about.verLine", { ver: version }) }}</p>
+          <p class="about-desc">{{ $t("about.desc") }}</p>
           <div class="about-hero-actions">
             <button type="button" id="about-check-update" class="about-pill" :disabled="checking" @click="checkUpdate">
               <span v-if="checking" class="spin" aria-hidden="true" />
-              {{ checking ? "检查中…" : "检查更新" }}<span v-if="!checking" aria-hidden="true"> ›</span>
+              {{ checking ? $t("about.checkingNow") : $t("about.checkUpdate") }}<span v-if="!checking" aria-hidden="true"> ›</span>
             </button>
           </div>
         </div>
@@ -249,15 +250,15 @@ function openPage(which: string) {
         <div v-if="inTauri && updateOpen" id="update-section" class="about-card about-update">
           <div class="update-head" id="update-head">
             <div class="update-version">
-              <span class="update-k">当前版本</span>
+              <span class="update-k">{{ $t("about.curVer") }}</span>
               <b class="update-v mono" id="update-current">{{ update?.currentVersion || version }}</b>
             </div>
             <div class="update-actions" id="update-actions">
               <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
                 <span v-if="checking" class="spin" aria-hidden="true" />
-                {{ checking ? "检查中…" : "检查更新" }}
+                {{ checking ? $t("about.checkingNow") : $t("about.checkUpdate") }}
               </button>
-              <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">重试</button>
+              <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">{{ $t("common.retry") }}</button>
             </div>
           </div>
           <div class="update-meta" id="update-meta">{{ phaseText }}</div>
@@ -265,7 +266,7 @@ function openPage(which: string) {
           <!-- 发现新版本（旧版 #update-new） -->
           <div v-if="hasNew" id="update-new" class="update-new">
             <div class="update-new-head">
-              <strong id="update-new-title">发现新版本 {{ update?.latestVersion }}</strong>
+              <strong id="update-new-title">{{ $t("about.newTitle", { v: update?.latestVersion }) }}</strong>
               <span class="update-k" id="update-new-date">{{ update?.publishedAt }}</span>
             </div>
             <pre v-if="update?.notes" id="update-notes" class="update-notes">{{ update.notes }}</pre>
@@ -285,7 +286,7 @@ function openPage(which: string) {
                 class="btn primary"
                 @click="startDownload"
               >
-                下载
+                {{ $t("about.download") }}
               </button>
               <button
                 v-if="update?.downloaded"
@@ -294,9 +295,9 @@ function openPage(which: string) {
                 class="btn primary"
                 @click="installUpdate"
               >
-                安装并重启
+                {{ $t("about.installRestart") }}
               </button>
-              <button type="button" id="update-skip" class="btn" @click="skipVersion">跳过这个版本</button>
+              <button type="button" id="update-skip" class="btn" @click="skipVersion">{{ $t("about.skip") }}</button>
             </div>
           </div>
 
@@ -305,15 +306,15 @@ function openPage(which: string) {
           <div class="update-opts" id="update-opts">
             <label class="update-opt">
               <input id="update-auto-check" v-model="autoCheck" type="checkbox" />
-              <span>自动检查（启动 30 秒后 + 每 12 小时）</span>
+              <span>{{ $t("about.autoCheck") }}</span>
             </label>
             <label class="update-opt">
-              <span class="update-k">下载源</span>
+              <span class="update-k">{{ $t("about.downloadSrc") }}</span>
               <select id="update-mirror" v-model="mirror">
-                <option value="auto">自动（直连 → 镜像）</option>
-                <option value="direct">只直连 GitHub</option>
-                <option value="ghfast">镜像 ghfast.top</option>
-                <option value="ghproxy">镜像 gh-proxy.com</option>
+                <option value="auto">{{ $t("about.srcAuto") }}</option>
+                <option value="direct">{{ $t("about.srcDirect") }}</option>
+                <option value="ghfast">{{ $t("about.srcGhfast") }}</option>
+                <option value="ghproxy">{{ $t("about.srcGhproxy") }}</option>
               </select>
             </label>
           </div>
@@ -327,7 +328,7 @@ function openPage(which: string) {
             </svg>
             <span class="about-repo-text">
               <b>GitHub · lidiaoo/anyboot</b>
-              <i>开源项目主页</i>
+              <i>{{ $t("about.repoHome") }}</i>
             </span>
             <span class="about-star">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -342,7 +343,7 @@ function openPage(which: string) {
             <span id="about-stat-fork">{{ forks }}</span>
             <span id="about-stat-issue">{{ issues }}</span>
           </div>
-          <p class="about-tip">点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。</p>
+          <p class="about-tip">{{ $t("about.starTip") }}</p>
         </div>
 
         <!-- 链接卡 -->

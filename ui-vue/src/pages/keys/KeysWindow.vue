@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
+import { t } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 import { computed, onMounted, ref , onUnmounted } from "vue";
 import { call } from "@/api/tauri";
@@ -136,7 +137,7 @@ function doGenerate() {
 
 async function confirmGenerate() {
   genOpen.value = false;
-  busy.value = "生成密钥";
+  busy.value = t("keysWin.generating");
   try {
     const meta = await call<{ id: string; fingerprint?: string }>("hub_key_generate", {
       name: genName.value.trim(),
@@ -144,24 +145,24 @@ async function confirmGenerate() {
       passphrase: genPassphrase.value,
     });
     // 旧版 toast：已生成 {id}（指纹）— 记得把公钥装到服务器
-    toast.show(`已生成 ${meta.id}（${shortenFp(meta.fingerprint ?? "")}）— 记得把公钥装到服务器`);
+    toast.show(t("keysWin.genOk", { id: meta.id, fp: shortenFp(meta.fingerprint ?? "") }));
     await refresh();
   } catch (error) {
-    toast.show("生成失败：" + error, "bad");
+    toast.show(t("keysWin.genFail", { msg: String(error) }), "bad");
   } finally {
     busy.value = "";
   }
 }
 
 async function doImport() {
-  busy.value = "导入私钥";
+  busy.value = t("keysWin.importing");
   try {
     const meta = await call<{ id: string; fingerprint?: string }>("hub_key_import");
     // 旧版 toast：已导入 {id}（指纹）
-    toast.show(`已导入 ${meta.id}（${shortenFp(meta.fingerprint ?? "")}）`);
+    toast.show(t("keysWin.importOk", { id: meta.id, fp: shortenFp(meta.fingerprint ?? "") }));
     await refresh();
   } catch (error) {
-    toast.show("导入失败：" + error, "bad");
+    toast.show(t("keysWin.importFail", { msg: String(error) }), "bad");
   } finally {
     busy.value = "";
   }
@@ -171,7 +172,7 @@ async function doImport() {
 function keyMeta(key: KeyRow): string {
   const fp = key.fingerprint ? shortenFp(key.fingerprint) : "—";
   const date = fmtDate(key.updated_at ?? key.created_at);
-  return `${fp} · ${date} · 被 ${key.used_by ?? 0} 台服务器使用`;
+  return t("keysWin.usageInfo", { fp, date, n: key.used_by ?? 0 });
 }
 function shortenFp(fp: string): string {
   return fp.length > 24 ? `${fp.slice(0, 12)}…${fp.slice(-12)}` : fp;
@@ -185,7 +186,7 @@ async function copyPublic(id: string) {
   try {
     const text = await call<string>("hub_key_public_key", { id });
     await navigator.clipboard.writeText(text);
-    message.value = "公钥已复制到剪贴板";
+    message.value = t("keysWin.copied");
   } catch (error) {
     errorText.value = String(error);
   }
@@ -199,9 +200,9 @@ const delBody = computed(() => {
   const name = k?.name || delTarget.value || "";
   // 旧版双分支：被引用 → 警告认证失效；未引用 → 仅不可恢复
   if ((k?.used_by ?? 0) > 0) {
-    return `「${name}」正被 ${k!.used_by} 台服务器使用，删除后这些服务器的密钥认证将失效。此操作不可撤销。`;
+    return t("keysWin.delWarnUsed", { name, n: k!.used_by });
   }
-  return `「${name}」没有被任何服务器引用。删除后不可恢复。`;
+  return t("keysWin.delWarnUnused", { name });
 });
 const toastText = ref("");
 function showToast(text: string) {
@@ -218,7 +219,7 @@ function removeKey(id: string) {
 
 async function confirmDelete() {
   delOpen.value = false;
-  await run("删除密钥", () => call("hub_key_delete", { id: delTarget.value }), "已删除");
+  await run(t("keysWin.delKey"), () => call("hub_key_delete", { id: delTarget.value }), t("keysWin.deleted"));
 }
 
 </script>
@@ -231,16 +232,16 @@ async function confirmDelete() {
         <path d="M10.8 12.2 20 3M17 6l2.5 2.5M14 9l2 2" />
       </svg>
     </span>
-    <h1>密钥管理</h1>
-    <span class="count mono" id="count">{{ keys.length }} 把</span>
+    <h1>{{ $t("keysWin.title") }}</h1>
+    <span class="count mono" id="count">{{ $t("keysWin.count", { n: keys.length }) }}</span>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" aria-label="切换主题" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('keysWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        主题
+        {{ $t("keysWin.theme") }}
       </button>
     </div>
   </header>
@@ -250,15 +251,15 @@ async function confirmDelete() {
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
         <path d="M12 5v14M5 12h14" />
       </svg>
-      生成密钥
+      {{ $t("keysWin.gen") }}
     </button>
     <button type="button" class="btn" id="importBtn" :disabled="!!busy" @click="doImport">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
       </svg>
-      导入私钥
+      {{ $t("keysWin.import") }}
     </button>
-    <p class="hint">私钥加密存本机 · 公钥可一键复制</p>
+    <p class="hint">{{ $t("keysWin.hint") }}</p>
   </div>
 
   <ul class="keys scroll-thin" id="list">
@@ -277,14 +278,14 @@ async function confirmDelete() {
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
               <path d="M12 9v4M12 17h.01" />
             </svg>
-            未设口令
+            {{ $t("keysWin.noPass") }}
           </span>
         </div>
         <p class="key-meta">{{ keyMeta(key) }}</p>
       </div>
       <div class="key-actions">
-        <button type="button" class="btn small copy" @click="copyPublic(key.id)">复制公钥</button>
-        <button type="button" class="delbtn" aria-label="删除密钥" title="删除密钥" :disabled="!!busy" @click="removeKey(key.id)">
+        <button type="button" class="btn small copy" @click="copyPublic(key.id)">{{ $t("keysWin.copyPub") }}</button>
+        <button type="button" class="delbtn" :aria-label="$t('keysWin.delKey')" :title="$t('keysWin.delKey')" :disabled="!!busy" @click="removeKey(key.id)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" />
           </svg>
@@ -294,7 +295,7 @@ async function confirmDelete() {
   </ul>
 
   <div v-if="!loading && !keys.length" class="empty-tip" id="emptyTip">
-    还没有密钥 —— 生成一把 Ed25519（推荐）或导入现有私钥
+    {{ $t("keysWin.empty") }}
   </div>
 
   <footer>
@@ -309,15 +310,15 @@ async function confirmDelete() {
   <div v-if="genOpen" id="genModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="genTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="genTitle">生成密钥</h3>
+        <h3 id="genTitle">{{ $t("keysWin.genTitle") }}</h3>
         <button type="button" id="genClose" aria-label="关闭" @click="genOpen = false">✕</button>
       </div>
       <form id="genForm" class="modal-body" @submit.prevent="confirmGenerate">
         <div>
-          <label>类型</label>
+          <label>{{ $t("keysWin.type") }}</label>
           <div class="seg" id="genKind">
             <button type="button" data-kind="ed25519" :aria-selected="genKind === 'ed25519'" @click="genKind = 'ed25519'">
-              Ed25519 <span class="mono" style="font-size: 10px; opacity: 0.7">推荐</span>
+              Ed25519 <span class="mono" style="font-size: 10px; opacity: 0.7">{{ $t("keysWin.recommend") }}</span>
             </button>
             <button type="button" data-kind="rsa" :aria-selected="genKind === 'rsa'" @click="genKind = 'rsa'">
               RSA-4096
@@ -325,13 +326,13 @@ async function confirmDelete() {
           </div>
         </div>
         <div>
-          <label for="genName">名称</label>
-          <input id="genName" v-model="genName" placeholder="例如 id_ed25519_home" autocomplete="off" required />
+          <label for="genName">{{ $t("keysWin.name") }}</label>
+          <input id="genName" v-model="genName" :placeholder="$t('keysWin.namePh')" autocomplete="off" required />
         </div>
         <div>
-          <label for="genPass">口令（可选）</label>
-          <input id="genPass" v-model="genPassphrase" type="password" placeholder="留空则不设口令" autocomplete="new-password" />
-          <span class="field-tip">设口令后每次连接需在终端里解锁一次；不设则开箱即用，泄露风险略高</span>
+          <label for="genPass">{{ $t("keysWin.pass") }}</label>
+          <input id="genPass" v-model="genPassphrase" type="password" :placeholder="$t('keysWin.passPh')" autocomplete="new-password" />
+          <span class="field-tip">{{ $t("keysWin.passTip") }}</span>
         </div>
         <p class="modal-note">生成后将展示公钥指纹，并提示复制公钥到目标服务器</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
