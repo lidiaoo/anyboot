@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">推送通道出错</string>
     <string name="cl_footerNote">电源操作立即执行（不再确认）· 唤醒离线也能发（魔术包）· 引导项变更在下次重启后生效</string>
     <string name="topbar_sidebar">侧边栏</string>
+    <string name="and_editCurrent">编辑当前电脑</string>
+    <string name="and_failReloadTitle">连不上时自动重载</string>
+    <string name="and_dataRefreshTitle">数据刷新</string>
+    <string name="and_transportLabel">传输方式</string>
+    <string name="and_pickAddrTitle">选择用哪个地址打开</string>
     <string name="and_bootThemeTitle">引导页主题</string>
     <string name="and_bootThemeIntro">进电脑页面时按这里选的主题显示（不改掉电脑自己保存的主题）。「跟随电脑」= 不带偏好，看哪台就用哪台自己的。</string>
     <string name="and_bootThemeSelected">已选择「%1$s」：进电脑页面后生效</string>

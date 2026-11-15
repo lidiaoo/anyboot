@@ -506,28 +506,28 @@ class ComputerListActivity : ComponentActivity() {
                 Text("⋮", fontSize = 19.sp, color = palette.fgDim)
             }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-                DropdownMenuItem(text = { Text("添加电脑") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.menu_add)) }, onClick = {
                     open = false
                     openAdd()
                 })
-                DropdownMenuItem(text = { Text("编辑当前电脑") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.and_editCurrent)) }, onClick = {
                     open = false
                     val profile = ServerStore.find(servers.toList(), ServerStore.activeId(this@ComputerListActivity))
                     if (profile == null) toast("电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑")
                     else openEdit(profile)
                 })
-                DropdownMenuItem(text = { Text("电脑列表") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.nav_computerList)) }, onClick = {
                     open = false; moreServerListOpen = true
                 })
                 // 重载选中的那台（点卡片选中）；什么都没选就引导去点卡片
-                DropdownMenuItem(text = { Text("重载当前电脑") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.hub_view_reload)) }, onClick = {
                     open = false
                     val id = selectedId.ifEmpty { ServerStore.activeId(this@ComputerListActivity) }
                     val profile = ServerStore.find(servers.toList(), id)
                     if (profile == null) toast("先点一下卡片选中要重载的电脑")
                     else reloadBoot(profile)
                 })
-                DropdownMenuItem(text = { Text("全部重载") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.menu_reloadAll)) }, onClick = {
                     open = false; refreshAll()
                 })
                 DropdownMenuItem(
@@ -750,7 +750,7 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { moreFailReloadOpen = false },
             containerColor = palette.card,
-            title = { Text("连不上时自动重载") },
+            title = { Text(stringResource(R.string.and_failReloadTitle)) },
             text = {
                 Column {
                     Text(
@@ -795,18 +795,18 @@ class ComputerListActivity : ComponentActivity() {
                         TextButton(onClick = {
                             val parsed = custom.toIntOrNull()
                             if (parsed == null || parsed < 0) {
-                                toast("间隔要是不小于 0 的整数秒")
+                                toast(getString(R.string.menu_toastInvalid))
                                 return@TextButton
                             }
                             moreFailReloadSec = parsed
                             saveMoreFailReloadSec()
                             moreFailReloadOpen = false
-                        }) { Text("应用") }
+                        }) { Text(stringResource(R.string.settings_apply)) }
                     }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { moreFailReloadOpen = false }) { Text("完成") }
+                TextButton(onClick = { moreFailReloadOpen = false }) { Text(stringResource(R.string.bk_done)) }
             },
         )
     }
@@ -820,7 +820,7 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { moreDataRefreshOpen = false },
             containerColor = palette.card,
-            title = { Text("数据刷新") },
+            title = { Text(stringResource(R.string.and_dataRefreshTitle)) },
             text = {
                 Column {
                     Text(
@@ -874,13 +874,13 @@ class ComputerListActivity : ComponentActivity() {
                         TextButton(onClick = {
                             val parsed = custom.toIntOrNull()
                             if (parsed == null || parsed < 0) {
-                                toast("间隔要是不小于 0 的整数秒")
+                                toast(getString(R.string.menu_toastInvalid))
                                 return@TextButton
                             }
                             moreDataRefreshSec = parsed
                             saveDataRefreshSec()
                             moreDataRefreshOpen = false
-                        }) { Text("应用") }
+                        }) { Text(stringResource(R.string.settings_apply)) }
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -957,7 +957,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { moreDataRefreshOpen = false }) { Text("完成") }
+                TextButton(onClick = { moreDataRefreshOpen = false }) { Text(stringResource(R.string.bk_done)) }
             },
         )
     }
@@ -1007,7 +1007,7 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { moreTransportOpen = false },
             containerColor = palette.card,
-            title = { Text("传输方式") },
+            title = { Text(stringResource(R.string.and_transportLabel)) },
             text = {
                 Column {
                     values.forEachIndexed { index, value ->
@@ -1037,7 +1037,7 @@ class ComputerListActivity : ComponentActivity() {
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { moreTransportOpen = false }) { Text("取消") }
+                TextButton(onClick = { moreTransportOpen = false }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2253,7 +2253,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+                TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.common_cancel)) }
             },
         )
     }
@@ -2264,7 +2264,7 @@ class ComputerListActivity : ComponentActivity() {
         boots.remove(profile.id)
         transients.remove(profile.id)
         busy.remove(profile.id)
-        toast("已删除")
+        toast(getString(R.string.keysWin_deleted))
     }
 
     // ---- 打开页面 / 浏览器 ---------------------------------------------
@@ -2285,7 +2285,7 @@ class ComputerListActivity : ComponentActivity() {
     private fun openInBrowser(profile: ServerProfile) {
         val cands = profile.openCandidates()
         when {
-            cands.isEmpty() -> toast("这台电脑还没有可用地址")
+            cands.isEmpty() -> toast(getString(R.string.error_noAddress))
             cands.size == 1 -> openUrlInBrowser(cands[0].url)
             else -> { // 多地址 → 弹列表让用户选（与 PC 一致）
                 openPickList = cands
@@ -2311,7 +2311,7 @@ class ComputerListActivity : ComponentActivity() {
         AlertDialog(
             onDismissRequest = { openPickOpen = false },
             containerColor = palette.card,
-            title = { Text("选择用哪个地址打开") },
+            title = { Text(stringResource(R.string.and_pickAddrTitle)) },
             text = {
                 val hits = boots[openPickProfileId]?.hits ?: emptyList()
                 Column {
@@ -2349,7 +2349,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { openPickOpen = false }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { openPickOpen = false }) { Text(stringResource(R.string.common_cancel)) } },
         )
     }
 
@@ -2428,9 +2428,9 @@ class ComputerListActivity : ComponentActivity() {
                 )
                 .clickable(enabled = true) {
                     when {
-                        !usable -> toast("探测/操作进行中，稍候再点")
+                        !usable -> toast(getString(R.string.error_busy))
                         group.options.isEmpty() -> toast("该设备没有可选的 $title 启动项")
-                        row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
+                        row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
                         else -> sheetRequest = SheetRequest(row.profile.id, kind)
                     }
                 }
@@ -2553,10 +2553,10 @@ class ComputerListActivity : ComponentActivity() {
                 )
                 .clickable(enabled = true) {
                     when {
-                        !usable -> toast("探测/操作进行中，稍候再点")
+                        !usable -> toast(getString(R.string.error_busy))
                         actionCount == 0 ->
                             toast("该设备没有可用的 ${channel.label} 动作")
-                        row.state != STATE_ONLINE -> toast("设备不在线，无法修改引导项")
+                        row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
                         else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
                     }
                 }
@@ -3059,7 +3059,7 @@ class ComputerListActivity : ComponentActivity() {
                                             ) {
                                                 val opt = row.option ?: return@clickable
                                                 if (opt.value.isBlank()) {
-                                                    toast("这一项不能直接启动（由 OC/固件接管）")
+                                                    toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
                                                     switchBoot(rid, request.kind, opt.value, "切换")

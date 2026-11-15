@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">推送通道出錯</string>
     <string name="cl_footerNote">電源操作立即執行（不再確認）· 喚醒離線也能發（魔術封包）· 引導項變更在下次重新啟動後生效</string>
     <string name="topbar_sidebar">側邊欄</string>
+    <string name="and_editCurrent">編輯目前電腦</string>
+    <string name="and_failReloadTitle">連不上時自動重新載入</string>
+    <string name="and_dataRefreshTitle">資料重新整理</string>
+    <string name="and_transportLabel">傳輸方式</string>
+    <string name="and_pickAddrTitle">選擇用哪個位址開啟</string>
     <string name="and_bootThemeTitle">引導頁主題</string>
     <string name="and_bootThemeIntro">進電腦頁面時按這裡選的主題顯示（不改掉電腦自己儲存的主題）。「跟隨電腦」= 不帶偏好，看哪台就用哪台自己的。</string>
     <string name="and_bootThemeSelected">已選擇「%1$s」：進電腦頁面後生效</string>

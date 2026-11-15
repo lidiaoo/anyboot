@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">Erro no canal de push</string>
     <string name="cl_footerNote">Ações de energia imediatas (sem confirmação) · acordar funciona offline também (magic packet) · mudanças de boot após reiniciar</string>
     <string name="topbar_sidebar">Barra lateral</string>
+    <string name="and_editCurrent">Editar computador atual</string>
+    <string name="and_failReloadTitle">Recarregar ao falhar</string>
+    <string name="and_dataRefreshTitle">Atualização de dados</string>
+    <string name="and_transportLabel">Transporte</string>
+    <string name="and_pickAddrTitle">Escolher qual endereço abrir</string>
     <string name="and_bootThemeTitle">Tema da página de boot</string>
     <string name="and_bootThemeIntro">Ao abrir a página de um computador, usa o tema escolhido aqui (sem alterar o tema salvo do computador). “Seguir computador” = sem preferência; cada um usa o seu.</string>
     <string name="and_bootThemeSelected">“%1$s” selecionado: vale na página do computador</string>

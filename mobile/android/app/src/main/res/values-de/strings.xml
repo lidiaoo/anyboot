@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">Push-Kanal-Fehler</string>
     <string name="cl_footerNote">Energiebefehle sofort (keine Bestätigung) · Aufwecken auch offline (Magic Packet) · Startänderungen nach Neustart</string>
     <string name="topbar_sidebar">Seitenleiste</string>
+    <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
+    <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
+    <string name="and_dataRefreshTitle">Datenaktualisierung</string>
+    <string name="and_transportLabel">Transport</string>
+    <string name="and_pickAddrTitle">Adresse zum Öffnen wählen</string>
     <string name="and_bootThemeTitle">Startseiten-Design</string>
     <string name="and_bootThemeIntro">Beim Öffnen einer Computerseite wird das hier gewählte Design genutzt (ohne das eigene gespeicherte Design des Computers zu ändern). „Computer folgen“ = keine Vorgabe; jeder nutzt sein eigenes.</string>
     <string name="and_bootThemeSelected">„%1$s“ gewählt: gilt auf der Computerseite</string>

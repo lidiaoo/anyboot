@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">푸시 채널 오류</string>
     <string name="cl_footerNote">전원 작업 즉시 실행(확인 없음) · 깨우기는 오프라인에서도 가능(매직 패킷) · 부팅 항목 변경은 재부팅 후 적용</string>
     <string name="topbar_sidebar">사이드바</string>
+    <string name="and_editCurrent">현재 컴퓨터 편집</string>
+    <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
+    <string name="and_dataRefreshTitle">데이터 새로 고침</string>
+    <string name="and_transportLabel">전송 방식</string>
+    <string name="and_pickAddrTitle">열 주소 선택</string>
     <string name="and_bootThemeTitle">부팅 페이지 테마</string>
     <string name="and_bootThemeIntro">컴퓨터 페이지를 열 때 여기서 고른 테마로 표시(컴퓨터 자체 저장 테마는 변경 안 함). ‘컴퓨터 따르기’ = 선호 없음, 각자 자기 것 사용.</string>
     <string name="and_bootThemeSelected">‘%1$s’ 선택: 컴퓨터 페이지에서 적용</string>

@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">Push channel error</string>
     <string name="cl_footerNote">Power actions run immediately (no confirmation) · wake works offline too (magic packet) · boot changes take effect after reboot</string>
     <string name="topbar_sidebar">Sidebar</string>
+    <string name="and_editCurrent">Edit current computer</string>
+    <string name="and_failReloadTitle">Auto-reload when unreachable</string>
+    <string name="and_dataRefreshTitle">Data refresh</string>
+    <string name="and_transportLabel">Transport</string>
+    <string name="and_pickAddrTitle">Choose which address to open</string>
     <string name="and_bootThemeTitle">Boot page theme</string>
     <string name="and_bootThemeIntro">When opening a computer page, the theme chosen here is used (without changing the computer\'s own saved theme). “Follow computer” = no preference; each computer uses its own.</string>
     <string name="and_bootThemeSelected">Selected “%1$s”: takes effect on the computer page</string>

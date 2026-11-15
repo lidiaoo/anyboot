@@ -1148,6 +1148,11 @@
     <string name="ts_pushError">プッシュチャネルのエラー</string>
     <string name="cl_footerNote">電源操作は即実行（確認なし）· スリープ解除はオフラインでも可（マジックパケット）· 起動項目の変更は再起動後に有効</string>
     <string name="topbar_sidebar">サイドバー</string>
+    <string name="and_editCurrent">現在の PC を編集</string>
+    <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
+    <string name="and_dataRefreshTitle">データ更新</string>
+    <string name="and_transportLabel">転送方式</string>
+    <string name="and_pickAddrTitle">開くアドレスを選択</string>
     <string name="and_bootThemeTitle">起動ページのテーマ</string>
     <string name="and_bootThemeIntro">PC ページを開くときここで選んだテーマで表示（PC 側の保存テーマは変更しません）。「コンピューターに従う」= 好みなし、各 PC 自身のものを使用。</string>
     <string name="and_bootThemeSelected">「%1$s」を選択：PC ページで有効</string>
