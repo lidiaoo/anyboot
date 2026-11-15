@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch , computed } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
 
@@ -38,12 +39,12 @@ const osLabel = computed(() => {
   const i = info.value;
   if (!i) return "—";
   const base = OS_LABELS[i.os] || i.os || "—";
-  return i.osName ? `${base}（${i.osName}）` : base;
+  return i.osName ? `${base} (${i.osName})` : base;
 });
 const ipsText = computed(() => {
   const ips = info.value?.lanIps?.filter(Boolean) ?? [];
   const port = info.value?.httpPort;
-  return (ips.length ? ips.join(" · ") : "") + (port ? " · HTTP " + port : " · HTTP 未监听");
+  return (ips.length ? ips.join(" · ") : "") + (port ? " · HTTP " + port : " · " + t("sysinfo.httpNotListening"));
 });
 const loading = ref(false);
 const errorText = ref("");
@@ -77,14 +78,14 @@ function copyAll() {
   if (!i) return;
   const text = [
     `${props.title}`,
-    `系统：${i.osName || i.os || "—"}`,
-    `版本：${i.osVersion || "—"}`,
-    `内核：${i.kernel || "—"}`,
-    `架构：${i.arch || "—"}`,
-    `主机名：${i.hostname || "—"}`,
-    `处理器：${i.cpuModel || "—"} (${i.cpuCores || 0} 核)`,
-    `内存：${fmtMem(i.memTotalMb)}`,
-    `运行时长：${fmtUptime(i.uptimeSec)}`,
+    t("sysinfo.copyOs", { v: i.osName || i.os || "—" }),
+    t("sysinfo.copyVersion", { v: i.osVersion || "—" }),
+    t("sysinfo.copyKernel", { v: i.kernel || "—" }),
+    t("sysinfo.copyArch", { v: i.arch || "—" }),
+    t("sysinfo.copyHost", { v: i.hostname || "—" }),
+    t("sysinfo.copyCpu", { v: i.cpuModel || "—", n: i.cpuCores || 0 }),
+    t("sysinfo.copyMem", { v: fmtMem(i.memTotalMb) }),
+    t("sysinfo.copyUptime", { v: fmtUptime(i.uptimeSec) }),
   ].join("\n");
   void navigator.clipboard.writeText(text).catch(() => {});
 }
@@ -99,9 +100,9 @@ function fmtUptime(sec: number): string {
   const days = Math.floor(sec / 86400);
   const hours = Math.floor((sec % 86400) / 3600);
   const mins = Math.floor((sec % 3600) / 60);
-  if (days) return `${days} 天 ${hours} 小时`;
-  if (hours) return `${hours} 小时 ${mins} 分`;
-  return `${mins} 分`;
+  if (days) return t("sysinfo.daysHours", { d: days, h: hours });
+  if (hours) return t("sysinfo.hoursMins", { h: hours, m: mins });
+  return t("sysinfo.minsText", { m: mins });
 }
 </script>
 
@@ -109,27 +110,27 @@ function fmtUptime(sec: number): string {
   <div v-if="props.serverId" id="sysInfoOverlay" class="overlay" @click.self="emit('close')">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="sysInfoTitle">
       <div class="dialog-head">
-        <h3 id="sysInfoTitle">系统信息</h3>
-        <button type="button" class="icon-btn" id="sysInfoClose" aria-label="关闭" @click="emit('close')">✕</button>
+        <h3 id="sysInfoTitle">{{ t("sysinfo.title") }}</h3>
+        <button type="button" class="icon-btn" id="sysInfoClose" :aria-label="t('common.close')" @click="emit('close')">✕</button>
       </div>
       <div class="dialog-body">
-        <p v-if="loading" class="field-hint">读取中…</p>
+        <p v-if="loading" class="field-hint">{{ t("hub.state.reading") }}</p>
         <p v-else-if="errorText" class="form-error">{{ errorText }}</p>
         <template v-else-if="info">
           <div class="sysinfo-head" id="sysInfoHead">
-            <span class="who">{{ info.hostname || props.title || "本机" }}</span>
+            <span class="who">{{ info.hostname || props.title || t("sysinfo.local") }}</span>
             <span class="where">{{ ipsText }}</span>
           </div>
           <div class="sysinfo-rows" id="sysInfoRows">
-            <div><span>系统</span><span>{{ osLabel }}</span></div>
-            <div><span>系统版本</span><span class="mono">{{ info.osVersion || "—" }}</span></div>
-            <div><span>内核 / 构建</span><span class="mono">{{ info.kernel || "—" }}</span></div>
-            <div><span>架构</span><span class="mono">{{ info.arch || "—" }}</span></div>
-            <div><span>主机名</span><span class="mono">{{ info.hostname || "—" }}</span></div>
+            <div><span>{{ t("sysinfo.os") }}</span><span>{{ osLabel }}</span></div>
+            <div><span>{{ t("sysinfo.osVersion") }}</span><span class="mono">{{ info.osVersion || "—" }}</span></div>
+            <div><span>{{ t("sysinfo.kernelBuild") }}</span><span class="mono">{{ info.kernel || "—" }}</span></div>
+            <div><span>{{ t("sysinfo.arch") }}</span><span class="mono">{{ info.arch || "—" }}</span></div>
+            <div><span>{{ t("sysinfo.hostname") }}</span><span class="mono">{{ info.hostname || "—" }}</span></div>
             <div><span>CPU</span><span>{{ info.cpuModel || "—" }}</span></div>
-            <div><span>核心数</span><span>{{ info.cpuCores ? info.cpuCores + " 逻辑核心" : "—" }}</span></div>
-            <div><span>内存</span><span>{{ fmtMem(info.memTotalMb) }}<template v-if="info.memFreeMb">（可用 {{ fmtMem(info.memFreeMb) }}）</template></span></div>
-            <div><span>运行时长</span><span>{{ fmtUptime(info.uptimeSecs ?? info.uptimeSec) }}</span></div>
+            <div><span>{{ t("sysinfo.cores") }}</span><span>{{ info.cpuCores ? t("sysinfo.logicCores", { n: info.cpuCores }) : "—" }}</span></div>
+            <div><span>{{ t("sysinfo.mem") }}</span><span>{{ fmtMem(info.memTotalMb) }}<template v-if="info.memFreeMb">{{ t("sysinfo.memFree", { size: fmtMem(info.memFreeMb) }) }}</template></span></div>
+            <div><span>{{ t("sysinfo.uptime") }}</span><span>{{ fmtUptime(info.uptimeSecs ?? info.uptimeSec) }}</span></div>
             <div><span>AnyBoot</span><span>{{ info.appVersion ? "v" + info.appVersion : "—" }}</span></div>
           </div>
         </template>

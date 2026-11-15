@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch , computed , nextTick } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
 
@@ -34,11 +35,11 @@ const resultText = ref("");
 const qrRef = ref<HTMLElement | null>(null);
 
 const ADDR_TABS: { key: AddrKind; label: string; hint: string }[] = [
-  { key: "tunnel", label: "隧道地址", hint: "隧道地址 = 本机 Cloudflare 通道的当前地址；没开启通道则自动退化为「不带地址」。" },
-  { key: "tailscale", label: "Tailscale 地址", hint: "用系统 Tailscale 的 100.x 地址（需要两边在同一 tailnet）。" },
-  { key: "funnel", label: "Funnel 地址", hint: "用 Tailscale Funnel 暴露到公网的地址。" },
-  { key: "tsnet", label: "内置 TS 地址", hint: "用内置 tsnet 引擎的地址（不需要安装系统 Tailscale）。" },
-  { key: "none", label: "不带地址", hint: "配对串里不带地址，客户端要自己填。" },
+  { key: "tunnel", label: "pair.kind.tunnel", hint: "pair.hint.tunnel" },
+  { key: "tailscale", label: "pair.kind.ts", hint: "pair.hint.ts" },
+  { key: "funnel", label: "pair.kind.funnel", hint: "pair.hint.funnel" },
+  { key: "tsnet", label: "pair.kind.tsnet", hint: "pair.hint.tsnet" },
+  { key: "none", label: "pair.kind.none", hint: "pair.hint.none" },
 ];
 
 const currentHint = ref(ADDR_TABS[0]!.hint);
@@ -55,7 +56,7 @@ function loadQrCode(): Promise<void> {
     const el = document.createElement("script");
     el.src = "./qrcode.min.js";
     el.onload = () => resolve();
-    el.onerror = () => reject(new Error("二维码库加载失败"));
+    el.onerror = () => reject(new Error(t("pair.qrLoadFail")));
     document.head.appendChild(el);
   });
 }
@@ -139,28 +140,28 @@ onMounted(() => {
 <template>
   <div v-if="open" id="gwPairOverlay" class="token-modal-overlay" @click.self="emit('close')">
     <div class="token-modal gw-pair-modal">
-      <button type="button" id="gwPairX" class="gw-pair-x" title="关闭（不生成）" aria-label="关闭（不生成）" @click="emit('close')">
+      <button type="button" id="gwPairX" class="gw-pair-x" :title="t('pair.closeNoGen')" :aria-label="t('pair.closeNoGen')" @click="emit('close')">
         ✕
       </button>
 
-      <h2 id="gwPairTitle">生成配对码</h2>
-      <p class="gw-pair-warn">等同密码：拿到它就能访问这台电脑，不要转发给别人。</p>
+      <h2 id="gwPairTitle">{{ t("pair.title") }}</h2>
+      <p class="gw-pair-warn">{{ t("pair.warn") }}</p>
 
       <template v-if="!resultText">
         <div class="field" id="gwPairNameRow">
-          <label for="gwPairName">客户端名称（谁来配对）</label>
+          <label for="gwPairName">{{ t("pair.nameLabel") }}</label>
           <input
             id="gwPairName"
             v-model="clientName"
             type="text"
-            placeholder="例如：我的手机 / 客厅笔记本"
+            :placeholder="t('pair.namePh')"
             maxlength="40"
           />
         </div>
 
         <div class="field" id="gwPairAddrRow">
-          <label>配对串带哪个地址</label>
-          <div class="segmented" id="gwPairAddrTabs" role="tablist" aria-label="地址类型">
+          <label>{{ t("pair.addrLabel") }}</label>
+          <div class="segmented" id="gwPairAddrTabs" role="tablist" :aria-label="t('pair.addrAria')">
             <button
               v-for="tab in ADDR_TABS"
               :key="tab.key"
@@ -170,7 +171,7 @@ onMounted(() => {
               :aria-selected="addrKind === tab.key"
               @click="addrKind = tab.key"
             >
-              {{ tab.label }}
+              {{ t(tab.label) }}
             </button>
           </div>
           <p class="field-hint" id="gwPairAddrHint" style="margin: 6px 0 0">{{ currentHint }}</p>
@@ -178,7 +179,7 @@ onMounted(() => {
 
         <div id="gwPairGoRow" style="display: flex; gap: 8px; justify-content: flex-end">
           <button type="button" id="gwPairGo" class="btn primary" :disabled="busy" @click="generate">
-            {{ busy ? "生成中…" : "生成配对码" }}
+            {{ busy ? t("pair.generating") : t("pair.generate") }}
           </button>
         </div>
       </template>
@@ -187,8 +188,8 @@ onMounted(() => {
         <div ref="qrRef" id="gwPairQr" class="gw-qr" />
         <textarea id="gwPairText" v-model="resultText" class="mono" readonly rows="3" spellcheck="false" />
         <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px">
-          <button type="button" id="gwPairCopy" class="btn" @click="copyPair">复制配对串</button>
-          <button type="button" id="gwPairClose" class="btn primary" @click="emit('close')">完成</button>
+          <button type="button" id="gwPairCopy" class="btn" @click="copyPair">{{ t("pair.copy") }}</button>
+          <button type="button" id="gwPairClose" class="btn primary" @click="emit('close')">{{ t("pair.done") }}</button>
         </div>
       </div>
 

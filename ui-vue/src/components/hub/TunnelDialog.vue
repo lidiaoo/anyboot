@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { t } from "@/i18n";
 import { useEscape, useCtrlEnter } from "@/composables/useEscape";
 import type { RemoteProfile } from "@/stores/remote";
 
@@ -74,18 +75,18 @@ watch(
 function submit() {
   errorText.value = "";
   if (!name.value.trim()) {
-    errorText.value = "名称不能为空";
+    errorText.value = t("tunnel.errName");
     return;
   }
   const port = Number(localPort.value);
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    errorText.value = "本地端口需为 1–65535";
+    errorText.value = t("tunnel.errLocal");
     return;
   }
   if (showTarget.value) {
     const tport = Number(targetPort.value);
     if (!Number.isInteger(tport) || tport <= 0 || tport > 65535) {
-      errorText.value = "目标端口需为 1–65535";
+      errorText.value = t("tunnel.errTarget");
       return;
     }
   }
@@ -105,51 +106,51 @@ function submit() {
   <div v-if="open" id="tunnelOverlay" class="overlay">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tunnelTitle">
       <div class="dialog-head">
-        <h3 id="tunnelTitle">{{ isEdit ? "编辑隧道" : "新建隧道" }}</h3>
-        <button type="button" class="icon-btn" id="tunnelX" aria-label="关闭" @click="emit('close')">✕</button>
+        <h3 id="tunnelTitle">{{ isEdit ? t("tunnel.editTitle") : t("server.tunnelAdd") }}</h3>
+        <button type="button" class="icon-btn" id="tunnelX" :aria-label="t('common.close')" @click="emit('close')">✕</button>
       </div>
 
       <div class="dialog-body">
         <div class="field">
-          <label for="tName">名称</label>
-          <input id="tName" v-model="name" type="text" placeholder="如：内网 Web" />
+          <label for="tName">{{ t("tunnel.name") }}</label>
+          <input id="tName" v-model="name" type="text" :placeholder="t('tunnel.namePh')" />
         </div>
 
         <div class="field-row">
           <div class="field">
-            <label for="tKind">类型</label>
+            <label for="tKind">{{ t("tunnel.kind") }}</label>
             <select id="tKind" v-model="kind" class="dlg-select">
-              <option value="local">本地转发</option>
-              <option value="dynamic">SOCKS5 动态转发</option>
+              <option value="local">{{ t("tunnel.kindLocal") }}</option>
+              <option value="dynamic">{{ t("tunnel.kindDynamic") }}</option>
             </select>
           </div>
           <div class="field fixed">
-            <label for="tLocalPort">本地端口</label>
+            <label for="tLocalPort">{{ t("tunnel.localPort") }}</label>
             <input id="tLocalPort" v-model="localPort" type="text" class="mono" inputmode="numeric" placeholder="8080" />
           </div>
         </div>
 
         <div v-if="showTarget" id="tTargetRow" class="field-row">
           <div class="field">
-            <label for="tTargetHost">目标主机（从服务器侧看）</label>
+            <label for="tTargetHost">{{ t("tunnel.targetHost") }}</label>
             <input id="tTargetHost" v-model="targetHost" type="text" class="mono" placeholder="127.0.0.1" />
           </div>
           <div class="field fixed" style="flex: 0 0 110px">
-            <label for="tTargetPort">目标端口</label>
+            <label for="tTargetPort">{{ t("tunnel.targetPort") }}</label>
             <input id="tTargetPort" v-model="targetPort" type="text" class="mono" inputmode="numeric" placeholder="80" />
           </div>
         </div>
 
         <p class="field-hint" id="tunnelHint">
-          本地转发：访问本机端口 = 经该服务器访问目标；动态转发：本机端口变成 SOCKS5 代理。
+          {{ t("tunnel.hint") }}
         </p>
         <p class="form-error" id="tunnelError">{{ errorText }}</p>
       </div>
 
       <div class="dialog-foot">
         <span class="spacer" />
-        <button type="button" class="btn ghost" id="tunnelCancel" @click="emit('close')">取消</button>
-        <button type="button" class="btn primary" id="tunnelSave" @click="submit">保存</button>
+        <button type="button" class="btn ghost" id="tunnelCancel" @click="emit('close')">{{ t("common.cancel") }}</button>
+        <button type="button" class="btn primary" id="tunnelSave" @click="submit">{{ t("common.save") }}</button>
       </div>
     </div>
   </div>
