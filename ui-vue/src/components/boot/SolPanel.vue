@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { t } from "@/i18n";
 import { call } from "@/api/tauri";
 
 /**
@@ -91,9 +92,9 @@ function showToast(text: string) {
 const configText = ref("");
 /** 当前编辑的配置文件路径（旧版 solConfigEditingPath：读回给写用） */
 const configPath = ref("");
-const configStatus = ref("读取中…");
+const configStatus = ref(t("sol.readingCfg"));
 async function refreshConfig() {
-  configStatus.value = "读取中…";
+  configStatus.value = t("sol.readingCfg");
   try {
     const result = await call<{ path?: string; content?: string }>("sol_config_read", { path: null });
     configPath.value = result?.path ?? "";
@@ -102,7 +103,7 @@ async function refreshConfig() {
   } catch {
     configPath.value = "";
     configText.value = "";
-    configStatus.value = "未找到配置文件";
+    configStatus.value = t("sol.cfgNotFound");
   }
 }
 function saveConfig() {
@@ -160,11 +161,11 @@ async function deletePackage(): Promise<void> {
   try {
     localPkg.value =
       (await call<LocalPkg>("sol_delete_package", { dir: installDir.value || null })) ?? null;
-    toast.show("已删除安装包");
-    logs.value.push(`${nowTime()} 已删除安装包${localPkg.value.archive ? "" : "（含 md5 旁车）"}`);
+    toast.show(t("sol.pkgDeleted"));
+    logs.value.push(`${nowTime()} ${localPkg.value.archive ? t("sol.pkgDeleted") : t("sol.pkgDeletedMd5")}`);
   } catch (error) {
-    toast.show(`删除失败：${String(error)}`, "bad");
-    logs.value.push(`${nowTime()} 删除失败：${String(error)}`);
+    toast.show(t("sol.delFail", { msg: String(error) }), "bad");
+    logs.value.push(`${nowTime()} ${t("sol.delFail", { msg: String(error) })}`);
   }
 }
 /** 服务状态被权限挡住时显示「授权查看状态」（旧版 #sol-status-privileged） */
@@ -186,16 +187,16 @@ async function readPrivilegedStatus() {
 
 /** 运行状态一行话（旧版 renderSolStatus）：版本 + 服务 + 进程 + 需授权 */
 const stateText = computed(() => {
-  if (loading.value) return "正在读取…";
+  if (loading.value) return t("sol.loading");
   const s = status.value;
   if (errorText.value) return ;
   if (!s) return "—";
   const parts: string[] = [];
-  parts.push(s.installed ? (s.version || "已安装") : "未安装");
-  if (s.serviceLoaded) parts.push(s.serviceActive ? "服务运行中" : "服务已停止");
-  else if (s.installed) parts.push("服务未注册");
-  if (!s.serviceActive && s.processRunning) parts.push("进程在跑（非服务方式）");
-  if (s.statusNeedsPrivilege) parts.push("状态需授权查看");
+  parts.push(s.installed ? (s.version || t("sol.installed")) : t("sol.notInstalled"));
+  if (s.serviceLoaded) parts.push(s.serviceActive ? t("sol.serviceRunning") : t("sol.serviceStopped"));
+  else if (s.installed) parts.push(t("sol.serviceUnregistered"));
+  if (!s.serviceActive && s.processRunning) parts.push(t("sol.procRunning"));
+  if (s.statusNeedsPrivilege) parts.push(t("sol.needPriv"));
   return parts.join(" · ");
 });
 /** 运行状态是否异常（旧版 setting-state-error = !installed || !serviceActive） */
@@ -221,7 +222,7 @@ async function refresh() {
       const http = (await call<{ enabled?: boolean; listen?: string; token?: string; token_set?: boolean; tokenSet?: boolean }>("sol_http_get")) ?? {};
       httpEnabled.value = Boolean(http.enabled);
       httpToken.value = http.token ?? "";
-      httpEnabledState.value = http.enabled ? "已开启（sol 控制面在跑）" : "已关闭";
+      httpEnabledState.value = http.enabled ? t("sol.httpOn") : t("sol.httpOff");
     } catch { /* 忽略 */ }
     // 旧版 refreshSolPackage：sol_local_package 回填本地安装包状态
     await refreshLocalPkg();
@@ -305,7 +306,7 @@ async function generateToken() {
   // 旧版：后端生成并写入新 token（crypto 自造格式不对）
   try {
     const token = (await call<string>("sol_token_generate")) || "";
-    const message = (await call<string>("sol_http_set", { path: null, option: "token", value: token })) || "新 token 已写入配置";
+    const message = (await call<string>("sol_http_set", { path: null, option: "token", value: token })) || t("sol.newTokenWritten");
     newToken.value = "";
     showToast(message);
     await refresh();
@@ -330,12 +331,12 @@ function manualInstall() {
  *  也支持自定义前缀。选择存 localStorage（本机偏好，桌面端用）。 */
 const MIRROR_KEY = "solDownloadMirror";
 const MIRROR_PRESETS: { id: string; label: string }[] = [
-  { id: "off", label: "不走加速（直连 GitHub）" },
-  { id: "ghfast.top", label: "ghfast.top 加速" },
-  { id: "gh-proxy.com", label: "gh-proxy.com 加速" },
-  { id: "ghproxy.net", label: "ghproxy.net 加速" },
-  { id: "mirror.ghproxy.com", label: "mirror.ghproxy.com 加速" },
-  { id: "custom", label: "自定义…" },
+  { id: "off", label: "sol.mirrorOff" },
+  { id: "ghfast.top", label: "sol.mirror.ghfast" },
+  { id: "gh-proxy.com", label: "sol.mirror.ghProxyCom" },
+  { id: "ghproxy.net", label: "sol.mirror.ghproxyNet" },
+  { id: "mirror.ghproxy.com", label: "sol.mirror.mirrorGhproxyCom" },
+  { id: "custom", label: "sol.mirrorCustom" },
 ];
 const mirror = ref("off");
 const mirrorCustom = ref("");
@@ -361,7 +362,7 @@ async function download(force = false) {
   cancelRequested.value = false;
   const mirrorValue = mirrorArg();
   if (mirror.value === "custom" && !mirrorValue) {
-    logs.value.push(`${nowTime()} 自定义加速前缀为空：请填一个 http(s):// 开头的前缀，或选「不走加速」`);
+    logs.value.push(`${nowTime()} ${t("sol.mirrorEmpty")}`);
     return;
   }
   downloading.value = true;
@@ -375,15 +376,15 @@ async function download(force = false) {
       force: force || undefined,
     });
     progress.value = 100;
-    toast.show(`下载完成：${String(path).split(/[\\/]/).pop() ?? "安装包"}`);
+    toast.show(t("sol.dlDone", { name: String(path).split(/[\\/]/).pop() ?? "" }));
   } catch (error) {
     const text = String(error);
     if (cancelRequested.value) {
-      toast.show("已取消下载");
+      toast.show(t("sol.dlCanceled"));
     } else {
-      toast.show(`下载失败：${text}`, "bad");
+      toast.show(t("sol.dlFail", { msg: String(text) }), "bad");
     }
-    logs.value.push(`${nowTime()} ${cancelRequested.value ? "下载已取消" : `下载失败：${text}`}`);
+    logs.value.push(`${nowTime()} ${cancelRequested.value ? t("sol.dlCanceled") : t("sol.dlFail", { msg: String(text) })}`);
   } finally {
     setTimeout(() => { downloading.value = false; }, 300);
     void refreshLocalPkg();
@@ -398,8 +399,8 @@ async function cancelDownload(): Promise<void> {
   try {
     await call<boolean>("sol_download_cancel");
   } catch (error) {
-    toast.show(`取消失败：${String(error)}`, "bad");
-    logs.value.push(`${nowTime()} 取消失败：${String(error)}`);
+    toast.show(t("sol.cancelFail", { msg: String(error) }), "bad");
+    logs.value.push(`${nowTime()} ${t("sol.cancelFail", { msg: String(error) })}`);
   }
 }
 
@@ -424,7 +425,7 @@ function extract() {
 async function openDir() {
   try {
     const opened = (await call<string>("sol_open_dir", { dir: installDir.value || null })) || "";
-    if (opened) showToast(`已打开 ${opened}`);
+    if (opened) showToast(t("sol.opened", { path: opened }));
   } catch { /* 忽略 */ }
 }
 
@@ -437,27 +438,25 @@ async function pickDir() {
 </script>
 
 <template>
-  <section aria-label="SOL 远程唤醒" class="settings" id="sol-section">
-    <p class="sol-desc">
-      sol 监听本机网卡的 Wake-on-LAN 魔法包：手机 / 别的电脑发一个包，这台机器就按规则执行关机、重启、睡眠等动作（本机已配端口 10=睡眠、11=关机、12=重启）。
-    </p>
+  <section :aria-label="$t('sol.sectionAria')" class="settings" id="sol-section">
+    <p class="sol-desc">{{ $t("sol.intro") }}</p>
 
     <div class="setting" id="sol-state-row">
       <span class="setting-text">
-        <strong>运行状态</strong>
+        <strong>{{ $t("sol.runState") }}</strong>
         <small class="setting-state" :class="{ 'setting-state-error': stateError }" id="sol-state-text" :title="stateDetail || undefined">{{ stateText }}</small>
       </span>
       <span class="remote-inline">
-        <button type="button" id="sol-refresh" class="secondary" @click="refresh">刷新状态</button>
-        <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" title="服务状态被系统权限挡住时才出现" @click="readPrivilegedStatus">授权查看状态</button>
-        <button type="button" id="sol-restart-service" class="secondary" @click="restartService">重启服务</button>
+        <button type="button" id="sol-refresh" class="secondary" @click="refresh">{{ $t("sol.refreshStatus") }}</button>
+        <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" :title="$t('sol.authStatusTitle')" @click="readPrivilegedStatus">{{ $t("sol.authStatus") }}</button>
+        <button type="button" id="sol-restart-service" class="secondary" @click="restartService">{{ $t("sol.restartService") }}</button>
       </span>
     </div>
 
     <div class="setting" id="sol-http-enabled-row">
       <span class="setting-text">
-        <strong>通过 HTTP 启用</strong>
-        <small>允许手机 / 浏览器经本机 HTTP 服务发起 SOL 唤醒</small>
+        <strong>{{ $t("sol.httpEnable") }}</strong>
+        <small>{{ $t("sol.httpEnableNote") }}</small>
         <small class="setting-state" id="sol-http-enabled-state">{{ httpEnabledState }}</small>
       </span>
       <input type="checkbox" id="sol-http-enabled" :checked="httpEnabled" @change="setHttpEnabled" />
@@ -465,23 +464,23 @@ async function pickDir() {
 
     <div class="setting" id="sol-http-listen-row">
       <span class="setting-text">
-        <strong>监听地址</strong>
-        <small>SOL 服务监听的地址与端口</small>
-        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || "host:port，如 127.0.0.1:8080；改完自动热重载" }}</small>
+        <strong>{{ $t("sol.listenAddr") }}</strong>
+        <small>{{ $t("sol.listenAddrNote") }}</small>
+        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || $t("sol.listenPh") }}</small>
       </span>
       <span class="remote-inline">
         <input id="sol-http-listen" v-model="listenAddr" spellcheck="false" type="text" placeholder="0.0.0.0:8080" style="width: 220px" />
-        <button type="button" id="sol-http-listen-save" class="secondary" @click="saveListen">保存</button>
+        <button type="button" id="sol-http-listen-save" class="secondary" @click="saveListen">{{ $t("common.save") }}</button>
       </span>
     </div>
 
     <div class="setting setting-block" id="sol-http-token-row">
       <span class="setting-text">
-        <strong>访问令牌</strong>
-        <small class="setting-state" id="sol-http-token-state">手机 / 浏览器访问 SOL 接口时要用它</small>
+        <strong>{{ $t("sol.tokenTitle") }}</strong>
+        <small class="setting-state" id="sol-http-token-state">{{ $t("sol.tokenNote") }}</small>
       </span>
       <div class="sol-token-line">
-        <span class="sol-token-value mono" id="sol-http-token-current" title="当前配置里的 token（只读），点右边「复制」拷贝">{{ status?.token || "—" }}</span>
+        <span class="sol-token-value mono" id="sol-http-token-current" :title="$t('sol.tokenCurrentTitle')">{{ status?.token || "—" }}</span>
         <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">复制</button>
       </div>
       <div class="sol-token-line">
@@ -535,7 +534,7 @@ async function pickDir() {
 
       <span class="remote-inline">
         <select id="sol-mirror" v-model="mirror" title="GitHub 下载加速（默认直连）" @change="saveMirror">
-          <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
+          <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ $t(preset.label) }}</option>
         </select>
         <input
           v-if="mirror === 'custom'"
