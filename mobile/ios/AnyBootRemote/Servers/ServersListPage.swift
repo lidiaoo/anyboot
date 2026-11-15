@@ -23,7 +23,7 @@ struct ServersListPage: View {
                         store.editTarget = nil
                         store.editOpen = true
                     } label: {
-                        Text("＋ 添加服务器")
+                        Text(L("and.addServerPlus"))
                             .font(.system(size: 14))
                             .foregroundColor(ABColor.accent)
                             .padding(.vertical, ABMetric.px(10))
@@ -55,7 +55,7 @@ struct ServersListPage: View {
     private var searchField: some View {
         HStack(spacing: ABMetric.px(8)) {
             DrawnIcon.search(ABColor.fgFaint, size: 18)
-            TextField("搜索名称 / 地址", text: $store.search)
+            TextField(L("server.searchPh"), text: $store.search)
                 .font(.system(size: 14))
                 .foregroundColor(ABColor.fg)
                 .autocorrectionDisabled()
@@ -160,7 +160,7 @@ struct ServerCardRow: View {
                         .padding(.top, ABMetric.px(2))
                 }
                 if server.isSsh && up {
-                    ABSecondaryText("SSH 会话在线（隧道与终端共享）")
+                    ABSecondaryText(L("and.sshOnlineShared"))
                         .padding(.top, ABMetric.px(2))
                 }
                 Spacer().frame(height: ABMetric.px(12))

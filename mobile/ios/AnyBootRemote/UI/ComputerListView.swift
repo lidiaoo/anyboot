@@ -159,7 +159,7 @@ struct ComputerListView: View {
     private var topBar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                barIcon("侧边栏") {
+                barIcon(L("topbar.sidebar")) {
                     DrawnIcon.menu(ABColor.fg, size: ABMetric.px(20))
                 } action: {
                     nav.openDrawer()
@@ -167,7 +167,7 @@ struct ComputerListView: View {
                 .padding(.leading, ABMetric.px(2))
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("电脑列表")
+                    Text(L("nav.computerList"))
                         .font(.system(size: 16.5, weight: .bold))
                         .foregroundColor(ABColor.fg)
                         .lineLimit(1)
@@ -184,13 +184,13 @@ struct ComputerListView: View {
                         .scaleEffect(0.7)
                         .frame(width: ABMetric.px(38), height: ABMetric.px(38))
                 } else {
-                    barIcon("刷新") {
+                    barIcon(L("common.refresh")) {
                         DrawnIcon.refresh(ABColor.fgDim, size: ABMetric.px(19))
                     } action: {
                         refreshAll()
                     }
                 }
-                barIcon("操作说明") {
+                barIcon(L("hub.list.help")) {
                     DrawnIcon.help(ABColor.fgDim, size: ABMetric.px(19))
                 } action: {
                     sheet = SheetRequest(rid: "", kind: Kind.help)
@@ -229,24 +229,24 @@ struct ComputerListView: View {
 
     private var overflowMenu: some View {
         Menu {
-            Button("添加电脑") { openAdd() }
-            Button("编辑当前电脑") {
+            Button(L("menu.add")) { openAdd() }
+            Button(L("and.editCurrent")) {
                 if let profile = store.profile(store.activeId) {
                     openEdit(profile)
                 } else {
-                    toast("电脑页还没有当前电脑 —— 卡片右侧 ⋮ 也能直接编辑")
+                    toast(L("and.noProfileEdit"))
                 }
             }
-            Button("电脑列表") { serverListOpen = true }
-            Button("重载当前电脑") {
+            Button(L("nav.computerList")) { serverListOpen = true }
+            Button(L("hub.view.reload")) {
                 let id = selectedId.isEmpty ? store.activeId : selectedId
                 if let profile = store.profile(id) {
                     reloadBoot(profile)
                 } else {
-                    toast("先点一下卡片选中要重载的电脑")
+                    toast(L("and.selectCardReload"))
                 }
             }
-            Button("全部重载") { refreshAll() }
+            Button(L("menu.reloadAll")) { refreshAll() }
             Button(store.connectAll ? "✓ 启动时连接全部服务端" : "启动时连接全部服务端") {
                 let next = !store.connectAll
                 store.setConnectAll(next)
@@ -287,7 +287,7 @@ struct ComputerListView: View {
             DrawnIcon.search(ABColor.fgFaint, size: ABMetric.px(15))
             ZStack(alignment: .leading) {
                 if query.isEmpty {
-                    Text("搜索电脑名称、IP 或 MAC")
+                    Text(L("hub.list.search"))
                         .font(.system(size: 13))
                         .foregroundColor(ABColor.fgFaint)
                         .lineLimit(1)
@@ -445,7 +445,7 @@ struct ComputerListView: View {
                         .frame(width: ABMetric.px(46), height: ABMetric.px(6))
                 }
                 Spacer(minLength: 0)
-                Text("未连接")
+                Text(L("hub.state.notConnected"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
             }
@@ -459,7 +459,7 @@ struct ComputerListView: View {
                             .foregroundColor(ABColor.fgDim)
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
-                        Text("未检测到")
+                        Text(L("hub.state.notDetected"))
                             .font(.system(size: 10))
                             .foregroundColor(ABColor.fgFaint)
                     }
@@ -837,7 +837,7 @@ struct ComputerListView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if selected {
-                Text("当前")
+                Text(L("hub.state.current"))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(ABColor.accent)
                     .lineLimit(1)
@@ -994,13 +994,13 @@ struct ComputerListView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(hit?.ok == true ? ABColor.ok : ABColor.bad)
                 if let url = row.profile.url(for: addr, transport: "") {
-                    Button("复制") {
+                    Button(L("common.copy")) {
                         ABClipboard.copyRemoteSlot("直连地址", url.absoluteString)
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
-                    Button("浏览器打开") {
+                    Button(L("hub.conn.openBrowser")) {
                         UIApplication.shared.open(url)
                     }
                     .buttonStyle(.plain)
@@ -1106,17 +1106,17 @@ struct ComputerListView: View {
                                     .foregroundColor(ABColor.fgFaint)
                             }
                             if !pair.url.isEmpty && pair.enabled {
-                                Button("复制") {
+                                Button(L("common.copy")) {
                                     ABClipboard.copyRemoteSlot(pair.channel + "地址", pair.url)
                                 }
                                 .buttonStyle(.plain)
                                 .font(.system(size: 10))
                                 .foregroundColor(ABColor.fgFaint)
-                                Button("浏览器打开") {
+                                Button(L("hub.conn.openBrowser")) {
                                     if let url = URL(string: pair.url) {
                                         UIApplication.shared.open(url)
                                     } else {
-                                        toast("没有能打开网页的应用")
+                                        toast(L("and.noBrowserApp"))
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -1277,7 +1277,7 @@ struct ComputerListView: View {
             if group.actionCount == 0 {
                 toast("该设备没有可用的 \(group.label) 动作")
             } else if row.state != Reach.online {
-                toast("设备不在线，无法修改引导项")
+                toast(L("error.deviceOffline"))
             } else {
                 sheet = SheetRequest(rid: row.profile.id, kind: Kind.channel, channel: group)
             }
@@ -1398,7 +1398,7 @@ struct ComputerListView: View {
             if group.options.isEmpty {
                 toast("该设备没有可选的 \(title) 启动项")
             } else if row.state != Reach.online {
-                toast("设备不在线，无法修改引导项")
+                toast(L("error.deviceOffline"))
             } else {
                 sheet = SheetRequest(rid: row.profile.id, kind: kind)
             }
@@ -1437,7 +1437,7 @@ struct ComputerListView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if pending {
-                        Text("待重启")
+                        Text(L("and.pendingRestart"))
                             .font(.system(size: 9.5, weight: .bold))
                             .foregroundColor(ABColor.tonePendText)
                             .lineLimit(1)
@@ -1505,7 +1505,7 @@ struct ComputerListView: View {
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.tonePendText)
                     Spacer(minLength: 0)
-                    Button("撤销挂起") {
+                    Button(L("hub.pending.undoPending")) {
                         Task {
                             do {
                                 let message = try await BootService.cancelPending(row.profile)
@@ -1523,11 +1523,11 @@ struct ComputerListView: View {
             } else {
                 HStack(spacing: ABMetric.px(6)) {
                     DrawnIcon.info(ABColor.tonePendText, size: ABMetric.px(12))
-                    Text("引导项已修改，重启后生效")
+                    Text(L("hub.pending.modified"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.tonePendText)
                     Spacer(minLength: 0)
-                    Button("撤销") {
+                    Button(L("hub.pending.undo")) {
                         switchBoot(row.profile, kind: Kind.grub, value: row.grub.saved, verb: "撤销")
                     }
                     .buttonStyle(.plain)
@@ -1560,18 +1560,18 @@ struct ComputerListView: View {
     private func powerButtons(_ row: CqRow) -> some View {
         // 安卓恒定一行四键（HostCard 1170-1196：Row + 每键 weight(1f)），任何宽度都不折行
         HStack(spacing: ABMetric.px(6)) {
-            powerButton(row, action: PowerRoute.actionWake, label: "唤醒",
+            powerButton(row, action: PowerRoute.actionWake, label: L("hub.power.wake"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionWake,
                                              fallback: row.profile.hasMacs ? "MAC 魔术包" : "未配 MAC",
                                              remoteActive: row.connRemote))
-            powerButton(row, action: PowerRoute.actionSleep, label: "睡眠",
+            powerButton(row, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionSleep,
                                              fallback: "挂起到内存",
                                              remoteActive: row.connRemote))
-            powerButton(row, action: PowerRoute.actionReboot, label: "重启",
+            powerButton(row, action: PowerRoute.actionReboot, label: L("hub.power.restart"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionReboot,
                                              remoteActive: row.connRemote))
-            powerButton(row, action: PowerRoute.actionShutdown, label: "关机",
+            powerButton(row, action: PowerRoute.actionShutdown, label: L("hub.power.shutdown"),
                         hint: PowerHint.text(row.profile, action: PowerRoute.actionShutdown,
                                              remoteActive: row.connRemote))
         }
@@ -1659,41 +1659,41 @@ struct ComputerListView: View {
             Button {
                 openComputerPage(row.profile.id)
             } label: {
-                Label("打开页面", systemImage: "rectangle.on.rectangle")
+                Label(L("and.menuOpenPage"), systemImage: "rectangle.on.rectangle")
             }
             Button {
                 openInBrowser(row.profile)
             } label: {
-                Label("在浏览器打开", systemImage: "safari")
+                Label(L("and.menuOpenBrowser"), systemImage: "safari")
             }
             Divider()
             Button {
                 reloadBoot(row.profile)
             } label: {
-                Label("重新探测这台电脑", systemImage: "arrow.clockwise")
+                Label(L("rowMenu.reprobe"), systemImage: "arrow.clockwise")
             }
             Button {
                 openEdit(row.profile)
             } label: {
-                Label("编辑这台电脑", systemImage: "pencil")
+                Label(L("rowMenu.edit"), systemImage: "pencil")
             }
             Button {
                 if let host = ServerProfile.normalizeHost(row.profile.host) {
                     ABClipboard.copyRemoteSlot("地址", host)
                 }
             } label: {
-                Label("复制地址", systemImage: "doc.on.doc")
+                Label(L("and.copyAddr"), systemImage: "doc.on.doc")
             }
             Button {
                 SystemInfoCenter.shared.show(row.profile)
             } label: {
-                Label("系统信息", systemImage: "info.circle")
+                Label(L("and.menuSysinfo"), systemImage: "info.circle")
             }
             Divider()
             Button(role: .destructive) {
                 deleteTarget = row.profile
             } label: {
-                Label("删除这台电脑", systemImage: "trash")
+                Label(L("rowMenu.delete"), systemImage: "trash")
             }
         } label: {
             DrawnIcon.more(ABColor.fgFaint, size: ABMetric.px(17))
@@ -1781,7 +1781,7 @@ struct ComputerListView: View {
                     Button {
                         sheet = nil
                     } label: {
-                        Text("取消")
+                        Text(L("common.cancel"))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(ABColor.fg)
                             .frame(maxWidth: .infinity)
@@ -1823,7 +1823,7 @@ struct ComputerListView: View {
                 }
                 .padding(.vertical, ABMetric.px(4))
             }
-            Text("电源操作不会弹出确认框")
+            Text(L("and.powerNoConfirm"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, ABMetric.px(8))
@@ -1882,7 +1882,7 @@ struct ComputerListView: View {
                         Text(GrubFormat.osIcon(option.kind))
                             .font(.system(size: 13))
                         if row.pinned {
-                            Text("下次启动")
+                            Text(L("hub.picker.pinned"))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(ABColor.accent)
                                 .padding(.horizontal, ABMetric.px(5)).padding(.vertical, ABMetric.px(1))
@@ -1913,7 +1913,7 @@ struct ComputerListView: View {
             }
         }
 
-        Text("选择后将在下次重启时生效")
+        Text(L("hub.picker.footer"))
             .font(.system(size: 11))
             .foregroundColor(ABColor.fgFaint)
             .padding(.top, ABMetric.px(8))
@@ -2034,8 +2034,8 @@ struct ComputerListView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
-                    ABButton(title: "取消", kind: .ghost, compact: true) { deleteTarget = nil }
-                    ABButton(title: "删除", kind: .destructive, compact: true) {
+                    ABButton(title: L("common.cancel"), kind: .ghost, compact: true) { deleteTarget = nil }
+                    ABButton(title: L("common.delete"), kind: .destructive, compact: true) {
                         if let target = deleteTarget { doDelete(target.id) }
                         deleteTarget = nil
                     }
@@ -2054,7 +2054,7 @@ struct ComputerListView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if store.servers.isEmpty {
-                            Text("还没有电脑 —— 点「添加服务端」建一条。")
+                            Text(L("and.serverListEmpty"))
                                 .font(.system(size: 13))
                                 .foregroundColor(ABColor.fgDim)
                         }
@@ -2091,11 +2091,11 @@ struct ComputerListView: View {
 
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
-                    ABButton(title: "添加", kind: .primary, compact: true) {
+                    ABButton(title: L("common.add"), kind: .primary, compact: true) {
                         serverListOpen = false
                         openAdd()
                     }
-                    ABButton(title: "关闭", kind: .ghost, compact: true) {
+                    ABButton(title: L("common.close"), kind: .ghost, compact: true) {
                         serverListOpen = false
                     }
                 }
@@ -2163,7 +2163,7 @@ struct ComputerListView: View {
     /// 跳板机只影响 App 内的连接通道 —— 浏览器侧连不上转发端点，但直连地址仍然有效。
     private func openInBrowser(_ profile: ServerProfile) {
         let cands = profile.openCandidates()
-        if cands.isEmpty { toast("这台电脑还没有可用地址"); return }
+        if cands.isEmpty { toast(L("error.noAddress")); return }
         if cands.count == 1 { UIApplication.shared.open(cands[0].url); return }
         openPickProfileId = profile.id
         openPickCandidates = cands // 多地址 → 弹选择（自定义卡片，带连通性+可滚动）
@@ -2175,7 +2175,7 @@ struct ComputerListView: View {
         transients.removeValue(forKey: id)
         busy.removeValue(forKey: id)
         if selectedId == id { selectedId = "" }
-        toast("已删除")
+        toast(L("keysWin.deleted"))
     }
 
     // MARK: - 网络：探测 + 读引导项
@@ -2283,7 +2283,7 @@ struct ComputerListView: View {
                                      verb: String) {
         if busy[profile.id] != nil { return }
         if entry.id.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast("没有可执行的动作")
+            toast(L("and.noActionAvailable"))
             return
         }
         busy[profile.id] = "boot:ch-\(channel.id)"
@@ -2328,7 +2328,7 @@ struct ComputerListView: View {
                             .foregroundColor(ABColor.accent)
                     }
                     if row.auxiliary {
-                        Text("辅助")
+                        Text(L("hub.child.auxiliary"))
                             .font(.system(size: 10))
                             .foregroundColor(ABColor.fgFaint)
                     }
@@ -2377,7 +2377,7 @@ struct ComputerListView: View {
                                      row: ChannelMenuRow) {
         if busy[profile.id] != nil { return }
         if row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast("这一项不支持设为默认")
+            toast(L("and.cannotSetDefault"))
             return
         }
         busy[profile.id] = "boot:ch-\(channel.id)"
@@ -2413,7 +2413,7 @@ struct ComputerListView: View {
     private func switchBoot(_ profile: ServerProfile, kind: String, value: String, verb: String) {
         if busy[profile.id] != nil { return }
         if value.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast("没有可切换的目标启动项")
+            toast(L("and.noSwitchTargetBoot"))
             return
         }
         busy[profile.id] = "boot:\(kind)"
@@ -2497,7 +2497,7 @@ struct ComputerListView: View {
                      onDismiss: { failReloadOpen = false }) {
             ABDialogCard("连不上时自动重载") {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。")
+                    Text(L("and.introFailReload"))
                         .font(.system(size: 13))
                         .foregroundColor(ABColor.fgDim)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2509,7 +2509,7 @@ struct ComputerListView: View {
                     }
                     HStack(spacing: ABMetric.px(8)) {
                         radioRow(![5, 10, 30, 60, 0].contains(failReloadSec), "", "") {}
-                        TextField("自定义秒数", text: $customSec)
+                        TextField(L("and.customSeconds"), text: $customSec)
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                             .keyboardType(.numberPad)
@@ -2524,9 +2524,9 @@ struct ComputerListView: View {
                             .overlay(
                                 RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                                     .strokeBorder(ABColor.lineStrong, lineWidth: 1))
-                        Button("应用") {
+                        Button(L("settings.apply")) {
                             guard let parsed = Int(customSec), parsed >= 0 else {
-                                toast("间隔要是不小于 0 的整数秒")
+                                toast(L("menu.toastInvalid"))
                                 return
                             }
                             setFailReloadSec(parsed)
@@ -2540,7 +2540,7 @@ struct ComputerListView: View {
                 }
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
-                    ABButton(title: "完成", kind: .primary, compact: true) { failReloadOpen = false }
+                    ABButton(title: L("bk.done"), kind: .primary, compact: true) { failReloadOpen = false }
                 }
             }
         }
@@ -2568,7 +2568,7 @@ struct ComputerListView: View {
                 }
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
-                    ABButton(title: "取消", kind: .ghost, compact: true) { transportOpen = false }
+                    ABButton(title: L("common.cancel"), kind: .ghost, compact: true) { transportOpen = false }
                 }
             }
         }
@@ -2608,7 +2608,7 @@ struct ComputerListView: View {
                 .frame(maxHeight: ABMetric.px(320))
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
-                    ABButton(title: "取消", kind: .ghost, compact: true) { openPickCandidates = [] }
+                    ABButton(title: L("common.cancel"), kind: .ghost, compact: true) { openPickCandidates = [] }
                 }
             }
         }

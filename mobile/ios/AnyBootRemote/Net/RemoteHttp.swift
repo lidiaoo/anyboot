@@ -42,7 +42,7 @@ enum RemoteHttp {
         guard let list = parsed as? [Any] else {
             // 老版本 PC 没有 /api/boot-channels，会 404 返回 JSON 对象 —— 给出可读错误
             if let object = parsed as? [String: Any], status == 404 {
-                throw RemoteHttpError(message: "这台电脑的 AnyBoot 版本太旧，没有引导器通道接口")
+                throw RemoteHttpError(message: L("and.oldAnyboot"))
             }
             throw RemoteHttpError(message: "这台电脑返回的不是 JSON 数组（\(status)）")
         }
@@ -92,7 +92,7 @@ enum RemoteHttp {
 
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 401 {
-            throw RemoteHttpError(message: "这台电脑不认这个 token（401）—— 到「服务器」里核对访问令牌")
+            throw RemoteHttpError(message: L("and.tokenRejected401"))
         }
 
         let body = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)

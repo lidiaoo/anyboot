@@ -52,9 +52,9 @@ struct BackupPasswordSheet: View {
             HStack(spacing: ABMetric.px(8)) {
                 Group {
                     if showPassword {
-                        TextField("口令", text: $password)
+                        TextField(L("and.pwd"), text: $password)
                     } else {
-                        SecureField("口令", text: $password)
+                        SecureField(L("and.pwd"), text: $password)
                     }
                 }
                 .focused($focused)
@@ -91,7 +91,7 @@ struct BackupPasswordSheet: View {
                     error = nil
                     dismiss()
                 } label: {
-                    Text("取消")
+                    Text(L("common.cancel"))
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fgDim)
                         .frame(maxWidth: .infinity)
@@ -105,7 +105,7 @@ struct BackupPasswordSheet: View {
                 } label: {
                     HStack(spacing: ABMetric.px(6)) {
                         if verifying { ProgressView().tint(ABColor.onAccent) }
-                        Text("确认")
+                        Text(L("and.confirmBtn"))
                             .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundColor(password.isEmpty ? ABColor.fgFaint : ABColor.onAccent)
@@ -208,7 +208,7 @@ struct BackupImportPreview: View {
     private var navBar: some View {
         HStack(spacing: 0) {
             ABBarIcon(text: "‹", description: "取消") { dismiss() }
-            Text("导入预览")
+            Text(L("bk.prevTitle"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
             Spacer(minLength: 0)
@@ -294,7 +294,7 @@ struct BackupImportPreview: View {
                 .padding(.bottom, ABMetric.px(10))
             }
             if cat == .terminal {
-                Text("将覆盖本机当前设置")
+                Text(L("and.willOverwrite"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -345,7 +345,7 @@ struct BackupImportPreview: View {
                 .accessibilityLabel("合并策略：\(s.label)")
             }
             if strategy == .overwrite {
-                Text("本机所选分类现有数据将被替换")
+                Text(L("and.replaceWarn"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.bad)
             }
@@ -393,7 +393,7 @@ struct BackupImportPreview: View {
                 Button {
                     dismiss()
                 } label: {
-                    Text("取消")
+                    Text(L("common.cancel"))
                         .font(.system(size: 15))
                         .foregroundColor(ABColor.fgDim)
                         .frame(maxWidth: .infinity)

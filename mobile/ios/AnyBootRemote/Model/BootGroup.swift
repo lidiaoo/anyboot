@@ -622,7 +622,7 @@ enum BootService {
                              address: String? = nil) async throws -> String {
         let raw = address ?? profile.host
         guard let host = ServerProfile.normalizeHost(raw), !host.isEmpty else {
-            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+            throw RemoteHttpError(message: L("error.noAddress"))
         }
         let jumpId = profile.jumpServerId(for: host)
         if jumpId.isEmpty { return host }
@@ -857,10 +857,10 @@ enum BootService {
     /** 撤销挂起的切换倒计时：GET /api/pending-cancel（对端立即作废 pending） */
     static func cancelPending(_ profile: ServerProfile) async throws -> String {
         guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+            throw RemoteHttpError(message: L("error.noAddress"))
         }
         guard choice.alive else {
-            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+            throw RemoteHttpError(message: L("error.hostOffline"))
         }
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                              path: "/api/pending-cancel")
@@ -870,12 +870,12 @@ enum BootService {
 
     static func switchBoot(_ profile: ServerProfile, kind: String, value: String) async throws -> String {
         let target = value.trimmingCharacters(in: .whitespaces)
-        if target.isEmpty { throw RemoteHttpError(message: "没有可切换的目标启动项") }
+        if target.isEmpty { throw RemoteHttpError(message: L("and.noSwitchTargetBoot")) }
         guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+            throw RemoteHttpError(message: L("error.noAddress"))
         }
         guard choice.alive else {
-            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+            throw RemoteHttpError(message: L("error.hostOffline"))
         }
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
         let path = kind == BootKind.refind
@@ -904,17 +904,17 @@ enum BootService {
         if group.id == "sdboot" {
             channelName = "sdboot"
             target = entry.id.trimmingCharacters(in: .whitespaces)
-            if target.isEmpty { throw RemoteHttpError(message: "没有可切换的目标条目") }
+            if target.isEmpty { throw RemoteHttpError(message: L("and.noSwitchTargetEntry")) }
         } else {
             channelName = entry.id.trimmingCharacters(in: .whitespaces)
             target = ""
             if channelName.isEmpty { throw RemoteHttpError(message: "没有可执行的通道动作") }
         }
         guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+            throw RemoteHttpError(message: L("error.noAddress"))
         }
         guard choice.alive else {
-            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+            throw RemoteHttpError(message: L("error.hostOffline"))
         }
         func encode(_ value: String) -> String {
             value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
@@ -942,18 +942,18 @@ enum BootService {
     static func switchPreviewRow(_ profile: ServerProfile, row: ChannelMenuRow) async throws -> String {
         let spec = row.spec.trimmingCharacters(in: .whitespaces)
         guard let separator = spec.firstIndex(of: ":") else {
-            throw RemoteHttpError(message: "这一项不支持设为默认")
+            throw RemoteHttpError(message: L("and.cannotSetDefault"))
         }
         let channelName = String(spec[..<separator])
         let target = String(spec[spec.index(after: separator)...])
         if channelName.isEmpty || target.isEmpty {
-            throw RemoteHttpError(message: "这一项不支持设为默认")
+            throw RemoteHttpError(message: L("and.cannotSetDefault"))
         }
         guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+            throw RemoteHttpError(message: L("error.noAddress"))
         }
         guard choice.alive else {
-            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+            throw RemoteHttpError(message: L("error.hostOffline"))
         }
         func encode(_ value: String) -> String {
             value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value

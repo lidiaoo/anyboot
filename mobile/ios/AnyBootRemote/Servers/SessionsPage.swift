@@ -37,7 +37,7 @@ struct SessionsPage: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        ABChipButton(text: "结束") { store.killTarget = session }
+                        ABChipButton(text: L("and.end")) { store.killTarget = session }
                     }
                     .padding(.leading, ABMetric.px(12))
                     .padding(.trailing, ABMetric.px(8))
@@ -68,7 +68,7 @@ struct SessionsPage: View {
                     Button {
                         jumps.clearHistory()
                     } label: {
-                        Text("清空历史")
+                        Text(L("and.clearHistory"))
                             .font(.system(size: 14))
                             .foregroundColor(ABColor.accent)
                             .padding(.vertical, ABMetric.px(10))

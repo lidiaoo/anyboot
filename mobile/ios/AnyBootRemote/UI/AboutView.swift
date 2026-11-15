@@ -61,7 +61,7 @@ struct AboutView: View {
     private var titleBar: some View {
         HStack(spacing: 0) {
             ABBarIcon(text: "‹", description: "返回") { nav.back() }
-            Text("关于")
+            Text(L("nav.about"))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(ABColor.fg)
             Spacer(minLength: 0)
@@ -95,7 +95,7 @@ struct AboutView: View {
                 .padding(.top, ABMetric.px(2))
 
             // 与 PC（ui/hub.html #page-about）、Android（AboutActivity.kt）逐字一致，改文案三端一起改
-            Text("多系统一键切换 · GRUB 管理 · 远程电源控制 · SSH 跳板机隧道 · SFTP 文件传输")
+            Text(L("about.desc"))
                 .font(.system(size: 12))
                 .foregroundColor(ABColor.fgDim)
                 .multilineTextAlignment(.center)
@@ -292,7 +292,7 @@ struct AboutView: View {
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        Text("开源项目主页")
+                        Text(L("about.repoHome"))
                             .font(.system(size: 11))
                             .foregroundColor(ABColor.fgDim)
                             .padding(.top, ABMetric.px(1))
@@ -329,7 +329,7 @@ struct AboutView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Text("点 Star 会打开 GitHub 网页，请在网页上点一下 —— 这是给开源作者最好的鼓励。")
+            Text(L("about.starTip"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .lineSpacing(ABMetric.px(16) - 11)

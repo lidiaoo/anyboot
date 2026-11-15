@@ -80,7 +80,7 @@ struct FileActionSheet: View {
                         .fill(ABColor.line)
                         .frame(height: ABMetric.hairline)
                         .padding(.vertical, ABMetric.px(10))
-                    Text("更多操作")
+                    Text(L("fb.moreOps"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgFaint)
                         .padding(.bottom, ABMetric.px(4))
@@ -162,7 +162,7 @@ struct FileActionSheet: View {
 
     private func copyPath(_ path: String) {
         UIPasteboard.general.string = path
-        store.toast("已复制")
+        store.toast(L("fb.copied"))
     }
 }
 
@@ -199,7 +199,7 @@ struct FileDetailDialog: View {
                                 onConfirm: {
                                     if let entry = store.askDetail {
                                         UIPasteboard.general.string = SftpOps.join(store.path, entry.name)
-                                        store.toast("已复制")
+                                        store.toast(L("fb.copied"))
                                     }
                                     store.askDetail = nil
                                 },
@@ -239,7 +239,7 @@ struct FileDetailDialog: View {
                 }
                 rows = out
             } catch {
-                self.error = SftpOps.reason(error, action: "读取详情", path: entry.name)
+                self.error = SftpOps.reason(error, action: L("and.readDetail"), path: entry.name)
             }
         }
     }
@@ -258,12 +258,12 @@ struct FileRenameDialog: View {
             ABDialogCard("重命名") {
                 if let entry = store.askRename {
                     ABSecondaryText(entry.name)
-                    ABDialogInput(placeholder: "新名称", text: $name)
+                    ABDialogInput(placeholder: L("fb.newName"), text: $name)
                     ABDialogButtons(confirmTitle: "重命名",
                                     onConfirm: {
                                         let target = name.trimmingCharacters(in: .whitespaces)
-                                        if target.isEmpty { store.toast("名称不能为空"); return }
-                                        if target.contains("/") { store.toast("名称里不能带 /"); return }
+                                        if target.isEmpty { store.toast(L("and.nameEmpty")); return }
+                                        if target.contains("/") { store.toast(L("and.nameNoSlash")); return }
                                         store.askRename = nil
                                         if target != entry.name { store.rename(entry, to: target) }
                                     },
@@ -317,12 +317,12 @@ struct FileMkdirDialog: View {
         ABDialogHost(isPresented: store.mkdirOpen, onDismiss: { store.mkdirOpen = false }) {
             ABDialogCard("新建目录") {
                 ABSecondaryText("位置：\(store.path)")
-                ABDialogInput(placeholder: "目录名", text: $name)
+                ABDialogInput(placeholder: L("and.dirName"), text: $name)
                 ABDialogButtons(confirmTitle: "新建",
                                 onConfirm: {
                                     let target = name.trimmingCharacters(in: .whitespaces)
-                                    if target.isEmpty { store.toast("目录名不能为空"); return }
-                                    if target.contains("/") { store.toast("目录名里不能带 /"); return }
+                                    if target.isEmpty { store.toast(L("and.dirNameEmpty")); return }
+                                    if target.contains("/") { store.toast(L("and.dirNameNoSlash")); return }
                                     store.mkdirOpen = false
                                     name = ""
                                     store.mkdir(target)
@@ -344,7 +344,7 @@ struct FileLocateDialog: View {
         ABDialogHost(isPresented: store.locateOpen, onDismiss: { store.locateOpen = false }) {
             ABDialogCard("定位路径") {
                 ABDialogInput(placeholder: "/home/pi 或 ~/logs", text: $path)
-                ABSecondaryText("绝对路径、~ 开头（家目录）、或相对当前目录都行")
+                ABSecondaryText(L("and.pathHint"))
                 ABDialogButtons(confirmTitle: "前往",
                                 onConfirm: {
                                     store.locateOpen = false
@@ -380,7 +380,7 @@ struct DestPickerDialog: View {
                         .foregroundColor(ABColor.fg)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    ABChipButton(text: "上级") { path = SftpOps.parent(path) }
+                    ABChipButton(text: L("and.parentDir")) { path = SftpOps.parent(path) }
                 }
                 Group {
                     if busy {
@@ -395,7 +395,7 @@ struct DestPickerDialog: View {
                     } else {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
-                                if dirs.isEmpty { ABSecondaryText("（没有子目录）") }
+                                if dirs.isEmpty { ABSecondaryText(L("and.noSubdirs")) }
                                 ForEach(dirs) { dir in
                                     Button {
                                         path = SftpOps.join(path, dir.name)
@@ -450,7 +450,7 @@ struct DestPickerDialog: View {
             } catch {
                 guard path == target else { return }
                 busy = false
-                self.error = SftpOps.reason(error, action: "打开", path: target)
+                self.error = SftpOps.reason(error, action: L("settings.open"), path: target)
             }
         }
     }

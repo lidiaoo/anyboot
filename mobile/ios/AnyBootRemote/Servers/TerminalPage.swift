@@ -414,7 +414,7 @@ struct TerminalSettingsSheet: View {
                     ABBarIcon(text: "‹", description: "返回") {
                         store.terminalSettingsOpen = false
                     }
-                    Text("终端设置")
+                    Text(L("nav.termSettings"))
                         .font(.system(size: 16))
                         .foregroundColor(ABColor.fg)
                     Spacer(minLength: 0)
@@ -480,11 +480,11 @@ struct TerminalSettingsSheet: View {
 
             ABSectionTitle("终端字体族")
             VStack(alignment: .leading, spacing: ABMetric.px(4)) {
-                ABDialogInput(placeholder: "留空 = 内置等宽",
+                ABDialogInput(placeholder: L("and.termFontPh"),
                               text: Binding(
                                 get: { jumps.terminalFontFamily },
                                 set: { jumps.setTerminalFontFamily($0) }))
-                Text("填 CSS font-family，如 JetBrains Mono / Menlo；缺失自动回落等宽。返回终端页即生效。")
+                Text(L("and.termFontHint"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -493,12 +493,12 @@ struct TerminalSettingsSheet: View {
 
             ABSectionTitle("终端行为")
             check("进入终端自动弹出键盘",
-                  hint: "默认关：先看到输出，要打字时点一下终端区或 ⌨",
+                  hint: L("and.termAutoKeyboardDesc"),
                   on: jumps.terminalAutoKeyboard) {
                 jumps.setTerminalAutoKeyboard($0)
             }
             check("显示快捷键栏",
-                  hint: "终端底部的 Esc / Tab / Ctrl / 方向键 / Enter 那一条",
+                  hint: L("and.termKeyBarDesc"),
                   on: jumps.terminalKeyBar) {
                 jumps.setTerminalKeyBar($0)
             }
@@ -511,7 +511,7 @@ struct TerminalSettingsSheet: View {
                 jumps.setTerminalKeyBar(true)
                 store.toast("已恢复默认：暗色 · 字号 \(JumpStore.defaultFontSize) · 快捷键栏开")
             } label: {
-                Text("恢复默认设置")
+                Text(L("and.termResetBtn"))
                     .font(.system(size: 14))
                     .foregroundColor(ABColor.accent)
                     .padding(.vertical, ABMetric.px(10))

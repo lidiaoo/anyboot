@@ -103,15 +103,15 @@ struct KeyCardRow: View {
             }
             Spacer().frame(height: ABMetric.px(12))
             HStack(spacing: ABMetric.px(8)) {
-                plainButton("复制公钥") {
+                plainButton(L("keysWin.copyPub")) {
                     if entry.publicKey.isEmpty {
-                        store.toast("这把密钥没有记录公钥")
+                        store.toast(L("and.noPubkey"))
                     } else {
                         UIPasteboard.general.string = entry.publicKey
-                        store.toast("已复制")
+                        store.toast(L("fb.copied"))
                     }
                 }
-                plainButton("删除") {
+                plainButton(L("common.delete")) {
                     if inUse > 0 {
                         store.toast("有 \(inUse) 台服务器在用这把密钥，先改它们的认证方式", long: true)
                     } else {
@@ -170,7 +170,7 @@ struct GenerateKeyDialog: View {
         ABDialogHost(isPresented: store.generateKeyOpen,
                      onDismiss: { store.generateKeyOpen = false }) {
             ABDialogCard("生成密钥对") {
-                ABDialogInput(placeholder: "名称，如 home-ed25519", text: $name)
+                ABDialogInput(placeholder: L("and.keyNamePh"), text: $name)
                 HStack(spacing: ABMetric.px(6)) {
                     radio("Ed25519（推荐）", on: ed25519) { ed25519 = true }
                     Spacer(minLength: ABMetric.px(8))

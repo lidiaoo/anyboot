@@ -155,7 +155,7 @@ final class FilesStore: ObservableObject {
             guard targetServer == serverId, targetPath == path else { return }
             busy = false
             loadedKey = "\(targetServer)|\(targetPath)"
-            self.error = SftpOps.describe(error, action: "读取", label: targetPath)
+            self.error = SftpOps.describe(error, action: L("and.readAction"), label: targetPath)
         }
     }
 
@@ -184,13 +184,13 @@ final class FilesStore: ObservableObject {
     // MARK: - 传输
 
     func startDownload(_ entry: SftpOps.Entry) {
-        guard server != nil else { toast("服务器不存在（可能已删除）"); return }
+        guard server != nil else { toast(L("and.serverNotExist")); return }
         let remote = SftpOps.join(path, entry.name)
         // 同一条文件已经在传了就别再起一个：两个任务写同一个本地文件会互相踩
         if TransferCenter.shared.active.contains(where: {
             $0.direction == .download && $0.remotePath == remote
         }) {
-            toast("这条已经在传了，进度见「传输」页")
+            toast(L("and.alreadyTransferring"))
             return
         }
         _ = TransferCenter.shared.startDownload(jump: server!, remoteDir: path, name: entry.name)
@@ -198,7 +198,7 @@ final class FilesStore: ObservableObject {
     }
 
     func upload(_ urls: [URL]) {
-        guard let jump = server else { toast("先选择服务器"); return }
+        guard let jump = server else { toast(L("and.selectServerFirst")); return }
         var added = 0
         for url in urls {
             let name = url.lastPathComponent.isEmpty ? "upload-\(Int(Date().timeIntervalSince1970))"
@@ -207,7 +207,7 @@ final class FilesStore: ObservableObject {
             if TransferCenter.shared.active.contains(where: {
                 $0.direction == .upload && $0.remotePath == remote
             }) {
-                toast("这条已经在传了，进度见「传输」页")
+                toast(L("and.alreadyTransferring"))
                 continue
             }
             _ = TransferCenter.shared.startUpload(jump: jump, remoteDir: path, source: url)
@@ -258,7 +258,7 @@ final class FilesStore: ObservableObject {
             do {
                 try await SftpOps.mkdir(jump: jump, path: target)
             } catch {
-                throw FilesOpError(SftpOps.reason(error, action: "新建目录", path: name))
+                throw FilesOpError(SftpOps.reason(error, action: L("fb.newDir"), path: name))
             }
         }
     }
@@ -271,7 +271,7 @@ final class FilesStore: ObservableObject {
             do {
                 try await SftpOps.rename(jump: jump, from: from, to: to)
             } catch {
-                throw FilesOpError(SftpOps.reason(error, action: "重命名", path: entry.name))
+                throw FilesOpError(SftpOps.reason(error, action: L("fb.rename"), path: entry.name))
             }
         }
     }
@@ -283,7 +283,7 @@ final class FilesStore: ObservableObject {
             do {
                 try await SftpOps.delete(jump: jump, path: target)
             } catch {
-                throw FilesOpError(SftpOps.reason(error, action: "删除", path: entry.name))
+                throw FilesOpError(SftpOps.reason(error, action: L("common.delete"), path: entry.name))
             }
         }
     }
@@ -313,7 +313,7 @@ final class FilesStore: ObservableObject {
                 gotoDir(resolved)
             } catch {
                 opLabel = ""
-                toast(SftpOps.reason(error, action: "定位", path: raw), long: true)
+                toast(SftpOps.reason(error, action: L("and.locate"), path: raw), long: true)
             }
         }
     }
@@ -339,7 +339,7 @@ final class FilesStore: ObservableObject {
     func paste(destDir: String) {
         guard clip != .none, let jump = server else { return }
         if clipServer != jump.id {
-            toast("剪贴板里的东西在另一台服务器上，只能在同一台里粘贴")
+            toast(L("and.clipOtherServer"))
             return
         }
         transferInto(PickRequest(cut: clip == .cut, paths: clipPaths,

@@ -112,7 +112,7 @@ struct SystemInfoOverlay: View {
                                 .padding(.vertical, ABMetric.px(4))
                             }
                             if center.rows.isEmpty {
-                                Text("对方没有返回任何系统信息")
+                                Text(L("and.noSysInfo"))
                                     .font(.system(size: 12))
                                     .foregroundColor(ABColor.fgFaint)
                             }
@@ -125,11 +125,11 @@ struct SystemInfoOverlay: View {
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
                     if !center.loading && center.error.isEmpty && !center.rows.isEmpty {
-                        ABButton(title: "复制", kind: .ghost, compact: true) {
+                        ABButton(title: L("common.copy"), kind: .ghost, compact: true) {
                             center.copyToPasteboard()
                         }
                     }
-                    ABButton(title: "关闭", kind: .ghost, compact: true) {
+                    ABButton(title: L("common.close"), kind: .ghost, compact: true) {
                         center.dismiss()
                     }
                 }

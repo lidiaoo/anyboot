@@ -254,7 +254,7 @@ struct ComputerEditorView: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .strokeBorder(ABColor.lineStrong)
-                        Text("取消")
+                        Text(L("common.cancel"))
                             .font(.system(size: 13.5, weight: .semibold))
                             .foregroundColor(ABColor.fgDim)
                     }
@@ -269,7 +269,7 @@ struct ComputerEditorView: View {
                     ZStack {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .fill(ABColor.accent)
-                        Text("保存")
+                        Text(L("common.save"))
                             .font(.system(size: 13.5, weight: .semibold))
                             .foregroundColor(ABColor.onAccent)
                     }
@@ -303,7 +303,7 @@ struct ComputerEditorView: View {
                 applyRemoteHint()
             }
         }
-        .abToast($emptyHintShown, title: "请填电脑地址", kind: .failure)
+        .abToast($emptyHintShown, title: L("and.emptyAddrHint"), kind: .failure)
     }
 
     // MARK: - 表单主体（Android ServerEditFormBody 逐段对应）
@@ -312,7 +312,7 @@ struct ComputerEditorView: View {
         VStack(alignment: .leading, spacing: 0) {
             // ---- 电脑名称 ----
             fieldLabel("电脑名称（同一台电脑的不同网卡/地址，用名字区分）")
-            TextField("例如：有线网卡 / 5G WiFi（可留空，用地址兜底）", text: $name)
+            TextField(L("and.computerNamePh"), text: $name)
                 .autocorrectionDisabled()
                 .abField()
                 .accessibilityIdentifier("editor.name")
@@ -331,7 +331,7 @@ struct ComputerEditorView: View {
                 Button {
                     recognizeQuick()
                 } label: {
-                    Text("识别并加入")
+                    Text(L("and.detectAdd"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.accent)
                 }
@@ -346,7 +346,7 @@ struct ComputerEditorView: View {
             // ---- 已添加的地址（结构化卡片） ----
             fieldLabel("已添加的地址（第一个用来连接，其余参与测试连接和唤醒）")
             if addressEntries.isEmpty {
-                Text("还没加地址 —— 上面粘一段，或者下面手动填一个。")
+                Text(L("and.noAddrYet"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
             }
@@ -356,14 +356,14 @@ struct ComputerEditorView: View {
 
             // ---- 手动添加 ----
             fieldLabel("手动添加（地址 + 多个 MAC；地址已存在时只追加 MAC）")
-            TextField("地址（192.168.0.120 或 192.168.0.120:12300）", text: $newHost)
+            TextField(L("and.addrFieldLabel"), text: $newHost)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .font(.system(size: 13))
                 .abField()
             HStack(spacing: 8) {
-                TextField("MAC（可多个，空格隔开）", text: $newMacs, prompt:
+                TextField(L("and.macFieldLabel"), text: $newMacs, prompt:
                     Text("AA:BB:CC:DD:EE:FF").font(.system(size: 12)))
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -372,7 +372,7 @@ struct ComputerEditorView: View {
                 Button {
                     addManualAddress()
                 } label: {
-                    Text("添加")
+                    Text(L("common.add"))
                         .font(.system(size: 13))
                         .foregroundColor(ABColor.accent)
                 }
@@ -404,7 +404,7 @@ struct ComputerEditorView: View {
                 .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(ABColor.card))
                 .padding(.bottom, 6)
             }
-            TextField("留空保持不变；要替换就填新令牌", text: $token)
+            TextField(L("and.tokenKeepPh"), text: $token)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .abField()
@@ -412,7 +412,7 @@ struct ComputerEditorView: View {
 
             // ---- 远程配对 ----
             fieldLabel("远程配对（三个区块，每个区块可以挂多条；同类型配一条不会顶掉另一条）")
-            TextField("anyboot://pair?v=2&… （配对码）；也可直接粘 https://xxx.trycloudflare.com / http://100.x.y.z:12300",
+            TextField(L("and.pairCodeHint"),
                       text: Binding(get: { remoteText }, set: { remoteText = $0; applyRemoteHint() }),
                       axis: .vertical)
                 .lineLimit(1...3)
@@ -423,7 +423,7 @@ struct ComputerEditorView: View {
                 Button {
                     showScanner = true
                 } label: {
-                    Text("📷 扫码读码")
+                    Text(L("and.scanCode"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.accent)
                 }
@@ -455,7 +455,7 @@ struct ComputerEditorView: View {
                 .padding(.top, 6)
 
             // ---- 连接策略（折叠，默认收起） ----
-            foldHeader(title: "连接策略",
+            foldHeader(title: L("remote.connPolicy"),
                        summary: connSummary,
                        open: connFoldOpen) { connFoldOpen.toggle() }
             if connFoldOpen {
@@ -463,7 +463,7 @@ struct ComputerEditorView: View {
             }
 
             // ---- 局域网电源路由（折叠，默认收起） ----
-            foldHeader(title: "局域网电源路由",
+            foldHeader(title: L("remote.powerRouteTitle"),
                        summary: draft.powerRoutes.isEmpty ? "未配置" : "\(draft.powerRoutes.count) 条",
                        open: powerFoldOpen) { powerFoldOpen.toggle() }
             if powerFoldOpen {
@@ -486,7 +486,7 @@ struct ComputerEditorView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if index == 0 {
-                    Text("连接用")
+                    Text(L("and.forConnect"))
                         .font(.system(size: 10))
                         .foregroundColor(ABColor.accent)
                 }
@@ -500,7 +500,7 @@ struct ComputerEditorView: View {
                 .buttonStyle(.plain)
             }
             if entry.macs.isEmpty {
-                Text("没配 MAC —— 局域网电源发不出去")
+                Text(L("and.noMacLan"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
             } else {
@@ -647,14 +647,14 @@ struct ComputerEditorView: View {
                 Button {
                     addPair(block)
                 } label: {
-                    Text("＋ 添加")
+                    Text(L("and.addPlus"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.accent)
                 }
                 .buttonStyle(.plain)
             }
             if items.isEmpty {
-                Text("这个区块还没有配对 —— 上面粘一条配对码，或点「＋ 添加」手填")
+                Text(L("and.blockNoPairHint"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
             }
@@ -818,7 +818,7 @@ struct ComputerEditorView: View {
                     draft.probeMode = ServerProfile.probeSerial
                 }
             }
-            Text("一台电脑配了多个局域网地址（多块网卡 / DHCP 换过 IP）时生效：并发谁先通用谁，串行按地址顺序试。")
+            Text(L("and.multiNicProbeHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
@@ -858,7 +858,7 @@ struct ComputerEditorView: View {
                     draft.probeMode = ServerProfile.probeSerial
                 }
             }
-            Text("并发·首个：每地址一个线程，任一响应立即用它；并发·全部：等全部探完，逐行报成败；串行：按顺序试，第一个通就停")
+            Text(L("and.probeMethodHint"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .padding(.top, 4)
@@ -871,7 +871,7 @@ struct ComputerEditorView: View {
                                     set: { probeTimeoutText = Self.cleanedTimeout($0) }),
                                  placeholder: "2")
                     .frame(width: 110)
-                Text("通道那格填了就以它自己为准；没填的通道才用这个默认值（上限 30 秒）")
+                Text(L("and.timeoutFallbackHint"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -899,11 +899,11 @@ struct ComputerEditorView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if kind == ServerProfile.routeLan || kind == ServerProfile.routeJump {
                         inlineTimeoutField(
-                            label: "超时",
+                            label: L("and.timeout"),
                             text: routeTimeoutBinding(kind),
                             enabled: available)
                     } else {
-                        Text("超时见区块设置")
+                        Text(L("and.timeoutSeeBlock"))
                             .font(.system(size: 10))
                             .foregroundColor(ABColor.fgFaint)
                     }
@@ -937,13 +937,13 @@ struct ComputerEditorView: View {
     /// 三条直连三台跳板机 = 三张卡片各选各的，不再是档案级一个下拉。
     private func jumpMenu(index: Int, entry: EditorAddrEntry) -> some View {
         Menu {
-            Button("直连（不经跳板机）") { addressEntries[index].jump = "" }
+            Button(L("and.directNoJump")) { addressEntries[index].jump = "" }
             ForEach(jumps.jumps) { jump in
                 Button(jumpLabel(jump)) { addressEntries[index].jump = jump.id }
             }
         } label: {
             HStack(spacing: 6) {
-                Text("跳板机")
+                Text(L("remote.jumpLabel"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                 Text(entry.jump.isEmpty ? "直连（不经跳板机）" : jumpName(entry.jump))
@@ -1025,7 +1025,7 @@ struct ComputerEditorView: View {
                     .font(.system(size: 12))
                     .foregroundColor(count > 0 ? ABColor.fg : ABColor.fgFaint)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                inlineTimeoutField(label: "默认超时",
+                inlineTimeoutField(label: L("and.defaultTimeout"),
                                    text: blockTimeoutBinding(block),
                                    enabled: count > 0)
             }
@@ -1105,7 +1105,7 @@ struct ComputerEditorView: View {
             fieldLabel("局域网电源路由（可选：每个动作发到哪个地址、哪个端口。"
                 + "目标机装 sol 后按端口执行 —— 不装 sol 就只有唤醒能靠 WOL 生效）")
             if draft.powerRoutes.isEmpty {
-                Text("还没配：电源按钮仍走老路 —— 唤醒发标准 WOL，重启/关机/睡眠调电脑端接口。")
+                Text(L("and.noRouteHint"))
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
             }
@@ -1127,7 +1127,7 @@ struct ComputerEditorView: View {
                         .withCounts(10, 10)
                 )
             } label: {
-                Text("+ 添加一条路由")
+                Text(L("remote.addRoute"))
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.accent)
             }
@@ -1311,7 +1311,7 @@ private func inlineTimeoutField(label: String, text: Binding<String>, enabled: B
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .strokeBorder(enabled ? ABColor.line : ABColor.line.opacity(0.5))
             if text.wrappedValue.isEmpty {
-                Text("默认")
+                Text(L("bs.layout.default"))
                     .font(.system(size: 9))
                     .foregroundColor(ABColor.fgFaint)
             }
@@ -1324,7 +1324,7 @@ private func inlineTimeoutField(label: String, text: Binding<String>, enabled: B
                 .padding(.horizontal, 4)
         }
         .frame(width: 56, height: 26)
-        Text("秒")
+        Text(L("gw.seconds"))
             .font(.system(size: 10))
             .foregroundColor(ABColor.fgFaint)
     }
@@ -1370,7 +1370,7 @@ private struct PairEditRowView: View {
                     .labelsHidden()
                     .scaleEffect(0.7, anchor: .leading)
                     .frame(width: 34)
-                TextField("地址（https://… 或 100.x:12300）", text: $addr)
+                TextField(L("and.addrPh3"), text: $addr)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(size: 13))
@@ -1395,11 +1395,11 @@ private struct PairEditRowView: View {
                     .foregroundColor(ABColor.fgFaint)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                inlineTimeoutField(label: "超时", text: $timeoutText, enabled: enabled)
+                inlineTimeoutField(label: L("and.timeout"), text: $timeoutText, enabled: enabled)
             }
             // 行 3：令牌（打码显示，点「改/看」变可编辑）
             HStack(spacing: 6) {
-                Text("令牌")
+                Text(L("remote.tokenPh"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                 if tokenShown {
@@ -1428,7 +1428,7 @@ private struct PairEditRowView: View {
                 Button {
                     UIPasteboard.general.string = pair.addr
                 } label: {
-                    Text("复制地址")
+                    Text(L("and.copyAddr"))
                         .font(.system(size: 11))
                         .foregroundColor(ABColor.fgDim)
                 }
@@ -1507,12 +1507,12 @@ private struct PowerRouteCardView: View {
                         .labelsHidden()
                         .scaleEffect(0.7, anchor: .trailing)
                         .frame(width: 36)
-                    Text("启用")
+                    Text(L("and.enable"))
                         .font(.system(size: 9))
                         .foregroundColor(ABColor.fgFaint)
                 }
                 Button(action: onRemove) {
-                    Text("删除")
+                    Text(L("common.delete"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.bad)
                 }
@@ -1531,20 +1531,20 @@ private struct PowerRouteCardView: View {
             }
 
             // —— 广播包设置区：端口 / 地址 / MAC / 发包数 / 重试 ——
-            Text("广播包")
+            Text(L("remote.broadcast"))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundColor(ABColor.fgDim)
                 .padding(.top, 2)
             TextField("", value: Binding(
                 get: { route.port <= 0 ? nil : route.port },
                 set: { route.port = $0 ?? 0 }), format: .number, prompt:
-                Text("端口").font(.system(size: 10)))
+                Text(L("srvEdit.port")).font(.system(size: 10)))
                 .keyboardType(.numberPad)
                 .font(.system(size: 13))
                 .abField()
                 .frame(width: 92)
-            TextField("广播地址（留空 = 自动：全局 + 各地址的 /24）", text: $route.target, prompt:
-                Text("广播地址（留空 = 自动：全局 + 各地址的 /24）").font(.system(size: 10)))
+            TextField(L("and.broadcastAddrLabel"), text: $route.target, prompt:
+                Text(L("and.broadcastAddrLabel")).font(.system(size: 10)))
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .font(.system(size: 13))
@@ -1593,14 +1593,14 @@ private struct PowerRouteCardView: View {
                                 set: { route.burst = min(50, $0 ?? 0) }),
                             placeholder: "\(route.defaultBurst)")
                     .frame(maxWidth: .infinity)
-                countsField(label: "重试次数",
+                countsField(label: L("and.retryCount"),
                             value: Binding(
                                 get: { route.retry > 0 ? route.retry : nil },
                                 set: { route.retry = min(20, $0 ?? 0) }),
                             placeholder: "\(route.defaultRetry)")
                     .frame(maxWidth: .infinity)
             }
-            Text("重试 = 没发出去就隔 0.2 秒再打一轮；走跳板机时每轮重试都会重新连接跳板机，直到次数用完。")
+            Text(L("and.retryHint"))
                 .font(.system(size: 9.5))
                 .foregroundColor(ABColor.fgFaint)
 

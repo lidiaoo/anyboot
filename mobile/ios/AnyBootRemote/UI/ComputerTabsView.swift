@@ -250,10 +250,10 @@ struct ComputerTabsView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            Button("编辑这台电脑") {
+            Button(L("rowMenu.edit")) {
                 editorTarget = ComputerEditorTarget(profile: profile)
             }
-            Button("系统信息") { SystemInfoCenter.shared.show(profile) }
+            Button(L("and.menuSysinfo")) { SystemInfoCenter.shared.show(profile) }
         }
     }
 
@@ -276,26 +276,26 @@ struct ComputerTabsView: View {
 
     private var overflowMenu: some View {
         Menu {
-            Button("添加电脑") {
+            Button(L("menu.add")) {
                 editorTarget = ComputerEditorTarget(profile: nil)
             }
-            Button("编辑当前电脑") {
+            Button(L("and.editCurrent")) {
                 if let current = activeProfile {
                     editorTarget = ComputerEditorTarget(profile: current)
                 } else {
                     ABToastBus.shared.show("还没有当前电脑 —— 点标签或卡片右侧 ⋮ 编辑某一台")
                 }
             }
-            Button("电脑列表") { serverListOpen = true }
-            Button("当前电脑的系统信息") {
+            Button(L("nav.computerList")) { serverListOpen = true }
+            Button(L("and.currentSysinfo")) {
                 if let current = activeProfile {
                     SystemInfoCenter.shared.show(current)
                 } else {
                     ABToastBus.shared.show("还没有当前电脑 —— 先点一个标签")
                 }
             }
-            Button("重载当前页面") { center.reloadActive() }
-            Button("全部重载") { center.reloadAll() }
+            Button(L("and.reloadPage")) { center.reloadActive() }
+            Button(L("menu.reloadAll")) { center.reloadAll() }
             Button(store.connectAll ? "✓ 启动时连接全部服务端" : "启动时连接全部服务端") {
                 let next = !store.connectAll
                 store.setConnectAll(next)
@@ -366,7 +366,7 @@ struct ComputerTabsView: View {
     private func errorPanel(_ tab: ComputerTab) -> some View {
         ScrollView {
             VStack(spacing: ABMetric.px(12)) {
-                Text("连不上服务端")
+                Text(L("and.cannotReachServer"))
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(ABColor.fg)
                 if !tab.errorDetail.isEmpty {
@@ -390,8 +390,8 @@ struct ComputerTabsView: View {
                      : "自动重试已关闭（⋮ 里可改）")
                     .font(.system(size: 11))
                     .foregroundColor(ABColor.fgFaint)
-                ABButton(title: "重试", kind: .primary) { tab.reload() }
-                Button("修改这个服务端") {
+                ABButton(title: L("common.retry"), kind: .primary) { tab.reload() }
+                Button(L("and.editServer")) {
                     editorTarget = ComputerEditorTarget(profile: tab.profile)
                 }
                 .buttonStyle(.plain)
@@ -425,7 +425,7 @@ struct ComputerTabsView: View {
                     helpOpen = true
                 } label: {
                     HStack(spacing: ABMetric.px(4)) {
-                        Text("电源走局域网 · 需 sol")
+                        Text(L("hub.home.fabNote"))
                             .font(.system(size: 10))
                             .foregroundColor(ABColor.fgFaint)
                         Text("?")
@@ -443,18 +443,18 @@ struct ComputerTabsView: View {
                 }
                 .buttonStyle(.plain)
 
-                powerChip(profile, action: PowerRoute.actionWake, label: "唤醒",
+                powerChip(profile, action: PowerRoute.actionWake, label: L("hub.power.wake"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionWake,
                                                fallback: profile.hasMacs ? "MAC 魔术包" : "未配 MAC",
                                                remoteActive: activeTab?.usingRemote == true))
-                powerChip(profile, action: PowerRoute.actionSleep, label: "睡眠",
+                powerChip(profile, action: PowerRoute.actionSleep, label: L("hub.power.sleep"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionSleep,
                                                fallback: "挂起到内存",
                                                remoteActive: activeTab?.usingRemote == true))
-                powerChip(profile, action: PowerRoute.actionShutdown, label: "关机",
+                powerChip(profile, action: PowerRoute.actionShutdown, label: L("hub.power.shutdown"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionShutdown,
                                                remoteActive: activeTab?.usingRemote == true))
-                powerChip(profile, action: PowerRoute.actionReboot, label: "重启",
+                powerChip(profile, action: PowerRoute.actionReboot, label: L("hub.power.restart"),
                           hint: PowerHint.text(profile, action: PowerRoute.actionReboot,
                                                remoteActive: activeTab?.usingRemote == true))
             }
@@ -565,7 +565,7 @@ struct ComputerTabsView: View {
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("这些按钮怎么执行（局域网 / sol）")
+                        Text(L("and.powerHowExec"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                         Text("给这台电脑配了「局域网电源路由」的动作，会往路由里的**广播地址:端口**发一个 UDP 包，"
@@ -575,7 +575,7 @@ struct ComputerTabsView: View {
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("唤醒包从哪发：")
+                        Text(L("and.powerWakeFrom"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                         Text("· 配了「唤醒」路由 → 按路由里的地址和端口发（MAC 可只挑几块网卡）；\n"
@@ -586,7 +586,7 @@ struct ComputerTabsView: View {
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fgDim)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("点了没反应，按顺序检查：")
+                        Text(L("and.powerCheck"))
                             .font(.system(size: 13))
                             .foregroundColor(ABColor.fg)
                         Text("① 主板 BIOS 里开启了 Wake on LAN / 网络唤醒（只影响唤醒）；\n"
@@ -607,7 +607,7 @@ struct ComputerTabsView: View {
                 .frame(maxHeight: ABMetric.px(420))
                 HStack {
                     Spacer()
-                    ABButton(title: "知道了", kind: .ghost, compact: true) { helpOpen = false }
+                    ABButton(title: L("hub.home.fabHelpOk"), kind: .ghost, compact: true) { helpOpen = false }
                 }
             }
         }
@@ -637,7 +637,7 @@ struct ComputerTabsView: View {
     private var failReloadOverlay: some View {
         ABDialogHost(isPresented: failReloadOpen, onDismiss: { failReloadOpen = false }) {
             ABDialogCard("连不上时自动重载") {
-                Text("连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。")
+                Text(L("and.introFailReload"))
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fgDim)
                     .fixedSize(horizontal: false, vertical: true)
@@ -649,7 +649,7 @@ struct ComputerTabsView: View {
                 }
                 HStack(spacing: ABMetric.px(8)) {
                     radioRow(selected: ![5, 10, 30, 60, 0].contains(failReloadSec), label: "") {}
-                    TextField("自定义秒数", text: $customSec)
+                    TextField(L("and.customSeconds"), text: $customSec)
                         .font(.system(size: 13))
                         .foregroundColor(ABColor.fg)
                         .keyboardType(.numberPad)
@@ -664,7 +664,7 @@ struct ComputerTabsView: View {
                         .overlay(
                             RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                                 .strokeBorder(ABColor.lineStrong, lineWidth: 1))
-                    Button("应用") {
+                    Button(L("settings.apply")) {
                         guard let parsed = Int(customSec), parsed >= 0 else {
                             ABToastBus.shared.show("间隔要是不小于 0 的整数秒")
                             return
@@ -678,7 +678,7 @@ struct ComputerTabsView: View {
                 }
                 HStack {
                     Spacer()
-                    ABButton(title: "完成", kind: .ghost, compact: true) { failReloadOpen = false }
+                    ABButton(title: L("bk.done"), kind: .ghost, compact: true) { failReloadOpen = false }
                 }
             }
         }
@@ -699,7 +699,7 @@ struct ComputerTabsView: View {
                     .foregroundColor(ABColor.fgDim)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("刷新间隔")
+                Text(L("and.refreshInterval"))
                     .font(.system(size: 10.5))
                     .foregroundColor(ABColor.fgFaint)
                     .padding(.top, ABMetric.px(6))
@@ -716,31 +716,31 @@ struct ComputerTabsView: View {
 
                 Divider().padding(.vertical, ABMetric.px(6))
 
-                Text("刷新时是否重新探测地址")
+                Text(L("and.recheckAddr"))
                     .font(.system(size: 10.5))
                     .foregroundColor(ABColor.fgFaint)
 
-                radioRow(selected: !reprobeAlways, label: "复用上次成功的地址（推荐）") {
+                radioRow(selected: !reprobeAlways, label: L("and.reuseAddrRec")) {
                     DataRefreshPref.reprobeAlways = false
                     ABToastBus.shared.show("复用上次成功的地址：省电、地址稳定")
                 }
-                Text("省电、地址稳定，不会频繁换 IP")
+                Text(L("and.reuseAddrDesc"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                     .padding(.leading, ABMetric.px(26))
 
-                radioRow(selected: reprobeAlways, label: "每次刷新都重新探测地址") {
+                radioRow(selected: reprobeAlways, label: L("and.alwaysProbeAddr")) {
                     DataRefreshPref.reprobeAlways = true
                     ABToastBus.shared.show("每次刷新都重新探测地址：换 IP 抓得最快")
                 }
-                Text("换 IP / 换网络时抓得最快，但更耗电")
+                Text(L("and.alwaysProbeDesc"))
                     .font(.system(size: 10))
                     .foregroundColor(ABColor.fgFaint)
                     .padding(.leading, ABMetric.px(26))
 
                 HStack {
                     Spacer()
-                    ABButton(title: "完成", kind: .primary, compact: true) {
+                    ABButton(title: L("bk.done"), kind: .primary, compact: true) {
                         dataRefreshOpen = false
                     }
                 }
@@ -763,7 +763,7 @@ struct ComputerTabsView: View {
                 }
                 HStack {
                     Spacer()
-                    ABButton(title: "取消", kind: .ghost, compact: true) { transportOpen = false }
+                    ABButton(title: L("common.cancel"), kind: .ghost, compact: true) { transportOpen = false }
                 }
             }
         }
@@ -815,7 +815,7 @@ struct ComputerTabsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if store.servers.isEmpty {
-                            Text("还没有服务端。")
+                            Text(L("and.noServers"))
                                 .font(.system(size: 13))
                                 .foregroundColor(ABColor.fgDim)
                         }
@@ -840,7 +840,7 @@ struct ComputerTabsView: View {
                 }
                 .frame(maxHeight: ABMetric.px(320))
                 HStack(spacing: ABMetric.px(8)) {
-                    ABButton(title: "合并同一台电脑的地址", kind: .ghost, compact: true) {
+                    ABButton(title: L("and.mergeAddrs"), kind: .ghost, compact: true) {
                         serverListOpen = false
                         let removed = store.mergeSameMachine()
                         ABToastBus.shared.show(
@@ -849,7 +849,7 @@ struct ComputerTabsView: View {
                                 : "没有需要合并的：同一台电脑要么已经只有一条，要么分组名不同")
                     }
                     Spacer(minLength: 0)
-                    ABButton(title: "添加", kind: .primary, compact: true) {
+                    ABButton(title: L("common.add"), kind: .primary, compact: true) {
                         serverListOpen = false
                         editorTarget = ComputerEditorTarget(profile: nil)
                     }

@@ -1197,7 +1197,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         var seen = Set<String>()
         for i in 0..<addressCount {
             if let u = url(at: i), seen.insert(u.absoluteString).inserted {
-                out.append(OpenCandidate(label: "直连", url: u, kind: Self.routeLan, origin: hostAt(i)))
+                out.append(OpenCandidate(label: L("hub.conn.lan"), url: u, kind: Self.routeLan, origin: hostAt(i)))
             }
         }
         for c in routeCandidates() where c.isRemote {

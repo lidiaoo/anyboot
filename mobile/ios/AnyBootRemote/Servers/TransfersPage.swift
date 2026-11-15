@@ -38,7 +38,7 @@ struct TransfersPage: View {
                     Button {
                         center.clearFinished()
                     } label: {
-                        Text("清空记录")
+                        Text(L("and.clearRecords"))
                             .font(.system(size: 14))
                             .foregroundColor(ABColor.accent)
                             .padding(.vertical, ABMetric.px(10))
@@ -84,17 +84,17 @@ struct TransferRow: View {
 
                 switch task.state {
                 case .running:
-                    ABChipButton(text: "暂停") { TransferCenter.shared.pause(task.id) }
+                    ABChipButton(text: L("tx.pause")) { TransferCenter.shared.pause(task.id) }
                     Spacer().frame(width: ABMetric.px(6))
-                    ABChipButton(text: "取消") { TransferCenter.shared.cancel(task.id) }
+                    ABChipButton(text: L("common.cancel")) { TransferCenter.shared.cancel(task.id) }
                 case .paused:
-                    ABChipButton(text: "继续") { resume() }
+                    ABChipButton(text: L("tx.resume")) { resume() }
                     Spacer().frame(width: ABMetric.px(6))
-                    ABChipButton(text: "取消") { TransferCenter.shared.cancel(task.id) }
+                    ABChipButton(text: L("common.cancel")) { TransferCenter.shared.cancel(task.id) }
                 case .superseded:
                     EmptyView()
                 default:
-                    ABChipButton(text: "重试") { retry() }
+                    ABChipButton(text: L("common.retry")) { retry() }
                 }
             }
             if task.isPending {

@@ -45,7 +45,7 @@ struct QRScannerView: View {
     private var titleBar: some View {
         HStack(spacing: 0) {
             ABBarIcon(text: "‹", description: "返回") { dismiss() }
-            Text("扫码读配对码")
+            Text(L("and.scanTitle"))
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(ABColor.fg)
             Spacer(minLength: 0)
@@ -81,7 +81,7 @@ struct QRScannerView: View {
             .clipShape(RoundedRectangle(cornerRadius: ABMetric.px(16), style: .continuous))
             .padding(ABMetric.px(16))
 
-            Text("把二维码放进框内即可，稍等一两秒")
+            Text(L("and.scanHint"))
                 .font(.system(size: 11))
                 .foregroundColor(ABColor.fgFaint)
                 .multilineTextAlignment(.center)
@@ -95,7 +95,7 @@ struct QRScannerView: View {
 
     private var deniedArea: some View {
         VStack(spacing: 0) {
-            Text("相机权限没给")
+            Text(L("and.camNoPerm"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
 
@@ -110,7 +110,7 @@ struct QRScannerView: View {
 
             Spacer().frame(height: ABMetric.px(16))
 
-            textButton("返回") { dismiss() }
+            textButton(L("and.back")) { dismiss() }
             // 系统不给「永久拒绝」的再次拉起，用户只能去设置里开
             textButton("去设置里授权", action: openSystemSettings)
         }

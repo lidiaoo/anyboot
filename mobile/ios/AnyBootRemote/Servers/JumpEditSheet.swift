@@ -70,7 +70,7 @@ struct JumpEditSheet: View {
                         Spacer().frame(height: ABMetric.px(12))
 
                         fieldLabel("名称")
-                        ABDialogInput(placeholder: "例如：pve / 家里路由器", text: $name)
+                        ABDialogInput(placeholder: L("and.namePh"), text: $name)
 
                         fieldLabel("协议")
                         ABSegmented(options: ["SSH", "Telnet（实验性）"], selected: isTelnet ? 1 : 0) {
@@ -80,7 +80,7 @@ struct JumpEditSheet: View {
                         HStack(alignment: .top, spacing: ABMetric.px(12)) {
                             VStack(alignment: .leading, spacing: 0) {
                                 fieldLabel("地址")
-                                ABDialogInput(placeholder: "host 或 user@host", text: $hostInput)
+                                ABDialogInput(placeholder: L("and.addrPh2"), text: $hostInput)
                             }
                             VStack(alignment: .leading, spacing: 0) {
                                 fieldLabel("端口")
@@ -120,10 +120,10 @@ struct JumpEditSheet: View {
                                 }
                                 .buttonStyle(.plain)
                                 VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                                    Text("保存密码 / 凭据")
+                                    Text(L("and.saveCred"))
                                         .font(.system(size: 14))
                                         .foregroundColor(ABColor.fg)
-                                    Text("加密存本机（Keystore），连接免输；不勾则清除已存凭据")
+                                    Text(L("and.saveCredHint"))
                                         .font(.system(size: 11))
                                         .foregroundColor(ABColor.fgFaint)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -150,24 +150,24 @@ struct JumpEditSheet: View {
                                     }
                                 }
                             }
-                            ABDialogInput(placeholder: "密钥口令（可空）",
+                            ABDialogInput(placeholder: L("and.keyPassPh"),
                                           text: $passphrase, secure: true)
                                 .padding(.top, ABMetric.px(12))
                         }
 
                         fieldLabel("终端启动路径（可选）")
-                        ABDialogInput(placeholder: "如 /data/logs，留空 = 远端家目录", text: $termPath)
+                        ABDialogInput(placeholder: L("srvEdit.termPathPh"), text: $termPath)
 
                         fieldLabel("终端 shell（可选）")
-                        ABDialogInput(placeholder: "/bin/bash /bin/zsh 等，留空 = 登录 shell", text: $termShell)
-                        Text("预设 shell 自动带 -l；也可填自定义命令原样执行（如 tmux attach）")
+                        ABDialogInput(placeholder: L("and.termShellPh2"), text: $termShell)
+                        Text(L("and.termShellHint"))
                             .font(.system(size: 12))
                             .foregroundColor(ABColor.fgDim)
                             .padding(.top, ABMetric.px(4))
                             .fixedSize(horizontal: false, vertical: true)
 
                         fieldLabel("备注")
-                        ABDialogInput(placeholder: "可选", text: $note)
+                        ABDialogInput(placeholder: L("srvEdit.notesPh"), text: $note)
 
                         fieldLabel("经由跳板机")
                         dropdown(text: jumpLabel, open: $jumpMenuOpen, enabled: true) {
@@ -192,7 +192,7 @@ struct JumpEditSheet: View {
                         Button {
                             if let saved = persist() { store.editOpen = false }
                         } label: {
-                            Text("保存")
+                            Text(L("common.save"))
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(ABColor.onAccent)
                                 .frame(maxWidth: .infinity)
@@ -213,7 +213,7 @@ struct JumpEditSheet: View {
                                     testConnection(saved)
                                 }
                             } label: {
-                                Text("测试连接")
+                                Text(L("bk.testConn"))
                                     .font(.system(size: 14))
                                     .foregroundColor(ABColor.fgDim)
                                     .frame(maxWidth: .infinity)
@@ -228,7 +228,7 @@ struct JumpEditSheet: View {
                                 store.editOpen = false
                                 store.deleteTarget = store.editTarget
                             } label: {
-                                Text("删除此服务器")
+                                Text(L("and.deleteThisServer"))
                                     .font(.system(size: 13))
                                     .foregroundColor(ABColor.bad)
                                     .padding(.top, ABMetric.px(6))

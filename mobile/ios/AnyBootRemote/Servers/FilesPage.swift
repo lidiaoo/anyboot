@@ -95,7 +95,7 @@ struct FilesPage: View {
             }
             .buttonStyle(.plain)
             .overlay(alignment: .topLeading) {
-                Text("服务器")
+                Text(L("nav.servers"))
                     .font(.system(size: 9))
                     .foregroundColor(ABColor.fgFaint)
                     .padding(.horizontal, ABMetric.px(4))
@@ -196,12 +196,12 @@ struct FilesPage: View {
 
     private var toolRow: some View {
         ABFlow(itemSpacing: ABMetric.px(6), rowSpacing: ABMetric.px(6)) {
-            ABChipButton(text: "上级") { store.gotoDir(SftpOps.parent(store.path)) }
-            ABChipButton(text: "上传") { showImporter = true }
-            ABChipButton(text: "＋ 新建目录") { store.mkdirOpen = true }
-            ABChipButton(text: "刷新") { store.reloadDir() }
-            ABChipButton(text: "路径") { store.locateOpen = true }
-            ABChipButton(text: "终端") { openTerminal(at: store.path) }
+            ABChipButton(text: L("and.parentDir")) { store.gotoDir(SftpOps.parent(store.path)) }
+            ABChipButton(text: L("fb.upload")) { showImporter = true }
+            ABChipButton(text: L("and.newDirPlus")) { store.mkdirOpen = true }
+            ABChipButton(text: L("common.refresh")) { store.reloadDir() }
+            ABChipButton(text: L("fb.path")) { store.locateOpen = true }
+            ABChipButton(text: L("nav.terminal")) { openTerminal(at: store.path) }
 
             Button {
                 sortMenuOpen.toggle()
@@ -259,10 +259,10 @@ struct FilesPage: View {
             }
             .zIndex(1)
 
-            ABChipButton(text: "显示隐藏", selected: store.showHidden) {
+            ABChipButton(text: L("and.showHidden"), selected: store.showHidden) {
                 store.showHidden.toggle()
             }
-            ABChipButton(text: "过滤", selected: store.filterOpen) {
+            ABChipButton(text: L("and.filter"), selected: store.filterOpen) {
                 store.filterOpen.toggle()
                 if !store.filterOpen { store.filter = "" }
             }
@@ -271,7 +271,7 @@ struct FilesPage: View {
     }
 
     private var filterField: some View {
-        ABDialogInput(placeholder: "按名称过滤（不区分大小写），清空就全显示", text: $store.filter)
+        ABDialogInput(placeholder: L("and.filterHint"), text: $store.filter)
             .padding(.vertical, ABMetric.px(2))
     }
 
@@ -290,23 +290,23 @@ struct FilesPage: View {
                 .foregroundColor(ABColor.fgDim)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ABChipButton(text: "粘贴到当前目录") { store.paste(destDir: store.path) }
-            ABChipButton(text: "取消") { store.clearClip() }
+            ABChipButton(text: L("and.pasteHere2")) { store.paste(destDir: store.path) }
+            ABChipButton(text: L("common.cancel")) { store.clearClip() }
         }
         .padding(.vertical, ABMetric.px(6))
     }
 
     private var tableHeader: some View {
         HStack(spacing: 0) {
-            Text("名称")
+            Text(L("keysWin.name"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text("大小")
+            Text(L("fb.colSize"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .frame(width: ABMetric.px(64), alignment: .leading)
-            Text("修改时间")
+            Text(L("fb.colMtime"))
                 .font(.system(size: 10))
                 .foregroundColor(ABColor.fgFaint)
                 .frame(width: ABMetric.px(72), alignment: .trailing)
@@ -326,7 +326,7 @@ struct FilesPage: View {
         } else if store.busy {
             HStack(spacing: ABMetric.px(8)) {
                 ProgressView().scaleEffect(0.7).frame(width: ABMetric.px(16), height: ABMetric.px(16))
-                ABSecondaryText("加载中 …")
+                ABSecondaryText(L("and.loading"))
             }
             .padding(ABMetric.px(16))
         } else if store.entries.isEmpty {
@@ -419,7 +419,7 @@ struct FilesPage: View {
     private func openTerminal(at dir: String) {
         guard let jump = store.server else { return }
         guard jump.isSsh else {
-            store.toast("Telnet 只有终端，没有文件功能")
+            store.toast(L("and.telnetNoFile"))
             return
         }
         module.openTerminal(jumpId: jump.id, cdPath: dir)

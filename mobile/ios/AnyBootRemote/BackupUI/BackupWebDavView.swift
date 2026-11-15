@@ -62,24 +62,24 @@ struct BackupWebDavView: View {
         }
         // S6c 自动创建目录
         .confirmationDialog("目录不存在", isPresented: $confirmCreateDir, titleVisibility: .visible) {
-            Button("创建") { createDirectory() }
+            Button(L("fb.create")) { createDirectory() }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("远端目录不存在，是否自动创建？")
+            Text(L("and.dirNotExistCreate"))
         }
     }
 
     private var navBar: some View {
         HStack(spacing: 0) {
             ABBarIcon(text: "‹", description: "返回") { dismiss() }
-            Text("WebDAV 与同步内容")
+            Text(L("and.webdavTitle"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
             Spacer(minLength: 0)
             Button {
                 save()
             } label: {
-                Text("保存")
+                Text(L("common.save"))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(saveEnabled ? ABColor.accent : ABColor.fgFaint)
                     .padding(.horizontal, ABMetric.px(12))
@@ -102,16 +102,16 @@ struct BackupWebDavView: View {
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             ABFieldLabel("用户名")
-            ABDialogInput(placeholder: "账号 / 邮箱", text: $username)
+            ABDialogInput(placeholder: L("and.accountEmail"), text: $username)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
             ABFieldLabel("密码")
             HStack(spacing: ABMetric.px(8)) {
                 Group {
                     if showPassword {
-                        TextField("WebDAV 密码", text: $password)
+                        TextField(L("bk.pwdPh"), text: $password)
                     } else {
-                        SecureField("WebDAV 密码", text: $password)
+                        SecureField(L("bk.pwdPh"), text: $password)
                     }
                 }
                 .font(.system(size: 13))
@@ -141,19 +141,19 @@ struct BackupWebDavView: View {
                 .textInputAutocapitalization(.never)
             ABFieldLabel("同步周期")
             Picker("同步周期", selection: $periodMinutes) {
-                Text("手动").tag(0)
-                Text("15 分钟").tag(15)
-                Text("30 分钟").tag(30)
-                Text("60 分钟").tag(60)
+                Text(L("bk.manual")).tag(0)
+                Text(L("bk.min15")).tag(15)
+                Text(L("bk.min30")).tag(30)
+                Text(L("bk.min60")).tag(60)
             }
             .pickerStyle(.segmented)
             .padding(.top, ABMetric.px(2))
             Toggle(isOn: $syncOnChange) {
                 VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                    Text("记录变化时就同步")
+                    Text(L("and.syncOnChange"))
                         .font(.system(size: 14))
                         .foregroundColor(ABColor.fg)
-                    Text("建议只在自有 WebDAV 服务器时开启，防止快速占用服务商限额。")
+                    Text(L("and.syncOnChangeHint"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.fgFaint)
                         .fixedSize(horizontal: false, vertical: true)
@@ -213,7 +213,7 @@ struct BackupWebDavView: View {
             if categories.contains(.keys) && !encrypt {
                 HStack(spacing: ABMetric.px(6)) {
                     Text("⚠").font(.system(size: 12, weight: .bold)).foregroundColor(ABColor.warn)
-                    Text("建议开启加密，私钥将以明文存放于 WebDAV 服务器")
+                    Text(L("and.encryptWarn"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.warn)
                         .fixedSize(horizontal: false, vertical: true)
@@ -236,7 +236,7 @@ struct BackupWebDavView: View {
     private var encryptCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             Toggle(isOn: $encrypt) {
-                Text("同步文件加密")
+                Text(L("and.syncFileEncrypt"))
                     .font(.system(size: 14))
                     .foregroundColor(ABColor.fg)
             }
@@ -249,7 +249,7 @@ struct BackupWebDavView: View {
             }
             if encrypt {
                 ABFieldLabel("同步口令（≥6 位）")
-                SecureField("同步口令", text: $encryptPassword)
+                SecureField(L("bk.syncPw"), text: $encryptPassword)
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fg)
                     .padding(.horizontal, ABMetric.px(12))
@@ -258,7 +258,7 @@ struct BackupWebDavView: View {
                         .fill(ABColor.base))
                     .overlay(RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                         .strokeBorder(ABColor.lineStrong, lineWidth: ABMetric.hairline))
-                SecureField("再次输入同步口令", text: $encryptPasswordAgain)
+                SecureField(L("and.syncPwdAgainPh"), text: $encryptPasswordAgain)
                     .font(.system(size: 13))
                     .foregroundColor(ABColor.fg)
                     .padding(.horizontal, ABMetric.px(12))
@@ -268,7 +268,7 @@ struct BackupWebDavView: View {
                     .overlay(RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                         .strokeBorder(encryptMismatch ? ABColor.bad : ABColor.lineStrong, lineWidth: ABMetric.hairline))
                 if encryptMismatch {
-                    Text("两次输入不一致")
+                    Text(L("bk.pwMismatch"))
                         .font(.system(size: 12))
                         .foregroundColor(ABColor.bad)
                 }

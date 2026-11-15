@@ -65,7 +65,7 @@ struct BackupPage: View {
         // L15 加密文件口令页（独立模态，不可点外关闭）
         .sheet(isPresented: $importNeedsPassword) {
             BackupPasswordSheet(
-                title: "输入备份口令",
+                title: L("and.backupPwdTitle"),
                 verify: { pwd in
                     guard let raw = importRaw else { return .bad("文件已失效，请重新选择") }
                     do {
@@ -97,7 +97,7 @@ struct BackupPage: View {
             }
             Button("取消", role: .cancel) { }
         } message: {
-            Text("关闭后本设备将停止自动同步，已上传的云文件保留。")
+            Text(L("and.offDesc"))
         }
         // L7 文件选择器（.anyboot / .json，data 兜底）
         .fileImporter(isPresented: $showImporter,
@@ -116,7 +116,7 @@ struct BackupPage: View {
     private var navBar: some View {
         HStack(spacing: 0) {
             ABBarIcon(text: "‹", description: "返回") { nav.back() }
-            Text("备份与恢复")
+            Text(L("bk.titleFull"))
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(ABColor.fg)
             Spacer(minLength: 0)
@@ -163,7 +163,7 @@ struct BackupPage: View {
                             .font(.system(size: 14))
                             .foregroundColor(ABColor.fg)
                         if cat == .keys {
-                            Text("⚠ 高风险")
+                            Text(L("and.highRisk"))
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundColor(ABColor.warn)
                         }
@@ -304,9 +304,9 @@ struct BackupPage: View {
                 .strokeBorder(mismatch ? ABColor.bad : ABColor.lineStrong, lineWidth: ABMetric.hairline))
             Group {
                 if showPassword {
-                    TextField("再次输入口令", text: $passwordAgain)
+                    TextField(L("and.pwdAgain"), text: $passwordAgain)
                 } else {
-                    SecureField("再次输入口令", text: $passwordAgain)
+                    SecureField(L("and.pwdAgain"), text: $passwordAgain)
                 }
             }
             .font(.system(size: 13))
@@ -318,7 +318,7 @@ struct BackupPage: View {
             .overlay(RoundedRectangle(cornerRadius: ABMetric.px(12), style: .continuous)
                 .strokeBorder(mismatch ? ABColor.bad : ABColor.lineStrong, lineWidth: ABMetric.hairline))
             if mismatch {
-                Text("两次输入不一致")
+                Text(L("bk.pwMismatch"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.bad)
             }
@@ -343,7 +343,7 @@ struct BackupPage: View {
         } label: {
             HStack(spacing: ABMetric.px(8)) {
                 if exporting { ProgressView().tint(ABColor.onAccent) }
-                Text("导出到文件")
+                Text(L("and.exportToFile"))
                     .font(.system(size: 15, weight: .semibold))
             }
             .foregroundColor(exportDisabled ? ABColor.fgFaint : ABColor.onAccent)
@@ -411,10 +411,10 @@ struct BackupPage: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                            Text("启用多端同步")
+                            Text(L("and.enableSync"))
                                 .font(.system(size: 14))
                                 .foregroundColor(ABColor.fg)
-                            Text("通过 WebDAV 在多台设备间保持数据一致")
+                            Text(L("and.syncDesc"))
                                 .font(.system(size: 12))
                                 .foregroundColor(ABColor.fgFaint)
                         }
@@ -435,7 +435,7 @@ struct BackupPage: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                            Text("WebDAV 与同步内容")
+                            Text(L("and.webdavTitle"))
                                 .font(.system(size: 14))
                                 .foregroundColor(ABColor.fg)
                             Text(sync.config.isConfigured ? Self.hostLabel(sync.config.serverURL) : "未配置")
@@ -459,13 +459,13 @@ struct BackupPage: View {
                     syncNowTapped()
                 } label: {
                     HStack {
-                        Text("立即同步")
+                        Text(L("bk.syncNow"))
                             .font(.system(size: 14))
                             .foregroundColor(sync.config.isConfigured ? ABColor.fg : ABColor.fgFaint)
                         Spacer(minLength: 0)
                         if syncing {
                             ProgressView().tint(ABColor.accent)
-                            Text("同步中…")
+                            Text(L("and.syncing"))
                                 .font(.system(size: 12))
                                 .foregroundColor(ABColor.fgDim)
                         } else {
@@ -537,7 +537,7 @@ struct BackupPage: View {
                 Button {
                     showImporter = true
                 } label: {
-                    Text("从文件导入")
+                    Text(L("and.importFromFile"))
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(ABColor.accent)
                         .frame(maxWidth: .infinity)
@@ -547,7 +547,7 @@ struct BackupPage: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("从文件导入备份")
-                Text("支持 .anyboot 备份文件")
+                Text(L("and.importHint"))
                     .font(.system(size: 12))
                     .foregroundColor(ABColor.fgFaint)
                     .frame(maxWidth: .infinity)

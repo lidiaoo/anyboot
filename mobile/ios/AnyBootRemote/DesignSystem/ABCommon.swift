@@ -313,7 +313,7 @@ final class ABConfirmBus {
                                       style: .default) { [weak self] _ in
             self?.settle(key, true)
         })
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L("common.cancel"), style: .cancel) { [weak self] _ in
             self?.settle(key, false)
         })
         host.present(alert, animated: true)
