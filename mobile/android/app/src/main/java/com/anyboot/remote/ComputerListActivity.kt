@@ -900,8 +900,8 @@ class ComputerListActivity : ComponentActivity() {
                             saveReprobeMode()
                         })
                         Column {
-                            Text("复用上次成功的地址（推荐）", fontSize = 13.sp, color = palette.fg)
-                            Text("省电、地址稳定，不会频繁换 IP",
+                            Text(stringResource(R.string.and_reuseAddrRec), fontSize = 13.sp, color = palette.fg)
+                            Text(stringResource(R.string.and_reuseAddrDesc),
                                 fontSize = 10.5.sp, color = palette.fgFaint)
                         }
                     }
@@ -919,8 +919,8 @@ class ComputerListActivity : ComponentActivity() {
                             saveReprobeMode()
                         })
                         Column {
-                            Text("每次刷新都重新探测地址", fontSize = 13.sp, color = palette.fg)
-                            Text("换 IP / 换网络时抓得最快，但更耗电",
+                            Text(stringResource(R.string.and_alwaysProbeAddr), fontSize = 13.sp, color = palette.fg)
+                            Text(stringResource(R.string.and_alwaysProbeDesc),
                                 fontSize = 10.5.sp, color = palette.fgFaint)
                         }
                     }
@@ -928,15 +928,15 @@ class ComputerListActivity : ComponentActivity() {
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider(color = palette.line)
                     Spacer(Modifier.height(8.dp))
-                    Text("连续失败多少次才判离线", fontSize = 11.sp, color = palette.fgFaint)
-                    Text("弱网下偶尔失败不算掉线：在这几次重试内仍能连上就保持在线",
+                    Text(stringResource(R.string.and_offlineRetryTitle), fontSize = 11.sp, color = palette.fgFaint)
+                    Text(stringResource(R.string.and_offlineRetryDesc),
                         fontSize = 10.5.sp, color = palette.fgFaint)
                     Spacer(Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(1, 2, 3, 5).forEach { n ->
                             val on = moreOfflineRetry == n
                             Text(
-                                if (n == 1) "1 次（最灵敏）" else "$n 次",
+                                if (n == 1) stringResource(R.string.menu_times1Most) else stringResource(R.string.menu_timesN, n),
                                 fontSize = 12.sp,
                                 color = if (on) palette.onAccent else palette.fg,
                                 modifier = Modifier
@@ -947,7 +947,7 @@ class ComputerListActivity : ComponentActivity() {
                                         getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit()
                                             .putInt("offlineRetryCount", n).apply()
                                         consecutiveFailures.clear()
-                                        toast("连续失败 $n 次才判离线")
+                                        toast(getString(R.string.menu_tipFailThreshold, n))
                                     }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
@@ -966,8 +966,8 @@ class ComputerListActivity : ComponentActivity() {
             .putInt("dataRefreshSec", moreDataRefreshSec).apply()
         rescheduleAutoProbe()
         toast(
-            if (moreDataRefreshSec > 0) "数据每 $moreDataRefreshSec 秒刷新一次"
-            else "已关闭数据刷新"
+            if (moreDataRefreshSec > 0) getString(R.string.menu_toastRefreshOn, moreDataRefreshSec)
+            else getString(R.string.menu_toastRefreshOff)
         )
     }
 
@@ -976,8 +976,8 @@ class ComputerListActivity : ComponentActivity() {
             .putBoolean("reprobeAlways", moreReprobeAlways).apply()
         if (moreReprobeAlways) lastGoodEndpoint.clear()   // 清缓存，立刻按新模式工作
         toast(
-            if (moreReprobeAlways) "每次刷新都会重新探测地址"
-            else "复用上次成功的地址"
+            if (moreReprobeAlways) getString(R.string.menu_tipReprobe)
+            else getString(R.string.menu_tipReuse)
         )
     }
 
@@ -988,8 +988,8 @@ class ComputerListActivity : ComponentActivity() {
         // 现在按新值重排；设成「永不」直接停表。
         rescheduleAutoProbe()
         toast(
-            if (moreFailReloadSec > 0) "连不上时每 $moreFailReloadSec 秒自动重载"
-            else "已关闭自动重载"
+            if (moreFailReloadSec > 0) getString(R.string.and_toastFailReloadOn, moreFailReloadSec)
+            else getString(R.string.and_toastFailReloadOff)
         )
     }
 
@@ -999,9 +999,9 @@ class ComputerListActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val values = listOf("auto", "ws", "http")
         val labels = listOf(
-            "自动（推送优先，连不上退回轮询）",
-            "推送（WebSocket）",
-            "轮询（HTTP，间隔见「数据刷新」）",
+            stringResource(R.string.and_transportAuto),
+            stringResource(R.string.and_transportPush),
+            stringResource(R.string.and_transportPoll),
         )
         AlertDialog(
             onDismissRequest = { moreTransportOpen = false },
@@ -1018,7 +1018,7 @@ class ComputerListActivity : ComponentActivity() {
                                     moreTransport = value
                                     ServerStore.setTransport(this@ComputerListActivity, value)
                                     moreTransportOpen = false
-                                    toast("已选择「${transportLabel()}」：电脑页重载后生效")
+                                    toast(getString(R.string.and_transportSelected, transportLabel()))
                                 }
                                 .padding(vertical = 6.dp),
                         ) {
@@ -1026,7 +1026,7 @@ class ComputerListActivity : ComponentActivity() {
                                 moreTransport = value
                                 ServerStore.setTransport(this@ComputerListActivity, value)
                                 moreTransportOpen = false
-                                toast("已选择「${transportLabel()}」：电脑页重载后生效")
+                                toast(getString(R.string.and_transportSelected, transportLabel()))
                             })
                             // 最长一条在 14sp 下已接近行宽，系统字体一放大会挤爆，提前上 weight
                             Text(labels[index], fontSize = 14.sp, color = palette.fg, modifier = Modifier.weight(1f, fill = false))
@@ -1732,8 +1732,8 @@ class ComputerListActivity : ComponentActivity() {
         val color: Color
         val label: String
         when (state) {
-            STATE_ONLINE -> { color = tone.online; label = "在线" }
-            STATE_OFFLINE -> { color = tone.offlineText; label = "离线" }
+            STATE_ONLINE -> { color = tone.online; label = stringResource(R.string.hub_list_online) }
+            STATE_OFFLINE -> { color = tone.offlineText; label = stringResource(R.string.hub_list_offline) }
             STATE_WAKING -> { color = tone.busy; label = "唤醒中" }
             STATE_SHUTTING -> { color = tone.busy; label = "关机中" }
             STATE_REBOOTING -> { color = tone.busy; label = "重启中" }
