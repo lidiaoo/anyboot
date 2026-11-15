@@ -1729,18 +1729,10 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
             Err(error) => crate::t!(crate::i18n::current(),"广播包没发出去（{}）","廣播封包沒發出去（{}）","Broadcast packet not sent ({})","ブロードキャスト未送信（{}）","브로드캐스트 미전송({})","Broadcast-Paket nicht gesendet ({})","Broadcast-пакет не отправлен ({})","Pacote de broadcast não enviado ({})","Paquete de broadcast no enviado ({})").replace("{}", &error.to_string()),
         };
         return match (&send_result, &http_result) {
-            (Ok(_), Ok(http_message)) => Ok(format!(
-                "（混合模式）HTTP 与广播包已同时发送 —— HTTP：{http_message}；广播包：{packet_text}"
-            )),
-            (Ok(_), Err(http_error)) => Ok(format!(
-                "（混合模式）广播包已发出：{packet_text}；HTTP 接口失败：{http_error}"
-            )),
-            (Err(_), Ok(http_message)) => Ok(format!(
-                "（混合模式）HTTP 接口已执行：{http_message}；{packet_text}"
-            )),
-            (Err(_), Err(http_error)) => Err(format!(
-                "（混合模式）两边都失败 —— {packet_text}；HTTP：{http_error}"
-            )),
+            (Ok(_), Ok(http_message)) => Ok(crate::t!(crate::i18n::current(),"（混合模式）HTTP 与广播包已同时发送 —— HTTP：{h}；广播包：{p}","（混合模式）HTTP 與廣播封包已同時發送 —— HTTP：{h}；廣播封包：{p}","(mixed) HTTP and broadcast sent together — HTTP: {h}; packet: {p}","（混合）HTTP とブロードキャストを同時送信 — HTTP：{h}；ブロードキャスト：{p}","(혼합) HTTP와 브로드캐스트 동시 전송 — HTTP: {h}; 브로드캐스트: {p}","(gemischt) HTTP und Broadcast zusammen – HTTP: {h}; Paket: {p}","(смешанно) HTTP и broadcast отправлены вместе — HTTP: {h}; пакет: {p}","(misto) HTTP e broadcast juntos — HTTP: {h}; pacote: {p}","(mixto) HTTP y broadcast juntos — HTTP: {h}; paquete: {p}").replace("{h}", http_message).replace("{p}", &packet_text)),
+            (Ok(_), Err(http_error)) => Ok(crate::t!(crate::i18n::current(),"（混合模式）广播包已发出：{p}；HTTP 接口失败：{e}","（混合模式）廣播封包已發出：{p}；HTTP 介面失敗：{e}","(mixed) packet sent: {p}; HTTP API failed: {e}","（混合）ブロードキャスト送信済み：{p}；HTTP API 失敗：{e}","(혼합) 브로드캐스트 전송됨: {p}; HTTP API 실패: {e}","(gemischt) Paket gesendet: {p}; HTTP-API fehlgeschlagen: {e}","(смешанно) пакет отправлен: {p}; сбой HTTP API: {e}","(misto) pacote enviado: {p}; API HTTP falhou: {e}","(mixto) paquete enviado: {p}; API HTTP falló: {e}").replace("{p}", &packet_text).replace("{e}", http_error)),
+            (Err(_), Ok(http_message)) => Ok(crate::t!(crate::i18n::current(),"（混合模式）HTTP 接口已执行：{h}；{p}","（混合模式）HTTP 介面已執行：{h}；{p}","(mixed) HTTP API executed: {h}; {p}","（混合）HTTP API 実行済み：{h}；{p}","(혼합) HTTP API 실행됨: {h}; {p}","(gemischt) HTTP-API ausgeführt: {h}; {p}","(смешанно) HTTP API выполнен: {h}; {p}","(misto) API HTTP executada: {h}; {p}","(mixto) API HTTP ejecutada: {h}; {p}").replace("{h}", http_message).replace("{p}", &packet_text)),
+            (Err(_), Err(http_error)) => Err(crate::t!(crate::i18n::current(),"（混合模式）两边都失败 —— {p}；HTTP：{e}","（混合模式）兩邊都失敗 —— {p}；HTTP：{e}","(mixed) both failed — {p}; HTTP: {e}","（混合）両方失敗 — {p}；HTTP：{e}","(혼합) 둘 다 실패 — {p}; HTTP: {e}","(gemischt) beide fehlgeschlagen – {p}; HTTP: {e}","(смешанно) оба не удались — {p}; HTTP: {e}","(misto) ambos falharam — {p}; HTTP: {e}","(mixto) ambos fallaron: {p}; HTTP: {e}").replace("{p}", &packet_text).replace("{e}", http_error)),
         };
     }
 
@@ -1757,11 +1749,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                 message.push_str(crate::t!(crate::i18n::current(),"。这个动作靠目标机上的 sol 监听该端口执行 —— 没装 sol 不会有反应",". 這個動作靠目標機上的 sol 監聽該埠執行 —— 沒裝 sol 不會有反應",". This action runs via sol listening on that port on the target — without sol nothing happens",". この動作は対象機の sol がそのポートで待ち受けて実行 — sol 無しでは反応しません",". 이 동작은 대상의 sol이 해당 포트에서 수신해 실행 — sol 없으면 반응 없음",". Diese Aktion läuft über sol, das am Ziel auf diesem Port lauscht – ohne sol keine Reaktion",". Действие выполняется sol на цели, слушающим порт — без sol реакции нет",". Esta ação roda via sol escutando nessa porta — sem sol, nada acontece",". Esta acción se ejecuta vía sol escuchando en ese puerto: sin sol, nada ocurre"));
             }
             if !plan.problems.is_empty() {
-                message.push_str(&format!(
-                    "（另有 {} 条路由被跳过：{}）",
-                    plan.problems.len(),
-                    plan.problems.join("；")
-                ));
+                message.push_str(&crate::t!(crate::i18n::current(),"（另有 {n} 条路由被跳过：{list}）","（另有 {n} 條路由被略過：{list}）","({n} more routes skipped: {list})","（他に {n} 件のルートをスキップ：{list}）","(또 {n}개 라우트 건너뜀: {list})","({n} weitere Routen übersprungen: {list})","(ещё {n} маршрутов пропущено: {list})","(mais {n} rotas ignoradas: {list})","({n} rutas más omitidas: {list})").replace("{n}", &plan.problems.len().to_string()).replace("{list}", &plan.problems.join("；")));
             }
             Ok(message)
         }
