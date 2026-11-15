@@ -43,6 +43,9 @@ struct BootGroup {
     var saved: String
     var note: String
     var options: [BootOption]
+    /// 挂起的远程切换倒计时（对端 /api/status 的 switchPending）——pendingBar 显示「N 秒后执行」+ 撤销
+    var pendingSeconds: Int = 0
+    var pendingSummary: String = ""
 
     // ---- GRUB 专用 ----
     var serverFormat: String = ""
@@ -720,10 +723,19 @@ enum BootService {
             return buildInfo(fromUiState: state, choice: choice)
         }
 
+        var pendingSeconds = 0
+        var pendingSummary = ""
         let refindGroup: BootGroup
         do {
             let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                                  path: "/api/status")
+            // 挂起的远程切换倒计时（对端 /api/status 的 switchPending 字段）：
+            // pendingBar 显示「N 秒后执行」，撤销按钮走 /api/pending-cancel 立即作废
+            let sp = json["switchPending"] as? [String: Any]
+            if let flag = sp?["pending"] as? Bool, flag {
+                pendingSeconds = sp?["secondsLeft"] as? Int ?? 0
+                pendingSummary = sp?["summary"] as? String ?? ""
+            }
             refindGroup = BootParser.parseRefind(json)
         } catch {
             let message = (error as? RemoteHttpError)?.message ?? error.localizedDescription
@@ -732,7 +744,7 @@ enum BootService {
                                     current: "", next: "", saved: "", note: message, options: [])
         }
 
-        let grubGroup: BootGroup
+        var grubGroup: BootGroup
         do {
             let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                                  path: "/api/grub")
@@ -743,6 +755,9 @@ enum BootService {
             grubGroup = BootGroup(kind: BootKind.grub, title: "GRUB", available: false,
                                   current: "", next: "", saved: "", note: message, options: [])
         }
+        // 挂起的远程切换倒计时挂到 GRUB 组（pendingBar 消费）
+        grubGroup.pendingSeconds = pendingSeconds
+        grubGroup.pendingSummary = pendingSummary
 
         // 三引导器通道：失败不算致命（PC 版本旧没有这个接口，通道静默为空）
         let channelGroups: [ChannelGroup]
@@ -839,6 +854,20 @@ enum BootService {
     }
 
     /// 切换引导项；返回给用户看的 message
+    /** 撤销挂起的切换倒计时：GET /api/pending-cancel（对端立即作废 pending） */
+    static func cancelPending(_ profile: ServerProfile) async throws -> String {
+        guard let choice = await chooseEndpoint(profile) else {
+            throw RemoteHttpError(message: "这台电脑还没有可用地址")
+        }
+        guard choice.alive else {
+            throw RemoteHttpError(message: "电脑离线（局域网与远程都没通）")
+        }
+        let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
+                                             path: "/api/pending-cancel")
+        let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
+        return message.isEmpty ? "已撤销挂起的切换请求" : message
+    }
+
     static func switchBoot(_ profile: ServerProfile, kind: String, value: String) async throws -> String {
         let target = value.trimmingCharacters(in: .whitespaces)
         if target.isEmpty { throw RemoteHttpError(message: "没有可切换的目标启动项") }

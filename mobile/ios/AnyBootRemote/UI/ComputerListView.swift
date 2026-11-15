@@ -1491,19 +1491,50 @@ struct ComputerListView: View {
     }
 
     /// 待生效条
+    /// 待生效提示条：挂起倒计时（远程/手机发的请求 N 秒后执行，可撤销）优先，
+    /// 无挂起时是普通的「已修改，重启后生效」+ 撤销（切回 saved）
     private func pendingBar(_ row: CqRow) -> some View {
-        HStack(spacing: ABMetric.px(6)) {
-            DrawnIcon.info(ABColor.tonePendText, size: ABMetric.px(12))
-            Text("引导项已修改，重启后生效")
-                .font(.system(size: 11))
-                .foregroundColor(ABColor.tonePendText)
-            Spacer(minLength: 0)
-            Button("撤销") {
-                switchBoot(row.profile, kind: Kind.grub, value: row.grub.saved, verb: "撤销")
+        let pendSecs = row.grub.pendingSeconds
+        let pendSummary = row.grub.pendingSummary
+        return Group {
+            if pendSecs > 0 {
+                HStack(spacing: ABMetric.px(6)) {
+                    DrawnIcon.info(ABColor.tonePendText, size: ABMetric.px(12))
+                    Text("切换挂起中，\(pendSecs) 秒后在本机执行"
+                        + (pendSummary.isEmpty ? "" : "：\(pendSummary)"))
+                        .font(.system(size: 11))
+                        .foregroundColor(ABColor.tonePendText)
+                    Spacer(minLength: 0)
+                    Button("撤销挂起") {
+                        Task {
+                            do {
+                                let message = try await BootService.cancelPending(row.profile)
+                                toast(message)
+                                reloadBoot(row.profile)
+                            } catch {
+                                toast("撤销失败：\((error as? RemoteHttpError)?.message ?? error.localizedDescription)")
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(ABColor.accent)
+                }
+            } else {
+                HStack(spacing: ABMetric.px(6)) {
+                    DrawnIcon.info(ABColor.tonePendText, size: ABMetric.px(12))
+                    Text("引导项已修改，重启后生效")
+                        .font(.system(size: 11))
+                        .foregroundColor(ABColor.tonePendText)
+                    Spacer(minLength: 0)
+                    Button("撤销") {
+                        switchBoot(row.profile, kind: Kind.grub, value: row.grub.saved, verb: "撤销")
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(ABColor.accent)
+                }
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundColor(ABColor.accent)
         }
         .padding(.horizontal, ABMetric.px(10))
         .padding(.vertical, ABMetric.px(7))

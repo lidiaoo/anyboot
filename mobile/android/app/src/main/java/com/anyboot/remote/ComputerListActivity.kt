@@ -164,6 +164,9 @@ class ComputerListActivity : ComponentActivity() {
 
     /** id → 正在进行的操作键（"power:wake" / "boot:grub" / "boot:load"），按钮据此禁用并显示转圈 */
     private val busy = mutableStateMapOf<String, String>()
+    /** 挂起的远程切换倒计时（serverId → 秒数/摘要），来自对端 /api/status 的 switchPending */
+    private val pendingSwitchSeconds = mutableMapOf<String, Int>()
+    private val pendingSwitchSummary = mutableMapOf<String, String>()
 
     private val toasts = mutableStateListOf<CqToast>()
 
@@ -1611,8 +1614,39 @@ class ComputerListActivity : ComponentActivity() {
                 }
             }
 
-            // 待生效提示条
-            if (grubPending(row.grub)) {
+            // 待生效提示条：挂起倒计时（远程/手机发的请求 N 秒后执行，可撤销）优先
+            val pendSecs = pendingSwitchSeconds[row.profile.id]
+            if (pendSecs != null && pendSecs > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(tone.pendBg)
+                        .border(1.dp, tone.pendBorder, RoundedCornerShape(9.dp))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                ) {
+                    InfoIcon(tint = tone.pendText, size = 12.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "切换挂起中，${pendSecs} 秒后在本机执行" +
+                            (pendingSwitchSummary[row.profile.id]?.let { "：$it" } ?: ""),
+                        fontSize = 11.sp,
+                        color = tone.pendText,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "撤销挂起",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = palette.accent,
+                        modifier = Modifier
+                            .clickable { cancelPendingSwitch(row.profile) }
+                            .padding(horizontal = 2.dp, vertical = 2.dp),
+                    )
+                }
+            } else if (grubPending(row.grub)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
@@ -3533,8 +3567,23 @@ class ComputerListActivity : ComponentActivity() {
             return buildInfoFromUiState(uiState, choice)
         }
 
+        val statusJson = try {
+            httpJson(endpoint, token, "/api/status")
+        } catch (error: Exception) {
+            null
+        }
+        // 挂起的远程切换倒计时（对端 /api/status 的 switchPending 字段）：
+        // 待生效条显示「N 秒后执行」，撤销按钮走 /api/pending-cancel 立即作废
+        val sp = statusJson?.optJSONObject("switchPending")
+        if (sp != null && sp.optBoolean("pending", false)) {
+            pendingSwitchSeconds[profile.id] = sp.optInt("secondsLeft", 0)
+            pendingSwitchSummary[profile.id] = sp.optString("summary", "")
+        } else {
+            pendingSwitchSeconds.remove(profile.id)
+            pendingSwitchSummary.remove(profile.id)
+        }
         val refind = try {
-            parseRefind(httpJson(endpoint, token, "/api/status"), KIND_REFIND, "rEFInd")
+            parseRefind(statusJson ?: JSONObject(), KIND_REFIND, "rEFInd")
         } catch (error: Exception) {
             val message = error.message ?: "读取失败"
             errors.add(message)
@@ -3778,7 +3827,7 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 对电脑发一条 `GET {path}?token=…`，返回解析后的 JSON（语义对齐 PC 端 remote_http_json）。
      *  endpoint 接受裸 host:port（补 http://）或完整 origin（远程隧道是 https://…）。 */
-    private fun httpJson(endpoint: String, token: String, path: String): JSONObject {
+    private fun httpJson(endpoint: String, token: String, path: String, method: String = "GET"): JSONObject {
         val trimmed = ServerProfile.text(token)
         val query = if (trimmed.isEmpty()) "" else {
             (if (path.contains('?')) "&" else "?") + "token=" +
@@ -3791,7 +3840,7 @@ class ComputerListActivity : ComponentActivity() {
         }
         val connection = URL(base + path + query)
             .openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
+        connection.requestMethod = method
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = false
@@ -4454,6 +4503,32 @@ class ComputerListActivity : ComponentActivity() {
     // ------------------------------------------------------------------
     // 动作：切换引导项 / 电源
     // ------------------------------------------------------------------
+
+    /** 撤销挂起的切换倒计时：POST /api/pending-cancel（对端立即作废 pending） */
+    private fun cancelPendingSwitch(profile: ServerProfile) {
+        val id = profile.id
+        if (busy[id] != null) return
+        busy[id] = "pending-cancel"
+        Thread({
+            val outcome = runCatching {
+                val choice = chooseEndpoint(profile)
+                    ?: throw Exception("这台电脑还没有可用地址")
+                httpJson(choice.url, choice.token, "/api/pending-cancel", method = "POST")
+                    .optString("message", "").ifEmpty { "已撤销挂起的切换请求" }
+            }
+            runOnUiThread {
+                busy.remove(id)
+                outcome.onSuccess { message ->
+                    toast(message)
+                    pendingSwitchSeconds.remove(id)
+                    pendingSwitchSummary.remove(id)
+                    reloadBoot(profile)
+                }.onFailure { error ->
+                    toast("撤销失败：${error.message ?: "未知错误"}")
+                }
+            }
+        }, "anyboot-pending-cancel").start()
+    }
 
     private fun switchBoot(profile: ServerProfile, kind: String, value: String, verb: String) {
         val id = profile.id

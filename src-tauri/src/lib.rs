@@ -992,6 +992,21 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             }
             return handle_ui_command_request(app, request);
         }
+        // 撤销挂起的切换倒计时（手机/网页端「撤销」按钮）——立即作废，不进倒计时
+        "/api/pending-cancel" => {
+            // GET/POST 都可：作废是幂等的，iOS 的 HTTP 封装只有 GET
+            return match cancel_pending_now(app) {
+                Ok(()) => RemoteReply::ok(
+                    200,
+                    serde_json::json!({
+                        "ok": true,
+                        "pending": false,
+                        "message": "已撤销挂起的切换请求",
+                    }),
+                ),
+                Err(error) => RemoteReply::error(409, "no_pending", &error),
+            };
+        }
         _ => {}
     }
 

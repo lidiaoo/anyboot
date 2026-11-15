@@ -5151,13 +5151,16 @@ fn remote_boot_switch_blocking(
             },
             other => return Err(format!("未知的引导管理器：{other}")),
         };
-        let (ok, message) = crate::remote_routing::execute_remote_command(
-            app,
-            crate::state::Channel::Http,
-            "hub-电脑列表-本机行",
-            &command,
-        );
-        return if ok { Ok(message) } else { Err(message) };
+        // 统一化（用户 2026-11-15）：本机行切换也走**本机入口** switch_system_locally_for
+        // —— 会先作废挂着的远程倒计时请求（本机意图权威），防止手机挂起的请求到点
+        // 把本机刚点的选择覆盖回去。与系统引导页/托盘同一语义。
+        let status = crate::switch_flow::switch_system_locally_for(app, &value, base_kind);
+        // AppStatus 无 ok 字段：error 为 None = 成功
+        return if status.error.is_none() {
+            Ok(status.message)
+        } else {
+            Err(status.message)
+        };
     }
     let path = match base_kind {
         // 自动扫描模式下 system 是菜单条目标题（含空格 / 中文），必须转义；

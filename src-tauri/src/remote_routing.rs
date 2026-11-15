@@ -288,6 +288,23 @@ pub(crate) fn remote_status_json(app: &AppHandle) -> serde_json::Value {
             })
             .collect(),
     };
+    // 挂起的远程切换倒计时（手机/网页端据此显示「N 秒后执行」并给撤销入口）
+    let pending_json = match pending_snapshot() {
+        Some(pending) => {
+            let seconds_left = pending
+                .deadline
+                .saturating_duration_since(Instant::now())
+                .as_secs();
+            serde_json::json!({
+                "pending": true,
+                "secondsLeft": seconds_left,
+                "summary": pending.summary,
+                "source": pending.source,
+                "channel": pending.channel.as_str(),
+            })
+        }
+        None => serde_json::json!({ "pending": false }),
+    };
     serde_json::json!({
         "ok": true,
         "revision": UI_REVISION.load(Ordering::SeqCst),
@@ -299,6 +316,7 @@ pub(crate) fn remote_status_json(app: &AppHandle) -> serde_json::Value {
         "message": status.message,
         "error": status.error,
         "variables": variables,
+        "switchPending": pending_json,
     })
 }
 
