@@ -1235,6 +1235,26 @@
     <string name="and_powerNotSent">%1$s没发出去：%2$s</string>
     <string name="and_httpOnlyMode">（仅 HTTP 模式）</string>
     <string name="and_httpFirstMode">（优先 HTTP 模式）</string>
+    <string name="and_readSysinfoFail">读取系统信息失败</string>
+    <string name="and_connectAllOn">已开启：启动时把所有服务端一起连上</string>
+    <string name="and_connectAllOff">已关闭：只连当前标签</string>
+    <string name="and_shortPush">推送</string>
+    <string name="and_shortPoll">轮询</string>
+    <string name="and_shortAuto">自动</string>
+    <string name="and_shortFollow">跟随电脑</string>
+    <string name="and_shortNone">不套用</string>
+    <string name="and_introDataRefresh">正常时每隔多久刷一次列表数据（在线状态 + 引导项），让手机端看到电脑那边的变更。
+与「连不上时自动重载」不同：那个只管失败后要不要重试。</string>
+    <string name="and_powerHintMulti">电源指令通过魔术包发送，无需目标机在线
+引导项变更在下次重启时生效</string>
+    <string name="and_emptyNoComputers">还没有添加任何电脑
+到「服务器」里添加一台，这里就会出现它的电源与引导项</string>
+    <string name="and_httpFailedFallback">HTTP 没通（%1$s），已改发广播包：%2$s</string>
+    <string name="and_httpAndPacketFail">HTTP 没通（%1$s）；广播包也没发出去：%2$s</string>
+    <string name="and_mixedPacketSentHttpFail">（混合模式）广播包已发出：%1$s；HTTP 接口失败：%2$s</string>
+    <string name="and_mixedBothFail">（混合模式）两边都失败 —— 广播包：%1$s；HTTP：%2$s</string>
+    <string name="and_mixedBothSent">（混合模式）HTTP 与广播包已同时发送 —— HTTP：%1$s；广播包：%2$s</string>
+    <string name="and_mixedHttpDonePacketFail">（混合模式）HTTP 接口已执行：%1$s；广播包没发出去（%2$s）</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

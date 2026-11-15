@@ -1235,6 +1235,26 @@
     <string name="and_powerNotSent">%1$s沒發出去：%2$s</string>
     <string name="and_httpOnlyMode">（僅 HTTP 模式）</string>
     <string name="and_httpFirstMode">（優先 HTTP 模式）</string>
+    <string name="and_readSysinfoFail">讀取系統資訊失敗</string>
+    <string name="and_connectAllOn">已開啟：啟動時把所有伺服器一起連上</string>
+    <string name="and_connectAllOff">已關閉：只連目前標籤</string>
+    <string name="and_shortPush">推送</string>
+    <string name="and_shortPoll">輪詢</string>
+    <string name="and_shortAuto">自動</string>
+    <string name="and_shortFollow">跟隨電腦</string>
+    <string name="and_shortNone">不套用</string>
+    <string name="and_introDataRefresh">正常時每隔多久刷一次列表資料（線上狀態 + 引導項），讓手機端看到電腦那邊的變更。
+與「連不上時自動重新載入」不同：那個只管失敗後要不要重試。</string>
+    <string name="and_powerHintMulti">電源指令透過魔術封包發送，無需目標機在線
+引導項變更在下次重新啟動時生效</string>
+    <string name="and_emptyNoComputers">還沒有新增任何電腦
+到「伺服器」裡新增一台，這裡就會出現它的電源與引導項</string>
+    <string name="and_httpFailedFallback">HTTP 沒通（%1$s），已改發廣播封包：%2$s</string>
+    <string name="and_httpAndPacketFail">HTTP 沒通（%1$s）；廣播封包也沒發出去：%2$s</string>
+    <string name="and_mixedPacketSentHttpFail">（混合模式）廣播封包已發出：%1$s；HTTP 介面失敗：%2$s</string>
+    <string name="and_mixedBothFail">（混合模式）兩邊都失敗 —— 廣播封包：%1$s；HTTP：%2$s</string>
+    <string name="and_mixedBothSent">（混合模式）HTTP 與廣播封包已同時發送 —— HTTP：%1$s；廣播封包：%2$s</string>
+    <string name="and_mixedHttpDonePacketFail">（混合模式）HTTP 介面已執行：%1$s；廣播封包沒發出去（%2$s）</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

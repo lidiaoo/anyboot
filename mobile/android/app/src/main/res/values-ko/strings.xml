@@ -1235,6 +1235,26 @@
     <string name="and_powerNotSent">%1$s 전송 실패: %2$s</string>
     <string name="and_httpOnlyMode">(HTTP만)</string>
     <string name="and_httpFirstMode">(HTTP 우선)</string>
+    <string name="and_readSysinfoFail">시스템 정보 읽기 실패</string>
+    <string name="and_connectAllOn">켜짐: 시작 시 모든 서버 연결</string>
+    <string name="and_connectAllOff">꺼짐: 현재 탭만</string>
+    <string name="and_shortPush">푸시</string>
+    <string name="and_shortPoll">폴링</string>
+    <string name="and_shortAuto">자동</string>
+    <string name="and_shortFollow">컴퓨터 따르기</string>
+    <string name="and_shortNone">적용 안 함</string>
+    <string name="and_introDataRefresh">정상 시 목록 데이터(온라인 상태 + 부팅 항목)를 얼마나 자주 새로 고쳐 컴퓨터 측 변경을 반영할지.
+‘연결 불가 시 자동 새로 고침’과 다름: 그건 실패 후 재시도만.</string>
+    <string name="and_powerHintMulti">전원 명령은 매직 패킷으로 전송, 대상 PC 온라인 불필요
+부팅 항목 변경은 다음 재부팅 시 적용</string>
+    <string name="and_emptyNoComputers">컴퓨터가 없습니다
+‘서버’에서 추가하면 여기에 전원과 부팅 항목이 표시됩니다</string>
+    <string name="and_httpFailedFallback">HTTP 불통(%1$s), 대신 브로드캐스트 전송: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP 불통(%1$s); 브로드캐스트도 전송 실패: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(혼합) 브로드캐스트 전송됨: %1$s; HTTP API 실패: %2$s</string>
+    <string name="and_mixedBothFail">(혼합) 둘 다 실패 — 브로드캐스트: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(혼합) HTTP와 브로드캐스트 동시 전송 — HTTP: %1$s; 브로드캐스트: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(혼합) HTTP API 실행됨: %1$s; 브로드캐스트 미전송 (%2$s)</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

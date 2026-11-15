@@ -1235,6 +1235,26 @@ Apenas o registro neste celular é removido; o AnyBoot no computador de destino 
     <string name="and_powerNotSent">%1$s não enviado: %2$s</string>
     <string name="and_httpOnlyMode">(somente HTTP)</string>
     <string name="and_httpFirstMode">(preferir HTTP)</string>
+    <string name="and_readSysinfoFail">Falha ao ler informações do sistema</string>
+    <string name="and_connectAllOn">Ligado: conectar todos ao iniciar</string>
+    <string name="and_connectAllOff">Desligado: só a aba atual</string>
+    <string name="and_shortPush">Push</string>
+    <string name="and_shortPoll">Polling</string>
+    <string name="and_shortAuto">Auto</string>
+    <string name="and_shortFollow">Seguir computador</string>
+    <string name="and_shortNone">Nenhum</string>
+    <string name="and_introDataRefresh">Com que frequência atualizar os dados da lista (status + entradas) para o celular ver mudanças.
+Diferente de “recarregar ao falhar”: essa só repete após falha.</string>
+    <string name="and_powerHintMulti">Comandos de energia via magic packet; o destino não precisa estar online
+Mudanças de boot no próximo reinício</string>
+    <string name="and_emptyNoComputers">Sem computadores
+Adicione em “Servidores” e a energia e entradas aparecerão aqui</string>
+    <string name="and_httpFailedFallback">HTTP falhou (%1$s); enviei magic packet: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP falhou (%1$s); o magic packet também não foi enviado: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(misto) magic packet enviado: %1$s; API HTTP falhou: %2$s</string>
+    <string name="and_mixedBothFail">(misto) ambos falharam — pacote: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(misto) HTTP e magic packet enviados juntos — HTTP: %1$s; pacote: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(misto) API HTTP executada: %1$s; magic packet não enviado (%2$s)</string>
     <string name="and_editCurrent">Editar computador atual</string>
     <string name="and_failReloadTitle">Recarregar ao falhar</string>
     <string name="and_dataRefreshTitle">Atualização de dados</string>

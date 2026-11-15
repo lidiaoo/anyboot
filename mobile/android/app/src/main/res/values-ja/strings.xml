@@ -1235,6 +1235,26 @@
     <string name="and_powerNotSent">%1$s を送信できませんでした：%2$s</string>
     <string name="and_httpOnlyMode">（HTTP のみ）</string>
     <string name="and_httpFirstMode">（HTTP 優先）</string>
+    <string name="and_readSysinfoFail">システム情報の読み取りに失敗</string>
+    <string name="and_connectAllOn">オン：起動時に全サーバーへ接続</string>
+    <string name="and_connectAllOff">オフ：現在のタブのみ</string>
+    <string name="and_shortPush">プッシュ</string>
+    <string name="and_shortPoll">ポーリング</string>
+    <string name="and_shortAuto">自動</string>
+    <string name="and_shortFollow">コンピューターに従う</string>
+    <string name="and_shortNone">適用しない</string>
+    <string name="and_introDataRefresh">通常時、リストデータ（オンライン状態＋起動項目）をどの間隔で更新するか。PC 側の変更をスマホに反映します。
+「接続不可時の自動再読み込み」とは別：あちらは失敗後の再試行のみ。</string>
+    <string name="and_powerHintMulti">電源コマンドはマジックパケットで送信、 대상 PC のオンライン不要
+起動項目の変更は次回再起動で有効</string>
+    <string name="and_emptyNoComputers">PC が未追加です
+「サーバー」で追加すると、ここに電源と起動項目が表示されます</string>
+    <string name="and_httpFailedFallback">HTTP 不通（%1$s）、代わりにブロードキャスト送信：%2$s</string>
+    <string name="and_httpAndPacketFail">HTTP 不通（%1$s）；ブロードキャストも送信できません：%2$s</string>
+    <string name="and_mixedPacketSentHttpFail">（混合）ブロードキャスト送信済み：%1$s；HTTP API 失敗：%2$s</string>
+    <string name="and_mixedBothFail">（混合）両方失敗 — ブロードキャスト：%1$s；HTTP：%2$s</string>
+    <string name="and_mixedBothSent">（混合）HTTP とブロードキャストを同時送信 — HTTP：%1$s；ブロードキャスト：%2$s</string>
+    <string name="and_mixedHttpDonePacketFail">（混合）HTTP API 実行済み：%1$s；ブロードキャスト未送信（%2$s）</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

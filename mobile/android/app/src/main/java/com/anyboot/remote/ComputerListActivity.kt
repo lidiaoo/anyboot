@@ -240,7 +240,7 @@ class ComputerListActivity : ComponentActivity() {
             try {
                 rows = loadSysInfoRows(target) { endpointOf(target) }
             } catch (failure: Exception) {
-                error = failure.message ?: "读取系统信息失败"
+                error = failure.message ?: getString(R.string.and_readSysinfoFail)
             }
             runOnUiThread {
                 if (sysInfoTarget == null) return@runOnUiThread
@@ -388,7 +388,7 @@ class ComputerListActivity : ComponentActivity() {
                             sysInfoLoading = false
                         },
                         onCopy = {
-                            copyRemoteSlot("系统信息", sysInfoText(target.label(), sysInfoRows))
+                            copyRemoteSlot(getString(R.string.and_menuSysinfo), sysInfoText(target.label(), sysInfoRows))
                         },
                     )
                 }
@@ -537,8 +537,8 @@ class ComputerListActivity : ComponentActivity() {
                         moreConnectAll = !moreConnectAll
                         ServerStore.setConnectAll(this@ComputerListActivity, moreConnectAll)
                         toast(
-                            if (moreConnectAll) "已开启：启动时把所有服务端一起连上"
-                            else "已关闭：只连当前标签"
+                            if (moreConnectAll) getString(R.string.and_connectAllOn)
+                            else getString(R.string.and_connectAllOff)
                         )
                     },
                 )
@@ -609,15 +609,15 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 菜单上那一条「传输方式（…）」给人看的说法（与 MainActivity 同一套值） */
     private fun transportLabel(): String = when (moreTransport) {
-        "ws" -> "推送"
-        "http" -> "轮询"
-        else -> "自动"
+        "ws" -> getString(R.string.and_shortPush)
+        "http" -> getString(R.string.and_shortPoll)
+        else -> getString(R.string.and_shortAuto)
     }
 
     /** 菜单上那一条「引导页主题（…）」给人看的说法 */
     private fun bootThemeLabel(): String = when (moreBootTheme) {
-        "" -> "跟随电脑"
-        "K" -> "不套用"
+        "" -> getString(R.string.and_shortFollow)
+        "K" -> getString(R.string.and_shortNone)
         else -> moreBootTheme
     }
 
@@ -754,7 +754,7 @@ class ComputerListActivity : ComponentActivity() {
             text = {
                 Column {
                     Text(
-                        "连接失败时每隔一段时间自动重载当前页面（重新探测全部地址）。",
+                        stringResource(R.string.and_introFailReload),
                         fontSize = 13.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -786,7 +786,7 @@ class ComputerListActivity : ComponentActivity() {
                                 if (moreFailReloadSec in listOf(5, 10, 30, 60, 0)) "" else moreFailReloadSec.toString()
                             },
                             onValueChange = { custom = it.filter(Char::isDigit) },
-                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.and_customSeconds), fontSize = 11.sp) },
                             singleLine = true,
                             textStyle = TextStyle(fontSize = 13.sp, color = palette.fg),
                             modifier = Modifier.weight(1f),
@@ -824,13 +824,11 @@ class ComputerListActivity : ComponentActivity() {
             text = {
                 Column {
                     Text(
-                        "正常时每隔多久刷一次列表数据（在线状态 + 引导项），" +
-                            "让手机端看到电脑那边的变更。\n" +
-                            "与「连不上时自动重载」不同：那个只管失败后要不要重试。",
+                        stringResource(R.string.and_introDataRefresh),
                         fontSize = 12.sp, color = palette.fgDim,
                     )
                     Spacer(Modifier.height(10.dp))
-                    Text("刷新间隔", fontSize = 11.sp, color = palette.fgFaint)
+                    Text(stringResource(R.string.and_refreshInterval), fontSize = 11.sp, color = palette.fgFaint)
                     listOf(2, 5, 10, 30, 0).forEach { sec ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -864,7 +862,7 @@ class ComputerListActivity : ComponentActivity() {
                                 if (moreDataRefreshSec in listOf(2, 5, 10, 30, 0)) "" else moreDataRefreshSec.toString()
                             },
                             onValueChange = { custom = it.filter(Char::isDigit) },
-                            label = { Text("自定义秒数", fontSize = 11.sp) },
+                            label = { Text(stringResource(R.string.and_customSeconds), fontSize = 11.sp) },
                             singleLine = true,
                             textStyle = TextStyle(fontSize = 13.sp, color = palette.fg),
                             modifier = Modifier.weight(1f),
@@ -885,7 +883,7 @@ class ComputerListActivity : ComponentActivity() {
                     Spacer(Modifier.height(12.dp))
                     HorizontalDivider(color = palette.line)
                     Spacer(Modifier.height(8.dp))
-                    Text("刷新时是否重新探测地址", fontSize = 11.sp, color = palette.fgFaint)
+                    Text(stringResource(R.string.and_recheckAddr), fontSize = 11.sp, color = palette.fgFaint)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -1166,7 +1164,7 @@ class ComputerListActivity : ComponentActivity() {
             }
             item {
                 Text(
-                    "电源指令通过魔术包发送，无需目标机在线\n引导项变更在下次重启时生效",
+                    stringResource(R.string.and_powerHintMulti),
                     fontSize = 11.sp,
                     color = palette.fgFaint,
                     textAlign = TextAlign.Center,
@@ -1191,7 +1189,7 @@ class ComputerListActivity : ComponentActivity() {
             Spacer(Modifier.height(8.dp))
             Text(
                 if (noServers) {
-                    "还没有添加任何电脑\n到「服务器」里添加一台，这里就会出现它的电源与引导项"
+                    stringResource(R.string.and_emptyNoComputers)
                 } else {
                     stringResource(R.string.hub_list_empty)
                 },
@@ -1671,7 +1669,7 @@ class ComputerListActivity : ComponentActivity() {
                         fontWeight = FontWeight.Bold,
                         color = palette.accent,
                         modifier = Modifier
-                            .clickable { switchBoot(row.profile, KIND_GRUB, row.grub.saved, "撤销") }
+                            .clickable { switchBoot(row.profile, KIND_GRUB, row.grub.saved, getString(R.string.hub_pending_undo)) }
                             .padding(horizontal = 2.dp, vertical = 2.dp),
                     )
                 }
@@ -3254,7 +3252,7 @@ class ComputerListActivity : ComponentActivity() {
             hitPair?.routeKind() == ServerProfile.ROUTE_FUNNEL -> "TS Funnel"
             hitPair?.routeKind() == ServerProfile.ROUTE_TS -> getString(R.string.and_tsDirectShort)
             hitPair != null -> getString(R.string.and_remoteTunnel)
-            else -> "直连"
+            else -> getString(R.string.hub_route_lan)
         }
         val hits = info?.hits.orEmpty()
         val rows = ArrayList<PairRow>()
@@ -3463,7 +3461,7 @@ class ComputerListActivity : ComponentActivity() {
                 val info = try {
                     fetchBootInfo(profile)
                 } catch (error: Throwable) {
-                    offlineInfo("", error.message ?: "探测失败")
+                    offlineInfo("", error.message ?: getString(R.string.and_probeFailed))
                 }
                 runOnUiThread {
                     boots[profile.id] = info
@@ -3588,7 +3586,7 @@ class ComputerListActivity : ComponentActivity() {
         val refind = try {
             parseRefind(statusJson ?: JSONObject(), KIND_REFIND, "rEFInd")
         } catch (error: Exception) {
-            val message = error.message ?: "读取失败"
+            val message = error.message ?: getString(R.string.and_readFailed)
             errors.add(message)
             BootGroup(
                 kind = KIND_REFIND, title = "rEFInd", available = false,
@@ -3604,7 +3602,7 @@ class ComputerListActivity : ComponentActivity() {
         val grub = try {
             parseGrub(httpJson(endpoint, token, "/api/grub"))
         } catch (error: Exception) {
-            val message = error.message ?: "读取失败"
+            val message = error.message ?: getString(R.string.and_readFailed)
             errors.add(message)
             BootGroup(
                 kind = KIND_GRUB, title = "GRUB", available = false,
@@ -4738,11 +4736,10 @@ class ComputerListActivity : ComponentActivity() {
                 getString(R.string.and_httpFirstMode) + http()
             } catch (httpError: Exception) {
                 try {
-                    "HTTP 没通（${httpError.message ?: "未知错误"}），已改发广播包：" + packets()
+                    getString(R.string.and_httpFailedFallback, httpError.message ?: getString(R.string.gw_unknownErr), packets())
                 } catch (packetError: Exception) {
                     throw Exception(
-                        "HTTP 没通（${httpError.message ?: "未知错误"}）；" +
-                            "广播包也没发出去：${packetError.message ?: "未知错误"}"
+                        getString(R.string.and_httpAndPacketFail, httpError.message ?: getString(R.string.gw_unknownErr), packetError.message ?: getString(R.string.gw_unknownErr))
                     )
                 }
             }
@@ -4768,21 +4765,17 @@ class ComputerListActivity : ComponentActivity() {
                 httpThread.join()
                 when (val httpValue = httpOutcome.get()) {
                     is Exception -> if (packetMessage != null) {
-                        "（混合模式）广播包已发出：$packetMessage；" +
-                            "HTTP 接口失败：${httpValue.message ?: "未知错误"}"
+                        getString(R.string.and_mixedPacketSentHttpFail, packetMessage, httpValue.message ?: getString(R.string.gw_unknownErr))
                     } else {
                         throw Exception(
-                            "（混合模式）两边都失败 —— 广播包：" +
-                                "${packetError?.message ?: "未知错误"}；" +
-                                "HTTP：${httpValue.message ?: "未知错误"}"
+                            getString(R.string.and_mixedBothFail, packetError?.message ?: getString(R.string.gw_unknownErr), httpValue.message ?: getString(R.string.gw_unknownErr))
                         )
                     }
 
                     else -> if (packetMessage != null) {
-                        "（混合模式）HTTP 与广播包已同时发送 —— HTTP：$httpValue；广播包：$packetMessage"
+                        getString(R.string.and_mixedBothSent, httpValue, packetMessage)
                     } else {
-                        "（混合模式）HTTP 接口已执行：$httpValue；" +
-                            "广播包没发出去（${packetError?.message ?: "未知错误"}）"
+                        getString(R.string.and_mixedHttpDonePacketFail, httpValue, packetError?.message ?: getString(R.string.gw_unknownErr))
                     }
                 }
             }

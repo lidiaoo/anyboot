@@ -1235,6 +1235,26 @@ Only the record on this phone is removed; AnyBoot on the target computer is unto
     <string name="and_powerNotSent">%1$s not sent: %2$s</string>
     <string name="and_httpOnlyMode">(HTTP only)</string>
     <string name="and_httpFirstMode">(prefer HTTP)</string>
+    <string name="and_readSysinfoFail">Failed to read system info</string>
+    <string name="and_connectAllOn">On: connect all servers at startup</string>
+    <string name="and_connectAllOff">Off: only the current tab</string>
+    <string name="and_shortPush">Push</string>
+    <string name="and_shortPoll">Polling</string>
+    <string name="and_shortAuto">Auto</string>
+    <string name="and_shortFollow">Follow computer</string>
+    <string name="and_shortNone">None</string>
+    <string name="and_introDataRefresh">How often to refresh list data (online status + boot entries) so the phone sees changes on the computer.
+Different from “auto-reload when unreachable”: that only retries after failure.</string>
+    <string name="and_powerHintMulti">Power commands are sent via magic packet; the target needn\'t be online
+Boot changes take effect on the next reboot</string>
+    <string name="and_emptyNoComputers">No computers added yet
+Add one under “Servers” and its power and boot entries appear here</string>
+    <string name="and_httpFailedFallback">HTTP failed (%1$s); sent a magic packet instead: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP failed (%1$s); the magic packet wasn\'t sent either: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(mixed) magic packet sent: %1$s; HTTP API failed: %2$s</string>
+    <string name="and_mixedBothFail">(mixed) both failed — packet: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(mixed) HTTP and magic packet sent together — HTTP: %1$s; packet: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(mixed) HTTP API executed: %1$s; magic packet not sent (%2$s)</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

@@ -1235,6 +1235,26 @@
     <string name="and_powerNotSent">%1$s не отправлено: %2$s</string>
     <string name="and_httpOnlyMode">(только HTTP)</string>
     <string name="and_httpFirstMode">(сначала HTTP)</string>
+    <string name="and_readSysinfoFail">Не удалось прочитать системную информацию</string>
+    <string name="and_connectAllOn">Вкл: подключать все серверы при старте</string>
+    <string name="and_connectAllOff">Выкл: только текущая вкладка</string>
+    <string name="and_shortPush">Push</string>
+    <string name="and_shortPoll">Опрос</string>
+    <string name="and_shortAuto">Авто</string>
+    <string name="and_shortFollow">Как на компьютере</string>
+    <string name="and_shortNone">Без темы</string>
+    <string name="and_introDataRefresh">Как часто обновлять данные списка (статус + записи загрузки), чтобы телефон видел изменения.
+Отличается от «автоперезагрузки при недоступности»: та только повторяет при сбое.</string>
+    <string name="and_powerHintMulti">Команды питания через magic packet; цель может быть offline
+Изменения загрузки — при следующей перезагрузке</string>
+    <string name="and_emptyNoComputers">Компьютеров нет
+Добавьте в «Серверы» — здесь появятся питание и записи загрузки</string>
+    <string name="and_httpFailedFallback">HTTP не прошёл (%1$s); отправлен magic packet: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP не прошёл (%1$s); magic packet тоже не отправлен: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(смешанно) magic packet отправлен: %1$s; HTTP API сбой: %2$s</string>
+    <string name="and_mixedBothFail">(смешанно) оба не удались — пакет: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(смешанно) HTTP и magic packet отправлены вместе — HTTP: %1$s; пакет: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(смешанно) HTTP API выполнен: %1$s; magic packet не отправлен (%2$s)</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

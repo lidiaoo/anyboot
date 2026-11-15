@@ -1235,6 +1235,26 @@ Nur der Eintrag auf diesem Handy wird entfernt; AnyBoot auf dem Zielcomputer ble
     <string name="and_powerNotSent">%1$s nicht gesendet: %2$s</string>
     <string name="and_httpOnlyMode">(nur HTTP)</string>
     <string name="and_httpFirstMode">(HTTP bevorzugt)</string>
+    <string name="and_readSysinfoFail">Systeminfo lesen fehlgeschlagen</string>
+    <string name="and_connectAllOn">An: beim Start alle Server verbinden</string>
+    <string name="and_connectAllOff">Aus: nur aktueller Tab</string>
+    <string name="and_shortPush">Push</string>
+    <string name="and_shortPoll">Polling</string>
+    <string name="and_shortAuto">Auto</string>
+    <string name="and_shortFollow">Computer folgen</string>
+    <string name="and_shortNone">Kein</string>
+    <string name="and_introDataRefresh">Wie oft die Listendaten (Online-Status + Starteinträge) aktualisiert werden, damit das Handy Änderungen sieht.
+Anders als „Auto-Neuladen bei Nichterreichen“: das wiederholt nur nach Fehlern.</string>
+    <string name="and_powerHintMulti">Energiebefehle per Magic Packet; Ziel muss nicht online sein
+Startänderungen beim nächsten Neustart wirksam</string>
+    <string name="and_emptyNoComputers">Noch keine Computer
+Unter „Server“ hinzufügen, dann erscheinen hier Energie und Starteinträge</string>
+    <string name="and_httpFailedFallback">HTTP fehlgeschlagen (%1$s); stattdessen Magic Packet gesendet: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP fehlgeschlagen (%1$s); auch Magic Packet nicht gesendet: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(gemischt) Magic Packet gesendet: %1$s; HTTP-API fehlgeschlagen: %2$s</string>
+    <string name="and_mixedBothFail">(gemischt) beide fehlgeschlagen – Paket: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(gemischt) HTTP und Magic Packet zusammen gesendet – HTTP: %1$s; Paket: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(gemischt) HTTP-API ausgeführt: %1$s; Magic Packet nicht gesendet (%2$s)</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

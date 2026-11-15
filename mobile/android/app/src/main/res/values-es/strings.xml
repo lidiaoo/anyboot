@@ -1235,6 +1235,26 @@ Solo se quita el registro de este móvil; el AnyBoot del equipo destino no se to
     <string name="and_powerNotSent">%1$s no enviado: %2$s</string>
     <string name="and_httpOnlyMode">(solo HTTP)</string>
     <string name="and_httpFirstMode">(preferir HTTP)</string>
+    <string name="and_readSysinfoFail">Error al leer la información del sistema</string>
+    <string name="and_connectAllOn">Activado: conectar todos al iniciar</string>
+    <string name="and_connectAllOff">Desactivado: solo la pestaña actual</string>
+    <string name="and_shortPush">Push</string>
+    <string name="and_shortPoll">Polling</string>
+    <string name="and_shortAuto">Auto</string>
+    <string name="and_shortFollow">Seguir equipo</string>
+    <string name="and_shortNone">Ninguno</string>
+    <string name="and_introDataRefresh">Cada cuánto refrescar los datos de la lista (estado + entradas) para que el móvil vea cambios.
+Distinto de «recargar al fallar»: eso solo reintenta tras un fallo.</string>
+    <string name="and_powerHintMulti">Comandos de energía vía magic packet; el destino no necesita estar online
+Cambios de arranque en el próximo reinicio</string>
+    <string name="and_emptyNoComputers">Sin equipos
+Añade uno en «Servidores» y aparecerán aquí la energía y las entradas</string>
+    <string name="and_httpFailedFallback">HTTP falló (%1$s); envié magic packet: %2$s</string>
+    <string name="and_httpAndPacketFail">HTTP falló (%1$s); el magic packet tampoco se envió: %2$s</string>
+    <string name="and_mixedPacketSentHttpFail">(mixto) magic packet enviado: %1$s; API HTTP falló: %2$s</string>
+    <string name="and_mixedBothFail">(mixto) ambos fallaron: paquete: %1$s; HTTP: %2$s</string>
+    <string name="and_mixedBothSent">(mixto) HTTP y magic packet enviados juntos: HTTP: %1$s; paquete: %2$s</string>
+    <string name="and_mixedHttpDonePacketFail">(mixto) API HTTP ejecutada: %1$s; magic packet no enviado (%2$s)</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>
