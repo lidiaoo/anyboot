@@ -1209,12 +1209,11 @@ struct ServerProfile: Identifiable, Hashable, Codable {
             // 手动在 origin 上拼 token 造 URL。
             let base = origin.contains("://") ? origin : "http://\(origin)"
             var comps = URLComponents(string: base)
+            var items = comps?.queryItems ?? []
             let secret = c.token.trimmedAnyBoot
-            if !secret.isEmpty {
-                var items = comps?.queryItems ?? []
-                items.append(URLQueryItem(name: "token", value: secret))
-                comps?.queryItems = items
-            }
+            if !secret.isEmpty { items.append(URLQueryItem(name: "token", value: secret)) }
+            items.append(URLQueryItem(name: "abLang", value: AppLanguage.resolved))
+            comps?.queryItems = items
             guard let u = comps?.url else { continue }
             if seen.insert(u.absoluteString).inserted {
                 let label = Self.routeLabel(c.kind)

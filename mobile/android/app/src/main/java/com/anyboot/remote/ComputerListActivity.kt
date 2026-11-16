@@ -1525,7 +1525,7 @@ class ComputerListActivity : ComponentActivity() {
                                         modifier = Modifier.clickable {
                                             try {
                                                 startActivity(
-                                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pair.url))
+                                                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(withLangParam(pair.url)))
                                                 )
                                             } catch (error: Exception) {
                                                 toast(getString(R.string.and_noBrowserApp))
@@ -1818,7 +1818,7 @@ class ComputerListActivity : ComponentActivity() {
                         color = palette.fgFaint,
                         modifier = Modifier.clickable {
                             try {
-                                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+                                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(withLangParam(url))))
                             } catch (error: Exception) {
                                 toast(getString(R.string.and_noBrowserApp))
                             }
@@ -2290,6 +2290,13 @@ class ComputerListActivity : ComponentActivity() {
                 openPickOpen = true
             }
         }
+    }
+
+    /** 浏览器打开时追加 abLang（本次以 App 语言展示，不改那台电脑设置） */
+    private fun withLangParam(url: String): String {
+        if (url.isEmpty()) return url
+        val sep = if (url.contains("?")) "&" else "?"
+        return url + sep + "abLang=" + android.net.Uri.encode(AppLocale.acceptLanguage(this))
     }
 
     private fun openUrlInBrowser(url: String) {
