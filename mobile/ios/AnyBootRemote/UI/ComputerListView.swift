@@ -1728,17 +1728,25 @@ struct ComputerListView: View {
     private func unifiedRows(_ group: BootGroup) -> [GrubRow] {
         var rows: [GrubRow] = []
         var inGroup = false
+        var groupTitle = ""
         for option in group.options {
             if option.header {
                 inGroup = true
+                groupTitle = option.label
+                    .replacingOccurrences(of: "^[▾▸\\s]+", with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "（\\d+\\s*(项|个内核)[^）]*）\\s*$", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
                 rows.append(GrubRow(option: nil, text: option.label,
                                     isGroup: true, trailing: option.tag))
             } else {
-                let text = option.label.isEmpty ? option.value : option.label
+                let label = option.label.isEmpty ? option.value : option.label
+                let isCurrent = !option.value.isEmpty && option.value == group.current
+                // 置顶行名称 = 一级（父组）＋二级（子项），与 PC/Android 一致
+                let text = (isCurrent && inGroup && !groupTitle.isEmpty) ? "\(groupTitle) › \(label)" : label
                 var trailing = option.tag
                 if trailing.isEmpty { trailing = option.sub }
                 rows.append(GrubRow(option: option, text: text, isGroup: false,
-                                    pinned: option.fixed, child: inGroup,
+                                    pinned: isCurrent, child: inGroup,
                                     fixed: option.fixed, trailing: trailing))
             }
         }

@@ -2489,9 +2489,14 @@ class ComputerListActivity : ComponentActivity() {
         if (isGrubRawGroup(group)) return grubDisplayRows(group)
         val rows = mutableListOf<GrubRow>()
         var underHeader = false
+        var curHeader = ""
         group.options.forEach { opt ->
             if (opt.header) {
                 underHeader = true
+                curHeader = opt.label
+                    .replace(Regex("^[▾▸\\s]+"), "")
+                    .replace(Regex("（\\d+\\s*(项|个内核)[^）]*）\\s*$"), "")
+                    .trim()
                 rows.add(GrubRow(option = null, label = opt.label, isHeader = true, trailing = opt.tag))
                 return@forEach
             }
@@ -2499,7 +2504,9 @@ class ComputerListActivity : ComponentActivity() {
             val label = opt.label.ifBlank { v }
             val readonly = v.isEmpty() || opt.fixed
             if (v.isNotEmpty() && v == group.current) {
-                rows.add(GrubRow(opt, label, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                // 置顶行名称 = 一级（父组）＋二级（子项），与 PC 置顶副本一致
+                val pinnedLabel = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $label" else label
+                rows.add(GrubRow(opt, pinnedLabel, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
             rows.add(GrubRow(opt, label, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
         }
