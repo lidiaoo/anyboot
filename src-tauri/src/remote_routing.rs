@@ -239,6 +239,14 @@ pub(crate) fn route_remote_command(request: &RemoteRequest) -> Result<RemoteComm
                 .param("title")
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
+            // 统一通道：rEFInd / RefindPlus / GRUB 也走同一入口，按 channel id 映射到各自命令；
+            // 其余（sdboot / opencore / clover[-*]）仍走 SwitchChannel。
+            match channel.as_str() {
+                "refind" => return Ok(RemoteCommand::Switch(target)),
+                "refindplus" => return Ok(RemoteCommand::SwitchRefindPlus(target)),
+                "grub" => return Ok(RemoteCommand::SwitchGrub(target)),
+                _ => {}
+            }
             Ok(RemoteCommand::SwitchChannel { channel, target, title })
         }
         _ => Err(RemoteReply::error(404, "not_found", "未知路径")),

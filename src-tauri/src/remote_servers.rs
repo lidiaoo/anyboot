@@ -4709,7 +4709,43 @@ pub async fn remote_boot_info(
         .map_err(|error| format!("读取引导项任务失败：{error}"))?
 }
 
-fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteBootInfo, String> {
+/// 所有通道（6 个引导器各一个独立通道）：rEFInd / RefindPlus / GRUB / systemd-boot / OpenCore / Clover。
+/// 复用 remote_boot_info_blocking 的本机装配（已是统一 BootGroup），直接拼成 6 段。
+/// 把 BootInfo.channels 统一补成 6 段（refind/refindplus/grub + 原 channels3），
+/// 供前端统一遍历 channels[6]；旧 refind/refindplus/grub 字段仍保留（内部/回落用）。
+fn with_all_channels(mut info: RemoteBootInfo) -> RemoteBootInfo {
+    if info.channels.len() < 6 {
+        let mut v: Vec<BootGroup> = Vec::with_capacity(6);
+        v.push(info.refind.clone());
+        v.push(info.refindplus.clone());
+        v.push(info.grub.clone());
+        v.extend(info.channels.drain(..));
+        info.channels = v;
+    }
+    info
+}
+
+pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
+    match remote_boot_info_blocking(app, "local") {
+        Ok(info) => {
+            let mut v: Vec<BootGroup> = Vec::with_capacity(6);
+            v.push(info.refind);
+            v.push(info.refindplus);
+            v.push(info.grub);
+            v.extend(info.channels);
+            v
+        }
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Tauri 命令：所有通道（供本机前端直接拉）。
+#[tauri::command]
+pub(crate) fn boot_channels_all(app: AppHandle) -> Vec<BootGroup> {
+    all_channels(&app)
+}
+
+pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteBootInfo, String> {
     // 本机行（电脑列表的「本机」固定行）：它就在本进程里，直连 IPC ——
     // 直接调用 /api/status、/api/grub 的进程内生成函数（remote_status_json /
     // remote_grub_json），不走回环 HTTP：服务端没起（端口被保留段盖住）也照读不误，
@@ -5132,7 +5168,7 @@ fn remote_boot_switch_blocking(
             }
             "grub" => crate::state::RemoteCommand::SwitchGrub(value.to_string()),
             // 通道值域：value 直接就是 spec（sdboot:<id> / opencore / clover-default:<volume>…）
-            "channel" => crate::state::RemoteCommand::SwitchChannel {
+            "channel" | "sdboot" | "opencore" | "clover" => crate::state::RemoteCommand::SwitchChannel {
                 channel: value.split(':').next().unwrap_or("").to_string(),
                 target: value.split_once(':').map(|(_, rest)| rest.to_string()).unwrap_or_default(),
                 title: None,
@@ -5163,7 +5199,7 @@ fn remote_boot_switch_blocking(
         // selector 里可能有空格、`>`、引号 —— 必须转义
         "grub" => format!("/api/grub-switch?entry={}", encode_query(value)),
         // 通道值域整串走 channel + target 两个参数（value = channel[:target]）
-        "channel" => {
+        "channel" | "sdboot" | "opencore" | "clover" => {
             let (channel, target) = value
                 .split_once(':')
                 .map(|(head, rest)| (head, rest))
