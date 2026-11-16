@@ -41,6 +41,7 @@ struct AnyBootRemoteApp: App {
 struct RootView: View {
 
     @StateObject private var nav = ABNavigator.shared
+    @StateObject private var langStore = ABLanguageStore.shared
 
     var body: some View {
         ZStack {
@@ -62,6 +63,7 @@ struct RootView: View {
             }
             // 全局控件色 = 靛蓝 accent：所有没显式染色的 ProgressView 等
             // 走 token 色而不是系统蓝（对齐 Android 的 M3 primary = accent）
+            .id(langStore.current)
             .tint(ABColor.accent)
 
             // 系统信息弹层（多入口共用，挂在根上）

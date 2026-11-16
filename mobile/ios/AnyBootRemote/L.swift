@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// 应用内语言（I0 基础设施）。
 ///
@@ -47,6 +48,13 @@ enum AppLanguage {
         }
         return fmt
     }
+}
+
+/// 语言切换触发器：切换时 `objectWillChange` → 根视图 `.id` 变 → 整树重建，立即以新语言重绘（无需重启 App）。
+final class ABLanguageStore: ObservableObject {
+    static let shared = ABLanguageStore()
+    @Published var current: String = AppLanguage.current
+    func set(_ tag: String) { AppLanguage.current = tag; current = tag }
 }
 
 /// 本地化取词：`L("hub.list.title")` 或 `L("hub.power.wake", name)`。
