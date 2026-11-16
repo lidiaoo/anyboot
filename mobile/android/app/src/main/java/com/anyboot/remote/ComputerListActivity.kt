@@ -307,6 +307,7 @@ class ComputerListActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
         // 从「服务器」页回来可能增删过电脑 —— 重新读一遍再整体探活
         reloadServers()
         refreshAll()

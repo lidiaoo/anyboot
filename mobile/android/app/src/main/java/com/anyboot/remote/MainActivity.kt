@@ -2131,6 +2131,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
         // 从「电脑列表」回来时，编辑/添加/删除的结果要立刻反映到本页的标签
         syncTabsWithStore()
         for (tab in tabs.values) {

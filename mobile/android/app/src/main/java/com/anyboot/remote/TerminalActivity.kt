@@ -831,6 +831,7 @@ class TerminalActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
         terminalView?.onResume()
         // 可能刚从「终端设置」页回来：把改过的偏好补到当前会话上
         applyStoredSettings()

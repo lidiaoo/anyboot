@@ -53,6 +53,11 @@ import org.json.JSONObject
  * 与 PC 的「远程管理 → 关于」同一套语义。Star 引导照旧：点卡片打开仓库网页 —— App 不代点。
  */
 class AboutActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }

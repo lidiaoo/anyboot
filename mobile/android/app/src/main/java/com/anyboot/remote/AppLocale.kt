@@ -40,6 +40,17 @@ object AppLocale {
 
     fun setLocale(ctx: Context, tag: String) {
         ctx.getSharedPreferences(SP, Context.MODE_PRIVATE).edit().putString(KEY, tag).apply()
+        gen++
+    }
+
+    /** 语言变更代数：setLocale 时 +1；各 Activity onResume 比对，变了就 recreate（逐页即时切换，无需重启 App）。 */
+    private var gen = 0
+    private val seen = java.util.WeakHashMap<Any, Int>()
+    /** true = 该 Activity 自上次挂载后语言变过，需 recreate */
+    fun needsRecreate(host: Any): Boolean {
+        val prev = seen[host]
+        seen[host] = gen
+        return prev != null && prev != gen
     }
 
     /** 把 base 包成目标语言的 Context（auto 时返回原 base） */

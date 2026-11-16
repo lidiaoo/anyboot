@@ -70,6 +70,11 @@ import java.util.Locale
  * S2/S3/S4 以全屏覆盖层实现（对齐 iOS fullScreenCover 的层级语义）。
  */
 class BackupActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }

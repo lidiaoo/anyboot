@@ -174,8 +174,7 @@ function onLangChange(e: Event) {
   const v = (e.target as HTMLSelectElement).value as LangPref;
   langPref.value = v;
   setLocale(v);
-  // 运行时切换：BootApp/多数组件用 import 的 t（不随 locale 重渲），整页刷新确保全站即时生效
-  try { location.reload(); } catch { /* 忽略 */ }
+  // 组件已统一用 useI18n() 响应式 t，setLocale 触发全站即时重渲染，无需刷新
 }
 const LANG_OPTIONS = [
   { v: "auto" as LangPref, label: t("settings.autoLabel") },

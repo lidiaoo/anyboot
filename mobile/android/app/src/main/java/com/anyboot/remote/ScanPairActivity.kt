@@ -72,6 +72,11 @@ import java.util.concurrent.Executors
  * RESULT_CANCELED（宿主粘贴框保持原样，等价于取消）。
  */
 class ScanPairActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }

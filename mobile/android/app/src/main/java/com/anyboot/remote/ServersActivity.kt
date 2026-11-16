@@ -195,6 +195,7 @@ class ServersActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
         jumps.clear(); jumps.addAll(JumpStore.loadJumps(this))
         keys.clear(); keys.addAll(JumpStore.loadKeys(this))
         tick++

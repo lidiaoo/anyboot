@@ -47,6 +47,11 @@ import androidx.compose.ui.unit.sp
  * 改动即时落盘（无「保存」按钮）；已开终端页 onResume 时对齐。
  */
 class SettingsActivity : ComponentActivity() {
+    override fun onResume() {
+        super.onResume()
+        if (AppLocale.needsRecreate(this)) { recreate(); return }
+    }
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }
