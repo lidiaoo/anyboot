@@ -738,7 +738,7 @@ function onRowClick() {
         class="cq-col cq-col-boot"
         :class="{ 'cq-col-boot--ch': kind.startsWith('channel:') }"
         role="cell"
-        :data-label="t('hub.boot.col', { name: bootEcho(kind).label })"
+        :data-label="t('hub.boot.col', { name: bootEcho(kind).title })"
       >
         <div class="cq-boot" :class="{ 'cq-boot--none': bootEcho(kind).none }">
           <button
