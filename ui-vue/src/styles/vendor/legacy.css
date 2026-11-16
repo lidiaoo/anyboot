@@ -5682,3 +5682,17 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .grub-entry.active .grub-entry-name, #tab-adv-boot .grub-entry.active .grub-entry-name {
   color: var(--link);
 }
+
+/* 最终：与 Android 完全一致 12/26（竖线距左12、内容26；深层28/42） */
+.cq-picker .grub-entry.is-child, .ba-theme-root .grub-entry.is-child,
+#tab-boot .grub-entry.is-child, #tab-adv-boot .grub-entry.is-child { padding-left: 26px; }
+.cq-picker .grub-entry.is-child::before, .ba-theme-root .grub-entry.is-child::before,
+#tab-boot .grub-entry.is-child::before, #tab-adv-boot .grub-entry.is-child::before { left: 12px; }
+.cq-picker .grub-entry.depth-2, .cq-picker .grub-entry.depth-3, .cq-picker .grub-entry.depth-4,
+.ba-theme-root .grub-entry.depth-2, .ba-theme-root .grub-entry.depth-3, .ba-theme-root .grub-entry.depth-4,
+#tab-boot .grub-entry.depth-2, #tab-boot .grub-entry.depth-3, #tab-boot .grub-entry.depth-4,
+#tab-adv-boot .grub-entry.depth-2, #tab-adv-boot .grub-entry.depth-3, #tab-adv-boot .grub-entry.depth-4 { padding-left: 42px; }
+.cq-picker .grub-entry.depth-2::before, .cq-picker .grub-entry.depth-3::before, .cq-picker .grub-entry.depth-4::before,
+.ba-theme-root .grub-entry.depth-2::before, .ba-theme-root .grub-entry.depth-3::before, .ba-theme-root .grub-entry.depth-4::before,
+#tab-boot .grub-entry.depth-2::before, #tab-boot .grub-entry.depth-3::before, #tab-boot .grub-entry.depth-4::before,
+#tab-adv-boot .grub-entry.depth-2::before, #tab-adv-boot .grub-entry.depth-3::before, #tab-adv-boot .grub-entry.depth-4::before { left: 28px; }
