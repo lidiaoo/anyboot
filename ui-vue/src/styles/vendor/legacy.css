@@ -4954,30 +4954,7 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 #tab-boot .lg-side .toolbar { display: flex; gap: 6px; }
 #tab-boot .lg-side .toolbar .btn { flex: 1; justify-content: center; }
 #tab-boot .lg-side .hint { font-size: 10.5px; line-height: 1.6; color: var(--fainter); }
-/* 行尾的 ↵ 小键帽（设计稿每行都有）：真实行没有这个节点，用伪元素补，
-   不参与点击命中（pointer-events:none），鼠标划过时提亮 */
-#tab-boot .ba-g-card .grub-entry:not(.is-group)::after {
-  content: "↵";
-  flex: none;
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 18px;
-  padding: 0 5px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel-3);
-  color: var(--faint);
-  font: 10px var(--mono);
-  line-height: 1;
-  opacity: 0.6;
-  pointer-events: none;
-  transition: opacity 0.12s;
-}
-#tab-boot .ba-g-card .grub-entry:not(.is-group):hover::after,
-#tab-boot .ba-g-card .grub-entry.is-active::after { opacity: 1; }
+/* 行尾 ↵ 小键帽已按用户要求移除（PC 端 GRUB 列表不再显示回车箭头） */
 .ba-i-realsec { min-width: 0; }
 /* 设计稿靠全局 [hidden]{display:none!important}，App 没有 —— 按组件域补
    （.panel-in 的 display:grid 会压过 hidden 属性的 UA 规则） */
