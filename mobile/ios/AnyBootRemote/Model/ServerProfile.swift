@@ -1177,6 +1177,8 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         if !mode.isEmpty && mode != "auto" {
             items.append(URLQueryItem(name: "transport", value: mode))
         }
+        // abLang：App 当前语言 → 页面仅本次以该语言展示，不改那台电脑自己的语言设置
+        items.append(URLQueryItem(name: "abLang", value: AppLanguage.resolved))
         if !items.isEmpty { components.queryItems = items }
         return components.url
     }

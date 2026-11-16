@@ -2309,6 +2309,13 @@ final class ServerProfile {
         if (!theme.isEmpty()) {
             out.append("&abTheme=").append(theme);
         }
+        // abLang：App 当前语言（auto 解析为系统语言）→ 页面仅本次以该语言展示，
+        // 不写也不改那台电脑自己的语言设置（前端读 URL abLang，临时覆盖）。
+        try {
+            out.append("&abLang=").append(java.net.URLEncoder.encode(
+                AppLocale.INSTANCE.acceptLanguage(context), "UTF-8"));
+        } catch (Exception ignored) {
+        }
         return out.toString();
     }
 
