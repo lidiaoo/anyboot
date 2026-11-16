@@ -144,7 +144,9 @@ struct ComputerListView: View {
         guard boots[prof.id] != nil else { return }  // 等 boot 数据到
         debugSheetFired = true
         let k = want.lowercased()
-        if k.contains("refind") {
+        if k.contains("refindplus") {
+            sheet = SheetRequest(rid: prof.id, kind: Kind.refindplus)
+        } else if k.contains("refind") {
             sheet = SheetRequest(rid: prof.id, kind: Kind.refind)
         } else if k == "grub" {
             sheet = SheetRequest(rid: prof.id, kind: Kind.grub)
@@ -1738,7 +1740,9 @@ struct ComputerListView: View {
                         Text(help ? L("hub.list.help")
                              : request.kind == Kind.channel
                                 ? L("and.channelBoot", request.channel?.label ?? L("and.channelWord"))
-                                : (request.kind == Kind.refind ? L("and.channelBoot", "rEFInd") : L("and.channelBoot", "GRUB")))
+                                : (request.kind == Kind.refind ? L("and.channelBoot", "rEFInd")
+                                   : request.kind == Kind.refindplus ? L("and.channelBoot", "RefindPlus")
+                                   : L("and.channelBoot", "GRUB")))
                             .font(.system(size: 14.5, weight: .bold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
@@ -1858,7 +1862,7 @@ struct ComputerListView: View {
                 .padding(.bottom, ABMetric.px(6))
         }
 
-        let rows: [GrubRow] = (kind == Kind.refind)
+        let rows: [GrubRow] = (kind == Kind.refind || kind == Kind.refindplus)
             ? GrubFormat.refindSheetRows(group)
             : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
 
