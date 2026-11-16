@@ -1686,6 +1686,15 @@ struct ComputerListView: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             let rows = unifiedRows(group)
+            // 置顶高亮副本：当前项（下次启动）固定悬在列表上方，滚动不动（对齐 PC/Android）
+            if let pr = rows.first(where: { $0.pinned }), let po = pr.option {
+                pickerOptionLabel(pr, option: po, selected: true)
+                    .padding(.horizontal, ABMetric.px(8))
+                    .padding(.vertical, ABMetric.px(7))
+                    .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
+                    .overlay(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).strokeBorder(ABColor.ok.opacity(0.55), lineWidth: 1))
+                    .padding(.bottom, ABMetric.px(6))
+            }
             ForEach(rows) { row in
                 if row.isGroup {
                     HStack(spacing: ABMetric.px(6)) {
