@@ -2024,6 +2024,11 @@ Telnet：実験的端末のみ。</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s（%3$s 件%4$s）</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s（%3$s カーネル）</string>
     <string name="and_language">言語</string>
+    <string name="and_settings">設定</string>
+    <string name="and_themeMode">テーマ</string>
+    <string name="and_themeAuto">システムに従う</string>
+    <string name="and_themeDark">ダーク</string>
+    <string name="and_themeLight">ライト</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>

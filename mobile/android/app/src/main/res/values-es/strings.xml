@@ -2024,6 +2024,11 @@ Desconocido (sin sistema)</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s elementos%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s núcleos)</string>
     <string name="and_language">Idioma</string>
+    <string name="and_settings">Ajustes</string>
+    <string name="and_themeMode">Tema</string>
+    <string name="and_themeAuto">Seguir sistema</string>
+    <string name="and_themeDark">Oscuro</string>
+    <string name="and_themeLight">Claro</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

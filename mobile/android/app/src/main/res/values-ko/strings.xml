@@ -2024,6 +2024,11 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s개%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s개 커널)</string>
     <string name="and_language">언어</string>
+    <string name="and_settings">설정</string>
+    <string name="and_themeMode">테마</string>
+    <string name="and_themeAuto">시스템 따르기</string>
+    <string name="and_themeDark">다크</string>
+    <string name="and_themeLight">라이트</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

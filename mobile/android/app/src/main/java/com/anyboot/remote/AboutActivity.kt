@@ -175,42 +175,6 @@ class AboutActivity : ComponentActivity() {
                     }
                     Spacer(Modifier.height(16.dp))
 
-                    // ---- 语言设置卡（应用内切换；写 SharedPreferences + recreate 生效）----
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(palette.card)
-                            .border(1.dp, palette.line, RoundedCornerShape(16.dp)),
-                    ) {
-                        Text(
-                            stringResource(R.string.and_language),
-                            fontSize = 12.sp,
-                            color = palette.fgDim,
-                            modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 6.dp),
-                        )
-                        AppLocale.SUPPORTED.forEach { (tag, name) ->
-                            val selected = AppLocale.currentTag(this@AboutActivity) == tag
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        AppLocale.setLocale(this@AboutActivity, tag)
-                                        recreate()
-                                    }
-                                    .padding(horizontal = 16.dp, vertical = 11.dp),
-                            ) {
-                                Text(
-                                    name,
-                                    fontSize = 14.sp,
-                                    color = if (selected) palette.accent else palette.fg,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                if (selected) Text("✓", fontSize = 14.sp, color = palette.accent)
-                            }
-                        }
-                    }
                     Spacer(Modifier.height(16.dp))
 
                     // ---- GitHub 仓库卡 ----

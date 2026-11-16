@@ -2024,6 +2024,11 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s шт.%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s ядер)</string>
     <string name="and_language">Язык</string>
+    <string name="and_settings">Настройки</string>
+    <string name="and_themeMode">Тема</string>
+    <string name="and_themeAuto">Как в системе</string>
+    <string name="and_themeDark">Тёмная</string>
+    <string name="and_themeLight">Светлая</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

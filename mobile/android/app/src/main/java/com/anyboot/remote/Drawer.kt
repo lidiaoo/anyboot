@@ -150,6 +150,10 @@ fun AppDrawerOverlay(current: String, onDismiss: () -> Unit) {
                         onDismiss()
                         context.startActivity(Intent(context, AboutActivity::class.java))
                     }
+                    DrawerNavRow("⚙", stringResource(R.string.and_settings)) {
+                        onDismiss()
+                        context.startActivity(Intent(context, SettingsActivity::class.java))
+                    }
                     DrawerNavRow("🌓", stringResource(R.string.and_themeWith, Ui.modeLabel(context))) {
                         Ui.cycle(context)
                         onDismiss()

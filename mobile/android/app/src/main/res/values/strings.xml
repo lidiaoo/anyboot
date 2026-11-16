@@ -2024,6 +2024,11 @@ Telnet：只有实验性终端。</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s（%3$s 项%4$s）</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s（%3$s 个内核）</string>
     <string name="and_language">语言</string>
+    <string name="and_settings">设置</string>
+    <string name="and_themeMode">主题</string>
+    <string name="and_themeAuto">跟随系统</string>
+    <string name="and_themeDark">暗色</string>
+    <string name="and_themeLight">亮色</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

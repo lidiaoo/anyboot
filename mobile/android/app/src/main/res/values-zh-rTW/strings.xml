@@ -2024,6 +2024,11 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s（%3$s 項%4$s）</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s（%3$s 個內核）</string>
     <string name="and_language">語言</string>
+    <string name="and_settings">設定</string>
+    <string name="and_themeMode">主題</string>
+    <string name="and_themeAuto">跟隨系統</string>
+    <string name="and_themeDark">深色</string>
+    <string name="and_themeLight">淺色</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

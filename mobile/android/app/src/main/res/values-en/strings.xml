@@ -2024,6 +2024,11 @@ Unknown (no system selected)</string>
     <string name="and_itemsCountFmt">▸ %1$s%2$s (%3$s items%4$s)</string>
     <string name="and_kernelsCountFmt">▸ %1$s%2$s (%3$s kernels)</string>
     <string name="and_language">Language</string>
+    <string name="and_settings">Settings</string>
+    <string name="and_themeMode">Theme</string>
+    <string name="and_themeAuto">Follow system</string>
+    <string name="and_themeDark">Dark</string>
+    <string name="and_themeLight">Light</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

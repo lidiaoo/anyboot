@@ -41,9 +41,9 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 
-        <!-- 终端设置（服务器模块标题栏齿轮图标 → 独立界面） -->
+        <!-- 设置（侧边栏「设置」→ 语言 / 主题 / 终端设置 三区块） -->
         <activity
-            android:name=".TerminalSettingsActivity"
+            android:name=".SettingsActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:exported="false" />
 

@@ -287,20 +287,6 @@ class ServersActivity : ComponentActivity() {
             Spacer(Modifier.width(10.dp))
             PagePill()
             Spacer(Modifier.weight(1f))
-            // 齿轮每页都在：终端设置是全局入口，别只在服务器页给（用户 2026-11-01 定案）
-            Icon(
-                Icons.Filled.Settings,
-                contentDescription = stringResource(R.string.nav_termSettings),
-                tint = palette.fgDim,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clickable {
-                        startActivity(
-                            Intent(this@ServersActivity, TerminalSettingsActivity::class.java)
-                        )
-                    }
-                    .padding(8.dp),
-            )
             if (currentPage == 0 || currentPage == 1) {
                 // FAB：服务器页 = 添加服务器；密钥页 = 生成 / 导入菜单（设计稿为「生成密钥」）
                 Box {
