@@ -29,6 +29,7 @@ struct ComputerListView: View {
 
     private enum Kind {
         static let refind = BootKind.refind
+        static let refindplus = BootKind.refindplus
         static let grub = BootKind.grub
         static let help = "help"
         /// 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里
@@ -505,6 +506,7 @@ struct ComputerListView: View {
         let ip: String
         let hits: [ProbeEngine.Hit]
         let refind: BootGroup
+        let refindplus: BootGroup
         let grub: BootGroup
         let channels: [ChannelGroup]
         let state: String
@@ -657,6 +659,7 @@ struct ComputerListView: View {
             ip: displayAddress(profile),
             hits: hits,
             refind: info?.refind ?? emptyGroup(Kind.refind),
+            refindplus: info?.refindplus ?? emptyGroup(Kind.refindplus),
             grub: info?.grub ?? emptyGroup(Kind.grub),
             channels: info?.channels ?? [],
             state: state,
@@ -667,7 +670,7 @@ struct ComputerListView: View {
     }
 
     private func emptyGroup(_ kind: String) -> BootGroup {
-        BootGroup(kind: kind, title: kind == Kind.refind ? "rEFInd" : "GRUB",
+        BootGroup(kind: kind, title: kind == Kind.refind ? "rEFInd" : (kind == Kind.refindplus ? "RefindPlus" : "GRUB"),
                   available: false, current: "", next: "", saved: "", note: "", options: [])
     }
 
@@ -1216,6 +1219,7 @@ struct ComputerListView: View {
         let missing = (offline || loading) ? [] : row.channels.filter { !$0.detected }
         return VStack(spacing: ABMetric.px(6)) {
             bootButton(row, kind: Kind.refind, group: row.refind)
+            bootButton(row, kind: Kind.refindplus, group: row.refindplus)
             bootButton(row, kind: Kind.grub, group: row.grub)
             // 三引导器通道：检测到的展开成按钮（与 PC 网页端 boot-list-view.js 同一套数据）
             ForEach(shown) { group in
@@ -1354,7 +1358,7 @@ struct ComputerListView: View {
     }
 
     private func bootButton(_ row: CqRow, kind: String, group: BootGroup) -> some View {
-        let title = kind == Kind.refind ? "rEFInd" : "GRUB"
+        let title = kind == Kind.refind ? "rEFInd" : (kind == Kind.refindplus ? "RefindPlus" : "GRUB")
         let work = busy[row.profile.id]
         let working = work != nil && work!.hasPrefix("boot:")
         let pending = kind == Kind.grub && grubPending(group)
@@ -1713,7 +1717,9 @@ struct ComputerListView: View {
             let group: BootGroup? = {
                 guard !help, request.kind != Kind.channel else { return nil }
                 let info = boots[request.rid]
-                return request.kind == Kind.refind ? info?.refind : info?.grub
+                if request.kind == Kind.refind { return info?.refind }
+                if request.kind == Kind.refindplus { return info?.refindplus }
+                return info?.grub
             }()
 
             ZStack(alignment: .center) {

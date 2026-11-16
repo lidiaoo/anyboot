@@ -7,6 +7,7 @@ import Foundation
 
 enum BootKind {
     static let refind = "refind"
+    static let refindplus = "refindplus"
     static let grub = "grub"
 }
 
@@ -65,6 +66,7 @@ struct BootInfo {
     var addr: String = ""
     var error: String = ""
     var refind: BootGroup
+    var refindplus: BootGroup
     var grub: BootGroup
     /// 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空数组
     var channels: [ChannelGroup] = []
@@ -81,6 +83,8 @@ struct BootInfo {
             ok: false, online: false, addr: addr, error: error,
             refind: BootGroup(kind: BootKind.refind, title: "rEFInd", available: false,
                               current: "", next: "", saved: "", note: note, options: []),
+            refindplus: BootGroup(kind: BootKind.refindplus, title: "RefindPlus", available: false,
+                                  current: "", next: "", saved: "", note: note, options: []),
             grub: BootGroup(kind: BootKind.grub, title: "GRUB", available: false,
                             current: "", next: "", saved: "", note: note, options: []),
             hits: hits)
@@ -174,7 +178,7 @@ enum BootParser {
     /// **重算**出来的菜单，含二级子屏；「当前项」看 `entries[].lastBoot`
     /// 命中的那条（与 PC 端 effectiveGrubForNextBoot / 托盘同一口径），
     /// 没有就退回 `previousBoot`。
-    static func parseRefindSim(_ json: [String: Any]) -> BootGroup {
+    static func parseRefindSim(_ json: [String: Any], kind: String = BootKind.refind, title groupTitle: String = "rEFInd") -> BootGroup {
         var options: [BootOption] = []
         var current = ""
         let entries = json["entries"] as? [[String: Any]] ?? []
@@ -216,14 +220,14 @@ enum BootParser {
             if !prev.isEmpty, options.contains(where: { $0.value == prev }) { current = prev }
         }
         return BootGroup(
-            kind: BootKind.refind, title: "rEFInd",
+            kind: kind, title: groupTitle,
             available: !options.isEmpty,
             current: current, next: "", saved: "",
             note: (json["summary"] as? String ?? "").trimmingCharacters(in: .whitespaces),
             options: options)
     }
 
-    static func parseRefind(_ json: [String: Any]) -> BootGroup {
+    static func parseRefind(_ json: [String: Any], kind: String = BootKind.refind, title groupTitle: String = "rEFInd") -> BootGroup {
         var options: [BootOption] = []
         var current = ""
         for item in RemoteHttp.objects(json, "variables") {
@@ -236,8 +240,8 @@ enum BootParser {
             options.append(BootOption(value: system, label: label, kind: refindClass(system)))
         }
         return BootGroup(
-            kind: BootKind.refind,
-            title: "rEFInd",
+            kind: kind,
+            title: groupTitle,
             available: !options.isEmpty,
             current: current,
             next: current,
@@ -744,6 +748,17 @@ enum BootService {
                                     current: "", next: "", saved: "", note: message, options: [])
         }
 
+        // RefindPlus 通道（与 rEFInd 并列）；老对端没有 → 占位不可用（对齐 Android 老路径）
+        var refindplusGroup: BootGroup
+        do {
+            let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
+                                                 path: "/api/status")
+            refindplusGroup = BootParser.parseRefind(json, kind: BootKind.refindplus, title: "RefindPlus")
+        } catch {
+            refindplusGroup = BootGroup(kind: BootKind.refindplus, title: "RefindPlus", available: false,
+                                        current: "", next: "", saved: "", note: "", options: [])
+        }
+
         var grubGroup: BootGroup
         do {
             let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token,
@@ -775,6 +790,7 @@ enum BootService {
             addr: choice.displayAddr,
             error: errors.joined(separator: "；"),
             refind: refindGroup,
+            refindplus: refindplusGroup,
             grub: grubGroup,
             channels: channelGroups,
             machineOs: choice.os,
@@ -817,6 +833,19 @@ enum BootService {
                                     note: L("and.snapshotNoStatus"), options: [])
         }
 
+        let refindplusGroup: BootGroup
+        let refplusManual = (settings["refindplusMode"] as? String) == "manual"
+        if refplusManual, let rp = state["refindplus"] as? [String: Any] {
+            refindplusGroup = BootParser.parseRefind(rp, kind: BootKind.refindplus, title: "RefindPlus")
+        } else if let sim = state["refindplusSim"] as? [String: Any] {
+            refindplusGroup = BootParser.parseRefindSim(sim, kind: BootKind.refindplus, title: "RefindPlus")
+        } else if let rp = state["refindplus"] as? [String: Any] {
+            refindplusGroup = BootParser.parseRefind(rp, kind: BootKind.refindplus, title: "RefindPlus")
+        } else {
+            refindplusGroup = BootGroup(kind: BootKind.refindplus, title: "RefindPlus", available: false,
+                                        current: "", next: "", saved: "", note: "", options: [])
+        }
+
         let grubGroup: BootGroup
         // 自动模式用 linuxGrub；两者 entries/groups/nextEntry/savedEntry 结构
         // 完全相同，解析器可直接复用。
@@ -845,6 +874,7 @@ enum BootService {
             addr: choice.displayAddr,
             error: errors.joined(separator: "；"),
             refind: refindGroup,
+            refindplus: refindplusGroup,
             grub: grubGroup,
             channels: channelGroups,
             machineOs: choice.os,
@@ -881,6 +911,8 @@ enum BootService {
         let path: String
         if kind == BootKind.refind {
             path = "/api/switch?system=\(encoded)"
+        } else if kind == BootKind.refindplus {
+            path = "/api/switch?system=\(encoded)&channel=refindplus"
         } else if kind.hasPrefix("channel:") {
             // 三引导器通道（sdboot / opencore / clover）：value 是完整 spec
             // （opencore-default:<卷>\u{1}<路径> / sdboot:<id> / clover-oneshot …），
