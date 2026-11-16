@@ -803,7 +803,7 @@ function onRowClick() {
           <div class="cq-picker-fmt-chips">
             <button v-for="c in fmtChoices" :key="c.v" type="button"
               :class="['cq-fmt-chip', { 'is-on': pickerFmt === c.v }]"
-              @click="pickerFmt = c.v">{{ c.label }}</button>
+              @click="pickerFmt = c.v">{{ t(c.label) }}</button>
           </div>
         </div>
         <div class="cq-picker-list">
