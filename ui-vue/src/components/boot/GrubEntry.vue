@@ -96,7 +96,8 @@ const displayName = computed(() => {
     : formatText(props.entry, props.format);
   // 组行箭头（旧版：默认展开 ▾ / 收起 ▸；本列表恒展开 → ▾）；子项带「↳ 」。
   // 图标跟在箭头后：组头「▾ 🐧 组名」、子项「↳ 🐧 内核名」。
-  const arrow = props.group ? '▾ ' : props.depth === 0 ? '' : '↳ ';
+  // 子项不再用「↳」除角箭头；层级靠左侧竖向引导线表达（与主界面引导列表一致）
+  const arrow = props.group ? '▾ ' : '';
   return prefix + arrow + osIcon.value + baseText;
 });
 
