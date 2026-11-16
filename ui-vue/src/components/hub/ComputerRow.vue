@@ -551,7 +551,7 @@ async function openUrl(url: string) {
 }
 
 /** 所有通道（6 个引导器）统一顺序：refind/refindplus/grub + 检测到的 sdboot/opencore/clover */
-const allKinds = computed<string[]>(() => ["refind", "refindplus", "grub", ...(props.channelKinds ?? [])]);
+const allKinds = computed<string[]>(() => ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"]);
 /** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
 function bootEcho(kind: string): { label: string; dot: string; none: boolean } {
   if (kind.startsWith("channel:")) {
