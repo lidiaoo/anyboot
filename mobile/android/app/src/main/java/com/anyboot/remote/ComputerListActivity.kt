@@ -2504,13 +2504,15 @@ class ComputerListActivity : ComponentActivity() {
             val v = opt.value.trim()
             val label = opt.label.ifBlank { v }
             val readonly = v.isEmpty() || opt.fixed
-            if (v.isNotEmpty() && v == group.current && !currentMarked) {
+            val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
+            if (isCurrent) {
                 currentMarked = true
-                // 置顶行名称 = 一级（父组）＋二级（子项），与 PC 置顶副本一致
+                // 置顶副本（顶部固定）名称 = 一级（父组）＋二级（子项）
                 val pinnedLabel = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $label" else label
                 rows.add(GrubRow(opt, pinnedLabel, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            rows.add(GrubRow(opt, label, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+            // 原位行：当前项 active=true 保留在列表原位并高亮（对齐旧 GrubList「只置顶、不删原位」）
+            rows.add(GrubRow(opt, label, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
@@ -2919,8 +2921,7 @@ class ComputerListActivity : ComponentActivity() {
                                         )
                                     }
                                     val option = row.option
-                                    val selected = !row.child && option != null &&
-                                        option.value.isNotBlank() && option.value == group.current
+                                    val selected = row.active
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -4783,7 +4784,7 @@ class ComputerListActivity : ComponentActivity() {
     )
 
     /** 一行展示项：[option] 为 null 时是组头（不可点），否则是可选项 + 拼好的文字 */
-    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false, val child: Boolean = false, val trailing: String = "", val sub: String = "", val note: String = "", val readonly: Boolean = false)
+    private data class GrubRow(val option: BootOption?, val label: String, val isHeader: Boolean, val pinned: Boolean = false, val child: Boolean = false, val trailing: String = "", val sub: String = "", val note: String = "", val readonly: Boolean = false, val active: Boolean = false)
 
     private data class BootInfo(
         val ok: Boolean,
