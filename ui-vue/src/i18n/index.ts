@@ -69,11 +69,23 @@ export function normalizeLocale(raw: string): Locale {
   return "en-US";
 }
 
+/** 临时语言：URL `abLang=xx`（移动端 App 按自身设置注入，仅本次展示、不写本机偏好） */
+function urlAbLang(): Locale | null {
+  try {
+    const v = new URLSearchParams(location.search).get("abLang");
+    return v ? normalizeLocale(v) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 语言偏好：'auto' = 跟随系统 */
 export type LangPref = Locale | "auto";
 const STORAGE_KEY = "anyboot.lang";
 
 function readPref(): LangPref {
+  const temp = urlAbLang();
+  if (temp) return temp;
   try {
     const v = localStorage.getItem(STORAGE_KEY);
     if (!v) return "auto";
@@ -85,6 +97,8 @@ function readPref(): LangPref {
 }
 
 export function initialLocale(): Locale {
+  const temp = urlAbLang();
+  if (temp) return temp;
   const pref = readPref();
   if (pref !== "auto") return pref;
   return normalizeLocale(navigator.language || "zh-CN");
@@ -127,8 +141,10 @@ export function setLocale(pref: LangPref) {
   i18n.global.locale.value = effective;
   document.documentElement.lang = effective;
   try {
-    localStorage.setItem(STORAGE_KEY, pref === "auto" ? "auto" : pref);
-    localStorage.setItem("anyboot.lang.effective", effective);
+    if (!urlAbLang()) {
+      localStorage.setItem(STORAGE_KEY, pref === "auto" ? "auto" : pref);
+      localStorage.setItem("anyboot.lang.effective", effective);
+    }
   } catch { /* 忽略 */ }
   void import("@/api/tauri")
     .then(({ call }) => call("set_language", { lang: effective }).catch(() => {}))
