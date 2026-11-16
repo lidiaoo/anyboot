@@ -1570,52 +1570,13 @@ class ComputerListActivity : ComponentActivity() {
                 }
             }
 
-            // 两个引导项 + 三引导器通道（检测到的展开，未检测的折叠成一行提示）
+            // 引导项区：遍历 6 个统一 BootGroup（refind/refindplus/grub/sdboot/opencore/clover），
+            // 全部用同一个 BootButton + 同一个下拉，按数据渲染，零 loader/通道特例。
             Column(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 11.dp),
             ) {
-                BootButton(row, KIND_REFIND, row.refind)
-                // RefindPlus 与 rEFInd 并列：数据在 row.refindplus（老对端为
-                // available=false 的占位组，按钮内部按状态显示文案）
-                BootButton(row, KIND_REFINDPLUS, row.refindplus)
-                BootButton(row, KIND_GRUB, row.grub)
-                // 2026-11-02 用户定案：「离线应该都一样显示离线不可改 并不知道哪个
-                // 未检出」。
-                // 原先只渲染 detected 的通道，其余进「（未检测到）」那行 ——
-                // 离线时根本探测不到任何通道，于是三个全被归为「未检测到」，
-                // 和 rEFInd/GRUB 的「离线不可改」说法不一致，还误导用户以为
-                // 是「这台机没装这些引导器」。
-                //
-                // 现在：**离线时不看 detected，三通道一律渲染成按钮**
-                //（ChannelBootButton 内部按 row.state == OFFLINE 显示「离线不可改」）；
-                // 只有在线时才用 detected 区分「有按钮」与「未检测到」。
-                // 2026-11-02 用户定案：「电脑列表在检测中 读取中 只有 refind/grub
-                // 理论上他目前还不知道有哪些引导器 应该是所有引导器都是读取中」。
-                //
-                // 读取中（STATE_UNKNOWN）时快照里 channels 还是空的 —— 后端还没
-                // 探测完，确实**不知道**这台机有哪些引导器。此前只有 rEFInd/GRUB
-                // 两个固定按钮，三通道整块缺失，看起来像「已经确认只有这两个」。
-                // 现在补上三个通道的**占位按钮**，状态显示「读取中…」，
-                // 与 rEFInd/GRUB 的说法一致。
-                val offline = row.state == STATE_OFFLINE
-                val loading = row.state == STATE_UNKNOWN && row.channels.isEmpty()
-                val channelList = if (loading) placeholderChannels() else row.channels
-                channelList
-                    .filter { offline || loading || it.detected }
-                    .forEach { channel -> ChannelBootButton(row, channel) }
-                val missing = if (offline || loading) emptyList()
-                    else channelList.filter { !it.detected }
-                if (missing.isNotEmpty()) {
-                    Text(
-                        missing.joinToString("、") { it.label } + "（未检测到）",
-                        fontSize = 10.sp,
-                        color = palette.fgFaint,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(start = 11.dp, top = 1.dp),
-                    )
-                }
+                row.channels.forEach { group -> BootButton(row, group.kind, group) }
             }
 
             // 待生效提示条：挂起倒计时（远程/手机发的请求 N 秒后执行，可撤销）优先
@@ -2364,19 +2325,14 @@ class ComputerListActivity : ComponentActivity() {
     private fun BootButton(row: CqRow, kind: String, group: BootGroup) {
         val palette = LocalPalette.current
         val tone = LocalTone.current
-        val title = when (kind) {
-            KIND_REFIND -> "rEFInd"
-            KIND_REFINDPLUS -> "RefindPlus"
-            else -> "GRUB"
-        }
+        val title = group.title
         val work = busy[row.profile.id]
         val working = work != null && work.startsWith("boot:")
-        val pending = kind == KIND_GRUB && grubPending(group)
+        val pending = grubPending(group)
         // busy(自动刷新/切换中)不阻止打开弹窗 —— 否则 2s 轮询窗口里按钮几乎恒 disabled，点击全被吞（穿透到卡片跳电脑页）
         val usable = group.available && row.state == STATE_ONLINE
 
         val valueLabel: String
-        val dot: String
         var iconOverride: String = ""
         if (!group.available) {
             valueLabel = when {
@@ -2384,24 +2340,10 @@ class ComputerListActivity : ComponentActivity() {
                 row.state == STATE_OFFLINE -> getString(R.string.hub_state_offlineReadonly)
                 else -> getString(R.string.hub_state_notDetected)
             }
-            dot = ""
         } else {
-            // 统一化：rEFInd/RefindPlus 与 GRUB 同走 grubDisplayRows（数据已填 GRUB 原料）——
-            // 当前值取拼装出来的 **GrubRow.label**（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
-            // 不能取 option.label：GRUB 的原料 label 恒为空串（展示文字在渲染期现算），
-            // 直接取会显示空白（正是「GRUB 选中项空白」的根因）。
-            // label 自带 grub_os_icon 图标 —— 卡片左侧已画图标，回显文字要去掉行首图标，
-            // 否则一行两个（用户 2026-11-15 报「图标重复了 残留」）。
-            val hit = grubDisplayRows(group).firstOrNull { it.option?.value == group.current }
-            val rawLabel = (hit?.label ?: group.current.ifEmpty { getString(R.string.hub_state_notSet) })
-            // 图标识别 100% GRUB 同源：拼装 label 的行首 emoji 就是 grub_os_icon 的产物
-            // （按条目名/组名关键字识别），卡片直接用它 —— 不再走 kind→platformEmoji 的旧映射。
-            val iconChar = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
-            valueLabel = rawLabel
-                .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
-                .trim()
-            dot = hit?.option?.kind ?: "linux"
-            iconOverride = iconChar
+            val (label, icon) = bootEcho(group)
+            valueLabel = label
+            iconOverride = icon
         }
 
         val shape = RoundedCornerShape(11.dp)
@@ -2416,10 +2358,7 @@ class ComputerListActivity : ComponentActivity() {
             else -> palette.line
         }
 
-        // 2026-11-02 用户选型「用 B」：与 ChannelBootButton 统一的「色条双行」——
-        //   名字独占首行、状态行在下，中间 6dp，整块垂直居中，圆点跟随状态行。
-        // 之前是单个 Row：名字（10.5sp mono）和状态（12.5sp）挤一行，
-        // 名字一长就把状态压窄。
+        // 与通道按钮统一「色条双行」：名字独占首行、状态行在下，整块垂直居中。
         Column(
             verticalArrangement = Arrangement.Center,
             modifier = Modifier
@@ -2436,12 +2375,12 @@ class ComputerListActivity : ComponentActivity() {
                         !usable -> toast(getString(R.string.error_busy))
                         group.options.isEmpty() -> toast(getString(R.string.error_noBootOptions, title))
                         row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
-                        else -> sheetRequest = SheetRequest(row.profile.id, kind)
+                        else -> sheetRequest = SheetRequest(row.profile.id, group.kind, group)
                     }
                 }
                 .padding(start = 11.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         ) {
-            // 第一行：引导器名（独占一行，长名字完整显示）
+            // 第一行：引导器名（用 group.title，不再按 kind 写死）
             Text(
                 title,
                 fontSize = 10.5.sp,
@@ -2452,9 +2391,8 @@ class ComputerListActivity : ComponentActivity() {
                 softWrap = true,
                 lineHeight = 14.sp,
             )
-            // 名字与状态之间 6dp
             Spacer(Modifier.height(6.dp))
-            // 第二行：圆点 + 状态 / 当前项 + 待重启 + ▾
+            // 第二行：圆点 + 当前项 / 状态 + 待重启 + ▾
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (working) {
                     CircularProgressIndicator(
@@ -2464,7 +2402,6 @@ class ComputerListActivity : ComponentActivity() {
                     )
                     Spacer(Modifier.width(7.dp))
                 } else if (iconOverride.isNotEmpty()) {
-                    // GRUB 同源图标（grub_os_icon 按名字识别的产物），rEFInd/RefindPlus 也用它
                     Text(iconOverride, fontSize = 12.5.sp)
                     Spacer(Modifier.width(7.dp))
                 }
@@ -2501,122 +2438,72 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
-    /** 三引导器通道按钮：外观与 BootButton 一致；值区显示当前默认 / 首个动作，nvram 通道带 ⤴ */
-    @Composable
-    private fun ChannelBootButton(row: CqRow, channel: ChannelRow) {
-        val palette = LocalPalette.current
-        val tone = LocalTone.current
-        val work = busy[row.profile.id]
-        val working = work == "boot:ch-${channel.id}"
-        // 可用性看 entries + OC 预演行：OC 的条目全在 menuPreview、顶层 entries 恒空，
-        // 只看 entries 会把 OC 误判成「没有可用动作」、点不开弹层。
-        val actionCount = channel.entries.size + channel.menuPreview.size
-        val usable = actionCount > 0 && row.state == STATE_ONLINE && work == null
+    /** 引导组是否为「GRUB 原料」形态（option.label 留空、展示文字在 grubName/内核），
+     *  这是老对端 raw 解析的形态；新契约 options 自带 label。按数据形态兜底，非按 kind 特例。 */
+    private fun isGrubRawGroup(group: BootGroup): Boolean =
+        group.options.any { it.label.isEmpty() && (it.grubName.isNotEmpty() || it.grubKernels.isNotEmpty()) }
 
-        // 统一化（用户 2026-11-15「统一标准 统一用同一个方法」）：OC 通道回显也走
-        // channelToBootGroup + grubDisplayRows —— 图标从 GRUB 拼装 label 行首提取
-        // （grub_os_icon 同源），文字同「组名 › 子名」口径；无当前项回退首行。
-        val valueLabel: String
-        val dot: String
-        var iconOverride: String = ""
-        run {
-            val ocGroup = channelToBootGroup(channel)
-            val rows = grubDisplayRows(ocGroup)
-            val hit = rows.firstOrNull { it.option?.value == ocGroup.current && !it.option!!.header }
-                ?: rows.firstOrNull { !it.option!!.header }
-            val rawLabel = hit?.label ?: ocGroup.current.ifEmpty { getString(R.string.hub_state_notSet) }
-            iconOverride = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
-            valueLabel = rawLabel
-                .replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "")
-                .trim()
-            dot = hit?.option?.kind ?: "linux"
+    /** 统一回显：当前项 → (展示文字, 平台图标)。所有引导器同一套规则。 */
+    private fun bootEcho(group: BootGroup): Pair<String, String> {
+        if (isGrubRawGroup(group)) {
+            val rows = grubDisplayRows(group)
+            val hit = rows.firstOrNull { it.option?.value == group.current && it.option?.header != true }
+            val rawLabel = hit?.label ?: group.current.ifEmpty { getString(R.string.hub_state_notSet) }
+            val icon = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
+            val label = rawLabel.replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "").trim()
+            return label to icon
         }
-
-        val shape = RoundedCornerShape(11.dp)
-        val background = if (usable) tone.soft else tone.softDisabled
-        val borderColor = if (usable) palette.line else tone.dashed
-
-        // 2026-11-02 用户定案：「OpenCore 我期望换行显示 而不是和在线离线的状态
-        // 挨着太丑」—— 通道名单独占首行，状态/当前项在第二行。
-        // 原来是单个 Row：标签（10.5sp mono）和 12.5sp 的状态文字挤在一行，
-        // systemd-boot / OpenCore 这种长名字会把状态挤得很难看。
-        // 2026-11-02 用户选型「用 B」：
-        //   方案 06 的色条外观 + 双行排版，**整块垂直居中**（不顶部对齐），
-        //   名字在上、状态行在下，中间 6dp；圆点跟随状态行。
-        // 相较上一版：Column 加 verticalArrangement=Center、行距用 Spacer(6.dp)、
-        // 名字行 lineHeight 回到 1.35 的观感（16sp）。
-        Column(
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 52.dp)
-                .clip(shape)
-                .background(background)
-                .then(
-                    if (usable) Modifier.border(1.dp, borderColor, shape)
-                    else Modifier.dashedBorder(borderColor, 11.dp, 1.dp)
-                )
-                .clickable(enabled = true) {
-                    when {
-                        !usable -> toast(getString(R.string.error_busy))
-                        actionCount == 0 ->
-                            toast(getString(R.string.and_noChannelAction, channel.label))
-                        row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
-                        else -> sheetRequest = SheetRequest(row.profile.id, KIND_CHANNEL, channel)
-                    }
-                }
-                .padding(start = 11.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
-        ) {
-            // 第一行：通道名（独占一行，长名字也完整显示）
-            Text(
-                channel.label,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace,
-                color = if (usable) palette.fgDim else palette.fgFaint.copy(alpha = 0.75f),
-                // 「OpenCore 压缩成了 OpenCo」的根因是原先写死 width(46.dp)+maxLines=1，
-                // 现在独占一行、按内容定宽、可折行。
-                maxLines = Int.MAX_VALUE,
-                softWrap = true,
-                lineHeight = 14.sp,
-            )
-            // 名字与状态之间 6dp（用户定案：不要紧贴、也不要太松）
-            Spacer(Modifier.height(6.dp))
-            // 第二行：圆点 + 状态 / 当前项
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (working) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(13.dp),
-                        strokeWidth = 2.dp,
-                        color = palette.accent,
-                    )
-                    Spacer(Modifier.width(7.dp))
-                } else if (iconOverride.isNotEmpty()) {
-                    // GRUB 同源图标（grub_os_icon 按名字识别的产物）
-                    Text(iconOverride, fontSize = 12.5.sp)
-                    Spacer(Modifier.width(7.dp))
-                }
-                Text(
-                    valueLabel,
-                    fontSize = 12.5.sp,
-                    fontWeight = if (usable) FontWeight.Medium else FontWeight.Normal,
-                    color = if (usable) palette.fg else palette.fgFaint.copy(alpha = 0.85f),
-                    // 完整展示：不限行数、不省略号
-                    maxLines = Int.MAX_VALUE,
-                    overflow = TextOverflow.Clip,
-                    lineHeight = 16.sp,
-                    modifier = Modifier.weight(1f),
-                )
-                // 2026-11-02 用户定案：「删除 OpenCore 反向回车的箭头」——
-                // 原先 nvram 通道（OpenCore）状态行右侧挂一枚 ⤴，
-                // 表示「切换必经 NVRAM 写」。用户不要这个标记，整块删掉。
-                // （提示语里的 ⤴ 说明文字保留，那是帮助页的解释。）
-                if (usable) {
-                    Spacer(Modifier.width(7.dp))
-                    ChevronDownIcon(tint = palette.fgFaint, size = 14.dp)
-                }
+        val options = group.options
+        val current = group.current.trim()
+        var hitIndex = options.indexOfFirst { !it.header && it.value.trim().isNotEmpty() && it.value.trim() == current }
+        if (hitIndex < 0 && current.isNotEmpty()) {
+            hitIndex = options.indexOfFirst { o ->
+                if (o.header) return@indexOfFirst false
+                val text = o.label.trim()
+                text.isNotEmpty() && (text == current || text.contains(current) || current.contains(text))
             }
         }
+        if (hitIndex >= 0) {
+            val hit = options[hitIndex]
+            val label = hit.label.trim().ifBlank { current }
+            var groupLabel = ""
+            for (k in hitIndex - 1 downTo 0) {
+                if (options[k].header) {
+                    groupLabel = options[k].label
+                        .replace(Regex("^[▾▸\\s]+"), "")
+                        .replace(Regex("（\\d+\\s*(项|个内核)[^）]*）\\s*$"), "")
+                        .trim()
+                    break
+                }
+            }
+            val text = if (groupLabel.isNotEmpty()) "$groupLabel › $label" else label
+            return text to grubOsIcon(hit.kind, label)
+        }
+        return current.ifEmpty { getString(R.string.hub_state_notSet) } to ""
+    }
+
+    /** 统一下拉行：由 BootGroup.options 按字段生成（header/child/tag/sub/note/pinned/fixed）。
+     *  老 GRUB raw 形态仍走 grubDisplayRows（保留格式档位）。 */
+    private fun bootRows(group: BootGroup): List<GrubRow> {
+        if (group.options.isEmpty()) return emptyList()
+        if (isGrubRawGroup(group)) return grubDisplayRows(group)
+        val rows = mutableListOf<GrubRow>()
+        var underHeader = false
+        group.options.forEach { opt ->
+            if (opt.header) {
+                underHeader = true
+                rows.add(GrubRow(option = null, label = opt.label, isHeader = true, trailing = opt.tag))
+                return@forEach
+            }
+            val v = opt.value.trim()
+            val label = opt.label.ifBlank { v }
+            val readonly = v.isEmpty() || opt.fixed
+            if (v.isNotEmpty() && v == group.current) {
+                rows.add(GrubRow(opt, label, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+            }
+            rows.add(GrubRow(opt, label, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+        }
+        return rows
     }
 
 
@@ -2880,29 +2767,14 @@ class ComputerListActivity : ComponentActivity() {
         val help = request.kind == KIND_HELP
         val profile = servers.firstOrNull { it.id == request.rid }
         if (!help && profile == null) return
-        val info = profile?.let { boots[it.id] }
-        val channel = if (request.kind == KIND_CHANNEL) request.channel else null
-        val group = when {
-            help -> null
-            request.kind == KIND_REFIND -> info?.refind
-            request.kind == KIND_REFINDPLUS -> info?.refindplus
-            request.kind == KIND_GRUB -> info?.grub
-            request.kind == KIND_CHANNEL && channel != null -> channelToBootGroup(channel)
-            else -> null
-        }
+        val group = if (help) null else request.group
+        val title = if (help) stringResource(R.string.hub_list_help)
+            else stringResource(R.string.hub_picker_title, group?.title ?: getString(R.string.hub_list_colStatus))
 
-        // 数据计算提到固定区之前：pinned（悬浮置顶）渲染在滚动列表外，对齐 PC sticky。
-        val grubAllRows = if (group != null && request.kind == KIND_GRUB) grubDisplayRows(group) else emptyList()
-        val grubPinned = grubAllRows.firstOrNull { it.pinned }
-        val grubRows = grubAllRows.filter { !it.pinned }
-        val refindAllRows = if (group != null && (request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS)) grubDisplayRows(group) else emptyList()
-        val refindPinned = refindAllRows.firstOrNull { it.pinned }
-        val refindRows = refindAllRows.filter { !it.pinned }
-        // OC/通道：转统一 GRUB 原料后也走 grubDisplayRows（没有独立样式）
-        val channelGroup = channel?.let { channelToBootGroup(it) }
-        val channelAllRows = if (channelGroup != null) grubDisplayRows(channelGroup) else emptyList()
-        val channelPinned = channelAllRows.firstOrNull { it.pinned }
-        val channelRows = channelAllRows.filter { !it.pinned }
+        // 统一：pinned（当前项悬浮置顶）渲染在滚动列表外，对齐 PC sticky。
+        val allRows = if (group != null) bootRows(group) else emptyList()
+        val pinned = allRows.firstOrNull { it.pinned }
+        val rows = allRows.filter { !it.pinned }
 
         // 居中卡片弹窗：1:1 对齐 PC 网页端 .cq-picker——
         //   宽 min(420px,86vw)、maxH 70vh、圆角 12、边框 1px、阴影 0 12 40 black/.3、scrim black/.28；
@@ -2932,13 +2804,7 @@ class ComputerListActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
                     Text(
-                        when {
-                            help -> stringResource(R.string.hub_list_help)
-                            request.kind == KIND_CHANNEL -> stringResource(R.string.hub_picker_title, channel?.label ?: getString(R.string.hub_list_colStatus))
-                            request.kind == KIND_REFIND -> stringResource(R.string.hub_picker_title, "rEFInd")
-                            request.kind == KIND_REFINDPLUS -> stringResource(R.string.hub_picker_title, "RefindPlus")
-                            else -> stringResource(R.string.hub_picker_title, "GRUB")
-                        },
+                        title,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = palette.fg,
@@ -2975,9 +2841,7 @@ class ComputerListActivity : ComponentActivity() {
                     grubFormatChips(group)
                     Spacer(Modifier.height(4.dp))
                 }
-                if (grubPinned != null) PinnedBootRowFixed(grubPinned, palette)
-                if (refindPinned != null) PinnedBootRowFixed(refindPinned, palette)
-                if (channelPinned != null) PinnedBootRowFixed(channelPinned, palette)
+                if (pinned != null) PinnedBootRowFixed(pinned, palette)
                 // 列表区：滚动 + 右缘 4dp 自绘滚动条（对齐 web 滚动条视觉）
                 BoxWithConstraints(Modifier.weight(1f)) {
                     val scrollState = rememberScrollState()
@@ -2999,11 +2863,6 @@ class ComputerListActivity : ComponentActivity() {
                             Text(stringResource(R.string.and_powerNoConfirm), fontSize = 11.sp, color = palette.fgFaint)
                         } else if (group != null && group.options.isNotEmpty() && profile != null) {
                             val rid = profile
-                            val rows = when {
-                                request.kind == KIND_REFIND || request.kind == KIND_REFINDPLUS -> refindRows
-                                request.kind == KIND_CHANNEL -> channelRows
-                                else -> grubRows
-                            }
                             rows.forEachIndexed { _, row ->
                                 // 组头：左 3px 色条（btn 色）+ input-bg 背景 + 名字 link 色 700 粗 + margin-top 4
                                 if (row.isHeader) {
@@ -3067,7 +2926,7 @@ class ComputerListActivity : ComponentActivity() {
                                                     toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
-                                                    switchBoot(rid, request.kind, opt.value, getString(R.string.and_switchAction))
+                                                    switchBoot(rid, group.kind, opt.value, getString(R.string.and_switchAction), opt.label)
                                                 }
                                             }
                                             .padding(
@@ -3109,10 +2968,7 @@ class ComputerListActivity : ComponentActivity() {
                             Text(stringResource(R.string.hub_picker_footer), fontSize = 11.sp, color = palette.fgFaint)
                         } else {
                             Text(
-                                when {
-                                    channel != null -> channel.error.ifEmpty { getString(R.string.and_noActionAvailable) }
-                                    else -> group?.note?.ifEmpty { getString(R.string.and_noBootOption) } ?: getString(R.string.and_noBootOption)
-                                },
+                                group?.note?.ifEmpty { getString(R.string.and_noBootOption) } ?: getString(R.string.and_noBootOption),
                                 fontSize = 12.5.sp,
                                 color = palette.fgDim,
                                 lineHeight = 22.sp,
@@ -3618,12 +3474,14 @@ class ComputerListActivity : ComponentActivity() {
                 current = "", next = "", saved = "", note = message, options = emptyList(),
             )
         }
-        // 三引导器通道：失败不算致命（PC 版本旧没有这个接口，通道静默为空）
-        val channels = try {
-            parseChannels(httpJsonArray(endpoint, token, "/api/boot-channels"))
+        // 引导器通道：新契约 /api/boot-channels 直接返回 6 个统一 BootGroup；
+        // 老对端失败时为空，assembleChannels 会用 refind/refindplus/grub 拼齐 6 个。
+        val parsed = try {
+            parseBootGroups(httpJsonArray(endpoint, token, "/api/boot-channels"))
         } catch (_: Exception) {
             emptyList()
         }
+        val channels = assembleChannels(refind, refindplus, grub, parsed)
         return BootInfo(
             ok = errors.size < 3,
             online = true,
@@ -3671,63 +3529,52 @@ class ComputerListActivity : ComponentActivity() {
                 kind = KIND_GRUB, title = "GRUB", available = false,
                 current = "", next = "", saved = "", note = note, options = emptyList(),
             ),
-            // 2026-11-02 用户反馈：「电脑列表页面在有电脑条目 但是数据离线时候
-            // 应该有相应的无状态 目前只有 refind grub 应该加上所有引导器」。
-            // 离线时 channels 原先是空列表 → 三通道整块消失，只剩 rEFInd/GRUB
-            // 两个按钮。这里补上三个固定通道的「离线」占位。
-            channels = offlineChannels(note),
+            // 离线时也补上 6 个引导器的无状态占位（refind/refindplus/grub/sdboot/opencore/clover）
+            channels = offlineBootGroups(note),
         )
     }
 
-    /// 离线时的三引导器通道占位：id / 名称与在线时一致，只是 detected=false、
-    /// entries 为空，让列表照常显示「未检测到」的无状态行，而不是整块消失。
-    /// 读取中（STATE_UNKNOWN）时的三通道占位：此时还没探测出这台机有哪些引导器，
-    /// 先给三条「读取中…」的空壳，避免让人误以为「已确认只有 rEFInd/GRUB」。
-    private fun placeholderChannels(): List<ChannelRow> {
-        val labels = listOf(
-            "sdboot" to "systemd-boot",
-            "opencore" to "OpenCore",
-            "clover" to "Clover",
-        )
-        return labels.map { (id, label) ->
-            ChannelRow(
-                id = id,
-                label = label,
-                detected = false,
-                permission = "file",
-                chip = "off",
-                detail = "",
-                entries = emptyList(),
-                currentDefault = "",
-                lastBoot = "",
-                error = "",
-                health = emptyList(),
+    /** 6 个引导器固定顺序：refind, refindplus, grub, sdboot, opencore, clover。 */
+    private val CHANNEL_ORDER = listOf("refind", "refindplus", "grub", "sdboot", "opencore", "clover")
+
+    /** 6 个引导器的离线占位组（均不可改）。 */
+    private fun offlineBootGroups(note: String): List<BootGroup> =
+        CHANNEL_ORDER.map { kind ->
+            BootGroup(
+                kind = kind, title = channelTitle(kind), available = false,
+                current = "", next = "", saved = "", note = note, options = emptyList(),
+            )
+        }
+
+    /** 把任意来源的通道组补齐成固定 6 段。传入的 parsed（新契约 channels[6] 或老 ChannelView→BootGroup）
+     *  优先；缺的用独立解析出的 refind/refindplus/grub 或占位组补上。零 kind 特例，纯按数据补齐。 */
+    private fun assembleChannels(refind: BootGroup, refindplus: BootGroup, grub: BootGroup, parsed: List<BootGroup>): List<BootGroup> {
+        val byKind = LinkedHashMap<String, BootGroup>()
+        parsed.forEach { byKind[channelKindOf(it.kind)] = it }
+        listOf(refind, refindplus, grub).forEach {
+            val k = channelKindOf(it.kind)
+            if (!byKind.containsKey(k)) byKind[k] = it
+        }
+        return CHANNEL_ORDER.map { kind ->
+            byKind[kind] ?: BootGroup(
+                kind = kind, title = channelTitle(kind), available = false,
+                current = "", next = "", saved = "", note = "", options = emptyList(),
             )
         }
     }
 
-    private fun offlineChannels(note: String): List<ChannelRow> {
-        // 三个固定通道的显示名（与在线时 /api 返回的 label 保持一致）
-        val labels = listOf(
-            "sdboot" to "systemd-boot",
-            "opencore" to "OpenCore",
-            "clover" to "Clover",
-        )
-        return labels.map { (id, label) ->
-            ChannelRow(
-                id = id,
-                label = label,
-                detected = false,
-                permission = "file",
-                chip = "off",
-                detail = note,
-                entries = emptyList(),
-                currentDefault = "",
-                lastBoot = "",
-                error = "",
-                health = emptyList(),
-            )
-        }
+    /** 通道基名：去掉 `channel:` 前缀（新契约 kind=sdboot，老 ChannelView kind=channel:sdboot）。 */
+    private fun channelKindOf(kind: String): String = kind.removePrefix("channel:")
+
+    /** 6 个引导器的标题（顺序固定在 CHANNEL_ORDER）。 */
+    private fun channelTitle(kind: String): String = when (channelKindOf(kind)) {
+        "refind" -> "rEFInd"
+        "refindplus" -> "RefindPlus"
+        "grub" -> "GRUB"
+        "sdboot" -> "systemd-boot"
+        "opencore" -> "OpenCore"
+        "clover" -> "Clover"
+        else -> channelKindOf(kind)
     }
 
     /** 这台电脑的 HTTP 端点：直连取首个地址；走跳板机先拉一条本地隧道 */
@@ -4005,11 +3852,19 @@ class ComputerListActivity : ComponentActivity() {
                 note = error.message ?: getString(R.string.and_readFailed), options = emptyList(),
             )
         }
-        val channels = try {
-            parseChannels(state.optJSONArray("channels") ?: JSONArray())
+        // 引导器通道：优先用后端 /api/boot-channels 的 6 段统一 BootGroup；
+        // 拿不到时退回 ui-state 里的 channels（老 ChannelView 也能解析），再拼齐 6 个。
+        val remoteParsed = try {
+            parseBootGroups(httpJsonArray(choice.url, choice.token, "/api/boot-channels"))
         } catch (_: Exception) {
             emptyList()
         }
+        val stateParsed = try {
+            parseBootGroups(state.optJSONArray("channels") ?: JSONArray())
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val channels = assembleChannels(refind, refindplus, grub, if (remoteParsed.isNotEmpty()) remoteParsed else stateParsed)
         return BootInfo(
             ok = errors.size < 2,
             online = true,
@@ -4027,106 +3882,129 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /**
-     * 通道（sdboot/opencore/clover）→ 统一 GRUB 原料 BootGroup：
-     * menuPreview 行 → BootOption（grubName=title、tag=类型·来源、grubSub=卷·路径、grubNote=说明）。
-     * spec 空（Reset NVRAM/兜底项）value 空 → 渲染 readonly。current=default 行的 spec（置顶命中）。
-     * 所有通道与 GRUB/rEFInd 共用同一套 grubDisplayRows 渲染——没有独立样式。
+     * 解析 boot info 的 `channels` 数组为 List<BootGroup>。
+     * 新契约：每个元素是统一 BootGroup JSON（kind/title/available/current/next/saved/note/options）。
+     * 兼容老对端：元素是 ChannelView（id/label/detected/entries/menuPreview）时按老结构转换。
      */
-    private fun channelToBootGroup(c: ChannelRow): BootGroup {
-        val options = c.menuPreview.map { row ->
-            val srcLabel = when (row.source) { "bootorder"->getString(R.string.hub_oc_private); "bless"->getString(R.string.oc_blessScan); "preboot"->"APFS Preboot"; "protocol"->getString(R.string.oc_protocolDriver); else->"" }
-            val kindTxt = when (row.kind) { "macos"->"macOS"; "windows"->"Windows"; "linux"->"Linux"; "tool"->getString(R.string.hub_class_tool); "generic"->getString(R.string.hub_class_generic); else->row.kind }
-            BootOption(
-                value = row.spec,
-                label = row.title,
-                kind = when (row.kind) { "macos"->"mac"; "windows"->"win"; "linux"->"linux"; "tool"->"tool"; else-> if (row.title.contains("windows",true)) "win" else if (row.title.contains("mac",true)) "mac" else "linux" },
-                grubName = row.title,
-                tag = listOf(kindTxt, srcLabel).filter { it.isNotEmpty() }.joinToString(" · "),
-                grubSub = if (row.volume.isNotEmpty() && row.volume != "—") "${row.volume} · ${row.path}" else row.path,
-                grubNote = row.note,
+    private fun parseBootGroups(array: JSONArray): List<BootGroup> {
+        val out = mutableListOf<BootGroup>()
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            if (item.has("options") || item.has("kind") || item.has("title")) {
+                out.add(parseBootGroup(item))
+            } else if (item.has("id") || item.has("detected") || item.has("menuPreview") || item.has("entries")) {
+                out.add(bootGroupFromChannelView(item))
+            }
+        }
+        return out
+    }
+
+    /** 新契约的一个 BootGroup JSON → BootGroup（复用现有 BootGroup 数据类）。 */
+    private fun parseBootGroup(item: JSONObject): BootGroup {
+        val options = mutableListOf<BootOption>()
+        val arr = item.optJSONArray("options") ?: JSONArray()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            options.add(
+                BootOption(
+                    value = optStr(o, "value"),
+                    label = optStr(o, "label"),
+                    kind = optStr(o, "class").ifEmpty { optStr(o, "kind") },
+                    header = o.optBoolean("header", false),
+                    fixed = o.optBoolean("fixed", false),
+                    tag = optStr(o, "tag"),
+                    grubSub = optStr(o, "sub"),
+                    grubNote = optStr(o, "note"),
+                ),
             )
         }
-        val current = c.menuPreview.firstOrNull { it.isDefault }?.spec ?: c.currentDefault
+        val kind = optStr(item, "kind")
         return BootGroup(
-            kind = "channel:" + c.id,
-            title = c.label,
-            available = c.detected && options.isNotEmpty(),
-            current = current,
-            next = "",
-            saved = "",
-            note = c.error,
+            kind = kind,
+            title = optStr(item, "title").ifEmpty { channelTitle(kind) },
+            available = item.optBoolean("available", false),
+            current = optStr(item, "current"),
+            next = optStr(item, "next"),
+            saved = optStr(item, "saved"),
+            note = optStr(item, "note"),
             options = options,
         )
     }
 
-    private fun parseChannels(array: JSONArray): List<ChannelRow> {
-        val channels = mutableListOf<ChannelRow>()
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val entries = mutableListOf<ChannelEntryRow>()
-            val entryArray = item.optJSONArray("entries")
-            if (entryArray != null) {
-                for (i in 0 until entryArray.length()) {
-                    val entry = entryArray.optJSONObject(i) ?: continue
-                    entries.add(
-                        ChannelEntryRow(
-                            id = optStr(entry, "id").trim(),
-                            title = optStr(entry, "title").trim(),
-                            detail = optStr(entry, "detail").trim(),
-                            icon = optStr(entry, "icon").trim(),
-                            requiresElevation = entry.optBoolean("requiresElevation", false),
+    /** 老对端 ChannelView → 统一 BootGroup（kind = channel:<id>，条目 spec 即切换值域）。 */
+    private fun bootGroupFromChannelView(item: JSONObject): BootGroup {
+        val id = optStr(item, "id").trim()
+        val label = optStr(item, "label").trim().ifEmpty { channelTitle(id) }
+        val options = mutableListOf<BootOption>()
+        val preview = item.optJSONObject("menuPreview")?.optJSONArray("entries")
+        if (preview != null) {
+            for (i in 0 until preview.length()) {
+                val e = preview.optJSONObject(i) ?: continue
+                val spec = optStr(e, "spec")
+                val k = optStr(e, "kind")
+                val source = optStr(e, "source")
+                val kindTxt = when (k) { "macos" -> "macOS"; "windows" -> "Windows"; "linux" -> "Linux"; "tool" -> getString(R.string.hub_class_tool); "generic" -> getString(R.string.hub_class_generic); else -> k }
+                val srcTxt = when (source) { "bootorder" -> getString(R.string.hub_oc_private); "bless" -> getString(R.string.oc_blessScan); "preboot" -> "APFS Preboot"; "protocol" -> getString(R.string.oc_protocolDriver); else -> "" }
+                val volume = optStr(e, "volume")
+                val path = optStr(e, "path")
+                options.add(
+                    BootOption(
+                        value = spec,
+                        label = optStr(e, "title"),
+                        kind = channelClass(k),
+                        fixed = spec.isEmpty(),
+                        tag = listOf(kindTxt, srcTxt).filter { it.isNotEmpty() }.joinToString(" · "),
+                        grubSub = if (volume.isNotEmpty() && volume != "—") "$volume · $path" else path,
+                        grubNote = optStr(e, "note"),
+                    ),
+                )
+            }
+        } else {
+            val entries = item.optJSONArray("entries")
+            if (entries != null) {
+                for (i in 0 until entries.length()) {
+                    val e = entries.optJSONObject(i) ?: continue
+                    val eid = optStr(e, "id").trim()
+                    val entryTitle = optStr(e, "title").trim()
+                    if (entryTitle.isEmpty()) continue
+                    options.add(
+                        BootOption(
+                            value = if (id == "sdboot") "sdboot:$eid" else eid,
+                            label = entryTitle,
+                            kind = channelClass(optStr(e, "icon")),
                         ),
                     )
                 }
             }
-            val health = mutableListOf<String>()
-            val healthArray = item.optJSONArray("health")
-            if (healthArray != null) {
-                for (i in 0 until healthArray.length()) {
-                    val issue = healthArray.optJSONObject(i) ?: continue
-                    val text = optStr(issue, "text").trim()
-                    if (text.isNotEmpty()) health.add(text)
-                }
-            }
-            // OC 菜单预演（只有 opencore 通道有；其它通道没有这个字段）
-            val menuPreview = mutableListOf<ChannelMenuRow>()
-            val previewArray = item.optJSONObject("menuPreview")?.optJSONArray("entries")
-            if (previewArray != null) {
-                for (i in 0 until previewArray.length()) {
-                    val entry = previewArray.optJSONObject(i) ?: continue
-                    menuPreview.add(
-                        ChannelMenuRow(
-                            title = optStr(entry, "title").trim(),
-                            kind = optStr(entry, "kind").trim(),
-                            volume = optStr(entry, "volume").trim(),
-                            path = optStr(entry, "path").trim(),
-                            source = optStr(entry, "source").trim(),
-                            note = optStr(entry, "note").trim(),
-                            isDefault = entry.optBoolean("default", false),
-                            auxiliary = entry.optBoolean("auxiliary", false),
-                            spec = optStr(entry, "spec"),
-                        ),
-                    )
-                }
-            }
-            channels.add(
-                ChannelRow(
-                    id = optStr(item, "id").trim(),
-                    label = optStr(item, "label").trim(),
-                    detected = item.optBoolean("detected", false),
-                    permission = optStr(item, "permission").trim(),
-                    chip = optStr(item, "chip").trim(),
-                    detail = optStr(item, "detail").trim(),
-                    entries = entries,
-                    currentDefault = optStr(item, "currentDefault").trim(),
-                    lastBoot = optStr(item, "lastBoot").trim(),
-                    error = optStr(item, "error").trim(),
-                    health = health,
-                    menuPreview = menuPreview,
-                ),
-            )
         }
-        return channels
+        val current = preview?.let {
+            var cur = ""
+            for (i in 0 until it.length()) {
+                val e = it.optJSONObject(i) ?: continue
+                if (e.optBoolean("default", false)) { cur = optStr(e, "spec").ifEmpty { optStr(e, "title") }; break }
+            }
+            cur
+        } ?: optStr(item, "currentDefault").trim()
+        return BootGroup(
+            kind = "channel:" + id,
+            title = label,
+            available = item.optBoolean("detected", false) && options.isNotEmpty(),
+            current = current,
+            next = "",
+            saved = "",
+            note = optStr(item, "error"),
+            options = options,
+        )
+    }
+
+    /** 通道条目 icon → 平台色点分类（mac/win/linux/tool/auto）。 */
+    private fun channelClass(icon: String): String = when (icon.trim().lowercase()) {
+        "macos", "mac" -> "mac"
+        "windows", "win" -> "win"
+        "linux" -> "linux"
+        "tool" -> "tool"
+        "menu", "generic" -> "auto"
+        else -> "linux"
     }
 
     /// `/api/ui-state` 的 `refindSim` → rEFInd 可选组（**自动模式**的数据源）。
@@ -4321,6 +4199,12 @@ class ComputerListActivity : ComponentActivity() {
     /** 系统图标（与托盘 grub_os_icon 同一规则，不猜）：windows→🪟 mac→🍎 linux→🐧 */
     /** 平台图标（与 PC 端 platformIcon / 后端 grub_os_icon 同一映射）：class 优先，名字关键词兜底 */
     private fun grubOsIcon(cls: String?, text: String): String {
+        // 先认显式分类（后端 class/kind：win/mac/linux），再按名字关键词兜底
+        when (cls?.trim()?.lowercase(Locale.US)) {
+            "win", "windows" -> return "🪟 "
+            "mac", "macos", "apple" -> return "🍎 "
+            "linux" -> return "🐧 "
+        }
         val hay = "${cls ?: ""} ${text}".lowercase(Locale.US)
         return when {
             hay.contains("windows") || hay.contains("microsoft") -> "🪟 "
@@ -4542,7 +4426,7 @@ class ComputerListActivity : ComponentActivity() {
         }, "anyboot-pending-cancel").start()
     }
 
-    private fun switchBoot(profile: ServerProfile, kind: String, value: String, verb: String) {
+    private fun switchBoot(profile: ServerProfile, kind: String, value: String, verb: String, title: String = "") {
         val id = profile.id
         if (busy[id] != null) return
         if (value.isEmpty()) {
@@ -4555,26 +4439,24 @@ class ComputerListActivity : ComponentActivity() {
                 val choice = chooseEndpoint(profile)
                     ?: throw Exception(getString(R.string.error_noAddress))
                 if (!choice.alive) throw Exception(getString(R.string.error_hostOffline))
-                // RefindPlus 走独立通道参数 channel=refindplus；value 是组 options
-                // 里的原文（自动模式是菜单标题原文，末尾可能带空格，不要 trim），
-                // URLEncoder 只做传输层转义、不改内容
-                val path = if (kind == KIND_REFIND) {
-                    "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
-                } else if (kind == KIND_REFINDPLUS) {
-                    "/api/switch?system=" + URLEncoder.encode(value, "UTF-8") + "&channel=refindplus"
-                } else if (kind.startsWith("channel:")) {
-                    // 三引导器通道（sdboot / opencore / clover）：value 是后端算好的完整 spec
-                    // （opencore-default:<卷>\u0001<路径> / sdboot:<id> / clover-oneshot …），
-                    // 在第一个冒号处拆成 channel+target 发给通道切换端点 —— 绝不能落到 grub-switch
-                    // （否则「当前 grub.cfg 里没有这一项」，用户实测 OpenCore 选中被当 GRUB 的根因）。
-                    val sep = value.indexOf(':')
-                    if (sep <= 0) throw Exception(getString(R.string.and_cannotSetDefault))
-                    var p2 = "/api/boot-channel-switch?channel=" + URLEncoder.encode(value.substring(0, sep), "UTF-8")
-                    val target = value.substring(sep + 1)
-                    if (target.isNotEmpty()) p2 += "&target=" + URLEncoder.encode(target, "UTF-8")
-                    p2
-                } else {
-                    "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")
+                // 6 个引导器统一按 kind 分发到各自端点（kind 可能带 `channel:` 前缀）
+                val baseKind = kind.removePrefix("channel:")
+                val path = when (baseKind) {
+                    KIND_REFIND -> "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
+                    KIND_REFINDPLUS -> "/api/switch?system=" + URLEncoder.encode(value, "UTF-8") + "&channel=refindplus"
+                    KIND_GRUB -> "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")
+                    "sdboot", "opencore", "clover" -> {
+                        // value 是完整 spec（sdboot:<id> / opencore-default:<卷>… / opencore / clover-oneshot …），
+                        // 在第一个 ':' 拆成 channel=前缀 + target=余下；无冒号则 channel=value、target 空。
+                        val sep = value.indexOf(':')
+                        val channel = if (sep > 0) value.substring(0, sep) else value
+                        val target = if (sep > 0) value.substring(sep + 1) else ""
+                        var p = "/api/boot-channel-switch?channel=" + URLEncoder.encode(channel, "UTF-8")
+                        if (target.isNotEmpty()) p += "&target=" + URLEncoder.encode(target, "UTF-8")
+                        if (title.isNotEmpty()) p += "&title=" + URLEncoder.encode(title, "UTF-8")
+                        p
+                    }
+                    else -> throw Exception(getString(R.string.and_cannotSetDefault))
                 }
                 val json = httpJson(choice.url, choice.token, path)
                 json.optString("message", "").ifEmpty {
@@ -4592,92 +4474,6 @@ class ComputerListActivity : ComponentActivity() {
                 }
             }
         }, "anyboot-boot-switch").start()
-    }
-
-    /**
-     * 三引导器通道切换：`GET /api/boot-channel-switch?channel=&target=`。
-     * spec 组装对齐 PC 网页端 `bootChannelSpec`（ui/boot-list-view.js:531）：
-     * sdboot 条目 → channel=sdboot、target=条目 id；opencore / clover 的条目 id
-     * 本身就是通道值域（`opencore`、`opencore-register`、`clover-oneshot`），target 省略。
-     */
-    private fun switchChannel(profile: ServerProfile, channel: ChannelRow, entry: ChannelEntryRow, verb: String) {
-        val channelName: String
-        val target: String
-        if (channel.id == "sdboot") {
-            channelName = "sdboot"
-            target = entry.id.trim()
-            if (target.isEmpty()) {
-                toast(getString(R.string.and_noSwitchTargetEntry))
-                return
-            }
-        } else {
-            channelName = entry.id.trim()
-            target = ""
-            if (channelName.isEmpty()) {
-                toast(getString(R.string.and_noActionAvailable))
-                return
-            }
-        }
-        channelSwitchRequest(profile, channel, channelName, target, verb, entry.title)
-    }
-
-    /**
-     * OC 菜单预演行整行点击 = 设为默认：`row.spec` 是后端算好的完整值域
-     * （`opencore-default:<卷>\u0001<路径>`），在**第一个**冒号处拆成 channel+target
-     * 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意只切
-     * 一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。
-     */
-    private fun switchPreviewRow(profile: ServerProfile, channel: ChannelRow, row: ChannelMenuRow) {
-        val spec = row.spec.trim()
-        val sep = spec.indexOf(':')
-        if (spec.isEmpty() || sep <= 0 || sep == spec.length - 1) {
-            toast(getString(R.string.and_cannotSetDefault))
-            return
-        }
-        channelSwitchRequest(profile, channel, spec.substring(0, sep), spec.substring(sep + 1), getString(R.string.and_setDefault), row.title)
-    }
-
-    /** 通道切换的公共请求体（busy 键 boot:ch-<通道 id>，通道按钮据此转圈） */
-    private fun channelSwitchRequest(
-        profile: ServerProfile,
-        channel: ChannelRow,
-        channelName: String,
-        target: String,
-        verb: String,
-        title: String = "",
-    ) {
-        val id = profile.id
-        if (busy[id] != null) return
-        busy[id] = "boot:ch-${channel.id}"
-        Thread({
-            val outcome = runCatching {
-                val choice = chooseEndpoint(profile)
-                    ?: throw Exception(getString(R.string.error_noAddress))
-                if (!choice.alive) throw Exception(getString(R.string.error_hostOffline))
-                var path = "/api/boot-channel-switch?channel=" + URLEncoder.encode(channelName, "UTF-8")
-                if (target.isNotEmpty()) {
-                    path += "&target=" + URLEncoder.encode(target, "UTF-8")
-                }
-                // title = 选中条目的完整标题，后端据此统一「下次启动：<title>」回执
-                if (title.isNotEmpty()) {
-                    path += "&title=" + URLEncoder.encode(title, "UTF-8")
-                }
-                val json = httpJson(choice.url, choice.token, path)
-                json.optString("message", "").ifEmpty {
-                    if (json.optBoolean("ok", true)) getString(R.string.and_nextBootSet)
-                    else json.optString("error", getString(R.string.and_requestRejected))
-                }
-            }
-            runOnUiThread {
-                busy.remove(id)
-                outcome.onSuccess { message ->
-                    toast(message)
-                    reloadBoot(profile)
-                }.onFailure { error ->
-                    toast(getString(R.string.and_verbFail, verb, error.message ?: getString(R.string.gw_unknownErr)))
-                }
-            }
-        }, "anyboot-channel-switch").start()
     }
 
     private fun performPower(profile: ServerProfile, action: String) {
@@ -4891,7 +4687,8 @@ class ComputerListActivity : ComponentActivity() {
         val refind: BootGroup,
         val refindplus: BootGroup,
         val grub: BootGroup,
-        val channels: List<ChannelRow>,
+        /** 6 个统一引导器 BootGroup（refind/refindplus/grub/sdboot/opencore/clover） */
+        val channels: List<BootGroup>,
         val state: String,
         /** 当前连接标注：直连 / 跳板机·xxx / 远程隧道 / Tailscale 直连 / Tailscale Funnel（远程只在探测赢家确实是它时） */
         val conn: String,
@@ -4938,6 +4735,8 @@ class ComputerListActivity : ComponentActivity() {
         val kind: String,
         /** 组头行（value 恒空、不可选）：rEFInd 同一分区的「父条目（N 个内核）」 */
         val header: Boolean = false,
+        /** 固定行（value 恒空、不可切）：OC 预演里没有值域的行、rEFInd 组头 —— 只展示不可切 */
+        val fixed: Boolean = false,
         /** 行右侧来源标签（rEFInd 子项：默认项/折叠内核/macOS 诊断…；OC：类型·来源） */
         val tag: String = "",
         /** 行下第二行小字（OC：卷 · 路径）——所有引导器共用 GRUB 行样式 */
@@ -4985,8 +4784,8 @@ class ComputerListActivity : ComponentActivity() {
         val refind: BootGroup,
         val refindplus: BootGroup,
         val grub: BootGroup,
-        /** 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空列表 */
-        val channels: List<ChannelRow> = emptyList(),
+        /** 6 个统一引导器 BootGroup；PC 版本太旧时回退为占位组 */
+        val channels: List<BootGroup> = emptyList(),
         /** 探测赢家顺手带回来的系统族（windows / macos / linux）；老服务端为空 */
         val machineOs: String = "",
         /** 这一轮逐条配对的探测结果（按 pair_id 回填卡片上的行） */
@@ -4998,56 +4797,6 @@ class ComputerListActivity : ComponentActivity() {
          * 一址一跳板机：卡片要按它回答「用的是这个地址的那台跳板机」。
          */
         val winnerAddr: String = "",
-    )
-
-    /** 三引导器通道里的一条可执行动作（后端 `ChannelEntry`，camelCase） */
-    private data class ChannelEntryRow(
-        val id: String,
-        val title: String,
-        val detail: String,
-        /** linux / windows / macos / menu —— 前端选图标用 */
-        val icon: String,
-        val requiresElevation: Boolean,
-    )
-
-    /**
-     * OC 菜单预演里的一行（后端 `oc_menu::MenuPreviewEntry`，camelCase）。
-     * `spec` 是后端算好的完整切换值域（`opencore-default:<卷>\u0001<路径>`）——
-     * 原样拆成 channel+target 发回去，前端不拼这个字符串；spec 为空的行不可设。
-     */
-    private data class ChannelMenuRow(
-        val title: String,
-        /** macos / windows / linux / tool / generic… */
-        val kind: String,
-        val volume: String,
-        val path: String,
-        /** bootorder / bless / scan… */
-        val source: String,
-        val note: String,
-        val isDefault: Boolean,
-        val auxiliary: Boolean,
-        val spec: String,
-    )
-
-    /** 一条引导器通道（后端 `ChannelView`，GET /api/boot-channels） */
-    private data class ChannelRow(
-        /** sdboot / opencore / clover */
-        val id: String,
-        val label: String,
-        val detected: Boolean,
-        /** "file" = 免提权；"nvram" = 切换必经 NVRAM 写 */
-        val permission: String,
-        /** ok / warn / off */
-        val chip: String,
-        val detail: String,
-        val entries: List<ChannelEntryRow>,
-        val currentDefault: String,
-        val lastBoot: String,
-        val error: String,
-        /** 健康检查问题（后端 HealthIssue.text，目前只有 warn 级） */
-        val health: List<String>,
-        /** 只有 OpenCore 通道有：开机菜单预演，动作行从这里出（顶层 entries 对 OC 是空的） */
-        val menuPreview: List<ChannelMenuRow> = emptyList(),
     )
 
     /** 浅白透明框（用户 2026-11-01 二改）：套在**整块通道行**外面（徽章+状态+IP+MAC 一块区域），
@@ -5099,11 +4848,11 @@ class ComputerListActivity : ComponentActivity() {
         return hit.error.trim()
     }
 
-    /** kind = KIND_CHANNEL 时携带通道视图 */
+    /** 引导项下拉：kind + 该 kind 对应的 BootGroup（统一数据，不再区分三通道） */
     private data class SheetRequest(
         val rid: String,
         val kind: String,
-        val channel: ChannelRow? = null,
+        val group: BootGroup? = null,
     )
 
     private class CqToast(val text: String) {
@@ -5131,8 +4880,6 @@ class ComputerListActivity : ComponentActivity() {
         const val KIND_REFINDPLUS = "refindplus"
         const val KIND_GRUB = "grub"
         const val KIND_HELP = "help"
-        /** 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里 */
-        const val KIND_CHANNEL = "channel"
 
         const val POWER_WAKE = "wake"
         const val POWER_SLEEP = "sleep"

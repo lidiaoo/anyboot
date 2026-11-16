@@ -9,6 +9,26 @@ enum BootKind {
     static let refind = "refind"
     static let refindplus = "refindplus"
     static let grub = "grub"
+    static let sdboot = "sdboot"
+    static let opencore = "opencore"
+    static let clover = "clover"
+
+    /// 后端 `channels[6]` 的固定顺序（refind,refindplus,grub,sdboot,opencore,clover）。
+    /// 渲染一律按这个顺序遍历，保证 6 个引导器通道无差别对待。
+    static let all = [refind, refindplus, grub, sdboot, opencore, clover]
+
+    /// 通道默认标题（后端 title 为空时的兜底）
+    static func defaultTitle(_ kind: String) -> String {
+        switch kind {
+        case refind: return "rEFInd"
+        case refindplus: return "RefindPlus"
+        case grub: return "GRUB"
+        case sdboot: return "systemd-boot"
+        case opencore: return "OpenCore"
+        case clover: return "Clover"
+        default: return kind
+        }
+    }
 }
 
 /// 一个可选的启动项（rEFInd 的一条 EFI 变量，或 GRUB 的一个 menuentry）
@@ -21,6 +41,13 @@ struct BootOption: Hashable, Identifiable {
     var header: Bool = false
     /// 行右侧小标签（rEFInd 子项来源：默认项/折叠内核/macOS 诊断…）
     var tag: String = ""
+    // ---- 统一 6 引导器通道（后端 BootOption）字段 ----
+    /// 固定项（后端 fixed=true）：通常不可改，仅展示
+    var fixed: Bool = false
+    /// 行副标题（后端 sub）
+    var sub: String = ""
+    /// 行备注（后端 note）
+    var note: String = ""
 
     // ---- GRUB 专用 ----
     var grubName: String = ""
@@ -68,8 +95,9 @@ struct BootInfo {
     var refind: BootGroup
     var refindplus: BootGroup
     var grub: BootGroup
-    /// 三引导器通道（sdboot / opencore / clover）；PC 版本太旧时为空数组
-    var channels: [ChannelGroup] = []
+    /// 统一 6 引导器通道（refind,refindplus,grub,sdboot,opencore,clover）。
+    /// 后端已改契约：`channels` 是 6 个统一 BootGroup 的数组，以它为准渲染。
+    var channels: [BootGroup] = []
     var machineOs: String = ""
     var hits: [ProbeEngine.Hit] = []
     var winnerKind: String = ""
@@ -99,6 +127,8 @@ struct GrubRow: Identifiable {
     var isGroup: Bool
     var pinned: Bool = false
     var child: Bool = false
+    /// 固定项（后端 fixed）：沿用统一字段，渲染时不再按通道特判
+    var fixed: Bool = false
     /// 行右侧灰字标签（组头=「N 项」；子项=来源 tag）
     var trailing: String = ""
 
@@ -108,63 +138,6 @@ struct GrubRow: Identifiable {
         if let option { return (isGroup ? "t:" : "o:") + option.value + ":" + text }
         return "g:" + text
     }
-}
-
-// MARK: - 三引导器通道（systemd-boot / OpenCore / Clover，对齐后端 ChannelView）
-
-/// 三引导器通道的一条可执行动作（后端 `ChannelEntry`，camelCase）
-struct ChannelEntryView: Hashable, Identifiable {
-    var id: String          // sdboot: 条目名；opencore/clover: 动作 id（本身就是切换值域）
-    var title: String
-    var detail: String
-    var icon: String        // linux / windows / macos / menu
-    var requiresElevation: Bool
-}
-
-/// OC 菜单预演里的一行（后端 `oc_menu::MenuPreviewEntry`，camelCase）。
-/// `spec` 是后端算好的完整切换值域（`opencore-default:<卷>\u{1}<路径>`）——
-/// 原样拆成 channel+target 发回去，前端不拼这个字符串；spec 为空的行不可设。
-struct ChannelMenuRow: Hashable, Identifiable {
-    var title: String
-    var kind: String        // macos / windows / linux / tool / generic…
-    var volume: String
-    var path: String
-    var source: String      // bootorder / bless / scan…
-    var note: String
-    var isDefault: Bool
-    var auxiliary: Bool
-    var spec: String
-
-    var id: String { "\(title)|\(volume)|\(path)|\(kind)" }
-}
-
-/// OpenCore 通道专属：开机菜单长什么样（对齐 PC 网页端 renderOcMenuPreview 的数据）
-struct ChannelMenuPreview: Hashable {
-    var defaultSlot: String     // 当前默认槽（如 OCBt0080）
-    var orderSource: String
-    var rows: [ChannelMenuRow]
-}
-
-/// 一条引导器通道（后端 `ChannelView`，camelCase 序列化，GET /api/boot-channels）
-struct ChannelGroup: Hashable, Identifiable {
-    var id: String          // sdboot / opencore / clover
-    var label: String
-    var detected: Bool
-    var permission: String  // "file" = 免提权；"nvram" = 切换必经 NVRAM 写
-    var chip: String        // ok / warn / off
-    var detail: String
-    var entries: [ChannelEntryView]
-    var currentDefault: String
-    var lastBoot: String
-    var error: String
-    var health: [String]
-    /// 只有 OpenCore 通道有：开机菜单预演，动作行从这里出（顶层 entries 对 OC 是空的）
-    var menuPreview: ChannelMenuPreview?
-
-    /// 可执行动作总数：顶层 entries + OC 菜单预演行。
-    /// OpenCore 的条目全在 menuPreview、顶层 entries 恒为空 —— 判断「通道有没有动作」
-    /// 必须两边都数，否则列表上的 OC 按钮会误判成「没有可用动作」（真机踩过）。
-    var actionCount: Int { entries.count + (menuPreview?.rows.count ?? 0) }
 }
 
 // MARK: - 解析
@@ -330,55 +303,57 @@ enum BootParser {
         return "linux"
     }
 
-    /// `GET /api/boot-channels`（顶层就是 ChannelView 数组）→ 三引导器通道
-    static func parseChannels(_ list: [[String: Any]]) -> [ChannelGroup] {
+    /// `channels`（6 个统一 BootGroup 的 JSON 数组）→ [BootGroup]。
+    /// 每个元素形如 {kind,title,available,current,next,saved,note,options[]}。
+    static func parseChannels(_ list: [[String: Any]]) -> [BootGroup] {
         list.map { item in
-            let entries: [ChannelEntryView] = RemoteHttp.objects(item, "entries").map { entry in
-                ChannelEntryView(
-                    id: RemoteHttp.str(entry, "id").trimmingCharacters(in: .whitespaces),
-                    title: RemoteHttp.str(entry, "title").trimmingCharacters(in: .whitespaces),
-                    detail: RemoteHttp.str(entry, "detail").trimmingCharacters(in: .whitespaces),
-                    icon: RemoteHttp.str(entry, "icon").trimmingCharacters(in: .whitespaces),
-                    requiresElevation: RemoteHttp.bool(entry, "requiresElevation"))
-            }
-            let health = RemoteHttp.objects(item, "health").compactMap { issue -> String? in
-                let text = RemoteHttp.str(issue, "text").trimmingCharacters(in: .whitespaces)
-                return text.isEmpty ? nil : text
-            }
-            // OC 菜单预演（只有 opencore 通道有；其它通道没有这个字段）
-            var menuPreview: ChannelMenuPreview?
-            if let rawPreview = item["menuPreview"] as? [String: Any] {
-                let rows: [ChannelMenuRow] = RemoteHttp.objects(rawPreview, "entries").map { entry in
-                    ChannelMenuRow(
-                        title: RemoteHttp.str(entry, "title").trimmingCharacters(in: .whitespaces),
-                        kind: RemoteHttp.str(entry, "kind").trimmingCharacters(in: .whitespaces),
-                        volume: RemoteHttp.str(entry, "volume").trimmingCharacters(in: .whitespaces),
-                        path: RemoteHttp.str(entry, "path").trimmingCharacters(in: .whitespaces),
-                        source: RemoteHttp.str(entry, "source").trimmingCharacters(in: .whitespaces),
-                        note: RemoteHttp.str(entry, "note").trimmingCharacters(in: .whitespaces),
-                        isDefault: RemoteHttp.bool(entry, "default"),
-                        auxiliary: RemoteHttp.bool(entry, "auxiliary"),
-                        spec: RemoteHttp.str(entry, "spec"))
-                }
-                menuPreview = ChannelMenuPreview(
-                    defaultSlot: RemoteHttp.str(rawPreview, "defaultSlot").trimmingCharacters(in: .whitespaces),
-                    orderSource: RemoteHttp.str(rawPreview, "orderSource").trimmingCharacters(in: .whitespaces),
-                    rows: rows)
-            }
-            return ChannelGroup(
-                id: RemoteHttp.str(item, "id").trimmingCharacters(in: .whitespaces),
-                label: RemoteHttp.str(item, "label").trimmingCharacters(in: .whitespaces),
-                detected: RemoteHttp.bool(item, "detected"),
-                permission: RemoteHttp.str(item, "permission").trimmingCharacters(in: .whitespaces),
-                chip: RemoteHttp.str(item, "chip").trimmingCharacters(in: .whitespaces),
-                detail: RemoteHttp.str(item, "detail").trimmingCharacters(in: .whitespaces),
-                entries: entries,
-                currentDefault: RemoteHttp.str(item, "currentDefault").trimmingCharacters(in: .whitespaces),
-                lastBoot: RemoteHttp.str(item, "lastBoot").trimmingCharacters(in: .whitespaces),
-                error: RemoteHttp.str(item, "error").trimmingCharacters(in: .whitespaces),
-                health: health,
-                menuPreview: menuPreview)
+            BootGroup(
+                kind: RemoteHttp.str(item, "kind").trimmingCharacters(in: .whitespaces),
+                title: RemoteHttp.str(item, "title").trimmingCharacters(in: .whitespaces),
+                available: RemoteHttp.bool(item, "available"),
+                current: RemoteHttp.str(item, "current").trimmingCharacters(in: .whitespaces),
+                next: RemoteHttp.str(item, "next").trimmingCharacters(in: .whitespaces),
+                saved: RemoteHttp.str(item, "saved").trimmingCharacters(in: .whitespaces),
+                note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces),
+                options: RemoteHttp.objects(item, "options").map(parseBootOption))
         }
+    }
+
+    /// 单条统一 BootOption：{value,label,class,header,fixed,tag,sub,note}
+    static func parseBootOption(_ item: [String: Any]) -> BootOption {
+        let cls = RemoteHttp.str(item, "class").trimmingCharacters(in: .whitespaces)
+        return BootOption(
+            value: RemoteHttp.str(item, "value").trimmingCharacters(in: .whitespaces),
+            label: RemoteHttp.str(item, "label").trimmingCharacters(in: .whitespaces),
+            kind: cls.isEmpty ? "linux" : cls,
+            header: RemoteHttp.bool(item, "header"),
+            tag: RemoteHttp.str(item, "tag").trimmingCharacters(in: .whitespaces),
+            fixed: RemoteHttp.bool(item, "fixed"),
+            sub: RemoteHttp.str(item, "sub").trimmingCharacters(in: .whitespaces),
+            note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces))
+    }
+
+    /// 老对端没有统一 `channels[6]` 时的回退：用 refind/refindplus/grub 拼出 6 个，
+    /// 缺的 sdboot/opencore/clover 补成不可用的空组。GRUB 旧结构（label 空）
+    /// 顺手补全成统一 option，保证通用渲染下有可见文案。
+    static func fallbackChannels(refind: BootGroup,
+                                 refindplus: BootGroup,
+                                 grub: BootGroup) -> [BootGroup] {
+        var out: [BootGroup] = [refind, refindplus]
+        var g = grub
+        g.options = grub.options.map { o in
+            var n = o
+            if n.label.isEmpty { n.label = GrubFormat.kernelOf(o) }
+            if n.label.isEmpty { n.label = o.value }
+            return n
+        }
+        out.append(g)
+        for kind in [BootKind.sdboot, BootKind.opencore, BootKind.clover] {
+            out.append(BootGroup(kind: kind, title: BootKind.defaultTitle(kind),
+                                 available: false, current: "", next: "", saved: "",
+                                 note: "", options: []))
+        }
+        return out
     }
 }
 
@@ -776,14 +751,20 @@ enum BootService {
         grubGroup.pendingSeconds = pendingSeconds
         grubGroup.pendingSummary = pendingSummary
 
-        // 三引导器通道：失败不算致命（PC 版本旧没有这个接口，通道静默为空）
-        let channelGroups: [ChannelGroup]
+        // 统一 6 引导器通道：失败不算致命；老对端没有 kind 字段时用三大引导器回退拼 6 个
+        let channelGroups: [BootGroup]
         do {
             let list = try await RemoteHttp.array(endpoint: choice.url, token: choice.token,
                                                   path: "/api/boot-channels")
-            channelGroups = BootParser.parseChannels(list)
+            if list.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
+                channelGroups = BootParser.parseChannels(list)
+            } else {
+                channelGroups = BootParser.fallbackChannels(refind: refindGroup,
+                                                            refindplus: refindplusGroup, grub: grubGroup)
+            }
         } catch {
-            channelGroups = []
+            channelGroups = BootParser.fallbackChannels(refind: refindGroup,
+                                                        refindplus: refindplusGroup, grub: grubGroup)
         }
 
         return BootInfo(
@@ -863,11 +844,13 @@ enum BootService {
                                   note: L("and.snapshotNoGrub"), options: [])
         }
 
-        let channelGroups: [ChannelGroup]
-        if let channels = state["channels"] as? [[String: Any]] {
+        let channelGroups: [BootGroup]
+        if let channels = state["channels"] as? [[String: Any]], !channels.isEmpty,
+           channels.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
             channelGroups = BootParser.parseChannels(channels)
         } else {
-            channelGroups = []
+            channelGroups = BootParser.fallbackChannels(refind: refindGroup,
+                                                        refindplus: refindplusGroup, grub: grubGroup)
         }
 
         return BootInfo(
@@ -915,8 +898,10 @@ enum BootService {
             path = "/api/switch?system=\(encoded)"
         } else if kind == BootKind.refindplus {
             path = "/api/switch?system=\(encoded)&channel=refindplus"
-        } else if kind.hasPrefix("channel:") {
-            // 三引导器通道（sdboot / opencore / clover）：value 是完整 spec
+        } else if kind == BootKind.grub {
+            path = "/api/grub-switch?entry=\(encoded)"
+        } else {
+            // sdboot / opencore / clover：value 是完整 spec
             // （opencore-default:<卷>\u{1}<路径> / sdboot:<id> / clover-oneshot …），
             // 在第一个冒号处拆成 channel+target → 通道切换端点；绝不能落到 grub-switch
             // （否则「当前 grub.cfg 里没有这一项」，OpenCore 选中被当 GRUB 的根因）。
@@ -932,8 +917,6 @@ enum BootService {
                 p2 += "&target=\(encT)"
             }
             path = p2
-        } else {
-            path = "/api/grub-switch?entry=\(encoded)"
         }
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
@@ -943,84 +926,6 @@ enum BootService {
         }
         let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
         return failure.isEmpty ? L("and.requestRejected") : failure
-    }
-
-    /// 三引导器通道切换：`GET /api/boot-channel-switch?channel=&target=`。
-    /// spec 组装对齐 PC 网页端 `bootChannelSpec`（ui/boot-list-view.js:531）：
-    /// sdboot 条目 → channel=sdboot、target=条目 id（entry.id 就是 loader/entries 的名字）；
-    /// opencore / clover 的条目 id 本身就是通道值域（`opencore`、`opencore-register`、
-    /// `clover-oneshot`），target 省略。
-    static func switchChannel(_ profile: ServerProfile,
-                              group: ChannelGroup,
-                              entry: ChannelEntryView) async throws -> String {
-        let channelName: String
-        let target: String
-        if group.id == "sdboot" {
-            channelName = "sdboot"
-            target = entry.id.trimmingCharacters(in: .whitespaces)
-            if target.isEmpty { throw RemoteHttpError(message: L("and.noSwitchTargetEntry")) }
-        } else {
-            channelName = entry.id.trimmingCharacters(in: .whitespaces)
-            target = ""
-            if channelName.isEmpty { throw RemoteHttpError(message: L("and.noActionAvailable")) }
-        }
-        guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: L("error.noAddress"))
-        }
-        guard choice.alive else {
-            throw RemoteHttpError(message: L("error.hostOffline"))
-        }
-        func encode(_ value: String) -> String {
-            value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
-        }
-        var path = "/api/boot-channel-switch?channel=\(encode(channelName))"
-        if !target.isEmpty { path += "&target=\(encode(target))" }
-        // title = 选中条目的完整标题，后端据此统一「下次启动：<title>」回执
-        if !entry.title.trimmingCharacters(in: .whitespaces).isEmpty {
-            path += "&title=\(encode(entry.title))"
-        }
-        let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
-        let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
-        if !message.isEmpty { return message }
-        if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
-            return L("and.nextBootSet")
-        }
-        let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
-        return failure.isEmpty ? "请求被拒绝" : failure
-    }
-
-    /// OC 菜单预演行的「设为默认 ⤴」：`row.spec` 是后端算好的完整值域
-    /// （`opencore-default:<卷>\u{1}<路径>`），在**第一个**冒号处拆成 channel+target
-    /// 发回去 —— 服务端会用 `:` 原样拼回同一个 spec（`parse_switch_spec` 特意
-    /// 只切一次冒号，因为路径里可能有 `:`）。与 PC 网页端「原样发回 entry.spec」等价。
-    static func switchPreviewRow(_ profile: ServerProfile, row: ChannelMenuRow) async throws -> String {
-        let spec = row.spec.trimmingCharacters(in: .whitespaces)
-        guard let separator = spec.firstIndex(of: ":") else {
-            throw RemoteHttpError(message: L("and.cannotSetDefault"))
-        }
-        let channelName = String(spec[..<separator])
-        let target = String(spec[spec.index(after: separator)...])
-        if channelName.isEmpty || target.isEmpty {
-            throw RemoteHttpError(message: L("and.cannotSetDefault"))
-        }
-        guard let choice = await chooseEndpoint(profile) else {
-            throw RemoteHttpError(message: L("error.noAddress"))
-        }
-        guard choice.alive else {
-            throw RemoteHttpError(message: L("error.hostOffline"))
-        }
-        func encode(_ value: String) -> String {
-            value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
-        }
-        let path = "/api/boot-channel-switch?channel=\(encode(channelName))&target=\(encode(target))&title=\(encode(row.title))"
-        let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
-        let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
-        if !message.isEmpty { return message }
-        if RemoteHttp.bool(json, "ok") || !json.keys.contains("ok") {
-            return L("and.setDefaultDone")
-        }
-        let failure = RemoteHttp.str(json, "error").trimmingCharacters(in: .whitespaces)
-        return failure.isEmpty ? "请求被拒绝" : failure
     }
 
     /// GRUB 条目文字格式偏好：落盘 key = `grubListFormat`，命名空间 `anyboot_ui`

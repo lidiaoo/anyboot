@@ -151,13 +151,13 @@ const rows = computed(() => {
 
 /** 所有电脑里「检测到(available)」的通道 kind 并集（固定顺序 sdboot/opencore/clover），
  *  与旧版 cqBootColumns 一致：保证各行通道列对齐，某行没检测到就占一列显示「未检测到」。 */
-const CHANNEL_ORDER = ["channel:sdboot", "channel:opencore", "channel:clover"];
+const CHANNEL_ORDER = ["sdboot", "opencore", "clover"];
 const channelKinds = computed<string[]>(() => {
   const seen = new Set<string>();
   for (const row of allRows.value) {
     const info = infoOf(row.id);
     for (const ch of info?.channels ?? []) {
-      if (ch.available) seen.add(ch.kind);
+      if (ch.available && CHANNEL_ORDER.includes(ch.kind)) seen.add(ch.kind);
     }
   }
   // 按固定顺序排序，其余未知通道追加在后

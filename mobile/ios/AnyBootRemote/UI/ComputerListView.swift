@@ -32,8 +32,6 @@ struct ComputerListView: View {
         static let refindplus = BootKind.refindplus
         static let grub = BootKind.grub
         static let help = "help"
-        /// 三引导器通道弹层（sdboot / opencore / clover），具体通道在 SheetRequest.channel 里
-        static let channel = "channel"
     }
 
     @ObservedObject private var store = ServerStore.shared
@@ -69,8 +67,8 @@ struct ComputerListView: View {
         let id = UUID()
         let rid: String
         let kind: String
-        /// kind == Kind.channel 时携带的通道
-        var channel: ChannelGroup? = nil
+        /// 非 help 弹层携带的引导器组（6 通道统一渲染）
+        var group: BootGroup? = nil
     }
 
     private struct ToastItem: Identifiable {
@@ -144,16 +142,20 @@ struct ComputerListView: View {
         guard boots[prof.id] != nil else { return }  // 等 boot 数据到
         debugSheetFired = true
         let k = want.lowercased()
+        let wantedKind: String
         if k.contains("refindplus") {
-            sheet = SheetRequest(rid: prof.id, kind: Kind.refindplus)
+            wantedKind = BootKind.refindplus
         } else if k.contains("refind") {
-            sheet = SheetRequest(rid: prof.id, kind: Kind.refind)
+            wantedKind = BootKind.refind
         } else if k == "grub" {
-            sheet = SheetRequest(rid: prof.id, kind: Kind.grub)
+            wantedKind = BootKind.grub
         } else if k.contains("opencore") {
-            if let ch = boots[prof.id]?.channels.first(where: { $0.id == "opencore" }) {
-                sheet = SheetRequest(rid: prof.id, kind: Kind.channel, channel: ch)
-            }
+            wantedKind = BootKind.opencore
+        } else {
+            return
+        }
+        if let group = boots[prof.id]?.channels.first(where: { $0.kind == wantedKind }) {
+            sheet = SheetRequest(rid: prof.id, kind: group.kind, group: group)
         }
     }
 
@@ -507,10 +509,10 @@ struct ComputerListView: View {
         let tunnelNote: String
         let ip: String
         let hits: [ProbeEngine.Hit]
-        let refind: BootGroup
-        let refindplus: BootGroup
+        /// 保留 GRUB 组：待生效条 / 挂起倒计时（pendingBar）仍挂在它上面
         let grub: BootGroup
-        let channels: [ChannelGroup]
+        /// 统一 6 引导器通道（refind,refindplus,grub,sdboot,opencore,clover）
+        let channels: [BootGroup]
         let state: String
         let conn: String
         let connRemote: Bool
@@ -660,9 +662,7 @@ struct ComputerListView: View {
             tunnelNote: tunnelShareNote(profile),
             ip: displayAddress(profile),
             hits: hits,
-            refind: info?.refind ?? emptyGroup(Kind.refind),
-            refindplus: info?.refindplus ?? emptyGroup(Kind.refindplus),
-            grub: info?.grub ?? emptyGroup(Kind.grub),
+            grub: info?.grub ?? emptyGroup(BootKind.grub),
             channels: info?.channels ?? [],
             state: state,
             conn: conn,
@@ -672,7 +672,7 @@ struct ComputerListView: View {
     }
 
     private func emptyGroup(_ kind: String) -> BootGroup {
-        BootGroup(kind: kind, title: kind == Kind.refind ? "rEFInd" : (kind == Kind.refindplus ? "RefindPlus" : "GRUB"),
+        BootGroup(kind: kind, title: BootKind.defaultTitle(kind),
                   available: false, current: "", next: "", saved: "", note: "", options: [])
     }
 
@@ -1192,207 +1192,45 @@ struct ComputerListView: View {
 
     // MARK: - 引导项按钮（BootButton 1592-1724）
 
-    /// 读取中 / 离线时的三通道占位：此时还没探测出这台机有哪些引导器，
-    /// 先给三条空壳按钮（文案由 channelButton 按 row.state 决定：
-    /// 读取中 → 「读取中…」；离线 → 「离线不可改」）。
-    private func placeholderChannels() -> [ChannelGroup] {
-        [("sdboot", "systemd-boot"), ("opencore", "OpenCore"), ("clover", "Clover")]
-            .map { id, label in
-                ChannelGroup(
-                    id: id, label: label, detected: false, permission: "file",
-                    chip: "off", detail: "", entries: [], currentDefault: "",
-                    lastBoot: "", error: "", health: [], menuPreview: nil)
-            }
-    }
-
+    /// 引导项区：统一遍历 6 个引导器通道（refind/refindplus/grub/sdboot/opencore/clover），
+    /// 全部走同一个 bootButton(row, group) —— 零 loader 特例。
+    /// 读取中 / 离线时后端 channels 可能为空，按 BootKind.all 生成 6 个空组占位，
+    /// 由 bootButton 内部按 row.state 出「读取中…／离线不可改」。
     private func bootButtons(_ row: CqRow) -> some View {
-        // 2026-11-02 用户定案：「电脑列表在检测中 读取中 只有 refind/grub 理论
-        // 上他目前还不知道有哪些引导器 应该是所有引导器都是读取中」。
-        //
-        // 读取中（Reach.unknown）时快照里 channels 还是空的 —— 后端还没探测完，
-        // 确实不知道这台机有哪些引导器。此前只渲染 rEFInd/GRUB 两个固定按钮，
-        // 三通道整块缺失，看着像「已确认只有这两个」。
-        // 现在离线 / 读取中都不按 detected 过滤：
-        //   离线 → 「离线不可改」；读取中 → 「读取中…」（channelButton 内部按状态出文案）
-        let offline = row.state == Reach.offline
-        let loading = row.state == Reach.unknown && row.channels.isEmpty
-        let all = row.channels.isEmpty && (offline || loading) ? placeholderChannels() : row.channels
-        let shown = all.filter { offline || loading || $0.detected }
-        let missing = (offline || loading) ? [] : row.channels.filter { !$0.detected }
+        let groups = row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels
         return VStack(spacing: ABMetric.px(6)) {
-            bootButton(row, kind: Kind.refind, group: row.refind)
-            bootButton(row, kind: Kind.refindplus, group: row.refindplus)
-            bootButton(row, kind: Kind.grub, group: row.grub)
-            // 三引导器通道：检测到的展开成按钮（与 PC 网页端 boot-list-view.js 同一套数据）
-            ForEach(shown) { group in
-                channelButton(row, group: group)
-            }
-            // 未检测到的收进一行折叠提示（PC 端「OpenCore（未检测到）」同款语义）
-            if !missing.isEmpty {
-                Text(missing.map { $0.label }.joined(separator: "、") + L("and.notDetectedParen"))
-                    .font(.system(size: 10))
-                    .foregroundColor(ABColor.fgFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, ABMetric.px(11))
-                    .padding(.top, ABMetric.px(1))
+            ForEach(groups, id: \.kind) { group in
+                bootButton(row, group: group)
             }
         }
         .padding(.top, ABMetric.px(11))
     }
 
-    /// 三引导器通道按钮：外观与 rEFInd/GRUB 一致，值区显示当前默认 / 首个动作。
-    /// 注意可用性看 actionCount（entries + OC 预演行）：OC 的条目全在 menuPreview，
-    /// 只看顶层 entries 会把 OC 误判成「没有可用动作」、点不开弹层。
-    private func channelButton(_ row: CqRow, group: ChannelGroup) -> some View {
-        let work = busy[row.profile.id]
-        let working = work == "boot:ch-\(group.id)"
-        let usable = group.actionCount > 0 && row.state == Reach.online && work == nil
-        var valueLabel: String
-        var dotKind = ""
-        if group.entries.isEmpty {
-            // 顶层空 → 动作可能全在 OC 预演行里：值区显示预演里的默认项 / 首行
-            let previewRows = group.menuPreview?.rows ?? []
-            if previewRows.isEmpty {
-                if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
-                else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
-                else { valueLabel = L("and.noActionAvailable") }
-            } else if let defaultRow = previewRows.first(where: { $0.isDefault && !$0.spec.isEmpty }) {
-                valueLabel = defaultRow.title
-                dotKind = defaultRow.kind
-            } else {
-                valueLabel = previewRows[0].title
-                dotKind = previewRows[0].kind
-            }
-        } else {
-            let current = group.currentDefault.trimmingCharacters(in: .whitespaces)
-            if current.isEmpty, let first = group.entries.first {
-                valueLabel = first.title
-                dotKind = first.icon
-            } else {
-                valueLabel = current
-                dotKind = "menu"
-            }
-        }
-
-        let background = !usable ? ABColor.toneSoftDisabled : ABColor.toneSoft
-        let border = !usable ? ABColor.toneDashed : ABColor.line
-
-        return Button {
-            if group.actionCount == 0 {
-                toast(L("and.noChannelAction", group.label))
-            } else if row.state != Reach.online {
-                toast(L("error.deviceOffline"))
-            } else {
-                sheet = SheetRequest(rid: row.profile.id, kind: Kind.channel, channel: group)
-            }
-        } label: {
-            // 2026-11-02 用户选型「用 B」：与 Android / bootButton 统一的
-            // 「色条双行」—— 名字独占首行、状态行在下（中间 6dp）、垂直居中。
-            VStack(alignment: .leading, spacing: 0) {
-                Text(group.label)
-                    .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-                    .foregroundColor(usable ? ABColor.fgDim : ABColor.fgFaint.opacity(0.75))
-                    .lineLimit(nil)          // 名字完整显示（原先写死 46px 会裁成 OpenCo）
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer().frame(height: ABMetric.px(6))   // 名字↔状态间距
-
-                HStack(spacing: 0) {
-                    if working {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: ABMetric.px(13), height: ABMetric.px(13))
-                        Spacer().frame(width: ABMetric.px(7))
-                    } else if !dotKind.isEmpty {
-                        // GRUB 同源图标（GrubFormat.osIcon 按名字识别）
-                        Text(GrubFormat.osIcon(dotKind))
-                            .font(.system(size: 12.5))
-                        Spacer().frame(width: ABMetric.px(7))
-                    }
-
-                    Text(valueLabel)
-                        .font(.system(size: 12.5, weight: usable ? .medium : .regular))
-                        .foregroundColor(usable ? ABColor.fg : ABColor.fgFaint.opacity(0.85))
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    // 2026-11-02 用户定案：「删除 OpenCore 反向回车的箭头」——
-                    // 原先 nvram 通道（OpenCore）状态行右侧挂一枚 ⤴，
-                    // 表示「切换必经 NVRAM 写」。用户不要这个标记，整块删掉。
-                    if usable {
-                        DrawnIcon.chevronDown(ABColor.fgFaint, size: ABMetric.px(14))
-                            .padding(.leading, ABMetric.px(7))
-                    }
-                }
-            }
-            .padding(.leading, ABMetric.px(11))
-            .padding(.trailing, ABMetric.px(10))
-            .padding(.vertical, ABMetric.px(8))
-            .frame(maxWidth: .infinity, minHeight: ABMetric.px(52))
-            .background(
-                RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
-                    .fill(background))
-            .overlay {
-                if usable {
-                    RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
-                        .strokeBorder(border, lineWidth: 1)
-                } else {
-                    RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
-                        .strokeBorder(border, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 后端 icon 值（linux/windows/macos/menu）→ 圆点色（win 蓝 / mac 灰 / linux 橙 / menu 空心）
-    private func iconKind(_ icon: String) -> String {
-        switch icon {
-        case "windows": return "win"
-        case "macos": return "mac"
-        case "linux": return "linux"
-        default: return "auto"
-        }
-    }
-
-    private func bootButton(_ row: CqRow, kind: String, group: BootGroup) -> some View {
-        let title = kind == Kind.refind ? "rEFInd" : (kind == Kind.refindplus ? "RefindPlus" : "GRUB")
+    private func bootButton(_ row: CqRow, group: BootGroup) -> some View {
+        let title = group.title.isEmpty ? BootKind.defaultTitle(group.kind) : group.title
         let work = busy[row.profile.id]
         let working = work != nil && work!.hasPrefix("boot:")
-        let pending = kind == Kind.grub && grubPending(group)
+        let pending = grubPending(group)
         let usable = group.available && row.state == Reach.online && work == nil
 
         var valueLabel: String
         var dotKind = ""
-        var iconOverride = ""
         if !group.available {
             if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
             else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
             else { valueLabel = L("hub.state.notDetected") }
+        } else if let hit = group.options.first(where: { !$0.header && !$0.value.isEmpty && $0.value == group.current }) {
+            valueLabel = hit.label.isEmpty ? hit.value : hit.label
+            dotKind = hit.kind
+        } else if !group.current.isEmpty {
+            valueLabel = group.current
+            dotKind = "linux"
+        } else if let first = group.options.first(where: { !$0.header }) {
+            valueLabel = first.label.isEmpty ? first.value : first.label
+            dotKind = first.kind
         } else {
-            // 统一化：rEFInd 与 GRUB 同走 GrubFormat.displayRows（数据已填 GRUB 原料）——
-            // 当前值取拼装行 text（含「组名 › 子名」回显拼接），与弹窗置顶同口径。
-            // text 自带 ↳/图标 —— 卡片左侧已画图标，回显文字要去掉行首符号（双图标残留）。
-            let rows = GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
-            let hit = rows.first { $0.option?.value == group.current && !$0.isGroup }
-            if let hit {
-                // 图标 100% GRUB 同源：拼装 text 的行首 emoji 就是 GrubFormat.osIcon 的产物
-                let rawText = hit.text
-                if let r = rawText.range(of: "^[^\\p{L}\\p{Nd}›·]+", options: .regularExpression) {
-                    iconOverride = String(rawText[r])
-                }
-                valueLabel = rawText
-                    .replacingOccurrences(of: "^[^\\p{L}\\p{Nd}›·]+", with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespaces)
-                dotKind = hit.option?.kind ?? "linux"
-            } else {
-                valueLabel = group.current.isEmpty ? L("hub.state.notSet") : group.current
-                dotKind = "linux"
-            }
+            valueLabel = L("hub.state.notSet")
+            dotKind = "linux"
         }
 
         if valueLabel.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1410,7 +1248,7 @@ struct ComputerListView: View {
             } else if row.state != Reach.online {
                 toast(L("error.deviceOffline"))
             } else {
-                sheet = SheetRequest(rid: row.profile.id, kind: kind)
+                sheet = SheetRequest(rid: row.profile.id, kind: group.kind, group: group)
             }
         } label: {
             // 2026-11-02 用户选型「用 B」：与 Android 统一的「色条双行」——
@@ -1720,13 +1558,7 @@ struct ComputerListView: View {
         if let request = sheet {
             let help = request.kind == Kind.help
             let profile = store.profile(request.rid)
-            let group: BootGroup? = {
-                guard !help, request.kind != Kind.channel else { return nil }
-                let info = boots[request.rid]
-                if request.kind == Kind.refind { return info?.refind }
-                if request.kind == Kind.refindplus { return info?.refindplus }
-                return info?.grub
-            }()
+            let group: BootGroup? = help ? nil : request.group
 
             ZStack(alignment: .center) {
                 Color.black.opacity(0.42)
@@ -1738,11 +1570,7 @@ struct ComputerListView: View {
                     // 标题行
                     HStack(spacing: 0) {
                         Text(help ? L("hub.list.help")
-                             : request.kind == Kind.channel
-                                ? L("and.channelBoot", request.channel?.label ?? L("and.channelWord"))
-                                : (request.kind == Kind.refind ? L("and.channelBoot", "rEFInd")
-                                   : request.kind == Kind.refindplus ? L("and.channelBoot", "RefindPlus")
-                                   : L("and.channelBoot", "GRUB")))
+                             : L("and.channelBoot", group?.title ?? L("and.channelWord")))
                             .font(.system(size: 14.5, weight: .bold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
@@ -1772,15 +1600,10 @@ struct ComputerListView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             if help {
                                 helpContent
-                            } else if request.kind == Kind.channel,
-                                      let channel = request.channel, let profile {
-                                channelPickerContent(profile, channel: channel)
-                            } else if let group, !group.options.isEmpty, let profile {
-                                bootPickerContent(profile, kind: request.kind, group: group)
+                            } else if let group, let profile {
+                                bootPickerContent(profile, group: group)
                             } else {
-                                Text(group?.note.isEmpty == false ? group!.note
-                                     : (request.channel?.error.isEmpty == false
-                                        ? request.channel!.error : L("and.noBootOption")))
+                                Text(L("and.noBootOption"))
                                     .font(.system(size: 12.5))
                                     .lineSpacing(ABMetric.px(9))
                                     .foregroundColor(ABColor.fgDim)
@@ -1854,183 +1677,120 @@ struct ComputerListView: View {
     ]
 
     @ViewBuilder
-    private func bootPickerContent(_ profile: ServerProfile,
-                                   kind: String,
-                                   group: BootGroup) -> some View {
-        if kind == Kind.grub {
-            grubFormatChips(group)
-                .padding(.bottom, ABMetric.px(6))
-        }
-
-        let rows: [GrubRow] = (kind == Kind.refind || kind == Kind.refindplus)
-            ? GrubFormat.refindSheetRows(group)
-            : GrubFormat.displayRows(group, selectedFormat: BootFormatStore.shared.value)
-
-        ForEach(rows) { row in
-            if row.isGroup {
-                HStack(spacing: ABMetric.px(6)) {
-                    Text(row.text)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(ABColor.fgDim)
-                    Spacer(minLength: 0)
-                    if !row.trailing.isEmpty {
-                        Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
-                    }
-                }
-                .padding(.top, ABMetric.px(8))
-                .padding(.bottom, ABMetric.px(3))
-                .padding(.leading, ABMetric.px(2))
-            } else if let option = row.option {
-                // 子项(同 value=父title)不逐个高亮/打勾；只有顶层"当前项"高亮（对齐 PC：子项不高亮）
-                let selected = !row.child && !option.value.isEmpty && option.value == group.current
-                Button {
-                    sheet = nil
-                    switchBoot(profile, kind: kind, value: option.value, verb: L("and.switchAction"))
-                } label: {
-                    HStack(spacing: ABMetric.px(8)) {
-                        if row.child {
-                            Rectangle().fill(ABColor.fgFaint.opacity(0.25)).frame(width: ABMetric.px(2))
-                                .padding(.leading, ABMetric.px(6))
-                        }
-                        Text(GrubFormat.osIcon(option.kind))
-                            .font(.system(size: 13))
-                        if row.pinned {
-                            Text(L("hub.picker.pinned"))
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(ABColor.accent)
-                                .padding(.horizontal, ABMetric.px(5)).padding(.vertical, ABMetric.px(1))
-                                .background(RoundedRectangle(cornerRadius: 5).fill(ABColor.accent.opacity(0.14)))
-                        }
-                        Text(row.text)
-                            .font(.system(size: 14))
-                            .foregroundColor(selected ? ABColor.accent : ABColor.fg)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if !row.trailing.isEmpty {
-                            Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint).lineLimit(1)
-                        }
-                        if selected {
-                            DrawnIcon.check(ABColor.accent, size: ABMetric.px(16))
-                        }
-                    }
-                    .padding(.horizontal, ABMetric.px(9))
-                    .padding(.vertical, ABMetric.px(6))
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(selected ? ABColor.accent.opacity(0.14) : .clear))
-                    .padding(.bottom, ABMetric.px(2))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-
-        Text(L("hub.picker.footer"))
-            .font(.system(size: 11))
-            .foregroundColor(ABColor.fgFaint)
-            .padding(.top, ABMetric.px(8))
-    }
-
-    /// 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区）
-    @ViewBuilder
-    private func channelPickerContent(_ profile: ServerProfile, channel: ChannelGroup) -> some View {
-        // 统一化：PC 电脑列表 OC 弹窗无提示区/提示词（提示按钮与提示词在本系统不可见）
-        // OC 菜单预演：只有 OpenCore 通道有，动作行从这里出（顶层 entries 对 OC 是空的）
-        // 排序与 PC / 安卓一致：**可选中的（spec 非空）一组在前，不可选中的一组在后**，
-        // 只按 spec 分组、与是否选中无关 → 顺序恒定，选中只在原位高亮，不跳变。
-        // （稳定分区：两组内部各自保持后端 menuPreview 原序。）
-        let rawPreviewRows: [ChannelMenuRow] = channel.id == "opencore"
-            ? (channel.menuPreview?.rows ?? [])
-            : []
-        let previewRows: [ChannelMenuRow] =
-            rawPreviewRows.filter { !$0.spec.trimmingCharacters(in: .whitespaces).isEmpty }
-            + rawPreviewRows.filter { $0.spec.trimmingCharacters(in: .whitespaces).isEmpty }
-        if !previewRows.isEmpty {
-            ForEach(previewRows) { row in
-                ocMenuRowView(profile, channel: channel, row: row)
-            }
-        }
-        if channel.entries.isEmpty && previewRows.isEmpty {
-            Text(channel.error.isEmpty ? L("and.noActionAvailable") : channel.error)
+    private func bootPickerContent(_ profile: ServerProfile, group: BootGroup) -> some View {
+        if group.options.isEmpty {
+            Text(group.note.isEmpty ? L("and.noBootOption") : group.note)
                 .font(.system(size: 12.5))
+                .lineSpacing(ABMetric.px(9))
                 .foregroundColor(ABColor.fgDim)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
-            ForEach(channel.entries) { entry in
-                Button {
-                    sheet = nil
-                    switchChannelAction(profile, channel: channel, entry: entry, verb: L("and.switchAction"))
-                } label: {
-                    HStack(alignment: .top, spacing: ABMetric.px(8)) {
-                        Text(GrubFormat.osIcon(entry.icon))
-                            .font(.system(size: 13))
-                        VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                            HStack(spacing: ABMetric.px(5)) {
-                                Text(entry.title)
-                                    .font(.system(size: 14))
-                                    .foregroundColor(ABColor.fg)
-                                    .lineLimit(2)
-                                // 2026-11-02 用户定案：列表与弹层里的 ⤴ 标记都删
-                                //（保留帮助文案里的文字说明）。
-                            }
-                            if !entry.detail.isEmpty {
-                                Text(entry.detail)
-                                    .font(.system(size: 11))
-                                    .lineSpacing(ABMetric.px(7))
-                                    .foregroundColor(ABColor.fgFaint)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
+            let rows = unifiedRows(group)
+            ForEach(rows) { row in
+                if row.isGroup {
+                    HStack(spacing: ABMetric.px(6)) {
+                        Text(row.text)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(ABColor.fgDim)
+                        Spacer(minLength: 0)
+                        if !row.trailing.isEmpty {
+                            Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, ABMetric.px(11))
-                    .padding(.vertical, ABMetric.px(10))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: ABMetric.px(11), style: .continuous)
-                            .fill(ABColor.elevate.opacity(0.5)))
-                    .padding(.bottom, ABMetric.px(6))
-                }
-                .buttonStyle(.plain)
-            }
-            Text(L("and.actionNextReboot"))
-                .font(.system(size: 11))
-                .foregroundColor(ABColor.fgFaint)
-                .padding(.top, ABMetric.px(4))
-        }
-    }
-
-    /// GRUB 条目文字格式六档（跟随电脑 + 极简/简易/中等/原始/复杂）
-    private func grubFormatChips(_ group: BootGroup) -> some View {
-        let effective = GrubFormat.effective(selected: BootFormatStore.shared.value, group: group)
-        let selectedValue = BootFormatStore.shared.value
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(L("hub.picker.fmtLabel", selectedValue.isEmpty ? L("hub.picker.fmt.follow") + " · " + effective : effective))
-                .font(.system(size: 11))
-                .foregroundColor(ABColor.fgFaint)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: ABMetric.px(6)) {
-                    ForEach(GrubFormat.all, id: \.self) { value in
-                        let selected = selectedValue == value
+                    .padding(.top, ABMetric.px(8))
+                    .padding(.bottom, ABMetric.px(3))
+                    .padding(.leading, ABMetric.px(2))
+                } else if let option = row.option {
+                    let selected = !row.child && !option.value.isEmpty && option.value == group.current
+                    if option.value.isEmpty {
+                        // 不可选（fixed / 纯展示）行：只渲染文案
+                        pickerOptionLabel(row, option: option, selected: false)
+                    } else {
                         Button {
-                            BootFormatStore.shared.value = value
+                            sheet = nil
+                            switchBoot(profile, kind: group.kind, value: option.value, verb: L("and.switchAction"))
                         } label: {
-                            Text(GrubFormat.label(value))
-                                .font(.system(size: 11.5, weight: selected ? .bold : .regular))
-                                .foregroundColor(selected ? .white : ABColor.fgDim)
-                                .padding(.horizontal, ABMetric.px(9))
-                                .padding(.vertical, ABMetric.px(5))
-                                .background(
-                                    RoundedRectangle(cornerRadius: ABMetric.px(8), style: .continuous)
-                                        .fill(selected ? ABColor.accent : ABColor.elevate))
+                            pickerOptionLabel(row, option: option, selected: selected)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.top, ABMetric.px(6))
-                .padding(.bottom, ABMetric.px(4))
+            }
+            Text(L("hub.picker.footer"))
+                .font(.system(size: 11))
+                .foregroundColor(ABColor.fgFaint)
+                .padding(.top, ABMetric.px(8))
+        }
+    }
+
+    /// 统一引导器行：按 BootOption 字段生成（header/child/tag/pinned/fixed），
+    /// 6 个通道无差别复用 —— 零 loader UI 特例。
+    private func unifiedRows(_ group: BootGroup) -> [GrubRow] {
+        var rows: [GrubRow] = []
+        var inGroup = false
+        for option in group.options {
+            if option.header {
+                inGroup = true
+                rows.append(GrubRow(option: nil, text: option.label,
+                                    isGroup: true, trailing: option.tag))
+            } else {
+                let text = option.label.isEmpty ? option.value : option.label
+                var trailing = option.tag
+                if trailing.isEmpty { trailing = option.sub }
+                rows.append(GrubRow(option: option, text: text, isGroup: false,
+                                    pinned: option.fixed, child: inGroup,
+                                    fixed: option.fixed, trailing: trailing))
             }
         }
+        return rows
+    }
+
+    /// 统一行视图（组头之外）：图标 + 置顶标签 + 标题 + 右侧标签 + 选中勾 + 备注。
+    @ViewBuilder
+    private func pickerOptionLabel(_ row: GrubRow, option: BootOption, selected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+            HStack(spacing: ABMetric.px(8)) {
+                if row.child {
+                    Rectangle().fill(ABColor.fgFaint.opacity(0.25)).frame(width: ABMetric.px(2))
+                        .padding(.leading, ABMetric.px(6))
+                }
+                Text(GrubFormat.osIcon(option.kind))
+                    .font(.system(size: 13))
+                if row.pinned {
+                    Text(L("hub.picker.pinned"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(ABColor.accent)
+                        .padding(.horizontal, ABMetric.px(5)).padding(.vertical, ABMetric.px(1))
+                        .background(RoundedRectangle(cornerRadius: 5).fill(ABColor.accent.opacity(0.14)))
+                }
+                Text(row.text)
+                    .font(.system(size: 14))
+                    .foregroundColor(selected ? ABColor.accent : ABColor.fg)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !row.trailing.isEmpty {
+                    Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint).lineLimit(1)
+                }
+                if selected {
+                    DrawnIcon.check(ABColor.accent, size: ABMetric.px(16))
+                }
+            }
+            if !option.note.isEmpty {
+                Text(option.note)
+                    .font(.system(size: 11))
+                    .foregroundColor(ABColor.fgFaint)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, ABMetric.px(21))
+            }
+        }
+        .padding(.horizontal, ABMetric.px(9))
+        .padding(.vertical, ABMetric.px(6))
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(selected ? ABColor.accent.opacity(0.14) : .clear))
+        .padding(.bottom, ABMetric.px(2))
     }
 
     // MARK: - 删除确认
@@ -2286,140 +2046,6 @@ struct ComputerListView: View {
                 guard !Task.isCancelled else { return }
                 await MainActor.run { refreshAll(silent: true) }
             }
-        }
-    }
-
-    /// 三引导器通道切换（busy 键前缀 boot:ch-<id>，通道按钮据此转圈）
-    private func switchChannelAction(_ profile: ServerProfile,
-                                     channel: ChannelGroup,
-                                     entry: ChannelEntryView,
-                                     verb: String) {
-        if busy[profile.id] != nil { return }
-        if entry.id.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast(L("and.noActionAvailable"))
-            return
-        }
-        busy[profile.id] = "boot:ch-\(channel.id)"
-        Task {
-            do {
-                let message = try await BootService.switchChannel(profile, group: channel, entry: entry)
-                await MainActor.run {
-                    busy.removeValue(forKey: profile.id)
-                    toast(message)
-                }
-                reloadBoot(profile)
-            } catch {
-                await MainActor.run {
-                    busy.removeValue(forKey: profile.id)
-                    let message = (error as? RemoteHttpError)?.message ?? error.localizedDescription
-                    toast("\(verb) 失败：\(message)")
-                }
-            }
-        }
-    }
-
-    /// OC 菜单预演的一行：序号 + 标题（含系统图标）+ 卷·路径 + 备注，
-    /// 行尾「✓ 已是默认」或「设为默认 ⤴」（对齐 PC 网页端 ocMenuRow 的语义：
-    /// 默认行也占位渲染，不让人误以为选不了）
-    private func ocMenuRowView(_ profile: ServerProfile,
-                               channel: ChannelGroup,
-                               row: ChannelMenuRow) -> some View {
-        let pathText = !row.volume.isEmpty && row.volume != "—"
-            ? "\(row.volume) · \(row.path)"
-            : row.path
-        return HStack(alignment: .top, spacing: ABMetric.px(8)) {
-            VStack(alignment: .leading, spacing: ABMetric.px(2)) {
-                HStack(spacing: ABMetric.px(5)) {
-                    Text(ocMenuIcon(row.kind) + row.title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(ABColor.fg)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if row.isDefault {
-                        Text("✓ 已是默认")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundColor(ABColor.accent)
-                    }
-                    if row.auxiliary {
-                        Text(L("hub.child.auxiliary"))
-                            .font(.system(size: 10))
-                            .foregroundColor(ABColor.fgFaint)
-                    }
-                }
-                // PC 同款：类型标签 + 来源标签
-                Text(kindLabel(row.kind) + " · " + sourceLabel(row.source))
-                    .font(.system(size: 10.5))
-                    .foregroundColor(ABColor.fgFaint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(pathText)
-                    .font(.system(size: 11))
-                    .foregroundColor(ABColor.fgFaint)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if !row.note.isEmpty {
-                    Text(row.note)
-                        .font(.system(size: 10.5))
-                        .lineSpacing(ABMetric.px(7))
-                        .foregroundColor(ABColor.fgFaint)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, ABMetric.px(9))
-        .padding(.vertical, ABMetric.px(6))
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(row.isDefault ? ABColor.accent.opacity(0.14) : .clear))
-        .padding(.bottom, ABMetric.px(2))
-        // 与 PC 一致：点整行切换（不单设「设为默认」按钮）
-        .contentShape(Rectangle())
-        .onTapGesture {
-            if !row.isDefault && !row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
-                sheet = nil
-                switchPreviewAction(profile, channel: channel, row: row)
-            }
-        }
-    }
-
-    /// OC 预演行「设为默认 ⤴」的动作（busy 键与通道切换共用，按钮据此转圈）
-    private func switchPreviewAction(_ profile: ServerProfile,
-                                     channel: ChannelGroup,
-                                     row: ChannelMenuRow) {
-        if busy[profile.id] != nil { return }
-        if row.spec.trimmingCharacters(in: .whitespaces).isEmpty {
-            toast(L("and.cannotSetDefault"))
-            return
-        }
-        busy[profile.id] = "boot:ch-\(channel.id)"
-        Task {
-            do {
-                let message = try await BootService.switchPreviewRow(profile, row: row)
-                await MainActor.run {
-                    busy.removeValue(forKey: profile.id)
-                    toast(message)
-                }
-                reloadBoot(profile)
-            } catch {
-                await MainActor.run {
-                    busy.removeValue(forKey: profile.id)
-                    let message = (error as? RemoteHttpError)?.message ?? error.localizedDescription
-                    toast("设为默认失败：\(message)")
-                }
-            }
-        }
-    }
-
-    /// OC 菜单条目的系统图标（与 PC 网页端 OC_MENU_ICONS 同语义）
-    private func ocMenuIcon(_ kind: String) -> String {
-        switch kind {
-        case "macos": return "🍎 "
-        case "windows": return "🪟 "
-        case "linux": return "🐧 "
-        case "tool": return "⚙️ "
-        default: return ""
         }
     }
 

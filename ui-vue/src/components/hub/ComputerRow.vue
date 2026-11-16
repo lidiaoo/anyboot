@@ -128,8 +128,33 @@ async function openPicker(kind: string) {
   pickerFmt.value = "";
   const isGrubKind = kind === "grub";
   const isRefindKind = kind === "refind" || kind === "refindplus";
-  const isChannelKind = kind.startsWith("channel:");
+  const isChannelKind = kind === "sdboot" || kind === "opencore" || kind === "clover";
   const CLASS_LABEL: Record<string, string> = { mac: "macOS", win: "Windows", auto: "hub.class.generic", tool: "hub.class.tool", linux: "Linux", generic: "hub.class.generic" };
+
+  // 通道（sdboot/opencore/clover）统一：所有通道同一套下拉，直接读 info.channels[].options（BootOption）
+  if (isChannelKind) {
+    const group: any = (props.info?.channels ?? []).find((c: any) => c.kind === kind);
+    const opts: any[] = (group?.options ?? []) as any[];
+    const entries = opts.map((o: any) => ({
+      selector: String(o.value ?? ""),
+      name: String(o.label ?? o.value ?? ""),
+      class: o.class,
+      tag: o.tag || "",
+      sub: o.sub || "",
+      note: o.note || "",
+      readonly: !!o.fixed || !o.value,
+      header: !!o.header,
+    }));
+    picker.value = {
+      kind,
+      title: group?.title ?? kind,
+      entries: entries as any,
+      active: String(group?.current ?? "").trim(),
+      groupTitles: {},
+      flat: true,
+    };
+    return;
+  }
 
   // ── 1) 取数并归一化为 PickerSource（本机：uiState；非本机：remote_boot_info）──
   let src: PickerSource | null = null;
