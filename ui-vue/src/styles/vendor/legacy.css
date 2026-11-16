@@ -5628,3 +5628,15 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   margin-right: 6px;
   white-space: nowrap;
 }
+
+/* 主界面/高级设置 引导列表：同款 Android 样式（一级 accent 加粗+竖条+浅底；二级缩进+居中短线；选中绿底） */
+.ba-theme-root .grub-entry.is-group { background: var(--panel-3); box-shadow: inset 3px 0 0 0 var(--link); border-radius: 6px; padding-left: 12px; }
+.ba-theme-root .grub-entry.is-group .grub-entry-name { color: var(--link); font-weight: 700; }
+.ba-theme-root .grub-entry.is-group .grub-entry-count { color: var(--text-fainter, var(--text-dim)); }
+.ba-theme-root .grub-entry.is-child { padding-left: 26px; box-shadow: none; position: relative; }
+.ba-theme-root .grub-entry.is-child::before { content: ""; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 1px; height: 20px; background: var(--border-strong); }
+.ba-theme-root .grub-entry.is-child .grub-entry-name { color: var(--text); font-weight: 500; }
+.ba-theme-root .grub-entry.depth-2, .ba-theme-root .grub-entry.depth-3, .ba-theme-root .grub-entry.depth-4 { padding-left: 42px; }
+.ba-theme-root .grub-entry.depth-2::before, .ba-theme-root .grub-entry.depth-3::before, .ba-theme-root .grub-entry.depth-4::before { left: 28px; }
+.ba-theme-root .grub-entry.active { background: var(--ok-bg); border-color: var(--ok-border); }
+.ba-theme-root .grub-entry.active .grub-entry-name { color: var(--link); }
