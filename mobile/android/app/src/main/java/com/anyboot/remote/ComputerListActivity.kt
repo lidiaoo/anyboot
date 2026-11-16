@@ -2490,6 +2490,7 @@ class ComputerListActivity : ComponentActivity() {
         val rows = mutableListOf<GrubRow>()
         var underHeader = false
         var curHeader = ""
+        var currentMarked = false
         group.options.forEach { opt ->
             if (opt.header) {
                 underHeader = true
@@ -2503,7 +2504,8 @@ class ComputerListActivity : ComponentActivity() {
             val v = opt.value.trim()
             val label = opt.label.ifBlank { v }
             val readonly = v.isEmpty() || opt.fixed
-            if (v.isNotEmpty() && v == group.current) {
+            if (v.isNotEmpty() && v == group.current && !currentMarked) {
+                currentMarked = true
                 // 置顶行名称 = 一级（父组）＋二级（子项），与 PC 置顶副本一致
                 val pinnedLabel = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $label" else label
                 rows.add(GrubRow(opt, pinnedLabel, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))

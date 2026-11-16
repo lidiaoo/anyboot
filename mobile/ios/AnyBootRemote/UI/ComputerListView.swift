@@ -1701,7 +1701,7 @@ struct ComputerListView: View {
                     .padding(.bottom, ABMetric.px(3))
                     .padding(.leading, ABMetric.px(2))
                 } else if let option = row.option {
-                    let selected = !row.child && !option.value.isEmpty && option.value == group.current
+                    let selected = row.pinned
                     if option.value.isEmpty {
                         // 不可选（fixed / 纯展示）行：只渲染文案
                         pickerOptionLabel(row, option: option, selected: false)
@@ -1729,6 +1729,7 @@ struct ComputerListView: View {
         var rows: [GrubRow] = []
         var inGroup = false
         var groupTitle = ""
+        var currentMarked = false
         for option in group.options {
             if option.header {
                 inGroup = true
@@ -1740,7 +1741,9 @@ struct ComputerListView: View {
                                     isGroup: true, trailing: option.tag))
             } else {
                 let label = option.label.isEmpty ? option.value : option.label
-                let isCurrent = !option.value.isEmpty && option.value == group.current
+                // 当前项只标记一次（rEFInd 子项共享父 title，避免多行同时高亮）
+                let isCurrent = !option.value.isEmpty && option.value == group.current && !currentMarked
+                if isCurrent { currentMarked = true }
                 // 置顶行名称 = 一级（父组）＋二级（子项），与 PC/Android 一致
                 let text = (isCurrent && inGroup && !groupTitle.isEmpty) ? "\(groupTitle) › \(label)" : label
                 var trailing = option.tag
