@@ -878,9 +878,29 @@ enum BootService {
             throw RemoteHttpError(message: L("error.hostOffline"))
         }
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
-        let path = kind == BootKind.refind
-            ? "/api/switch?system=\(encoded)"
-            : "/api/grub-switch?entry=\(encoded)"
+        let path: String
+        if kind == BootKind.refind {
+            path = "/api/switch?system=\(encoded)"
+        } else if kind.hasPrefix("channel:") {
+            // 三引导器通道（sdboot / opencore / clover）：value 是完整 spec
+            // （opencore-default:<卷>\u{1}<路径> / sdboot:<id> / clover-oneshot …），
+            // 在第一个冒号处拆成 channel+target → 通道切换端点；绝不能落到 grub-switch
+            // （否则「当前 grub.cfg 里没有这一项」，OpenCore 选中被当 GRUB 的根因）。
+            guard let sep = target.firstIndex(of: ":") else {
+                throw RemoteHttpError(message: L("and.cannotSetDefault"))
+            }
+            let chName = String(target[target.startIndex..<sep])
+            let chTarget = String(target[target.index(after: sep)...])
+            let encCh = chName.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? chName
+            var p2 = "/api/boot-channel-switch?channel=\(encCh)"
+            if !chTarget.isEmpty {
+                let encT = chTarget.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? chTarget
+                p2 += "&target=\(encT)"
+            }
+            path = p2
+        } else {
+            path = "/api/grub-switch?entry=\(encoded)"
+        }
         let json = try await RemoteHttp.json(endpoint: choice.url, token: choice.token, path: path)
         let message = RemoteHttp.str(json, "message").trimmingCharacters(in: .whitespaces)
         if !message.isEmpty { return message }

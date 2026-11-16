@@ -4562,6 +4562,17 @@ class ComputerListActivity : ComponentActivity() {
                     "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
                 } else if (kind == KIND_REFINDPLUS) {
                     "/api/switch?system=" + URLEncoder.encode(value, "UTF-8") + "&channel=refindplus"
+                } else if (kind.startsWith("channel:")) {
+                    // 三引导器通道（sdboot / opencore / clover）：value 是后端算好的完整 spec
+                    // （opencore-default:<卷>\u0001<路径> / sdboot:<id> / clover-oneshot …），
+                    // 在第一个冒号处拆成 channel+target 发给通道切换端点 —— 绝不能落到 grub-switch
+                    // （否则「当前 grub.cfg 里没有这一项」，用户实测 OpenCore 选中被当 GRUB 的根因）。
+                    val sep = value.indexOf(':')
+                    if (sep <= 0) throw Exception(getString(R.string.and_cannotSetDefault))
+                    var p2 = "/api/boot-channel-switch?channel=" + URLEncoder.encode(value.substring(0, sep), "UTF-8")
+                    val target = value.substring(sep + 1)
+                    if (target.isNotEmpty()) p2 += "&target=" + URLEncoder.encode(target, "UTF-8")
+                    p2
                 } else {
                     "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")
                 }
