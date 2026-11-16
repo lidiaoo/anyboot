@@ -978,7 +978,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         // 三引导器通道视图（鉴权后）：网页端 / 手机端消费同一份
         "/api/boot-channels" => {
-            let value = serde_json::to_value(boot_channels(app.clone()))
+            let value = serde_json::to_value(crate::remote_servers::all_channels(&app))
                 .unwrap_or_else(|_| serde_json::json!([]));
             return RemoteReply::ok(200, value);
         }
@@ -3868,7 +3868,7 @@ pub fn run() {
             backup::backup_sync_now,
             backup::backup_pick_import_file,
             backup::backup_pick_export_path,
-            channels::boot_channels,
+            crate::remote_servers::boot_channels_all,
             channels::switch_boot_channel,
             // rEFInd 模拟引导项扫描（与手动获取的 vars 快照并列）
             channels::refind_menu::refind_sim_scan,

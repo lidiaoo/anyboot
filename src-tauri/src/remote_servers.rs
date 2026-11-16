@@ -4818,7 +4818,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         // 旧版状态里本机显示「在线 127.0.0.1:<port>」，这里带上实际端口
         let port = { let p = crate::stored_settings(app).http_port; if p == 0 { 12300 } else { p } };
         info.addr = format!("127.0.0.1:{port}");
-        return Ok(info);
+        return Ok(with_all_channels(info));
     }
     let server = load_store(app)?
         .servers
@@ -4988,7 +4988,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
             info.refind.note = "电脑离线，无法读取引导项".to_string();
             info.refindplus.note = "电脑离线，无法读取引导项".to_string();
             info.grub.note = "电脑离线，无法读取引导项".to_string();
-            return Ok(info);
+            return Ok(with_all_channels(info));
         }
     }
     // 2026-11-02 用户指出：电脑列表要按 refind/grub 的**自动·手动**模式取数据。
@@ -5060,7 +5060,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         // 快照里两套都在，没有「一边失败」的概念；直接收尾
         info.ok = true;
         info.online = true;
-        return Ok(info);
+        return Ok(with_all_channels(info));
     }
 
     // ---- 回落：老服务端没有 /api/ui-state ----
@@ -5114,7 +5114,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
     if !errors.is_empty() {
         info.error = errors.join("；");
     }
-    Ok(info)
+    Ok(with_all_channels(info))
 }
 
 /// 切换引导项：rEFInd 走 `/api/switch?system=`，GRUB 走 `/api/grub-switch?entry=`。
