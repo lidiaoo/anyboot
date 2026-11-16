@@ -9,6 +9,7 @@ import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
 import { useI18n } from "vue-i18n";
+import { currentLocale } from "@/i18n";
 const { t } = useI18n();
 
 /**
@@ -507,6 +508,7 @@ function copyUrl(url: string, addr: string) {
   toast.show(ok ? t("hub.toast.copied", { addr }) : t("hub.toast.copyFail", { url }), ok ? "ok" : "bad");
 }
 async function openUrl(url: string) {
+  try { const u = new URL(url); u.searchParams.set("abLang", currentLocale()); url = u.toString(); } catch { /* 保底原样 */ }
   const { isTauri } = await import("@/api/tauri");
   if (!isTauri()) {
     // 网页/移动端：新标签（popup 可能被拦，提示一下）

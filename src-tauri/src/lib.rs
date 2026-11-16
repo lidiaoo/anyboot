@@ -2930,6 +2930,28 @@ fn set_theme(app: AppHandle, theme: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 设置界面语言（9 种 locale）。持久化到 settings.language 供网页端读取；同时更新运行时 Lang。
+#[tauri::command]
+fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
+    trace(&app, "command", "set_language（主窗口）");
+    let tag = lang.trim().to_string();
+    let effective = if tag.is_empty() || tag == "auto" {
+        // auto：前端通常会传解析后的具体 locale；兜底 zh-CN
+        "zh-CN".to_string()
+    } else {
+        tag.clone()
+    };
+    update_settings_and_publish(
+        &app,
+        "界面语言",
+        &format!("已切换为 {effective}"),
+        |settings| settings.language = effective.clone(),
+        |_app| {},
+    )?;
+    crate::i18n::set_current(crate::i18n::Lang::from_tag(&effective));
+    Ok(())
+}
+
 /// 设置窗口不透明度（百分比，0–100；0 = 全透明但窗口还在）
 #[tauri::command]
 fn set_opacity(app: AppHandle, percent: u32) -> Result<(), String> {
@@ -4031,6 +4053,7 @@ pub fn run() {
             set_sound_file_path,
             set_http_token,
             set_theme,
+            set_language,
             set_opacity,
             open_config_dir,
             open_vars_dir,

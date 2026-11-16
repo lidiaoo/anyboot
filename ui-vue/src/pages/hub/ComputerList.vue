@@ -11,6 +11,7 @@ import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import { useToastStore } from "@/stores/toast";
 import { useI18n } from "vue-i18n";
+import { currentLocale } from "@/i18n";
 import { useEscape } from "@/composables/useEscape";
 const { t } = useI18n();
 
@@ -514,7 +515,7 @@ async function openInBrowser(id: string) {
 }
 
 async function doOpenBrowser(address: string, token: string) {
-  const url = `http://${address}/?token=${token}`;
+  const url = (() => { try { const u = new URL(`http://${address}/?token=${token}`); u.searchParams.set("abLang", currentLocale()); return u.toString(); } catch { return `http://${address}/?token=${token}`; } })();
   const { isTauri } = await import("@/api/tauri");
   if (!isTauri()) {
     window.open(url, "_blank"); // 网页端/移动端：直接开新标签

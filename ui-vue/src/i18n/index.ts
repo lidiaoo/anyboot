@@ -146,9 +146,11 @@ export function setLocale(pref: LangPref) {
       localStorage.setItem("anyboot.lang.effective", effective);
     }
   } catch { /* 忽略 */ }
-  void import("@/api/tauri")
-    .then(({ call }) => call("set_language", { lang: effective }).catch(() => {}))
-    .catch(() => {});
+  if ("__TAURI_INTERNALS__" in window || "__TAURI__" in window) {
+    void import("@/api/tauri")
+      .then(({ call }) => call("set_language", { lang: effective }).catch(() => {}))
+      .catch(() => {});
+  }
   try { window.dispatchEvent(new CustomEvent("anyboot:locale", { detail: effective })); } catch { /* 忽略 */ }
 }
 
@@ -160,8 +162,30 @@ export function currentPref(): LangPref {
   return readPref();
 }
 
+
+/** 网页端（非 Tauri）：若无 abLang、无本机 localStorage 偏好，则取后端 settings.language 作为默认。
+ *  这样「主窗设置的语言」与「浏览器打开 web」是同一份数据（都存后端 settings.language）。 */
+export async function hydrateLocaleFromServer() {
+  if (typeof window === "undefined") return;
+  if (urlAbLang()) return;
+  try { if (localStorage.getItem(STORAGE_KEY)) return; } catch { /* 忽略 */ }
+  const isTauri = "__TAURI_INTERNALS__" in window || "__TAURI__" in window;
+  if (isTauri) return; // 主窗走自己的 localStorage 设置
+  try {
+    const { call } = await import("@/api/tauri");
+    const s: any = await call("get_settings");
+    const lang = s?.language;
+    if (lang && lang !== "auto") {
+      const loc = normalizeLocale(lang);
+      i18n.global.locale.value = loc;
+      document.documentElement.lang = loc;
+    }
+  } catch { /* 忽略：取不到就用 navigator */ }
+}
+
 /** 各入口统一安装（接受 Vue App 实例） */
 export function installI18n(app: import("vue").App) {
   app.use(i18n);
   document.documentElement.lang = i18n.global.locale.value as string;
+  void hydrateLocaleFromServer();
 }

@@ -678,6 +678,8 @@ pub(crate) struct Settings {
     pub(crate) sound_file_path: String,
     /// 界面主题：dark / light / system
     pub(crate) theme: String,
+    /// 界面语言（9 种 locale；"auto"=跟随系统）。主窗设置写这里，网页端读取后作为默认。
+    pub(crate) language: String,
     /// 窗口不透明度（百分比，50–100）
     pub(crate) opacity_percent: u8,
     /// GRUB 细粒度切换用的 ESP 识别键：**分区 UUID**（GPT PARTUUID，如
@@ -897,6 +899,7 @@ impl Default for Settings {
             play_sound: true,
             sound_file_path: String::new(),
             theme: DEFAULT_THEME.to_string(),
+            language: "auto".to_string(),
             opacity_percent: DEFAULT_OPACITY_PERCENT,
             grub_efi_partuuid: String::new(),
             grub_efi_dir: String::new(),
