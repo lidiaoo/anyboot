@@ -4339,7 +4339,9 @@ class ComputerListActivity : ComponentActivity() {
             val arrow = if (top) "" else "↳ "
             rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false, pinned,
                 trailing = option.tag, sub = option.grubSub, note = option.grubNote,
-                readonly = !option.header && option.value.isBlank()))
+                readonly = !option.header && option.value.isBlank(),
+                // 原位当前项保留并高亮（置顶副本之外，原位也要高亮）
+                active = !pinned && option.value.isNotBlank() && option.value == group.current))
         }
 
         // 置顶当前选中项（组内子项补「组名 › 」前缀）
