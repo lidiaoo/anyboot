@@ -216,8 +216,10 @@ enum BootParser {
             if (item["lastBoot"] as? Bool) == true && current.isEmpty { current = title }
         }
         if current.isEmpty {
+            // 回显：优先 previousBoot。安卓同口径「上次启动/当前默认项」。即便没能精确
+            // 命中某个 option（对端标题末尾可能带空格），也直接回显它，避免通道按钮空白。
             let prev = (json["previousBoot"] as? String ?? "").trimmingCharacters(in: .whitespaces)
-            if !prev.isEmpty, options.contains(where: { $0.value == prev }) { current = prev }
+            if !prev.isEmpty { current = prev }
         }
         return BootGroup(
             kind: kind, title: groupTitle,
