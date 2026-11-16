@@ -2032,6 +2032,9 @@ Telnet: 실험적 터미널만.</string>
     <string name="and_sortMenuCustom">정렬: 사용자 지정 (▴▾ 조정)</string>
     <string name="and_sortMenuName">정렬: 이름순</string>
     <string name="and_sortMenuRecent">정렬: 최근 연결</string>
+    <string name="and_themeNord">Nord(짙은 청회색)</string>
+    <string name="and_themeDracula">Dracula(어두운 보라)</string>
+    <string name="and_themeSolarized">Solarized(따뜻한 베이지)</string>
     <string name="and_editCurrent">현재 컴퓨터 편집</string>
     <string name="and_failReloadTitle">연결 불가 시 자동 새로 고침</string>
     <string name="and_dataRefreshTitle">데이터 새로 고침</string>

@@ -1994,6 +1994,9 @@
 "and.sortMenuCustom" = "排序：自定义（▴▾ 调整）";
 "and.sortMenuName" = "排序：按名称";
 "and.sortMenuRecent" = "排序：最近连接";
+"and.themeNord" = "Nord（深蓝灰）";
+"and.themeDracula" = "Dracula（暗紫）";
+"and.themeSolarized" = "Solarized（暖米）";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

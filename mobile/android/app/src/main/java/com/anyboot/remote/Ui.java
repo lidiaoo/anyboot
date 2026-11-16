@@ -79,47 +79,146 @@ public final class Ui {
 
     /** 页面底色 */
     public static int base(Context c) {
-        return dark(c) ? 0xFF020617 : 0xFFF4F6FA;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF020617;
+            case "light": return 0xFFF4F6FA;
+            case "nord": return 0xFF2E3440;
+            case "dracula": return 0xFF282A36;
+            case "solarized": return 0xFFFDF6E3;
+            default: return 0xFF020617;
+        }
     }
 
     /** 卡片 / 顶栏 / 导航栏底色 */
     public static int card(Context c) {
-        return dark(c) ? 0xFF0E1223 : 0xFFFFFFFF;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF0E1223;
+            case "light": return 0xFFFFFFFF;
+            case "nord": return 0xFF3B4252;
+            case "dracula": return 0xFF323444;
+            case "solarized": return 0xFFFFFFFF;
+            default: return 0xFF0E1223;
+        }
     }
 
     /** 输入框 / chip 等再抬一层的底色 */
     public static int elevate(Context c) {
-        return dark(c) ? 0xFF141A2E : 0xFFF1F4F9;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF141A2E;
+            case "light": return 0xFFF1F5FA;
+            case "nord": return 0xFF434C5E;
+            case "dracula": return 0xFF44475A;
+            case "solarized": return 0xFFEEE8D5;
+            default: return 0xFF141A2E;
+        }
     }
 
     /** 细分隔线 */
     public static int line(Context c) {
-        return dark(c) ? 0xFF242B41 : 0xFFE2E8F0;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF242B41;
+            case "light": return 0xFFE2E8F0;
+            case "nord": return 0xFF4C566A;
+            case "dracula": return 0xFF44475A;
+            case "solarized": return 0xFFDED8C5;
+            default: return 0xFF242B41;
+        }
     }
 
     /** 描边 / 输入框边框 */
     public static int lineStrong(Context c) {
-        return dark(c) ? 0xFF334155 : 0xFFCBD5E1;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF334155;
+            case "light": return 0xFFCBD5E1;
+            case "nord": return 0xFF5E6980;
+            case "dracula": return 0xFF626680;
+            case "solarized": return 0xFFC8C2AF;
+            default: return 0xFF334155;
+        }
     }
 
     /** 主文字 */
     public static int fg(Context c) {
-        return dark(c) ? 0xFFF8FAFC : 0xFF0F172A;
+        switch (paletteId(c)) {
+            case "dark": return 0xFFF8FAFC;
+            case "light": return 0xFF0F172A;
+            case "nord": return 0xFFECEFF4;
+            case "dracula": return 0xFFF8F8F2;
+            case "solarized": return 0xFF073642;
+            default: return 0xFFF8FAFC;
+        }
     }
 
     /** 次要文字 */
     public static int fgDim(Context c) {
-        return dark(c) ? 0xFF94A3B8 : 0xFF5A6476;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF94A3B8;
+            case "light": return 0xFF5A6476;
+            case "nord": return 0xFFD8DEE9;
+            case "dracula": return 0xFFC8CAD6;
+            case "solarized": return 0xFF586E75;
+            default: return 0xFF94A3B8;
+        }
     }
 
     /** 弱化文字 / 占位 */
     public static int fgFaint(Context c) {
-        return dark(c) ? 0xFF64748B : 0xFF8A94A6;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF64748B;
+            case "light": return 0xFF8A94A6;
+            case "nord": return 0xFF8F9CB3;
+            case "dracula": return 0xFF82859C;
+            case "solarized": return 0xFF93A1A1;
+            default: return 0xFF64748B;
+        }
     }
 
-    /** 主色（状态绿：在线 / 成功，仅状态语义） */
+    /** 状态绿 */
     public static int ok(Context c) {
-        return dark(c) ? 0xFF22C55E : 0xFF16A34A;
+        switch (paletteId(c)) {
+            case "dark": return 0xFF22C55E;
+            case "light": return 0xFF16A34A;
+            case "nord": return 0xFFA3BE8C;
+            case "dracula": return 0xFF50FA7B;
+            case "solarized": return 0xFF859900;
+            default: return 0xFF22C55E;
+        }
+    }
+
+    /** 强调主色 */
+    public static int accent(Context c) {
+        switch (paletteId(c)) {
+            case "dark": return 0xFF6366F1;
+            case "light": return 0xFF4F46E5;
+            case "nord": return 0xFF88C0D0;
+            case "dracula": return 0xFFBD93F9;
+            case "solarized": return 0xFF268BD2;
+            default: return 0xFF6366F1;
+        }
+    }
+
+    /** 警告色 */
+    public static int warn(Context c) {
+        switch (paletteId(c)) {
+            case "dark": return 0xFFF59E0B;
+            case "light": return 0xFFB45309;
+            case "nord": return 0xFFEBCB8B;
+            case "dracula": return 0xFFF1FA8C;
+            case "solarized": return 0xFFB58900;
+            default: return 0xFFF59E0B;
+        }
+    }
+
+    /** 危险色 */
+    public static int bad(Context c) {
+        switch (paletteId(c)) {
+            case "dark": return 0xFFEF4444;
+            case "light": return 0xFFDC2626;
+            case "nord": return 0xFFBF616A;
+            case "dracula": return 0xFFFF5555;
+            case "solarized": return 0xFFDC322F;
+            default: return 0xFFEF4444;
+        }
     }
 
     /** 主色底上的文字 */
@@ -127,17 +226,11 @@ public final class Ui {
         return 0xFFFFFFFF;
     }
 
-    /** 强调主色（曜蓝 Cobalt 靛蓝：chips 选中 / 底导选中 / 抽屉头部 / 主按钮） */
-    public static int accent(Context c) {
-        return dark(c) ? 0xFF6366F1 : 0xFF4F46E5;
-    }
-
-    public static int warn(Context c) {
-        return dark(c) ? 0xFFF59E0B : 0xFFB45309;
-    }
-
-    public static int bad(Context c) {
-        return dark(c) ? 0xFFEF4444 : 0xFFDC2626;
+    /** 当前配色 id：auto → 按系统明暗解析成 dark/light；否则原样（light/dark/nord/dracula/solarized）。 */
+    static String paletteId(Context c) {
+        String m = mode(c);
+        if (m == null || m.isEmpty() || "auto".equals(m)) return dark(c) ? "dark" : "light";
+        return m;
     }
 
     // ------------------------------------------------------------------

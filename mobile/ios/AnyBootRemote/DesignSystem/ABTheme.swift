@@ -13,25 +13,25 @@ import SwiftUI
 enum ABColor {
 
     // ---- Ui.base / card / elevate：三层底 ----
-    static let base   = Color(light: 0xF4F6FA, dark: 0x020617)  // Ui.base
-    static let card   = Color(light: 0xFFFFFF, dark: 0x0E1223)  // Ui.card
-    static let elevate = Color(light: 0xF1F4F9, dark: 0x141A2E) // Ui.elevate
+    static var base: Color { ABThemeStore.currentPalette.base }
+    static var card: Color { ABThemeStore.currentPalette.card }
+    static var elevate: Color { ABThemeStore.currentPalette.elevate }
 
     // ---- 线 ----
-    static let line       = Color(light: 0xE2E8F0, dark: 0x242B41) // Ui.line
-    static let lineStrong = Color(light: 0xCBD5E1, dark: 0x334155) // Ui.lineStrong
+    static var line: Color { ABThemeStore.currentPalette.line }
+    static var lineStrong: Color { ABThemeStore.currentPalette.lineStrong }
 
     // ---- 文字三级 ----
-    static let fg      = Color(light: 0x0F172A, dark: 0xF8FAFC) // Ui.fg
-    static let fgDim   = Color(light: 0x5A6476, dark: 0x94A3B8) // Ui.fgDim
-    static let fgFaint = Color(light: 0x8A94A6, dark: 0x64748B) // Ui.fgFaint
+    static var fg: Color { ABThemeStore.currentPalette.fg }
+    static var fgDim: Color { ABThemeStore.currentPalette.fgDim }
+    static var fgFaint: Color { ABThemeStore.currentPalette.fgFaint }
 
     // ---- 语义 ----
-    static let ok       = Color(light: 0x16A34A, dark: 0x22C55E) // Ui.ok
-    static let accent   = Color(light: 0x4F46E5, dark: 0x6366F1) // Ui.accent
-    static let warn     = Color(light: 0xB45309, dark: 0xF59E0B) // Ui.warn
-    static let bad      = Color(light: 0xDC2626, dark: 0xEF4444) // Ui.bad
-    static let onAccent = Color(light: 0xFFFFFF, dark: 0xFFFFFF) // Ui.onAccent
+    static var ok: Color { ABThemeStore.currentPalette.ok }
+    static var accent: Color { ABThemeStore.currentPalette.accent }
+    static var warn: Color { ABThemeStore.currentPalette.warn }
+    static var bad: Color { ABThemeStore.currentPalette.bad }
+    static var onAccent: Color { ABThemeStore.currentPalette.onAccent }
 
     /// 未测出 / 中性：Android 用 fgFaint，不另立色
     static let neutral = fgFaint
@@ -182,30 +182,36 @@ enum ABFont {
 // MARK: - 主题模式（Ui.java:27-74：auto / dark / light，键名 ui_theme）
 
 enum ABThemeMode: String, CaseIterable {
-    case auto, dark, light
+    case auto, light, dark, nord, dracula, solarized
 
     var label: String {
         switch self {
         case .auto: return L("settings.optSystem")
         case .dark: return L("theme.dark")
         case .light: return L("theme.light")
+        case .nord: return L("and.themeNord")
+        case .dracula: return L("and.themeDracula")
+        case .solarized: return L("and.themeSolarized")
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
         case .auto: return nil
-        case .dark: return .dark
-        case .light: return .light
+        case .dark, .nord, .dracula: return .dark
+        case .light, .solarized: return .light
         }
     }
 
-    /// 循环 auto → dark → light → auto
+    /// 循环
     var next: ABThemeMode {
         switch self {
-        case .auto: return .dark
-        case .dark: return .light
-        case .light: return .auto
+        case .auto: return .light
+        case .light: return .dark
+        case .dark: return .nord
+        case .nord: return .dracula
+        case .dracula: return .solarized
+        case .solarized: return .auto
         }
     }
 }

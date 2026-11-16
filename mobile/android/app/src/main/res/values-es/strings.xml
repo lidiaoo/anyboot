@@ -2032,6 +2032,9 @@ Desconocido (sin sistema)</string>
     <string name="and_sortMenuCustom">Ordenar: personalizado (▴▾ ajustar)</string>
     <string name="and_sortMenuName">Ordenar: por nombre</string>
     <string name="and_sortMenuRecent">Ordenar: usados recientemente</string>
+    <string name="and_themeNord">Nord</string>
+    <string name="and_themeDracula">Dracula</string>
+    <string name="and_themeSolarized">Solarized</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

@@ -2032,6 +2032,9 @@ Telnet：只有實驗性終端機。</string>
     <string name="and_sortMenuCustom">排序：自訂（▴▾ 調整）</string>
     <string name="and_sortMenuName">排序：依名稱</string>
     <string name="and_sortMenuRecent">排序：最近連線</string>
+    <string name="and_themeNord">Nord（深藍灰）</string>
+    <string name="and_themeDracula">Dracula（暗紫）</string>
+    <string name="and_themeSolarized">Solarized（暖米）</string>
     <string name="and_editCurrent">編輯目前電腦</string>
     <string name="and_failReloadTitle">連不上時自動重新載入</string>
     <string name="and_dataRefreshTitle">資料重新整理</string>

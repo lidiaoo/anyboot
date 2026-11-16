@@ -1994,6 +1994,9 @@
 "and.sortMenuCustom" = "Ordenar: personalizado (▴▾ ajustar)";
 "and.sortMenuName" = "Ordenar: por nombre";
 "and.sortMenuRecent" = "Ordenar: usados recientemente";
+"and.themeNord" = "Nord";
+"and.themeDracula" = "Dracula";
+"and.themeSolarized" = "Solarized";
 "and.editCurrent" = "Editar equipo actual";
 "and.failReloadTitle" = "Recargar al fallar";
 "and.dataRefreshTitle" = "Actualización de datos";

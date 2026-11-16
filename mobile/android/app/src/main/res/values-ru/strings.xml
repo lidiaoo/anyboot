@@ -2032,6 +2032,9 @@ Telnet: только экспериментальный терминал.</strin
     <string name="and_sortMenuCustom">Сортировка: вручную (▴▾ изменить)</string>
     <string name="and_sortMenuName">Сортировка: по имени</string>
     <string name="and_sortMenuRecent">Сортировка: недавние</string>
+    <string name="and_themeNord">Nord</string>
+    <string name="and_themeDracula">Dracula</string>
+    <string name="and_themeSolarized">Solarized</string>
     <string name="and_editCurrent">Изменить текущий компьютер</string>
     <string name="and_failReloadTitle">Автоперезагрузка при недоступности</string>
     <string name="and_dataRefreshTitle">Обновление данных</string>

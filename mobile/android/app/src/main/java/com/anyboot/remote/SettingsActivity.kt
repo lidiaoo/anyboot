@@ -258,10 +258,14 @@ class SettingsActivity : ComponentActivity() {
         val palette = LocalPalette.current
         val ctx = this@SettingsActivity
         SectionTitle(stringResource(R.string.and_themeMode))
+        // 与 PC 端对齐：5 套配色（light/dark/nord/dracula/solarized）+ 跟随系统(auto)
         val options = listOf(
             Ui.MODE_AUTO to stringResource(R.string.and_themeAuto),
-            Ui.MODE_DARK to stringResource(R.string.and_themeDark),
             Ui.MODE_LIGHT to stringResource(R.string.and_themeLight),
+            Ui.MODE_DARK to stringResource(R.string.and_themeDark),
+            "nord" to stringResource(R.string.and_themeNord),
+            "dracula" to stringResource(R.string.and_themeDracula),
+            "solarized" to stringResource(R.string.and_themeSolarized),
         )
         val current = Ui.mode(ctx)
         options.forEach { (mode, label) ->

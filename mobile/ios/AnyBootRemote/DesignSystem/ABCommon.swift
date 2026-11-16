@@ -305,8 +305,8 @@ final class ABConfirmBus {
         // 不跟随 App 的三挡主题会打架（暗色 App + 亮色系统 → 白弹窗）
         switch ABThemeStore.shared.mode {
         case .auto: alert.overrideUserInterfaceStyle = .unspecified
-        case .dark: alert.overrideUserInterfaceStyle = .dark
-        case .light: alert.overrideUserInterfaceStyle = .light
+        case .dark, .nord, .dracula: alert.overrideUserInterfaceStyle = .dark
+        case .light, .solarized: alert.overrideUserInterfaceStyle = .light
         }
         // 不可点外面关 —— 必须明确选信任 / 取消（对齐 Android onDismissRequest = {}）
         alert.addAction(UIAlertAction(title: displays[key]?.1 ?? L("and.trustAndConnect"),

@@ -1994,6 +1994,9 @@
 "and.sortMenuCustom" = "Sortieren: Benutzerdefiniert (▴▾ anpassen)";
 "and.sortMenuName" = "Sortieren: nach Name";
 "and.sortMenuRecent" = "Sortieren: zuletzt verwendet";
+"and.themeNord" = "Nord";
+"and.themeDracula" = "Dracula";
+"and.themeSolarized" = "Solarized";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

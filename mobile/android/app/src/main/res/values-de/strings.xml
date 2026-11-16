@@ -2032,6 +2032,9 @@ Unbekannt (kein System gewählt)</string>
     <string name="and_sortMenuCustom">Sortieren: Benutzerdefiniert (▴▾ anpassen)</string>
     <string name="and_sortMenuName">Sortieren: nach Name</string>
     <string name="and_sortMenuRecent">Sortieren: zuletzt verwendet</string>
+    <string name="and_themeNord">Nord</string>
+    <string name="and_themeDracula">Dracula</string>
+    <string name="and_themeSolarized">Solarized</string>
     <string name="and_editCurrent">Aktuellen Computer bearbeiten</string>
     <string name="and_failReloadTitle">Auto-Neuladen bei Nichterreichen</string>
     <string name="and_dataRefreshTitle">Datenaktualisierung</string>

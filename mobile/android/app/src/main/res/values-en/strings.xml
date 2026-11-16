@@ -2032,6 +2032,9 @@ Unknown (no system selected)</string>
     <string name="and_sortMenuCustom">Sort: custom (▴▾ adjust)</string>
     <string name="and_sortMenuName">Sort: by name</string>
     <string name="and_sortMenuRecent">Sort: recently used</string>
+    <string name="and_themeNord">Nord</string>
+    <string name="and_themeDracula">Dracula</string>
+    <string name="and_themeSolarized">Solarized</string>
     <string name="and_editCurrent">Edit current computer</string>
     <string name="and_failReloadTitle">Auto-reload when unreachable</string>
     <string name="and_dataRefreshTitle">Data refresh</string>

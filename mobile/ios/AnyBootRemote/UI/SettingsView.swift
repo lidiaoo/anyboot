@@ -77,8 +77,11 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             ABSectionTitle(L("and.themeMode"))
             themeRadio(.auto, L("and.themeAuto"))
-            themeRadio(.dark, L("and.themeDark"))
             themeRadio(.light, L("and.themeLight"))
+            themeRadio(.dark, L("and.themeDark"))
+            themeRadio(.nord, L("and.themeNord"))
+            themeRadio(.dracula, L("and.themeDracula"))
+            themeRadio(.solarized, L("and.themeSolarized"))
         }
     }
 
