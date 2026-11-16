@@ -262,13 +262,13 @@ struct ComputerListView: View {
             }
             // 排序模式（用户 2026-11-01）：自定义 = 卡片上的 ▴▾ 调出来的顺序（默认）；
             // 切走再切回来原顺序还在（sortIndex 不清）
-            Button(store.sortMode == "custom" ? "✓ 排序：自定义（▴▾ 调整）" : "排序：自定义（▴▾ 调整）") {
+            Button((store.sortMode == "custom" ? "✓ " : "") + L("and.sortMenuCustom")) {
                 store.setSortMode("custom")
             }
-            Button(store.sortMode == "name" ? "✓ 排序：按名称" : "排序：按名称") {
+            Button((store.sortMode == "name" ? "✓ " : "") + L("and.sortMenuName")) {
                 store.setSortMode("name")
             }
-            Button(store.sortMode == "recent" ? "✓ 排序：最近连接" : "排序：最近连接") {
+            Button((store.sortMode == "recent" ? "✓ " : "") + L("and.sortMenuRecent")) {
                 store.setSortMode("recent")
             }
         } label: {

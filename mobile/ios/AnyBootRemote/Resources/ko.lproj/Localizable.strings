@@ -1991,6 +1991,9 @@
 "and.themeAuto" = "시스템 따르기";
 "and.themeDark" = "다크";
 "and.themeLight" = "라이트";
+"and.sortMenuCustom" = "정렬: 사용자 지정 (▴▾ 조정)";
+"and.sortMenuName" = "정렬: 이름순";
+"and.sortMenuRecent" = "정렬: 최근 연결";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

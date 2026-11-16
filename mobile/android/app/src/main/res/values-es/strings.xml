@@ -2029,6 +2029,9 @@ Desconocido (sin sistema)</string>
     <string name="and_themeAuto">Seguir sistema</string>
     <string name="and_themeDark">Oscuro</string>
     <string name="and_themeLight">Claro</string>
+    <string name="and_sortMenuCustom">Ordenar: personalizado (▴▾ ajustar)</string>
+    <string name="and_sortMenuName">Ordenar: por nombre</string>
+    <string name="and_sortMenuRecent">Ordenar: usados recientemente</string>
     <string name="and_editCurrent">Editar equipo actual</string>
     <string name="and_failReloadTitle">Recargar al fallar</string>
     <string name="and_dataRefreshTitle">Actualización de datos</string>

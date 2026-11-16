@@ -1991,6 +1991,9 @@
 "and.themeAuto" = "Как в системе";
 "and.themeDark" = "Тёмная";
 "and.themeLight" = "Светлая";
+"and.sortMenuCustom" = "Сортировка: вручную (▴▾ изменить)";
+"and.sortMenuName" = "Сортировка: по имени";
+"and.sortMenuRecent" = "Сортировка: недавние";
 "and.editCurrent" = "Изменить текущий компьютер";
 "and.failReloadTitle" = "Автоперезагрузка при недоступности";
 "and.dataRefreshTitle" = "Обновление данных";

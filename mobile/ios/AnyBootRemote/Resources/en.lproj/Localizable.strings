@@ -1991,6 +1991,9 @@
 "and.themeAuto" = "Follow system";
 "and.themeDark" = "Dark";
 "and.themeLight" = "Light";
+"and.sortMenuCustom" = "Sort: custom (▴▾ adjust)";
+"and.sortMenuName" = "Sort: by name";
+"and.sortMenuRecent" = "Sort: recently used";
 "and.editCurrent" = "Edit current computer";
 "and.failReloadTitle" = "Auto-reload when unreachable";
 "and.dataRefreshTitle" = "Data refresh";

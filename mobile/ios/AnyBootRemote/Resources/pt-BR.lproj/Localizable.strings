@@ -1991,6 +1991,9 @@
 "and.themeAuto" = "Seguir sistema";
 "and.themeDark" = "Escuro";
 "and.themeLight" = "Claro";
+"and.sortMenuCustom" = "Ordenar: personalizado (▴▾ ajustar)";
+"and.sortMenuName" = "Ordenar: por nome";
+"and.sortMenuRecent" = "Ordenar: usados recentemente";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

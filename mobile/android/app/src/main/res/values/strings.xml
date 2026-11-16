@@ -2029,6 +2029,9 @@ Telnet：只有实验性终端。</string>
     <string name="and_themeAuto">跟随系统</string>
     <string name="and_themeDark">暗色</string>
     <string name="and_themeLight">亮色</string>
+    <string name="and_sortMenuCustom">排序：自定义（▴▾ 调整）</string>
+    <string name="and_sortMenuName">排序：按名称</string>
+    <string name="and_sortMenuRecent">排序：最近连接</string>
     <string name="and_editCurrent">编辑当前电脑</string>
     <string name="and_failReloadTitle">连不上时自动重载</string>
     <string name="and_dataRefreshTitle">数据刷新</string>

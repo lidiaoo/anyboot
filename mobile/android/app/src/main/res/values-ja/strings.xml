@@ -2029,6 +2029,9 @@ Telnet：実験的端末のみ。</string>
     <string name="and_themeAuto">システムに従う</string>
     <string name="and_themeDark">ダーク</string>
     <string name="and_themeLight">ライト</string>
+    <string name="and_sortMenuCustom">並べ替え：カスタム（▴▾ 調整）</string>
+    <string name="and_sortMenuName">並べ替え：名前順</string>
+    <string name="and_sortMenuRecent">並べ替え：最近使用</string>
     <string name="and_editCurrent">現在の PC を編集</string>
     <string name="and_failReloadTitle">接続不可時に自動再読み込み</string>
     <string name="and_dataRefreshTitle">データ更新</string>
