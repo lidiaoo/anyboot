@@ -1393,6 +1393,10 @@ struct ComputerListView: View {
             }
         }
 
+        if valueLabel.trimmingCharacters(in: .whitespaces).isEmpty {
+            valueLabel = group.current.isEmpty ? L("hub.state.notSet") : group.current
+        }
+
         let background = !usable ? ABColor.toneSoftDisabled
             : (pending ? ABColor.tonePendBg : ABColor.toneSoft)
         let border = !usable ? ABColor.toneDashed
