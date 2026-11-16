@@ -2486,7 +2486,6 @@ class ComputerListActivity : ComponentActivity() {
      *  老 GRUB raw 形态仍走 grubDisplayRows（保留格式档位）。 */
     private fun bootRows(group: BootGroup): List<GrubRow> {
         if (group.options.isEmpty()) return emptyList()
-        if (isGrubRawGroup(group)) return grubDisplayRows(group)
         val rows = mutableListOf<GrubRow>()
         var underHeader = false
         var curHeader = ""
@@ -2502,17 +2501,16 @@ class ComputerListActivity : ComponentActivity() {
                 return@forEach
             }
             val v = opt.value.trim()
-            val label = opt.label.ifBlank { v }
+            val plainLabel = opt.label.ifBlank { v }
+            val icon = grubOsIcon(opt.kind, plainLabel)   // 每行都带图标（与旧下拉一致）
             val readonly = v.isEmpty() || opt.fixed
             val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
             if (isCurrent) {
                 currentMarked = true
-                // 置顶副本（顶部固定）名称 = 一级（父组）＋二级（子项）
-                val pinnedLabel = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $label" else label
-                rows.add(GrubRow(opt, pinnedLabel, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                val pinnedPlain = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
+                rows.add(GrubRow(opt, icon + pinnedPlain, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            // 原位行：当前项 active=true 保留在列表原位并高亮（对齐旧 GrubList「只置顶、不删原位」）
-            rows.add(GrubRow(opt, label, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
+            rows.add(GrubRow(opt, icon + plainLabel, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
