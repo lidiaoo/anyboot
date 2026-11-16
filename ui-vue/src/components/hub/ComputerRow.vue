@@ -553,13 +553,15 @@ async function openUrl(url: string) {
 /** 所有通道（6 个引导器）统一顺序：refind/refindplus/grub + 检测到的 sdboot/opencore/clover */
 const allKinds = computed<string[]>(() => ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"]);
 /** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
-function bootEcho(kind: string): { label: string; dot: string; none: boolean } {
-  if (kind.startsWith("channel:")) {
+function bootEcho(kind: string): { label: string; dot: string; none: boolean; title: string } {
+  const g: any = channelOf(kind);
+  const title = g?.title ?? ({ refind: "rEFInd", refindplus: "RefindPlus", grub: "GRUB", sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" } as any)[kind] ?? kind;
+  if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
     const e = channelEcho(kind);
-    return { label: e.label, dot: e.dot, none: !channelOf(kind)?.available };
+    return { label: e.label, dot: e.dot, none: !g?.available, title };
   }
   const s = bootState(kind);
-  return { label: s.label, dot: s.dot, none: s.none };
+  return { label: s.label, dot: s.dot, none: s.none, title };
 }
 /** 统一切换可用性 */
 function bootUsableFor(kind: string): boolean {
@@ -745,6 +747,7 @@ function onRowClick() {
             :disabled="!bootUsableFor(kind)"
             @click.stop="openPicker(kind)"
           >
+            <span class="cq-boot-name">{{ bootEcho(kind).title }}</span>
             <span v-if="osIcon(bootEcho(kind).dot, bootEcho(kind).label)">{{ osIcon(bootEcho(kind).dot, bootEcho(kind).label) }}</span>
             <span class="t">{{ bootEcho(kind).label }}</span>
           </button>

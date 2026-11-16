@@ -4068,7 +4068,7 @@ fn channel_group(
     BootGroup {
         // kind 带 id：一张表里可能同时有几列通道，前端拿它当唯一键（cqBusy 也是）。
         // `remote_boot_switch` 认 `channel` 前缀（见那里的 match）。
-        kind: format!("channel:{id}"),
+        kind: id.trim_start_matches("channel:").to_string(),
         title: label.to_string(),
         // 「部署了吗」= 能不能出这一列；有没有条目由 options 决定。
         available: detected,
@@ -4726,15 +4726,10 @@ fn with_all_channels(mut info: RemoteBootInfo) -> RemoteBootInfo {
 }
 
 pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
+    // remote_boot_info_blocking 返回的 info.channels 已由 with_all_channels 补成 6 段
+    // （refind/refindplus/grub + sdboot/opencore/clover），直接返回即可，勿再追加。
     match remote_boot_info_blocking(app, "local") {
-        Ok(info) => {
-            let mut v: Vec<BootGroup> = Vec::with_capacity(6);
-            v.push(info.refind);
-            v.push(info.refindplus);
-            v.push(info.grub);
-            v.extend(info.channels);
-            v
-        }
+        Ok(info) => info.channels,
         Err(_) => Vec::new(),
     }
 }
