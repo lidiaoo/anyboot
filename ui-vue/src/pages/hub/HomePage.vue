@@ -8,6 +8,7 @@ import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
 import { useI18n } from "vue-i18n";
+import { currentLocale } from "@/i18n";
 const { t } = useI18n();
 
 /**
@@ -147,7 +148,7 @@ function withGuestTheme(url: string): string {
   const dark = document.documentElement.classList.contains("dark") ? "dark" : "light";
   let theme = "";
   try { theme = localStorage.getItem("anyboot.hub.boot-theme") || ""; } catch { /* 忽略 */ }
-  return url + `&abUi=${dark}` + (theme ? `&abTheme=${encodeURIComponent(theme)}` : "");
+  return url + `&abUi=${dark}` + (theme ? `&abTheme=${encodeURIComponent(theme)}` : "") + `&abLang=${encodeURIComponent(currentLocale())}`;
 }
 
 /** 本机 URL */
