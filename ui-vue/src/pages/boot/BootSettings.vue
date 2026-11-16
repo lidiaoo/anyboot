@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
@@ -13,6 +13,7 @@ import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/
 import { call } from "@/api/tauri";
 import { setStartupScanWithAdmin, setHelperReminderSnooze, setLinuxExt4ScanMode, isTauri, linuxPrivInstall, linuxPrivUninstall, type LinuxPrivStatus } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 /**
  * 引导高级设置面板（原 `ui/boot-adv.js` 的设置页部分 + `index.html` 的设置区）。
  *
@@ -383,52 +384,52 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
       <!-- 免密提权（Linux · polkit/sudo 助手） -->
       <template v-if="privStatus && privStatus.platform">
         <div class="helper-card-row">
-          <span class="helper-label">{{ $t("bs.privLabelLinux") }}</span>
+          <span class="helper-label">{{ t("bs.privLabelLinux") }}</span>
           <span
             class="helper-state"
             :data-state="privBusy ? 'off' : (privStatus.state === 'ready' ? 'on' : (privStatus.state === 'outdated' || privStatus.state === 'stale') ? 'stale' : 'off')"
-          >{{ privBusy ? $t("bs.processing") : privStateText }}</span>
+          >{{ privBusy ? t("bs.processing") : privStateText }}</span>
           <span class="grow" />
           <button type="button" class="btn sm" :disabled="privBusy || !isDesktop" @click="toggleLinuxPriv">
             <span v-if="privBusy" class="btn-spinner" aria-hidden="true"></span>
             {{ privBusy
-                ? (privBusyAction === "uninstall" ? $t("bs.disabling") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? $t("bs.privReinstall") : $t("bs.privEnabling")))
-                : (privInstalled ? $t("bs.close") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? $t("bs.reinstall") : $t("bs.enable"))) }}
+                ? (privBusyAction === "uninstall" ? t("bs.disabling") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? t("bs.privReinstall") : t("bs.privEnabling")))
+                : (privInstalled ? t("bs.close") : (privStatus.state === 'outdated' || privStatus.state === 'stale' ? t("bs.reinstall") : t("bs.enable"))) }}
           </button>
         </div>
         <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-          {{ $t("bs.privMobileNote") }}
+          {{ t("bs.privMobileNote") }}
         </small>
         <small class="helper-hint">{{ privStatus.detail }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-          {{ $t("bs.privBody1") }}
-          {{ $t("bs.privBody2", { method: privStatus.hasPkexec ? $t("bs.privMethodPkexec") : (privStatus.hasSudo ? $t("bs.privMethodSudo") : $t("bs.privMethodAdmin")), path: privStatus.sudoersPath }) }}
+          {{ t("bs.privBody1") }}
+          {{ t("bs.privBody2", { method: privStatus.hasPkexec ? t("bs.privMethodPkexec") : (privStatus.hasSudo ? t("bs.privMethodSudo") : t("bs.privMethodAdmin")), path: privStatus.sudoersPath }) }}
         </small>
       </template>
       <!-- 免密提权（root 助手）本体：仅 macOS 支持（helper.supported） -->
       <template v-else-if="ui.state?.helper?.supported">
         <div class="helper-card-row">
-          <span class="helper-label">{{ $t("bs.privLabelRoot") }}</span>
+          <span class="helper-label">{{ t("bs.privLabelRoot") }}</span>
           <span class="helper-state" :data-state="helperBusy ? 'off' : (ui.state.helper.installed ? (ui.state.helper.stale ? 'stale' : 'on') : 'off')">
-            {{ helperBusy ? $t("bs.processing") : (ui.state.helper.installed ? (ui.state.helper.stale ? $t("bs.helperStaleOld") : $t("bs.helperReady")) : $t("bs.helperAbsent")) }}
+            {{ helperBusy ? t("bs.processing") : (ui.state.helper.installed ? (ui.state.helper.stale ? t("bs.helperStaleOld") : t("bs.helperReady")) : t("bs.helperAbsent")) }}
           </span>
           <span class="grow" />
           <button type="button" class="btn sm" :disabled="helperBusy || !isDesktop" @click="toggleBootHelper">
             <span v-if="helperBusy" class="btn-spinner" aria-hidden="true"></span>
-            {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? $t("bs.close") : ui.state.helper.installed ? $t("bs.reinstall") : $t("bs.enable")) }}
+            {{ helperBusy ? helperBusyLabel : (ui.state.helper.installed && !ui.state.helper.stale ? t("bs.close") : ui.state.helper.installed ? t("bs.reinstall") : t("bs.enable")) }}
           </button>
         </div>
         <small v-if="!isDesktop" class="helper-hint" style="display:block; color: var(--warn, #d97706)">
-          {{ $t("bs.helperMobileNote") }}
+          {{ t("bs.helperMobileNote") }}
         </small>
         <small class="helper-hint">{{ ui.state.helper.text }}</small>
         <small class="helper-hint" style="display:block; margin-top:4px; color: var(--text-faint)">
-          {{ $t("bs.helperBody2") }}
+          {{ t("bs.helperBody2") }}
         </small>
       </template>
       <!-- 启动时使用管理员扫描（默认开） -->
       <div class="helper-card-row" style="margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 14px">
-        <span class="helper-label">{{ $t("bs.startupAdminLabel") }}</span>
+        <span class="helper-label">{{ t("bs.startupAdminLabel") }}</span>
         <span class="grow" style="flex: 1"></span>
         <label style="display: flex; align-items: center; gap: 6px; cursor: pointer">
           <input
@@ -437,35 +438,35 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             :checked="ui.settings?.startupScanWithAdmin !== false"
             @change="toggleStartupAdminScan"
           />
-          <span>{{ ui.settings?.startupScanWithAdmin !== false ? $t("bs.on") : $t("bs.off") }}</span>
+          <span>{{ ui.settings?.startupScanWithAdmin !== false ? t("bs.on") : t("bs.off") }}</span>
         </label>
       </div>
       <small class="helper-hint">
-        {{ $t("bs.startupAdminNote2") }}
+        {{ t("bs.startupAdminNote2") }}
       </small>
       <!-- 启动免密提醒（取消提醒设置） -->
       <div class="helper-card-row" style="margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 14px">
-        <span class="helper-label">{{ $t("bs.snoozeLabel") }}</span>
+        <span class="helper-label">{{ t("bs.snoozeLabel") }}</span>
         <span class="grow" style="flex: 1"></span>
         <template v-if="snoozeLabel">
           <span style="color: var(--text-faint); margin-right: 8px">{{ snoozeLabel }}</span>
-          <button type="button" class="btn sm ghost" @click="clearSnooze">{{ $t("bs.restoreReminder") }}</button>
+          <button type="button" class="btn sm ghost" @click="clearSnooze">{{ t("bs.restoreReminder") }}</button>
         </template>
         <template v-else>
-          <span style="color: var(--text-faint); margin-right: 8px">{{ $t("bs.cancelReminder") }}</span>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">{{ $t("bs.daysN", { n: 1 }) }}</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">{{ $t("bs.daysN", { n: 7 }) }}</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">{{ $t("bs.daysN", { n: 30 }) }}</button>
-          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">{{ $t("helper.forever") }}</button>
+          <span style="color: var(--text-faint); margin-right: 8px">{{ t("bs.cancelReminder") }}</span>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(1)">{{ t("bs.daysN", { n: 1 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(7)">{{ t("bs.daysN", { n: 7 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(30)">{{ t("bs.daysN", { n: 30 }) }}</button>
+          <button type="button" class="btn sm ghost" @click="snoozeHelperReminder(0)">{{ t("helper.forever") }}</button>
         </template>
       </div>
     </section>
     <!-- Linux 分区扫描策略：**单独一张卡片**（仅 Linux 显示） -->
     <section v-if="isLinux" class="card helper-card" id="linux-scan-card">
       <div class="helper-card-row">
-        <span class="helper-label">{{ $t("bs.linuxScanPolicy") }}</span>
+        <span class="helper-label">{{ t("bs.linuxScanPolicy") }}</span>
       </div>
-      <div class="seg" role="group" :aria-label="$t('bs.linuxScanPolicy')" style="margin-top: 6px">
+      <div class="seg" role="group" :aria-label="t('bs.linuxScanPolicy')" style="margin-top: 6px">
         <button
           v-for="m in LINUX_EXT4_MODES"
           :key="m.key"
@@ -482,7 +483,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         {{ linuxExt4Hint }}
       </small>
       <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
-        {{ $t("bs.mountOnlyNote") }}
+        {{ t("bs.mountOnlyNote") }}
       </small>
     </section>
     <!-- 旧版 renderAdvTab：div.k > div.k-bar（行式：k-row × N + k-tabs + sortbar + setlist） -->
@@ -495,39 +496,39 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             :key="id"
             type="button"
             :class="['k-tab', { 'is-on': adv.state.visible[id] }]"
-            :title="$t('bs.toggleShowTitle')"
+            :title="t('bs.toggleShowTitle')"
             @click="toggleVisible(id)"
           >
             <span>{{ loaderMeta(id).name }}</span>
             <span
               class="k-rg"
-              :title="$t('bs.moveColTitle')"
+              :title="t('bs.moveColTitle')"
               @click.stop="moveSide(id)"
-            >{{ adv.state.side[id] === 'r' ? $t('bs.right') : $t('bs.left') }}</span>
+            >{{ adv.state.side[id] === 'r' ? t('bs.right') : t('bs.left') }}</span>
           </button>
           <span class="grow" />
-          <button type="button" class="btn xs ghost" :title="$t('bs.reset')" @click="adv.resetOrder()">{{ $t("bs.reset") }}</button>
+          <button type="button" class="btn xs ghost" :title="t('bs.reset')" @click="adv.resetOrder()">{{ t("bs.reset") }}</button>
         </div>
         <!-- row2：版式主题 -->
         <div class="k-row">
-          <span class="k-lbl">{{ $t("bs.layoutTheme") }}</span>
+          <span class="k-lbl">{{ t("bs.layoutTheme") }}</span>
           <div class="seg">
             <button
               v-for="item in THEME_LABELS"
               :key="item.key"
               type="button"
               :class="{ 'is-on': adv.effectiveTheme === item.key }"
-              :title="item.key === 'K' ? $t('bs.themeKTitle') : $t('bs.themeTitle', { k: item.key })"
+              :title="item.key === 'K' ? t('bs.themeKTitle') : t('bs.themeTitle', { k: item.key })"
               @click="adv.setTheme(item.key)"
             >
-              {{ $t(item.label) }}
+              {{ t(item.label) }}
             </button>
           </div>
-          <span class="hint">{{ $t("bs.themeHint") }}</span>
+          <span class="hint">{{ t("bs.themeHint") }}</span>
         </div>
         <!-- row3：布局 -->
         <div class="k-row">
-          <span class="k-lbl">{{ $t("bs.layoutLabel") }}</span>
+          <span class="k-lbl">{{ t("bs.layoutLabel") }}</span>
           <div class="seg">
             <button
               v-for="mode in layouts"
@@ -539,43 +540,43 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
               {{ layoutLabels[mode] }}
             </button>
           </div>
-          <span v-if="layouts.length > 1" class="hint">{{ $t("bs.layoutHint") }}</span>
-          <span v-else class="hint">{{ $t("bs.layoutOnlyOne", { x: layoutLabels[layouts[0] ?? "default"] }) }}</span>
+          <span v-if="layouts.length > 1" class="hint">{{ t("bs.layoutHint") }}</span>
+          <span v-else class="hint">{{ t("bs.layoutOnlyOne", { x: layoutLabels[layouts[0] ?? "default"] }) }}</span>
         </div>
         <!-- row4：菜单样式 -->
         <div class="k-row">
-          <span class="k-lbl">{{ $t("bs.menuStyle") }}</span>
+          <span class="k-lbl">{{ t("bs.menuStyle") }}</span>
           <div class="seg">
-            <button type="button" :class="{ 'is-on': adv.state.style === 'full' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('full')">{{ $t("bs.styleFull") }}</button>
-            <button type="button" :class="{ 'is-on': adv.state.style === 'compact' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('compact')">{{ $t("bs.styleCompact") }}</button>
-            <button type="button" :class="{ 'is-on': adv.state.style === 'min' }" :title="$t('bs.styleTitle')" @click="adv.setStyle('min')">{{ $t("bs.styleMin") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'full' }" :title="t('bs.styleTitle')" @click="adv.setStyle('full')">{{ t("bs.styleFull") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'compact' }" :title="t('bs.styleTitle')" @click="adv.setStyle('compact')">{{ t("bs.styleCompact") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.style === 'min' }" :title="t('bs.styleTitle')" @click="adv.setStyle('min')">{{ t("bs.styleMin") }}</button>
           </div>
-          <span class="hint">{{ $t("bs.styleHint") }}</span>
+          <span class="hint">{{ t("bs.styleHint") }}</span>
         </div>
         <!-- row4b：下次启动 -->
         <div class="k-row">
-          <span class="k-lbl">{{ $t("bs.nextBootSec") }}</span>
+          <span class="k-lbl">{{ t("bs.nextBootSec") }}</span>
           <div class="seg">
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'off' }" :title="$t('bs.nbOffTitle')" @click="adv.setNextBoot('off')">{{ $t("bs.nbOff") }}</button>
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'fold' }" @click="adv.setNextBoot('fold')">{{ $t("bs.nbFold") }}</button>
-            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'open' }" @click="adv.setNextBoot('open')">{{ $t("bs.nbOpen") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'off' }" :title="t('bs.nbOffTitle')" @click="adv.setNextBoot('off')">{{ t("bs.nbOff") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'fold' }" @click="adv.setNextBoot('fold')">{{ t("bs.nbFold") }}</button>
+            <button type="button" :class="{ 'is-on': adv.state.nextBoot === 'open' }" @click="adv.setNextBoot('open')">{{ t("bs.nbOpen") }}</button>
           </div>
-          <span class="hint">{{ $t("bs.nextBootHint") }}</span>
+          <span class="hint">{{ t("bs.nextBootHint") }}</span>
         </div>
         <!-- row5：排序条（设置动作收在设置区，预演区保持纯观看） -->
         <div class="k-row">
           <span class="k-sortwrap" style="display: contents">
             <span class="k-sortbar">
-              <span class="k-sort-lbl">{{ $t("bs.orderLabel") }}</span>
+              <span class="k-sort-lbl">{{ t("bs.orderLabel") }}</span>
               <span v-for="(id, i) in adv.state.order" :key="id" class="k-sortchip">
                 <span class="k-sort-nm">{{ loaderMeta(id).name }}</span>
-                <button type="button" class="k-zop" :title="$t('bs.moveUpOne')" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
-                <button type="button" class="k-zop" :title="$t('bs.moveDownOne')" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
+                <button type="button" class="k-zop" :title="t('bs.moveUpOne')" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
+                <button type="button" class="k-zop" :title="t('bs.moveDownOne')" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
               </span>
             </span>
           </span>
           <span class="grow" />
-          <span class="hint">{{ $t("bs.previewHint") }}</span>
+          <span class="hint">{{ t("bs.previewHint") }}</span>
         </div>
 
       </div>
@@ -583,8 +584,8 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
     <!-- 预演面板（旧版：bootThemeStage → .k-stage + lg-side 选中项；真实区块由 ThemeHost slot 承接） -->
     <section class="card k-prev" ref="kPrevEl">
       <header class="k-prev-head">
-        <h2>{{ $t('bs.previewTitle', { layout: adv.effectiveLayout === 'lr' ? $t('bs.previewLr') : $t('bs.previewSingle') }) }}</h2>
-        <small>{{ $t('bs.loaderCount', { n: adv.state.order.filter((x) => adv.state.visible[x]).length }) }}</small>
+        <h2>{{ t('bs.previewTitle', { layout: adv.effectiveLayout === 'lr' ? t('bs.previewLr') : t('bs.previewSingle') }) }}</h2>
+        <small>{{ t('bs.loaderCount', { n: adv.state.order.filter((x) => adv.state.visible[x]).length }) }}</small>
       </header>
       <!-- K 不套用主题：旧版 k-zone-cards + kLoaderCard 自绘卡片 -->
       <div v-if="adv.effectiveTheme === 'K'" class="k-zone-cards">
@@ -593,7 +594,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             <span class="ldr" aria-hidden="true">{{ loaderMono(loader.id) }}</span>
             <span class="nm">{{ loader.name }}</span>
             <span class="grow" />
-            <span class="hint">{{ $t("bs.totalRows", { n: (previewRows[loader.id] ?? []).length }) }}</span>
+            <span class="hint">{{ t("bs.totalRows", { n: (previewRows[loader.id] ?? []).length }) }}</span>
           </div>
           <div class="k-entries">
             <div
@@ -604,7 +605,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
             >
               <span class="grub-entry-name">{{ row.name }}</span>
             </div>
-            <div v-if="!(previewRows[loader.id] ?? []).length" class="hint">{{ $t("bs.noEntries") }}</div>
+            <div v-if="!(previewRows[loader.id] ?? []).length" class="hint">{{ t("bs.noEntries") }}</div>
           </div>
         </div>
       </div>

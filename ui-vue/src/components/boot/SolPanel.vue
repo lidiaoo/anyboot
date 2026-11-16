@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
 
 /**
@@ -43,6 +43,7 @@ interface SolStatus {
 }
 
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 const toast = useToastStore();
 const status = ref<SolStatus | null>(null);
 const loading = ref(true);
@@ -438,25 +439,25 @@ async function pickDir() {
 </script>
 
 <template>
-  <section :aria-label="$t('sol.sectionAria')" class="settings" id="sol-section">
-    <p class="sol-desc">{{ $t("sol.intro") }}</p>
+  <section :aria-label="t('sol.sectionAria')" class="settings" id="sol-section">
+    <p class="sol-desc">{{ t("sol.intro") }}</p>
 
     <div class="setting" id="sol-state-row">
       <span class="setting-text">
-        <strong>{{ $t("sol.runState") }}</strong>
+        <strong>{{ t("sol.runState") }}</strong>
         <small class="setting-state" :class="{ 'setting-state-error': stateError }" id="sol-state-text" :title="stateDetail || undefined">{{ stateText }}</small>
       </span>
       <span class="remote-inline">
-        <button type="button" id="sol-refresh" class="secondary" @click="refresh">{{ $t("sol.refreshStatus") }}</button>
-        <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" :title="$t('sol.authStatusTitle')" @click="readPrivilegedStatus">{{ $t("sol.authStatus") }}</button>
-        <button type="button" id="sol-restart-service" class="secondary" @click="restartService">{{ $t("sol.restartService") }}</button>
+        <button type="button" id="sol-refresh" class="secondary" @click="refresh">{{ t("sol.refreshStatus") }}</button>
+        <button type="button" id="sol-status-privileged" class="secondary" :hidden="!privilegedNeeded" :title="t('sol.authStatusTitle')" @click="readPrivilegedStatus">{{ t("sol.authStatus") }}</button>
+        <button type="button" id="sol-restart-service" class="secondary" @click="restartService">{{ t("sol.restartService") }}</button>
       </span>
     </div>
 
     <div class="setting" id="sol-http-enabled-row">
       <span class="setting-text">
-        <strong>{{ $t("sol.httpEnable") }}</strong>
-        <small>{{ $t("sol.httpEnableNote") }}</small>
+        <strong>{{ t("sol.httpEnable") }}</strong>
+        <small>{{ t("sol.httpEnableNote") }}</small>
         <small class="setting-state" id="sol-http-enabled-state">{{ httpEnabledState }}</small>
       </span>
       <input type="checkbox" id="sol-http-enabled" :checked="httpEnabled" @change="setHttpEnabled" />
@@ -464,48 +465,48 @@ async function pickDir() {
 
     <div class="setting" id="sol-http-listen-row">
       <span class="setting-text">
-        <strong>{{ $t("sol.listenAddr") }}</strong>
-        <small>{{ $t("sol.listenAddrNote") }}</small>
-        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || $t("sol.listenPh") }}</small>
+        <strong>{{ t("sol.listenAddr") }}</strong>
+        <small>{{ t("sol.listenAddrNote") }}</small>
+        <small class="setting-state mono" id="sol-http-listen-state">{{ listenAddr || t("sol.listenPh") }}</small>
       </span>
       <span class="remote-inline">
         <input id="sol-http-listen" v-model="listenAddr" spellcheck="false" type="text" placeholder="0.0.0.0:8080" style="width: 220px" />
-        <button type="button" id="sol-http-listen-save" class="secondary" @click="saveListen">{{ $t("common.save") }}</button>
+        <button type="button" id="sol-http-listen-save" class="secondary" @click="saveListen">{{ t("common.save") }}</button>
       </span>
     </div>
 
     <div class="setting setting-block" id="sol-http-token-row">
       <span class="setting-text">
-        <strong>{{ $t("sol.tokenTitle") }}</strong>
-        <small class="setting-state" id="sol-http-token-state">{{ $t("sol.tokenNote") }}</small>
+        <strong>{{ t("sol.tokenTitle") }}</strong>
+        <small class="setting-state" id="sol-http-token-state">{{ t("sol.tokenNote") }}</small>
       </span>
       <div class="sol-token-line">
-        <span class="sol-token-value mono" id="sol-http-token-current" :title="$t('sol.tokenCurrentTitle')">{{ status?.token || "—" }}</span>
-        <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">{{ $t("common.copy") }}</button>
+        <span class="sol-token-value mono" id="sol-http-token-current" :title="t('sol.tokenCurrentTitle')">{{ status?.token || "—" }}</span>
+        <button type="button" id="sol-http-token-copy" class="secondary" @click="copyToken">{{ t("common.copy") }}</button>
       </div>
       <div class="sol-token-line">
-        <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" :placeholder="$t('sol.newTokenPh')" style="flex: 1 1 220px" />
-        <button type="button" id="sol-http-token-generate" class="secondary" @click="generateToken">{{ $t("sol.generate") }}</button>
-        <button type="button" id="sol-http-token-save" class="secondary" @click="saveToken">{{ $t("settings.apply") }}</button>
+        <input id="sol-http-token" v-model="newToken" spellcheck="false" type="text" :placeholder="t('sol.newTokenPh')" style="flex: 1 1 220px" />
+        <button type="button" id="sol-http-token-generate" class="secondary" @click="generateToken">{{ t("sol.generate") }}</button>
+        <button type="button" id="sol-http-token-save" class="secondary" @click="saveToken">{{ t("settings.apply") }}</button>
       </div>
     </div>
 
     <!-- 动作区 -->
     <div class="actions">
-      <button type="button" id="sol-one-click" class="primary-sol" @click="oneClick">{{ $t("sol.oneClick") }}</button>
-      <button type="button" id="sol-one-click-terminal" class="secondary" @click="manualInstall">{{ $t("sol.manualInstall") }}</button>
+      <button type="button" id="sol-one-click" class="primary-sol" @click="oneClick">{{ t("sol.oneClick") }}</button>
+      <button type="button" id="sol-one-click-terminal" class="secondary" @click="manualInstall">{{ t("sol.manualInstall") }}</button>
     </div>
 
     <small class="sol-hint" id="sol-install-hint">
-      ${{ $t("sol.installDoc1") }}<br />
-      ${{ $t("sol.installDoc2") }}<br />
-      ${{ $t("sol.installDoc3") }}
+      ${{ t("sol.installDoc1") }}<br />
+      ${{ t("sol.installDoc2") }}<br />
+      ${{ t("sol.installDoc3") }}
     </small>
 
     <!-- 安装包 -->
     <div class="setting-block sol-pkg-block">
       <span class="setting-text">
-        <strong>{{ $t("sol.pkg") }}</strong>
+        <strong>{{ t("sol.pkg") }}</strong>
         <small class="setting-state" id="sol-pkg-state">{{
           downloading
             ? t("sol.downloadingPct", { n: progress })
@@ -522,19 +523,19 @@ async function pickDir() {
 
       <div class="setting">
         <span class="setting-text">
-          <strong>{{ $t("sol.installDir") }}</strong>
+          <strong>{{ t("sol.installDir") }}</strong>
           <small class="setting-state" id="sol-dir-state">{{ installDir || "—" }}</small>
         </span>
         <span class="remote-inline">
-          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" :placeholder="installDirPlaceholder || $t('sol.installDirPh')" style="width: 280px" />
-          <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">{{ $t("sol.pick") }}</button>
-          <button type="button" id="sol-open-dir-input" class="secondary" :title="$t('sol.openDirTitle')" @click="openDir">{{ $t("sol.open") }}</button>
+          <input id="sol-dir-input" v-model="installDir" spellcheck="false" type="text" :placeholder="installDirPlaceholder || t('sol.installDirPh')" style="width: 280px" />
+          <button type="button" id="sol-pick-dir" class="secondary" @click="pickDir">{{ t("sol.pick") }}</button>
+          <button type="button" id="sol-open-dir-input" class="secondary" :title="t('sol.openDirTitle')" @click="openDir">{{ t("sol.open") }}</button>
         </span>
       </div>
 
       <span class="remote-inline">
-        <select id="sol-mirror" v-model="mirror" :title="$t('sol.mirrorTitle')" @change="saveMirror">
-          <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ $t(preset.label) }}</option>
+        <select id="sol-mirror" v-model="mirror" :title="t('sol.mirrorTitle')" @change="saveMirror">
+          <option v-for="preset in MIRROR_PRESETS" :key="preset.id" :value="preset.id">{{ t(preset.label) }}</option>
         </select>
         <input
           v-if="mirror === 'custom'"
@@ -542,38 +543,38 @@ async function pickDir() {
           v-model="mirrorCustom"
           spellcheck="false"
           type="text"
-          :placeholder="$t('sol.mirrorPh')"
+          :placeholder="t('sol.mirrorPh')"
           style="width: 280px"
           @change="saveMirror"
         />
-        <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">{{ $t("about.download") }}</button>
-        <button v-if="downloading" type="button" id="sol-download-cancel" class="secondary" @click="cancelDownload">{{ $t("sol.cancelDownload") }}</button>
-        <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" :title="$t('sol.redownloadTitle')" @click="redownload">{{ $t("sol.redownload") }}</button>
+        <button type="button" id="sol-download" class="secondary" :disabled="downloading" @click="download(false)">{{ t("about.download") }}</button>
+        <button v-if="downloading" type="button" id="sol-download-cancel" class="secondary" @click="cancelDownload">{{ t("sol.cancelDownload") }}</button>
+        <button type="button" id="sol-redownload" class="secondary" :disabled="downloading" :title="t('sol.redownloadTitle')" @click="redownload">{{ t("sol.redownload") }}</button>
         <button
           type="button"
           id="sol-delete-package"
           class="secondary"
           :disabled="downloading || !localPkg?.archive"
-          :title="deleteArmed ? $t('sol.deleteTitleArmed') : $t('sol.deleteTitle')"
+          :title="deleteArmed ? t('sol.deleteTitleArmed') : t('sol.deleteTitle')"
           @click="deletePackage"
-        >{{ deleteArmed ? $t("sol.deleteArmedConfirm") : $t("sol.deletePkg") }}</button>
-        <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">{{ $t("sol.pickArchive") }}</button>
-        <button type="button" id="sol-extract" class="secondary" disabled :title="$t('sol.extractTitle')" @click="extract">
-          {{ $t("sol.extract") }}
+        >{{ deleteArmed ? t("sol.deleteArmedConfirm") : t("sol.deletePkg") }}</button>
+        <button type="button" id="sol-pick-archive" class="secondary" @click="pickArchive">{{ t("sol.pickArchive") }}</button>
+        <button type="button" id="sol-extract" class="secondary" disabled :title="t('sol.extractTitle')" @click="extract">
+          {{ t("sol.extract") }}
         </button>
       </span>
 
-      <small class="sol-hint" id="sol-pkg-url" :title="$t('sol.dlAddrTitle')">
-        {{ $t("sol.dlAddrLabel") }}<code style="word-break: break-all">{{ downloadUrl || $t("sol.resolving") }}</code>
+      <small class="sol-hint" id="sol-pkg-url" :title="t('sol.dlAddrTitle')">
+        {{ t("sol.dlAddrLabel") }}<code style="word-break: break-all">{{ downloadUrl || t("sol.resolving") }}</code>
       </small>
       <small class="sol-hint" id="sol-pkg-hint">
-        {{ $t("sol.pkgHint", { t: "…" }) }}
+        {{ t("sol.pkgHint", { t: "…" }) }}
       </small>
       <small class="sol-hint" id="sol-project-line">
-        {{ $t("sol.project") }}
-        <a href="#" id="sol-project-repo" :title="$t('sol.repoTitle')" @click.prevent="openProject('repo')">lidiaoo/sol</a>
+        {{ t("sol.project") }}
+        <a href="#" id="sol-project-repo" :title="t('sol.repoTitle')" @click.prevent="openProject('repo')">lidiaoo/sol</a>
         ·
-        <a href="#" id="sol-project-releases" :title="$t('sol.releasesTitle')" @click.prevent="openProject('releases')">Releases</a>
+        <a href="#" id="sol-project-releases" :title="t('sol.releasesTitle')" @click.prevent="openProject('releases')">Releases</a>
         ·
         <span id="sol-project-version">{{ projectVersion || status?.version || "…" }}</span>
       </small>
@@ -582,7 +583,7 @@ async function pickDir() {
     <!-- 配置文件编辑（旧版 .setting-block 里的 sol-config-*） -->
     <div class="setting-block">
       <span class="setting-text">
-        <strong>{{ $t("sol.configFile") }}</strong>
+        <strong>{{ t("sol.configFile") }}</strong>
         <small class="setting-state" id="sol-config-path">{{ configStatus }}</small>
       </span>
       <textarea
@@ -591,26 +592,26 @@ async function pickDir() {
         class="sol-config-editor"
         spellcheck="false"
         rows="16"
-        :placeholder="$t('sol.configReadingPh')"
+        :placeholder="t('sol.configReadingPh')"
       />
       <span class="remote-inline">
-        <button type="button" id="sol-config-refresh" class="secondary" @click="refreshConfig">{{ $t("sol.refreshConfig") }}</button>
-        <button type="button" id="sol-config-save" class="primary-sol" @click="saveConfig">{{ $t("sol.saveConfig") }}</button>
-        <button type="button" id="sol-config-reload" class="secondary" @click="refreshConfig">{{ $t("sol.discardChanges") }}</button>
+        <button type="button" id="sol-config-refresh" class="secondary" @click="refreshConfig">{{ t("sol.refreshConfig") }}</button>
+        <button type="button" id="sol-config-save" class="primary-sol" @click="saveConfig">{{ t("sol.saveConfig") }}</button>
+        <button type="button" id="sol-config-reload" class="secondary" @click="refreshConfig">{{ t("sol.discardChanges") }}</button>
       </span>
       <small class="sol-hint">
-        {{ $t("sol.configDoc") }}
+        {{ t("sol.configDoc") }}
       </small>
     </div>
 
     <!-- 执行日志（旧版 .sol-log-block） -->
     <div class="sol-log-block">
       <span class="setting-text">
-        <strong>{{ $t("sol.execLog") }}</strong>
-        <small class="setting-state" id="sol-log-count">{{ $t("sol.logCount", { n: logs.length }) }}</small>
+        <strong>{{ t("sol.execLog") }}</strong>
+        <small class="setting-state" id="sol-log-count">{{ t("sol.logCount", { n: logs.length }) }}</small>
       </span>
-      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || $t("sol.noLog") }}</pre>
-      <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">{{ $t("sol.clear") }}</button>
+      <pre class="sol-log" id="sol-log">{{ logs.join("\n") || t("sol.noLog") }}</pre>
+      <button type="button" id="sol-log-clear" class="secondary" @click="clearLogs">{{ t("sol.clear") }}</button>
     </div>
 
     <p v-if="errorText" class="sol-hint" style="color: rgb(var(--bad))">{{ errorText }}</p>

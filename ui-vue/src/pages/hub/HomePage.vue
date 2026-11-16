@@ -7,7 +7,8 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import { call } from "@/api/tauri";
 import { useRemoteStore } from "@/stores/remote";
 import { useEscape } from "@/composables/useEscape";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
+const { t } = useI18n();
 
 /**
  * 电脑页（原 `ui/hub.html` 的 `#page-home`）。
@@ -284,7 +285,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 <template>
   <div class="page" id="page-home">
     <div class="pc-top">
-      <div class="pc-chips" id="pcChips" role="tablist" :aria-label="$t('hub.home.tabsAria')">
+      <div class="pc-chips" id="pcChips" role="tablist" :aria-label="t('hub.home.tabsAria')">
         <button
           v-for="chip in chips"
           :key="chip.id"
@@ -292,7 +293,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           role="tab"
           :class="['pc-chip', { active: activeId === chip.id }]"
           :aria-current="activeId === chip.id"
-          :title="$t('hub.home.chipTitle', { conn: chip.conn, addr: chip.addr })"
+          :title="t('hub.home.chipTitle', { conn: chip.conn, addr: chip.addr })"
           @click="selectChip(chip.id)"
           @contextmenu.prevent="openChipMenuAt(chip.id)"
         >
@@ -303,16 +304,16 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
             type="button"
             class="os-badge"
             :data-os="chip.os"
-            :title="$t('hub.home.osTitle', { os: OS_LABELS[chip.os] })"
+            :title="t('hub.home.osTitle', { os: OS_LABELS[chip.os] })"
             @click.stop="chipSysInfo(chip.id)"
             @mousedown.stop
           >{{ OS_LABELS[chip.os] }}</button>
           <span v-if="chip.id !== 'local'" class="chip-conn">{{ chip.conn }}</span>
-          <span v-if="chip.id !== 'local'" :class="'chip-more'" :title="$t('hub.home.chipMenu')" @click.stop="openChipMenuAt(chip.id)">⋮</span>
+          <span v-if="chip.id !== 'local'" :class="'chip-more'" :title="t('hub.home.chipMenu')" @click.stop="openChipMenuAt(chip.id)">⋮</span>
         </button>
         <!-- 「＋ 添加」：打开服务端编辑弹层（旧版 #pcAddChip → pcAddOrEdit） -->
-        <button type="button" id="pcAddChip" class="pc-chip add" :title="$t('hub.home.addChip')" @click="emit('addRemote')">
-          ＋ {{ $t("hub.home.addShort") }}
+        <button type="button" id="pcAddChip" class="pc-chip add" :title="t('hub.home.addChip')" @click="emit('addRemote')">
+          ＋ {{ t("hub.home.addShort") }}
         </button>
       </div>
       <!-- 右上角 ⋮（旧版 #pageMore）：与工具条 ⋮ 是同一个 pcMenu -->
@@ -342,9 +343,9 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
               <rect x="3" y="4" width="18" height="16" rx="2" />
               <path d="M3 9h18M8 4v5" />
             </svg>
-            <p><b>{{ failMessage || $t("hub.view.emptyHint") }}</b></p>
+            <p><b>{{ failMessage || t("hub.view.emptyHint") }}</b></p>
             <p>
-              {{ $t("hub.home.emptyBody") }}
+              {{ t("hub.home.emptyBody") }}
             </p>
           </div>
         </div>
@@ -355,8 +356,8 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
         type="button"
         id="pcRefreshFab"
         class="pc-refresh-fab"
-        :title="$t('hub.home.reloadTitle')"
-        :aria-label="$t('hub.home.reloadAria')"
+        :title="t('hub.home.reloadTitle')"
+        :aria-label="t('hub.home.reloadAria')"
         @click="reload"
       >
         <svg
@@ -377,8 +378,8 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
 
       <!-- 电源悬浮球（旧版 #pcFabWrap） -->
       <div id="pcFabWrap" class="pc-fab" :hidden="!fabOpen">
-        <span id="pcFabNote" class="pc-fab-note" :title="$t('hub.home.fabHelp')">{{ $t("hub.home.fabNote") }}</span>
-        <button type="button" id="pcFabHelp" class="pc-fab-help" :hidden="!fabOpen" :title="$t('hub.home.fabHelp')" @click="fabHelpOpen = true">
+        <span id="pcFabNote" class="pc-fab-note" :title="t('hub.home.fabHelp')">{{ t("hub.home.fabNote") }}</span>
+        <button type="button" id="pcFabHelp" class="pc-fab-help" :hidden="!fabOpen" :title="t('hub.home.fabHelp')" @click="fabHelpOpen = true">
           ?
         </button>
         <button
@@ -397,7 +398,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
         id="pcFab"
         class="pc-fab-ball"
         :aria-expanded="fabOpen"
-        :aria-label="$t('hub.home.powerAria')"
+        :aria-label="t('hub.home.powerAria')"
         @click="fabOpen = !fabOpen"
       >
         ⏻
@@ -408,15 +409,15 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
     <div v-if="fabHelpOpen" id="fabHelpOverlay" class="overlay" @click.self="fabHelpOpen = false">
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fabHelpTitle">
         <div class="dialog-head">
-          <h3 id="fabHelpTitle">{{ $t("hub.home.fabHelpTitle") }}</h3>
-          <button type="button" class="icon-btn" id="fabHelpX" :aria-label="$t('common.close')" @click="fabHelpOpen = false">✕</button>
+          <h3 id="fabHelpTitle">{{ t("hub.home.fabHelpTitle") }}</h3>
+          <button type="button" class="icon-btn" id="fabHelpX" :aria-label="t('common.close')" @click="fabHelpOpen = false">✕</button>
         </div>
         <div class="dialog-body">
-          <p class="fab-help-text" id="fabHelpText"><template v-for="(k, i) in FAB_HELP_KEYS" :key="i">{{ $t(k) }}</template></p>
+          <p class="fab-help-text" id="fabHelpText"><template v-for="(k, i) in FAB_HELP_KEYS" :key="i">{{ t(k) }}</template></p>
         </div>
         <div class="dialog-foot">
           <span class="spacer" />
-          <button type="button" class="btn" id="fabHelpOk" @click="fabHelpOpen = false">{{ $t("hub.home.fabHelpOk") }}</button>
+          <button type="button" class="btn" id="fabHelpOk" @click="fabHelpOpen = false">{{ t("hub.home.fabHelpOk") }}</button>
         </div>
       </div>
     </div>
@@ -425,18 +426,18 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
     <div v-if="toastText" class="toast" role="status">{{ toastText }}</div>
 
     <!-- 标签 ⋮ 菜单（旧版 #chipMenu） -->
-    <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" :aria-label="$t('hub.home.chipMenu')">
+    <div v-if="chipMenuOpen" id="chipMenu" class="pc-menu" role="menu" :aria-label="t('hub.home.chipMenu')">
       <button role="menuitem" @click="chipEdit">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>
-        {{ $t("hub.home.chipEdit") }}
+        {{ t("hub.home.chipEdit") }}
       </button>
       <button role="menuitem" @click="chipSysInfo()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
-        {{ $t("rowMenu.sysinfo") }}
+        {{ t("rowMenu.sysinfo") }}
       </button>
       <button role="menuitem" @click="chipMenuOpen = false; reload()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4" /><path d="M21 3v6h-6" /></svg>
-        {{ $t("hub.home.chipReload") }}
+        {{ t("hub.home.chipReload") }}
       </button>
     </div>
 

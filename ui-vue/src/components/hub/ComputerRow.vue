@@ -8,7 +8,8 @@ import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
+const { t } = useI18n();
 
 /**
  * 电脑列表的一行（**1:1 对齐旧版 `cqRowEl()` hub.html:8347**）。
@@ -608,7 +609,7 @@ function onRowClick() {
           <template v-if="!isLocal">
             <button
               type="button"
-              :title="$t('hub.col.moveUp')"
+              :title="t('hub.col.moveUp')"
               :disabled="orderIndex <= 0"
               @click.stop="emit('move', { id: row.id, delta: -1 })"
             >
@@ -616,7 +617,7 @@ function onRowClick() {
             </button>
             <button
               type="button"
-              :title="$t('hub.col.moveDown')"
+              :title="t('hub.col.moveDown')"
               :disabled="orderIndex >= orderTotal - 1"
               @click.stop="emit('move', { id: row.id, delta: 1 })"
             >
@@ -635,22 +636,22 @@ function onRowClick() {
           </div>
           <div class="cq-dev-txt">
             <div class="cq-dev-name">
-              <span class="nm">{{ row.name || (row.id === "local" ? $t("hub.home.local") : "") }}</span>
+              <span class="nm">{{ row.name || (row.id === "local" ? t("hub.home.local") : "") }}</span>
               <button
                 v-if="!isLocal && osBadge"
                 type="button"
                 class="os-badge"
                 :data-os="osBadge.kind"
-                :title="$t('hub.col.sysinfo')"
+                :title="t('hub.col.sysinfo')"
                 @click.stop="emit('sysInfo', row.id)"
               >
                 {{ osBadge.text }}
               </button>
-              <span v-if="selected" class="cq-chip-cur">{{ $t("hub.state.current") }}</span>
+              <span v-if="selected" class="cq-chip-cur">{{ t("hub.state.current") }}</span>
               <span
                 class="cq-chip-grp"
                 :class="{ 'cq-chip-remote': false }"
-                :title="connLabel === $t('hub.conn.direct') ? $t('hub.conn.lanDirect') : $t('hub.conn.notReachable')"
+                :title="connLabel === t('hub.conn.direct') ? t('hub.conn.lanDirect') : t('hub.conn.notReachable')"
               >
                 {{ connLabel }}
               </span>
@@ -674,8 +675,8 @@ function onRowClick() {
         <button
           type="button"
           class="cq-more"
-          :title="$t('hub.col.more')"
-          :aria-label="$t('hub.col.more')"
+          :title="t('hub.col.more')"
+          :aria-label="t('hub.col.more')"
           @click.stop="emit('more', row.id)"
         >
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -689,7 +690,7 @@ function onRowClick() {
 
     <!-- 引导项区 -->
     <div class="cq-row-boots">
-      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'rEFInd' })">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'rEFInd' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refind').none }">
           <button
             type="button"
@@ -703,7 +704,7 @@ function onRowClick() {
         </div>
       </div>
       <!-- RefindPlus 列：与 rEFInd 完全同构的独立组（kind=refindplus），同一套卡片风格 -->
-      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'RefindPlus' })">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'RefindPlus' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refindplus').none }">
           <button
             type="button"
@@ -716,7 +717,7 @@ function onRowClick() {
           </button>
         </div>
       </div>
-      <div class="cq-col cq-col-boot" role="cell" :data-label="$t('hub.boot.col', { name: 'GRUB' })">
+      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'GRUB' })">
         <div class="cq-boot" :class="{ 'cq-boot--none': bootState('grub').none }">
           <button
             type="button"
@@ -736,7 +737,7 @@ function onRowClick() {
         :key="kind"
         class="cq-col cq-col-boot cq-col-boot--ch"
         role="cell"
-        :data-label="$t('hub.boot.col', { name: channelTitle(kind) })"
+        :data-label="t('hub.boot.col', { name: channelTitle(kind) })"
       >
         <div class="cq-boot" :class="{ 'cq-boot--none': !channelOf(kind)?.available }">
           <button
@@ -757,9 +758,9 @@ function onRowClick() {
       <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
         <div class="cq-dev-top">
           <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
-          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? $t('hub.probe.passed') : (ln.skipped ? $t('hub.probe.skipped') : $t('hub.probe.failed', { reason: ln.reason || $t('hub.conn.fail') }))">{{ ln.badge }}</span>
-          <button type="button" class="cq-remote-act" :title="$t('hub.conn.copyTitle')" @click.stop="copyUrl(ln.url, ln.address)">{{ $t("common.copy") }}</button>
-          <button type="button" class="cq-remote-act" :title="$t('hub.conn.openTitle')" @click.stop="openUrl(ln.url)">{{ $t("hub.conn.openBrowser") }}</button>
+          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? t('hub.probe.passed') : (ln.skipped ? t('hub.probe.skipped') : t('hub.probe.failed', { reason: ln.reason || t('hub.conn.fail') }))">{{ ln.badge }}</span>
+          <button type="button" class="cq-remote-act" :title="t('hub.conn.copyTitle')" @click.stop="copyUrl(ln.url, ln.address)">{{ t("common.copy") }}</button>
+          <button type="button" class="cq-remote-act" :title="t('hub.conn.openTitle')" @click.stop="openUrl(ln.url)">{{ t("hub.conn.openBrowser") }}</button>
         </div>
         <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
         <div v-if="ln.macs && ln.macs.length" class="cq-dev-macrow">
@@ -778,17 +779,17 @@ function onRowClick() {
             :key="spec.act"
             type="button"
             class="cq-pwr-btn"
-            :title="spec.hint ? `${$t(spec.label)} · ${$t(spec.hint)}` : $t(spec.label)"
-            :aria-label="spec.hint ? `${$t(spec.label)} · ${$t(spec.hint)}` : $t(spec.label)"
+            :title="spec.hint ? `${t(spec.label)} · ${t(spec.hint)}` : t(spec.label)"
+            :aria-label="spec.hint ? `${t(spec.label)} · ${t(spec.hint)}` : t(spec.label)"
             @click.stop="emit('power', { serverId: row.id, action: spec.act })"
           >
             <span class="lbl">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
                    v-html="POWER_ICONS[spec.act]" />
-              {{ $t(spec.label) }}
+              {{ t(spec.label) }}
             </span>
-            <span class="hint">{{ $t(spec.hint) }}</span>
+            <span class="hint">{{ t(spec.hint) }}</span>
           </button>
         </div>
       </div>
@@ -796,10 +797,10 @@ function onRowClick() {
 
     <!-- 启动项选择器：点启动项列弹出该引导器的可选条目，选中带 value 切换下次启动 -->
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
-      <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="$t('hub.picker.ariaTitle', { title: picker.title })">
-        <div class="cq-picker-head">{{ $t("hub.picker.title", { loader: picker.title }) }}</div>
+      <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="t('hub.picker.ariaTitle', { title: picker.title })">
+        <div class="cq-picker-head">{{ t("hub.picker.title", { loader: picker.title }) }}</div>
         <div v-if="picker" class="cq-picker-fmt">
-          <span class="cq-picker-fmt-label">{{ $t("hub.picker.fmtTitle") }}</span>
+          <span class="cq-picker-fmt-label">{{ t("hub.picker.fmtTitle") }}</span>
           <div class="cq-picker-fmt-chips">
             <button v-for="c in fmtChoices" :key="c.v" type="button"
               :class="['cq-fmt-chip', { 'is-on': pickerFmt === c.v }]"
@@ -816,7 +817,7 @@ function onRowClick() {
             @select="chooseBoot"
           />
         </div>
-        <button type="button" class="cq-picker-cancel" @click="picker = null">{{ $t("common.cancel") }}</button>
+        <button type="button" class="cq-picker-cancel" @click="picker = null">{{ t("common.cancel") }}</button>
       </div>
     </div>
   </div>

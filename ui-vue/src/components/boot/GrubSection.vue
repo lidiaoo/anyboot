@@ -3,13 +3,14 @@
 const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
 import { computed, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call, setLoaderMode } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * GRUB 区块（原 `ui/index.html` 的 `section#grub`，197~290 行）。
@@ -214,18 +215,18 @@ async function switchEntry(selector: string) {
 </script>
 
 <template>
-  <section :aria-label="$t('grub.sectionTitle', { name: 'GRUB' })" class="grub" id="grub">
+  <section :aria-label="t('grub.sectionTitle', { name: 'GRUB' })" class="grub" id="grub">
     <div v-if="!props.hideList" class="grub-head">
       <div class="grub-title-row">
-        <span class="zone-tag" id="grub-zone-tag">{{ $t("grub.zone", { name: "GRUB" }) }}</span>
-        <h2>{{ $t("grub.sectionTitle", { name: "GRUB" }) }}</h2>
+        <span class="zone-tag" id="grub-zone-tag">{{ t("grub.zone", { name: "GRUB" }) }}</span>
+        <h2>{{ t("grub.sectionTitle", { name: "GRUB" }) }}</h2>
       </div>
       <small class="grub-pane-status" id="grub-status" role="status" />
-      <small id="grub-meta">{{ grubManual?.syncedAt ? $t("grub.syncedAt", { t: grubManual.syncedAt }) : "" }}</small>
+      <small id="grub-meta">{{ grubManual?.syncedAt ? t("grub.syncedAt", { t: grubManual.syncedAt }) : "" }}</small>
     </div>
 
     <!-- 两个横向标签 -->
-    <div class="grub-tabs" id="grub-tabs" role="tablist" :aria-label="$t('grub.tabsAria', { name: 'GRUB' })">
+    <div class="grub-tabs" id="grub-tabs" role="tablist" :aria-label="t('grub.tabsAria', { name: 'GRUB' })">
       <button
         type="button"
         id="grub-tab-auto"
@@ -236,7 +237,7 @@ async function switchEntry(selector: string) {
         data-grub-tab="auto"
         @click="setGrubTab('auto')"
       >
-        {{ $t("grub.tabAuto") }}
+        {{ t("grub.tabAuto") }}
       </button>
       <button
         type="button"
@@ -248,7 +249,7 @@ async function switchEntry(selector: string) {
         data-grub-tab="manual"
         @click="setGrubTab('manual')"
       >
-        {{ $t("grub.tabManual") }}
+        {{ t("grub.tabManual") }}
       </button>
     </div>
 
@@ -259,18 +260,18 @@ async function switchEntry(selector: string) {
       id="grub-panel-auto"
       role="tabpanel"
     >
-      <section :aria-label="$t('grub.autoAria')" class="grub-auto" id="grub-auto">
+      <section :aria-label="t('grub.autoAria')" class="grub-auto" id="grub-auto">
         <div class="grub-auto-head">
-          <h3>{{ $t("grub.autoTitle") }} <small>{{ $t("grub.autoTitleSub") }}</small></h3>
+          <h3>{{ t("grub.autoTitle") }} <small>{{ t("grub.autoTitleSub") }}</small></h3>
           <button
             type="button"
             id="grub-auto-refresh"
             class="secondary"
             :disabled="autoBusy"
-            :title="$t('grub.reprobeTitle')"
+            :title="t('grub.reprobeTitle')"
             @click="refreshAuto"
           >
-            {{ autoBusy ? $t("grub.reading") : $t("grub.reread") }}
+            {{ autoBusy ? t("grub.reading") : t("grub.reread") }}
           </button>
         </div>
 
@@ -311,7 +312,7 @@ async function switchEntry(selector: string) {
       role="tabpanel"
     >
       <p class="grub-panel-note" id="grub-hint">
-        {{ $t("grub.espReadHint") }}
+        {{ t("grub.espReadHint") }}
       </p>
 
       <div class="grub-list" id="grub-list">
@@ -325,51 +326,51 @@ async function switchEntry(selector: string) {
         />
         <!-- 空状态（旧版 #grub-empty），无条目时显示 -->
         <div v-if="!manualEntries.length" id="grub-empty" class="grub-empty-state">
-          <strong>{{ $t("grub.notFoundTitle", { name: "GRUB" }) }}</strong>
-          <small>{{ $t("grub.notFoundHint") }}</small>
+          <strong>{{ t("grub.notFoundTitle", { name: "GRUB" }) }}</strong>
+          <small>{{ t("grub.notFoundHint") }}</small>
           <div class="actions">
-            <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">{{ $t("grub.pickDir") }}</button>
+            <button type="button" class="secondary" id="grub-empty-pick" @click="pickEspDir">{{ t("grub.pickDir") }}</button>
           </div>
         </div>
       </div>
 
       <!-- 安装 / 卸载 09_anyboot（旧版 #grub-install-actions） -->
       <div class="actions" id="grub-install-actions">
-        <button type="button" class="secondary" id="grub-install" @click="installAnyboot">{{ $t("grub.install") }}</button>
-        <button type="button" class="secondary" id="grub-uninstall" @click="uninstallAnyboot">{{ $t("grub.uninstall") }}</button>
+        <button type="button" class="secondary" id="grub-install" @click="installAnyboot">{{ t("grub.install") }}</button>
+        <button type="button" class="secondary" id="grub-uninstall" @click="uninstallAnyboot">{{ t("grub.uninstall") }}</button>
       </div>
 
       <!-- 执行过程（旧版 #grub-log-box） -->
       <details v-if="grubManual?.scriptLog" id="grub-log-box" class="grub-log">
-        <summary id="grub-log-summary">{{ $t("grub.logSummary") }}</summary>
+        <summary id="grub-log-summary">{{ t("grub.logSummary") }}</summary>
         <pre id="grub-log">{{ grubManual.scriptLog }}</pre>
       </details>
 
       <!-- 内置脚本编辑（旧版 details.grub-script） -->
       <details class="grub-script">
-        <summary>{{ $t("grub.scriptSummary") }}</summary>
+        <summary>{{ t("grub.scriptSummary") }}</summary>
         <small
-          >{{ $t("grub.scriptHint") }}</small
+          >{{ t("grub.scriptHint") }}</small
         >
         <textarea id="grub-script" v-model="scriptText" rows="8" spellcheck="false" />
         <div class="actions">
-          <button type="button" class="secondary" id="grub-script-save" @click="saveScript">{{ $t("grub.scriptSave") }}</button>
-          <button type="button" class="secondary" id="grub-script-reset" @click="resetScript">{{ $t("grub.scriptReset") }}</button>
+          <button type="button" class="secondary" id="grub-script-save" @click="saveScript">{{ t("grub.scriptSave") }}</button>
+          <button type="button" class="secondary" id="grub-script-reset" @click="resetScript">{{ t("grub.scriptReset") }}</button>
         </div>
       </details>
 
       <!-- 引导配置须知（旧版 .grub-advice，原文照抄） -->
       <small class="grub-advice" id="grub-advice">
-        <strong>{{ $t("grub.noticeTitle") }}</strong>
+        <strong>{{ t("grub.noticeTitle") }}</strong>
         <ul>
           <li>
-            {{ $t("grub.notice1") }}
+            {{ t("grub.notice1") }}
           </li>
           <li>
-            {{ $t("grub.notice2") }}
+            {{ t("grub.notice2") }}
           </li>
           <li>
-            {{ $t("grub.notice3") }}
+            {{ t("grub.notice3") }}
           </li>
         </ul>
       </small>
@@ -385,17 +386,17 @@ async function switchEntry(selector: string) {
 
     <!-- 列表格式（旧版 #grub-format-row） -->
     <div class="grub-row" id="grub-format-row">
-      <label for="grub-list-format">{{ $t("grub.listFormat") }}</label>
+      <label for="grub-list-format">{{ t("grub.listFormat") }}</label>
       <select
         id="grub-list-format"
         :value="settings.grubListFormat"
         @change="setFormat(($event.target as HTMLSelectElement).value)"
       >
-        <option value="raw">{{ $t("hub.picker.fmt.raw") }}</option>
-        <option value="minimal">{{ $t("hub.picker.fmt.minimal") }}</option>
-        <option value="simple">{{ $t("hub.picker.fmt.simple") }}</option>
-        <option value="medium">{{ $t("hub.picker.fmt.medium") }}</option>
-        <option value="detailed">{{ $t("hub.picker.fmt.detailed") }}</option>
+        <option value="raw">{{ t("hub.picker.fmt.raw") }}</option>
+        <option value="minimal">{{ t("hub.picker.fmt.minimal") }}</option>
+        <option value="simple">{{ t("hub.picker.fmt.simple") }}</option>
+        <option value="medium">{{ t("hub.picker.fmt.medium") }}</option>
+        <option value="detailed">{{ t("hub.picker.fmt.detailed") }}</option>
       </select>
     </div>
   </section>

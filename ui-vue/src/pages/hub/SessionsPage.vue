@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 const toast = useToastStore();
 import { onMounted, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * 会话页（原 `ui/hub.html` 的 `#page-sessions`，3365 行 / 渲染逻辑 6810–6900）。
@@ -117,53 +119,53 @@ const isEmpty = () =>
 
 <template>
   <div class="page-head">
-    <h2>{{ $t("nav.sessions") }}</h2>
+    <h2>{{ t("nav.sessions") }}</h2>
   </div>
 
   <div class="session-list scroll-thin" id="sessionList">
-    <p v-if="loading" class="field-hint">{{ $t("hub.state.reading") }}</p>
+    <p v-if="loading" class="field-hint">{{ t("hub.state.reading") }}</p>
 
     <!-- 空态 -->
     <div v-else-if="isEmpty()" class="act-card" style="margin: 8px 0">
-      <p class="t">{{ $t("sess.emptyTitle") }}</p>
-      <p class="s">{{ $t("sess.emptyHint") }}</p>
+      <p class="t">{{ t("sess.emptyTitle") }}</p>
+      <p class="s">{{ t("sess.emptyHint") }}</p>
     </div>
 
     <template v-else>
       <!-- ① 进行中的终端会话 -->
       <template v-if="sessions.length">
-        <p class="session-sec">{{ $t("sess.secTerm") }}</p>
+        <p class="session-sec">{{ t("sess.secTerm") }}</p>
         <div v-for="m in sessions" :key="m.id" class="session-row">
           <div class="s-main">
-            <div>{{ m.server_name || $t("server.untitled") }}</div>
+            <div>{{ m.server_name || t("server.untitled") }}</div>
             <div class="s-sub">{{ m.host_label || "" }}</div>
           </div>
-          <button type="button" class="btn" @click="focusTerminal">{{ $t("sess.focus") }}</button>
-          <button type="button" class="btn" @click="killSession(m.id)">{{ $t("sess.disconnect") }}</button>
+          <button type="button" class="btn" @click="focusTerminal">{{ t("sess.focus") }}</button>
+          <button type="button" class="btn" @click="killSession(m.id)">{{ t("sess.disconnect") }}</button>
         </div>
       </template>
 
       <!-- ② 历史 · 本窗口打开过 -->
       <template v-if="termLog.length">
-        <p class="session-sec">{{ $t("sess.secHistory") }}</p>
-        <div v-for="(t, i) in termLog" :key="i" class="session-row">
+        <p class="session-sec">{{ t("sess.secHistory") }}</p>
+        <div v-for="(it, i) in termLog" :key="i" class="session-row">
           <div class="s-main">
-            <div>{{ t.name }}</div>
-            <div class="s-sub">{{ t.host }}</div>
+            <div>{{ it.name }}</div>
+            <div class="s-sub">{{ it.host }}</div>
           </div>
-          <span class="mono" style="font-size: 11px; color: rgb(var(--fg-faint))">{{ fmtTime(t.at) }}</span>
-          <button v-if="t.serverId" type="button" class="btn" @click="reconnect(t)">{{ $t("sess.reconnect") }}</button>
-          <button type="button" class="btn" @click="removeLog(i)">{{ $t("sess.remove") }}</button>
+          <span class="mono" style="font-size: 11px; color: rgb(var(--fg-faint))">{{ fmtTime(it.at) }}</span>
+          <button v-if="it.serverId" type="button" class="btn" @click="reconnect(it)">{{ t("sess.reconnect") }}</button>
+          <button type="button" class="btn" @click="removeLog(i)">{{ t("sess.remove") }}</button>
         </div>
       </template>
 
       <!-- ③ 运行中的隧道 -->
       <template v-if="runningTunnels.length">
-        <p class="session-sec">{{ $t("sess.secTunnels") }}</p>
-        <div v-for="t in runningTunnels" :key="t.id" class="session-row">
+        <p class="session-sec">{{ t("sess.secTunnels") }}</p>
+        <div v-for="tun in runningTunnels" :key="tun.id" class="session-row">
           <div class="s-main">
-            <div>{{ t.name || $t("server.untitled") }}</div>
-            <div class="s-sub">{{ tunnelSub(t) }}</div>
+            <div>{{ tun.name || t("server.untitled") }}</div>
+            <div class="s-sub">{{ tunnelSub(tun) }}</div>
           </div>
         </div>
       </template>

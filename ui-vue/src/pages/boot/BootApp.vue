@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { applyAccent, shadeHex } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
@@ -21,6 +21,7 @@ import ThemeHost from "./themes/index.vue";
 import type { LoaderInfo } from "./themes/types";
 
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 /**
  * 主窗（原 `ui/index.html`，1092 行）。
  *
@@ -719,8 +720,8 @@ const statusHidden = computed(() => {
               type="button"
               id="theme-btn"
               class="secondary ico-btn"
-              :aria-label="$t('boot.themeAria')"
-              :title="$t('boot.themeAria')"
+              :aria-label="t('boot.themeAria')"
+              :title="t('boot.themeAria')"
               @click="toggleTheme"
             >
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
@@ -728,38 +729,38 @@ const statusHidden = computed(() => {
                 <path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" stroke="none" />
               </svg>
             </button>
-            <button type="button" id="open-hub" class="secondary ico-btn" :aria-label="$t('boot.remoteMgmt')" :title="$t('boot.remoteMgmt')" @click="openHub">
+            <button type="button" id="open-hub" class="secondary ico-btn" :aria-label="t('boot.remoteMgmt')" :title="t('boot.remoteMgmt')" @click="openHub">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="8.2" rx="1.4" width="11.6" x="2.2" y="3" />
                 <path d="M5.4 6.2 7 7.6 5.4 9" />
                 <path d="M8.4 9h2.4" />
               </svg>
             </button>
-            <button type="button" id="power-reboot" class="secondary ico-btn" :aria-label="$t('boot.rebootSystem')" :title="$t('boot.rebootSystem')" @click="call('power_action', { action: 'reboot' })">
+            <button type="button" id="power-reboot" class="secondary ico-btn" :aria-label="t('boot.rebootSystem')" :title="t('boot.rebootSystem')" @click="call('power_action', { action: 'reboot' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5" />
                 <path d="M13 3.1v3h-3" />
               </svg>
             </button>
-            <button type="button" id="power-shutdown" class="secondary ico-btn" :aria-label="$t('hub.power.shutdown')" :title="$t('hub.power.shutdown')" @click="call('power_action', { action: 'shutdown' })">
+            <button type="button" id="power-shutdown" class="secondary ico-btn" :aria-label="t('hub.power.shutdown')" :title="t('hub.power.shutdown')" @click="call('power_action', { action: 'shutdown' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M8 2.6v5" />
                 <path d="M11.7 4.8a5 5 0 1 1-7.4 0" />
               </svg>
             </button>
-            <button type="button" id="power-sleep" class="secondary ico-btn" :aria-label="$t('hub.power.sleep')" :title="$t('hub.power.sleep')" @click="call('power_action', { action: 'sleep' })">
+            <button type="button" id="power-sleep" class="secondary ico-btn" :aria-label="t('hub.power.sleep')" :title="t('hub.power.sleep')" @click="call('power_action', { action: 'sleep' })">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M10.6 2.5a5.6 5.6 0 1 0 2.9 8.3 4.7 4.7 0 0 1-2.9-8.3Z" />
               </svg>
             </button>
-            <button type="button" id="restart-app" class="secondary ico-btn" :aria-label="$t('boot.restartApp')" :title="$t('boot.restartApp')" @click="call('restart_app')">
+            <button type="button" id="restart-app" class="secondary ico-btn" :aria-label="t('boot.restartApp')" :title="t('boot.restartApp')" @click="call('restart_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <rect height="10.4" rx="2.2" width="10.4" x="2.8" y="2.8" />
                 <path d="M9.6 6.4a2.3 2.3 0 1 0 .3 3.2" />
                 <path d="M9.8 4.9v1.7H8.1" />
               </svg>
             </button>
-            <button type="button" id="quit-app" class="secondary ico-btn" :aria-label="$t('boot.quitApp')" :title="$t('boot.quitApp')" @click="call('quit_app')">
+            <button type="button" id="quit-app" class="secondary ico-btn" :aria-label="t('boot.quitApp')" :title="t('boot.quitApp')" @click="call('quit_app')">
               <svg aria-hidden="true" class="i" focusable="false" viewBox="0 0 16 16">
                 <path d="M9.7 2.7h2a1.4 1.4 0 0 1 1.4 1.4v7.8a1.4 1.4 0 0 1-1.4 1.4h-2" />
                 <path d="M3 8h5.5" />
@@ -771,7 +772,7 @@ const statusHidden = computed(() => {
         <p id="status" :class="{ hidden: statusHidden }">{{ statusText }}</p>
       </header>
 
-      <nav :aria-label="$t('boot.navAria')" class="tabs" id="tabs">
+      <nav :aria-label="t('boot.navAria')" class="tabs" id="tabs">
         <button
           v-for="tab in TABS"
           :key="tab.id"
@@ -780,7 +781,7 @@ const statusHidden = computed(() => {
           :data-tab="tab.id"
           @click="currentTab = tab.id"
         >
-          {{ $t(tab.label) }}
+          {{ t(tab.label) }}
         </button>
       </nav>
 
@@ -799,11 +800,11 @@ const statusHidden = computed(() => {
         <section
           v-if="adv.state.nextBoot !== 'off'"
           :class="['next-boot', { 'has-rows': nextBootRows.length > 0, 'nb-folded': !nextBootRowsVisible }]"
-          :aria-label="$t('boot.nextBootLabel')"
+          :aria-label="t('boot.nextBootLabel')"
           id="next-boot"
         >
           <div class="nb-head">
-            <small>{{ $t("boot.nextBootLabel") }}</small>
+            <small>{{ t("boot.nextBootLabel") }}</small>
             <button
               type="button"
               id="nb-toggle"
@@ -812,11 +813,11 @@ const statusHidden = computed(() => {
               :hidden="!nextBootRows.length"
               @click="nextBootRowsOpen = !nextBootRowsVisible"
             >
-              {{ nextBootRowsVisible ? $t("boot.collapse") : $t("boot.expand") }}
+              {{ nextBootRowsVisible ? t("boot.collapse") : t("boot.expand") }}
             </button>
           </div>
           <strong id="next-boot-name">{{ nextBootName }}</strong>
-          <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">{{ $t("boot.lastBoot", { name: nextBootLast }) }}</small>
+          <small class="next-boot-last" id="next-boot-last" :hidden="!nextBootLast">{{ t("boot.lastBoot", { name: nextBootLast }) }}</small>
           <div
             v-show="nextBootRowsVisible && nextBootRows.length"
             class="next-boot-rows"
@@ -858,9 +859,9 @@ const statusHidden = computed(() => {
             <!-- 仅「不套用主题(K)」显示每个引导器的头部标题（多引导器堆叠需区分）；
                  启用主题(A/B/C/G/I/J)不显示任何区块标题。 -->
             <div v-if="adv.effectiveTheme === 'K'" class="boot-loader-head">
-              <span class="zone-tag">{{ $t("grub.zone", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</span>
-              <b>{{ $t("grub.sectionTitle", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</b>
-              <span class="cnt">· {{ $t("grub.itemsN", { n: bootRowsByLoader[id]?.length ?? 0 }) }}</span>
+              <span class="zone-tag">{{ t("grub.zone", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</span>
+              <b>{{ t("grub.sectionTitle", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</b>
+              <span class="cnt">· {{ t("grub.itemsN", { n: bootRowsByLoader[id]?.length ?? 0 }) }}</span>
             </div>
             <BootList :loader="id" @select="(sel: string) => adv.setSelection(id, sel)" />
             <LoaderSettings :loader="id" />
@@ -891,7 +892,7 @@ const statusHidden = computed(() => {
   <div v-if="statusBar.text" id="status-bar" aria-live="polite" :class="['status-bar', statusBar.error ? 'error' : 'ok']" role="status">
     <span id="status-bar-icon" class="status-bar-icon" aria-hidden="true">{{ statusBar.icon }}</span>
     <span id="status-bar-text" class="status-bar-text">{{ statusBar.text }}</span>
-    <button type="button" id="status-bar-close" class="status-bar-close" :title="$t('boot.collapse')" @click="dismissStatusBar">×</button>
+    <button type="button" id="status-bar-close" class="status-bar-close" :title="t('boot.collapse')" @click="dismissStatusBar">×</button>
   </div>
   <HelperPrompt v-if="helperPromptVisible" @resolved="onHelperPromptResolved" />
   <TokenPrompt v-if="needToken" @confirmed="onTokenConfirmed" />

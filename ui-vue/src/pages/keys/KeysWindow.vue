@@ -1,11 +1,12 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useEscape } from "@/composables/useEscape";
 import { computed, onMounted, ref , onUnmounted } from "vue";
 import { call } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * 密钥窗（原 `ui/hub-keys.html`，465 行）。
@@ -232,16 +233,16 @@ async function confirmDelete() {
         <path d="M10.8 12.2 20 3M17 6l2.5 2.5M14 9l2 2" />
       </svg>
     </span>
-    <h1>{{ $t("keysWin.title") }}</h1>
-    <span class="count mono" id="count">{{ $t("keysWin.count", { n: keys.length }) }}</span>
+    <h1>{{ t("keysWin.title") }}</h1>
+    <span class="count mono" id="count">{{ t("keysWin.count", { n: keys.length }) }}</span>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('keysWin.themeAria')" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="t('keysWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        {{ $t("keysWin.theme") }}
+        {{ t("keysWin.theme") }}
       </button>
     </div>
   </header>
@@ -251,15 +252,15 @@ async function confirmDelete() {
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
         <path d="M12 5v14M5 12h14" />
       </svg>
-      {{ $t("keysWin.gen") }}
+      {{ t("keysWin.gen") }}
     </button>
     <button type="button" class="btn" id="importBtn" :disabled="!!busy" @click="doImport">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
       </svg>
-      {{ $t("keysWin.import") }}
+      {{ t("keysWin.import") }}
     </button>
-    <p class="hint">{{ $t("keysWin.hint") }}</p>
+    <p class="hint">{{ t("keysWin.hint") }}</p>
   </div>
 
   <ul class="keys scroll-thin" id="list">
@@ -278,14 +279,14 @@ async function confirmDelete() {
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
               <path d="M12 9v4M12 17h.01" />
             </svg>
-            {{ $t("keysWin.noPass") }}
+            {{ t("keysWin.noPass") }}
           </span>
         </div>
         <p class="key-meta">{{ keyMeta(key) }}</p>
       </div>
       <div class="key-actions">
-        <button type="button" class="btn small copy" @click="copyPublic(key.id)">{{ $t("keysWin.copyPub") }}</button>
-        <button type="button" class="delbtn" :aria-label="$t('keysWin.delKey')" :title="$t('keysWin.delKey')" :disabled="!!busy" @click="removeKey(key.id)">
+        <button type="button" class="btn small copy" @click="copyPublic(key.id)">{{ t("keysWin.copyPub") }}</button>
+        <button type="button" class="delbtn" :aria-label="t('keysWin.delKey')" :title="t('keysWin.delKey')" :disabled="!!busy" @click="removeKey(key.id)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" />
           </svg>
@@ -295,11 +296,11 @@ async function confirmDelete() {
   </ul>
 
   <div v-if="!loading && !keys.length" class="empty-tip" id="emptyTip">
-    {{ $t("keysWin.empty") }}
+    {{ t("keysWin.empty") }}
   </div>
 
   <footer>
-    {{ $t("keysWin.usage") }}
+    {{ t("keysWin.usage") }}
   </footer>
 
   <p v-if="message" class="hint" style="color: rgb(var(--ok))">{{ message }}</p>
@@ -309,15 +310,15 @@ async function confirmDelete() {
   <div v-if="genOpen" id="genModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="genTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="genTitle">{{ $t("keysWin.genTitle") }}</h3>
-        <button type="button" id="genClose" :aria-label="$t('common.close')" @click="genOpen = false">✕</button>
+        <h3 id="genTitle">{{ t("keysWin.genTitle") }}</h3>
+        <button type="button" id="genClose" :aria-label="t('common.close')" @click="genOpen = false">✕</button>
       </div>
       <form id="genForm" class="modal-body" @submit.prevent="confirmGenerate">
         <div>
-          <label>{{ $t("keysWin.type") }}</label>
+          <label>{{ t("keysWin.type") }}</label>
           <div class="seg" id="genKind">
             <button type="button" data-kind="ed25519" :aria-selected="genKind === 'ed25519'" @click="genKind = 'ed25519'">
-              Ed25519 <span class="mono" style="font-size: 10px; opacity: 0.7">{{ $t("keysWin.recommend") }}</span>
+              Ed25519 <span class="mono" style="font-size: 10px; opacity: 0.7">{{ t("keysWin.recommend") }}</span>
             </button>
             <button type="button" data-kind="rsa" :aria-selected="genKind === 'rsa'" @click="genKind = 'rsa'">
               RSA-4096
@@ -325,18 +326,18 @@ async function confirmDelete() {
           </div>
         </div>
         <div>
-          <label for="genName">{{ $t("keysWin.name") }}</label>
-          <input id="genName" v-model="genName" :placeholder="$t('keysWin.namePh')" autocomplete="off" required />
+          <label for="genName">{{ t("keysWin.name") }}</label>
+          <input id="genName" v-model="genName" :placeholder="t('keysWin.namePh')" autocomplete="off" required />
         </div>
         <div>
-          <label for="genPass">{{ $t("keysWin.pass") }}</label>
-          <input id="genPass" v-model="genPassphrase" type="password" :placeholder="$t('keysWin.passPh')" autocomplete="new-password" />
-          <span class="field-tip">{{ $t("keysWin.passTip") }}</span>
+          <label for="genPass">{{ t("keysWin.pass") }}</label>
+          <input id="genPass" v-model="genPassphrase" type="password" :placeholder="t('keysWin.passPh')" autocomplete="new-password" />
+          <span class="field-tip">{{ t("keysWin.passTip") }}</span>
         </div>
-        <p class="modal-note">{{ $t("keysWin.genNote") }}</p>
+        <p class="modal-note">{{ t("keysWin.genNote") }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="genCancel" @click="genOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="submit" class="btn primary">{{ $t("keysWin.gen") }}</button>
+          <button type="button" class="btn plain" id="genCancel" @click="genOpen = false">{{ t("common.cancel") }}</button>
+          <button type="submit" class="btn primary">{{ t("keysWin.gen") }}</button>
         </div>
       </form>
     </div>
@@ -351,12 +352,12 @@ async function confirmDelete() {
             <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
           </svg>
         </span>
-        <h3 id="delTitle">{{ $t("keysWin.delTitleQ") }}</h3>
+        <h3 id="delTitle">{{ t("keysWin.delTitleQ") }}</h3>
       </div>
       <p id="delBody" class="del-body">{{ delBody }}</p>
       <div class="modal-foot">
-        <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">{{ $t("common.cancel") }}</button>
-        <button type="button" class="btn danger" id="delOk" @click="confirmDelete">{{ $t("common.delete") }}</button>
+        <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">{{ t("common.cancel") }}</button>
+        <button type="button" class="btn danger" id="delOk" @click="confirmDelete">{{ t("common.delete") }}</button>
       </div>
     </div>
   </div>

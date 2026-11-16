@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 import { computed, ref } from "vue";
+const { t } = useI18n();
 
 /**
  * 延迟趋势（原 `ui/hub.html` 的「延迟趋势（会话内采样）」）。
@@ -53,11 +55,11 @@ const path = computed(() => {
 <template>
   <div class="latency">
     <div class="head">
-      <span class="lbl">{{ $t("lat.title") }}</span>
+      <span class="lbl">{{ t("lat.title") }}</span>
       <span v-if="stats" class="stats">
-        {{ $t("lat.stats", { last: stats.last, avg: stats.avg, min: stats.min, max: stats.max }) }}
+        {{ t("lat.stats", { last: stats.last, avg: stats.avg, min: stats.min, max: stats.max }) }}
       </span>
-      <span v-else class="stats dim">{{ $t("lat.noSample") }}</span>
+      <span v-else class="stats dim">{{ t("lat.noSample") }}</span>
     </div>
     <svg v-if="path" class="spark" viewBox="0 0 200 40" preserveAspectRatio="none" aria-hidden="true">
       <path :d="path" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" />

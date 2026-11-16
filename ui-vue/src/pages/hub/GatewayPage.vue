@@ -2,13 +2,14 @@
 const toast = useToastStore();
 const ui = useUiStateStore();
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call, isTauri } from "@/api/tauri";
 import PairDialog from "@/components/hub/PairDialog.vue";
 import LogDialog from "@/components/hub/LogDialog.vue";
 import { useToastStore } from "@/stores/toast";
 import { useEscape } from "@/composables/useEscape";
 import { useUiStateStore } from "@/stores/uiState";
+const { t } = useI18n();
 
 /**
  * 远程接入页（原 `ui/hub.html` 的 `#page-gateway`，2792~3355 行）。
@@ -1064,11 +1065,11 @@ function deletePair(id: string) {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-    <h2>{{ $t("gw.title") }}</h2>
+    <h2>{{ t("gw.title") }}</h2>
 
     <!-- 自动刷新三合一（旧版 #gwAuto） -->
-    <div class="gw-ar" id="gwAuto" :title="$t('gw.autoRefreshTitle')">
-      <span class="gw-ar-label">{{ $t("gw.autoRefresh") }}</span>
+    <div class="gw-ar" id="gwAuto" :title="t('gw.autoRefreshTitle')">
+      <span class="gw-ar-label">{{ t("gw.autoRefresh") }}</span>
       <div class="gw-ar-combo">
         <input
           id="gwAutoSec"
@@ -1078,17 +1079,17 @@ function deletePair(id: string) {
           max="3600"
           step="1"
           inputmode="numeric"
-          :aria-label="$t('gw.arIntervalAria')"
+          :aria-label="t('gw.arIntervalAria')"
           @change="setupAuto"
           @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
           @keydown.escape.prevent="autoSec = autoSecPrev; ($event.target as HTMLInputElement).blur()"
         />
-        <span class="gw-ar-unit">{{ $t("gw.seconds") }}</span>
+        <span class="gw-ar-unit">{{ t("gw.seconds") }}</span>
         <button
           type="button"
           id="gwAutoCaret"
           class="gw-ar-caret"
-          :aria-label="$t('gw.pickIntervalAria')"
+          :aria-label="t('gw.pickIntervalAria')"
           aria-haspopup="listbox"
           :aria-expanded="autoMenuOpen"
           @click="autoMenuOpen = !autoMenuOpen"
@@ -1098,7 +1099,7 @@ function deletePair(id: string) {
           </svg>
         </button>
         <!-- 常用刷新间隔（旧版 #gwAutoMenu） -->
-        <div v-if="autoMenuOpen" id="gwAutoMenu" class="gw-ar-menu" role="listbox" :aria-label="$t('gw.intervalAria')">
+        <div v-if="autoMenuOpen" id="gwAutoMenu" class="gw-ar-menu" role="listbox" :aria-label="t('gw.intervalAria')">
           <button
             v-for="sec in [1, 3, 5, 10, 30]"
             :key="sec"
@@ -1107,7 +1108,7 @@ function deletePair(id: string) {
             :aria-selected="autoSec === sec"
             @click="autoSec = sec; autoMenuOpen = false; setupAuto()"
           >
-            {{ $t("gw.secSuffix", { n: sec }) }}
+            {{ t("gw.secSuffix", { n: sec }) }}
           </button>
         </div>
       </div>
@@ -1137,13 +1138,13 @@ function deletePair(id: string) {
         >
           <path d="M8 5.6v12.8a1 1 0 0 0 1.52.85l9.6-6.4a1 1 0 0 0 0-1.7l-9.6-6.4A1 1 0 0 0 8 5.6z" />
         </svg>
-        <span id="gwAutoToggleText">{{ autoRunning ? $t("gw.pause") : $t("gw.resume") }}</span>
+        <span id="gwAutoToggleText">{{ autoRunning ? t("gw.pause") : t("gw.resume") }}</span>
       </button>
     </div>
   </div>
 
   <!-- 分页标签（旧版 #gwTabs，4 个分页带状态点） -->
-  <div class="gw-tabs" id="gwTabs" role="tablist" :aria-label="$t('gw.tabsAria')">
+  <div class="gw-tabs" id="gwTabs" role="tablist" :aria-label="t('gw.tabsAria')">
     <button
       v-for="tab in TABS"
       :key="tab.key"
@@ -1159,32 +1160,32 @@ function deletePair(id: string) {
         class="gw-tab-dot"
         :data-st="tabDotState(tab.key)"
       />
-      {{ $t(tab.label) }}
+      {{ t(tab.label) }}
     </button>
   </div>
 
   <!-- ===== Cloudflare 分页 ===== -->
   <div v-show="activeTab === 'cf'" class="gw-tabpane">
     <div class="gw-note" id="gwWarnQuick" :hidden="config?.mode === 'named'">
-      {{ $t("gw.hintQuickTunnel") }}
+      {{ t("gw.hintQuickTunnel") }}
     </div>
 
     <div class="gw-card">
       <div class="gw-card-head">
-        <h3>{{ $t("gw.localChannel") }}</h3>
-        <div class="segmented" id="gwModeTabs" role="tablist" :aria-label="$t('gw.modeTabsAria')">
+        <h3>{{ t("gw.localChannel") }}</h3>
+        <div class="segmented" id="gwModeTabs" role="tablist" :aria-label="t('gw.modeTabsAria')">
           <button role="tab" data-mode="quick" :aria-selected="config?.mode !== 'named'" @click="selectMode('quick')">
-            {{ $t("gw.quickTunnel") }}
+            {{ t("gw.quickTunnel") }}
           </button>
           <button role="tab" data-mode="named" :aria-selected="config?.mode === 'named'" @click="selectMode('named')">
-            {{ $t("gw.namedTunnel") }}
+            {{ t("gw.namedTunnel") }}
           </button>
         </div>
-        <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
-        <button type="button" id="gwLogBtn" class="btn" @click="openGwLog">{{ $t("gw.log") }}</button>
-        <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">{{ $t("gw.redetect") }}</button>
-        <span class="gw-sw-group" :title="$t('gw.channelToggleTitle')">
-          <span class="gw-sw-cap">{{ $t("gw.channel") }}</span>
+        <button v-if="cfInstalled" type="button" id="gwUninstallBtn" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ t("gw.uninstall") }}</button>
+        <button type="button" id="gwLogBtn" class="btn" @click="openGwLog">{{ t("gw.log") }}</button>
+        <button type="button" id="gwRefreshBtn" class="btn" @click="refreshAll">{{ t("gw.redetect") }}</button>
+        <span class="gw-sw-group" :title="t('gw.channelToggleTitle')">
+          <span class="gw-sw-cap">{{ t("gw.channel") }}</span>
           <label class="switch" :class="{ loading: !!busy }" id="gwToggleWrap">
             <input type="checkbox" id="gwToggleSw" :checked="cfRunning || !!busy" :disabled="!!busy" @change="toggleCf" />
             <span class="trk" aria-hidden="true" />
@@ -1194,7 +1195,7 @@ function deletePair(id: string) {
 
       <div class="gw-status">
         <span class="pulse" id="gwPulse" :hidden="!cfRunning" />
-        <span id="gwStateText">{{ cfRunning ? $t("gw.channelOn") : $t("gw.channelOff") }}</span>
+        <span id="gwStateText">{{ cfRunning ? t("gw.channelOn") : t("gw.channelOff") }}</span>
         <a
           id="gwUrl"
           :href="cfUrl || undefined"
@@ -1207,10 +1208,10 @@ function deletePair(id: string) {
         <!-- 地址左、动作右：复制与「生成此地址的配对码」统一右对齐（与 Tailscale 卡同款） -->
         <span style="flex: 1" />
         <button type="button" id="gwCopyUrl" class="link-btn" :hidden="!cfUrl" @click="copyText(cfUrl)">
-          {{ $t("common.copy") }}
+          {{ t("common.copy") }}
         </button>
         <button type="button" id="gwPairBtn" class="btn" :hidden="!cfUrl" @click="pairOpen = true">
-          {{ $t("gw.genPairAddr") }}
+          {{ t("gw.genPairAddr") }}
         </button>
         <span class="mono gw-meta" id="gwMeta">{{ config?.tunnel?.state || "" }}</span>
       </div>
@@ -1219,14 +1220,14 @@ function deletePair(id: string) {
       <!-- 残留通道（旧版 #gwOrphanBox）：沿用或终止 -->
       <div id="gwOrphanBox" :hidden="!orphanRunning" style="margin-top: 12px">
         <p class="field-hint" style="margin: 0 0 6px">
-          {{ $t("gw.hintOrphan") }}
+          {{ t("gw.hintOrphan") }}
         </p>
         <div id="gwOrphanList" class="gw-clients">
           <div class="gw-client">
-            <span class="mono">{{ config?.tunnel?.url || $t("gw.noAddr") }}</span>
+            <span class="mono">{{ config?.tunnel?.url || t("gw.noAddr") }}</span>
             <span style="flex: 1" />
-            <button type="button" class="link-btn" @click="adoptOrphan">{{ $t("gw.adopt") }}</button>
-            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">{{ $t("gw.terminate") }}</button>
+            <button type="button" class="link-btn" @click="adoptOrphan">{{ t("gw.adopt") }}</button>
+            <button type="button" class="link-btn" :disabled="!!busy" @click="killOrphan">{{ t("gw.terminate") }}</button>
           </div>
         </div>
       </div>
@@ -1240,12 +1241,12 @@ function deletePair(id: string) {
             v-model="namedToken"
             type="password"
             class="mono"
-            :placeholder="namedTokenSet ? $t('gw.namedTokenPhSaved') : $t('gw.namedTokenPh')"
+            :placeholder="namedTokenSet ? t('gw.namedTokenPhSaved') : t('gw.namedTokenPh')"
             autocomplete="off"
           />
         </div>
         <div class="field">
-          <label for="gwNamedUrl">{{ $t("gw.namedUrl") }}</label>
+          <label for="gwNamedUrl">{{ t("gw.namedUrl") }}</label>
           <input
             id="gwNamedUrl"
             v-model="namedUrl"
@@ -1254,45 +1255,45 @@ function deletePair(id: string) {
             placeholder="https://anyboot.example.com"
             autocomplete="off"
           />
-          <p class="field-hint">{{ $t("gw.namedUrlHint") }}</p>
+          <p class="field-hint">{{ t("gw.namedUrlHint") }}</p>
         </div>
       </div>
 
       <label class="gw-auto">
         <input type="checkbox" id="gwAutostart" :checked="config?.autostart" @change="toggleAutostart" />
-        <span class="gw-auto-t">{{ $t("gw.autoStartCloudflared") }}</span>
-        <span class="gw-auto-h">{{ $t("gw.autoStartCloudflaredHint") }}</span>
+        <span class="gw-auto-t">{{ t("gw.autoStartCloudflared") }}</span>
+        <span class="gw-auto-h">{{ t("gw.autoStartCloudflaredHint") }}</span>
       </label>
 
       <div class="gw-binary">
         <span id="gwBinaryText">
           {{
             !config
-              ? $t("gw.cfChecking")
+              ? t("gw.cfChecking")
               : cfInstalled
-                ? $t("gw.cfReady", { v: config?.binary?.version || "" })
-                : $t("gw.cfNotReady")
+                ? t("gw.cfReady", { v: config?.binary?.version || "" })
+                : t("gw.cfNotReady")
           }}
         </span>
         <span style="flex: 1" />
         <button v-if="!cfInstalled" type="button" id="gwDownloadBtn" class="btn" :disabled="!!busy" @click="downloadBinary">
-          {{ $t("gw.downloadCloudflared") }}
+          {{ t("gw.downloadCloudflared") }}
         </button>
         <button v-if="!cfInstalled" type="button" id="gwManualBtn" class="btn" @click="manualOpen = !manualOpen">
-          {{ $t("gw.specifyLocalPath") }}
+          {{ t("gw.specifyLocalPath") }}
         </button>
-        <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ $t("gw.uninstall") }}</button>
+        <button v-if="cfInstalled" type="button" class="btn" :disabled="!!busy" @click="uninstallBinary">{{ t("gw.uninstall") }}</button>
       </div>
 
       <!-- 清除登录凭据行（旧版 #gwLogoutRow：仅命名隧道 token 存在时显示） -->
       <div v-if="namedTokenSet" id="gwLogoutRow" class="gw-logout-row">
-        <button type="button" class="link-btn" id="gwLogoutBtn" :disabled="!!busy" @click="clearCredentials">{{ $t("gw.clearCredentials") }}</button>
-        <span class="field-hint">{{ $t("gw.clearCredHint") }}</span>
+        <button type="button" class="link-btn" id="gwLogoutBtn" :disabled="!!busy" @click="clearCredentials">{{ t("gw.clearCredentials") }}</button>
+        <span class="field-hint">{{ t("gw.clearCredHint") }}</span>
       </div>
       <!-- 下载进度（旧版 #gwProgressRow） -->
       <div id="gwProgressRow" :hidden="!downloading" class="gw-progress">
         <div class="gw-progress-bar"><div id="gwProgressBar" :style="{ width: progress + '%' }" /></div>
-        <span class="mono" id="gwProgressText">{{ downloading ? $t("gw.downloading", { n: progress }) : "" }}</span>
+        <span class="mono" id="gwProgressText">{{ downloading ? t("gw.downloading", { n: progress }) : "" }}</span>
       </div>
 
       <!-- 清除登录凭据（旧版 #gwLogoutRow）：命名隧道的 Tunnel Token 就是登录态 -->
@@ -1301,9 +1302,9 @@ function deletePair(id: string) {
         :hidden="config?.mode !== 'named'"
         style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap"
        v-if="namedTokenSet">
-        <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">{{ $t("gw.clearCredentials") }}</button>
+        <button type="button" id="gwLogoutBtn" class="link-btn" @click="clearCredentials">{{ t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          {{ $t("gw.clearCredHint") }}
+          {{ t("gw.clearCredHint") }}
         </span>
       </div>
 
@@ -1314,10 +1315,10 @@ function deletePair(id: string) {
           v-model="manualPath"
           type="text"
           class="mono"
-          :placeholder="$t('gw.cloudflaredPathPh')"
+          :placeholder="t('gw.cloudflaredPathPh')"
           spellcheck="false"
         />
-        <button type="button" id="gwManualCancel" class="btn" @click="manualOpen = false">{{ $t("common.cancel") }}</button>
+        <button type="button" id="gwManualCancel" class="btn" @click="manualOpen = false">{{ t("common.cancel") }}</button>
         <button
           type="button"
           id="gwManualOk"
@@ -1325,7 +1326,7 @@ function deletePair(id: string) {
           :disabled="!manualPath.trim() || !!busy"
           @click="setManualBinary"
         >
-          {{ $t("gw.confirm") }}
+          {{ t("gw.confirm") }}
         </button>
       </div>
     </div>
@@ -1335,16 +1336,16 @@ function deletePair(id: string) {
   <div v-show="activeTab === 'ts'" class="gw-tabpane">
     <div class="gw-card" id="tsCard">
       <div class="gw-card-head">
-        <h3>{{ $t("gw.tsDirect") }}</h3>
-        <span class="tsf-badge" id="tsBadge" :hidden="!tsRunning">{{ $t("gw.tsBadge") }}</span>
+        <h3>{{ t("gw.tsDirect") }}</h3>
+        <span class="tsf-badge" id="tsBadge" :hidden="!tsRunning">{{ t("gw.tsBadge") }}</span>
         <span style="flex: 1" />
         <span
           class="gw-sw-group"
           id="tsMainSwGroup"
           :hidden="!tsStatus?.installed"
-          :title="$t('gw.connectToggleTitle')"
+          :title="t('gw.connectToggleTitle')"
         >
-          <span class="gw-sw-cap">{{ $t("gw.connect") }}</span>
+          <span class="gw-sw-cap">{{ t("gw.connect") }}</span>
           <label class="switch" id="tsMainSwWrap" :class="{ loading: tsBusy }">
             <input
               type="checkbox"
@@ -1360,19 +1361,19 @@ function deletePair(id: string) {
           class="gw-sw-group"
           id="tsSvcSwGroup"
           :hidden="!tsSvcKnown"
-          :title="$t('gw.serviceToggleTitle')"
+          :title="t('gw.serviceToggleTitle')"
         >
-          <span class="gw-sw-cap">{{ $t("gw.service") }}</span>
+          <span class="gw-sw-cap">{{ t("gw.service") }}</span>
           <label class="switch" id="tsSvcSwWrap" :class="{ loading: tsSvcBusy }">
             <input type="checkbox" id="tsSvcSw" :checked="tsSvcOn" :disabled="tsSvcBusy || tsBusy" @change="tailscaleService" />
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall($t('gw.tsUninstallTitle'), $t('gw.tsUninstallNote'))">
-          {{ $t("gw.uninstall") }}
+        <button v-if="tsStatus?.installed" type="button" class="btn" id="tsUninstallBtn" @click="openUninstall(t('gw.tsUninstallTitle'), t('gw.tsUninstallNote'))">
+          {{ t("gw.uninstall") }}
         </button>
-        <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">{{ $t("gw.log") }}</button>
-        <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">{{ $t("gw.redetect") }}</button>
+        <button type="button" class="btn" id="tsLogBtn" @click="() => openTsLog()">{{ t("gw.log") }}</button>
+        <button type="button" class="btn" id="tsRefreshBtn" @click="refreshAll">{{ t("gw.redetect") }}</button>
       </div>
 
       <div class="gw-status" id="tsStateRow">
@@ -1385,21 +1386,21 @@ function deletePair(id: string) {
       <div id="tsDlRow" :hidden="tsStatus?.installed">
         <p class="field-hint" id="tsDlHint" style="margin: 8px 0 0">{{ tsDlHint }}</p>
         <div class="gw-binary">
-          <span id="tsDlText">{{ $t("gw.pkgNotDownloaded") }}</span>
+          <span id="tsDlText">{{ t("gw.pkgNotDownloaded") }}</span>
           <span style="flex: 1" />
-          <button type="button" class="btn" id="tsDownloadBtn" :disabled="!!busy" @click="tsDownload">{{ $t("gw.downloadTs") }}</button>
-          <button type="button" class="btn" id="tsManualLink" @click="tsOpenManual">{{ $t("gw.openManual") }}</button>
+          <button type="button" class="btn" id="tsDownloadBtn" :disabled="!!busy" @click="tsDownload">{{ t("gw.downloadTs") }}</button>
+          <button type="button" class="btn" id="tsManualLink" @click="tsOpenManual">{{ t("gw.openManual") }}</button>
         </div>
         <div class="gw-progress" id="tsProgressRow" :hidden="!tsDownloading">
           <div class="gw-progress-bar"><div id="tsProgressBar" :style="{ width: tsProgress + '%' }" /></div>
-          <span class="mono" id="tsProgressText">{{ tsDownloading ? $t("gw.downloading", { n: tsProgress }) : "" }}</span>
+          <span class="mono" id="tsProgressText">{{ tsDownloading ? t("gw.downloading", { n: tsProgress }) : "" }}</span>
         </div>
       </div>
 
       <!-- 未连接态：#tsKeyRow（AuthKey 配置） -->
       <div id="tsKeyRow" :hidden="!tsStatus?.installed || tsRunning">
         <div class="field" style="margin-top: 10px">
-          <label for="tsKey">{{ $t("gw.authKeyLabel") }}</label>
+          <label for="tsKey">{{ t("gw.authKeyLabel") }}</label>
           <div style="display: flex; gap: 8px; align-items: center">
             <input
               id="tsKey"
@@ -1410,7 +1411,7 @@ function deletePair(id: string) {
               :placeholder="tsKeyPlaceholder"
               autocomplete="off"
             />
-            <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">{{ $t("common.save") }}</button>
+            <button type="button" class="btn" id="tsKeySave" :disabled="!!busy" @click="tsSaveKey">{{ t("common.save") }}</button>
           </div>
           <p class="field-hint" id="tsKeyHint">{{ tsKeyHint }}</p>
         </div>
@@ -1419,31 +1420,31 @@ function deletePair(id: string) {
       <!-- 需登录态：#tsLoginRow（拿到授权链接就显示；事件没到也能从错误文本兜底） -->
       <div id="tsLoginRow" :hidden="!tsLoginVisible">
         <p class="field-hint" style="margin: 8px 0 0">
-          {{ $t("gw.hintNeedLoginSys") }}
-          {{ $t("gw.authDoneNote") }}
+          {{ t("gw.hintNeedLoginSys") }}
+          {{ t("gw.authDoneNote") }}
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">{{ $t("gw.openLoginPage") }}</button>
-          <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">{{ $t("gw.copyLoginUrl") }}</button>
-          <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
+          <button type="button" class="btn primary" id="tsLoginOpen" @click="openLoginPage">{{ t("gw.openLoginPage") }}</button>
+          <button type="button" class="link-btn" id="tsLoginCopy" @click="copyLoginUrl">{{ t("gw.copyLoginUrl") }}</button>
+          <button type="button" class="link-btn" id="tsLoginRegen" @click="regenLoginUrl">{{ t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
-          <a :href="loginUrl" class="gw-url" :title="$t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+          <a :href="loginUrl" class="gw-url" :title="t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
-          {{ $t("gw.hintLinkValidSys") }}
-          {{ $t("gw.hintLinkCopySys") }}
+          {{ t("gw.hintLinkValidSys") }}
+          {{ t("gw.hintLinkCopySys") }}
         </p>
       </div>
 
       <!-- 运行中态：#tsAddrRow -->
       <div id="tsAddrRow" :hidden="!tsRunning">
         <div class="gw-status" style="margin-top: 8px">
-          <span class="field-hint" style="margin: 0">{{ $t("gw.tsLanAddr") }}</span>
+          <span class="field-hint" style="margin: 0">{{ t("gw.tsLanAddr") }}</span>
           <span class="mono ts-addr" id="tsAddr">{{ tsAddr }}<span class="ts-port">:{{ httpPort }}</span></span>
           <span style="flex: 1" />
-          <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">{{ $t("common.copy") }}</button>
-          <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
+          <button type="button" class="link-btn" id="tsCopyAddr" @click="copyTsAddr">{{ t("common.copy") }}</button>
+          <button type="button" class="btn" id="tsPairBtn" @click="pairOpen = true">{{ t("gw.genPairAddr") }}</button>
         </div>
         <div class="gw-status" style="margin-top: 6px">
           <span
@@ -1462,56 +1463,56 @@ function deletePair(id: string) {
             :style="{ fontSize: '12px', color: tsHealthOk === false ? 'rgb(var(--warn))' : 'rgb(var(--fg-dim))' }"
           >{{
             tsHealthOk === true
-              ? $t("gw.selfCheckOk", { port: httpPort })
+              ? t("gw.selfCheckOk", { port: httpPort })
               : tsHealthOk === false
-                ? $t("gw.selfCheckFail")
-                : $t("gw.selfCheckRunning", { port: httpPort })
+                ? t("gw.selfCheckFail")
+                : t("gw.selfCheckRunning", { port: httpPort })
           }}</span>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-          {{ $t("gw.hintTsnetOnly") }}
+          {{ t("gw.hintTsnetOnly") }}
         </p>
       </div>
 
       <!-- 停止态：#tsStoppedRow -->
       <div id="tsStoppedRow" :hidden="!tsStatus?.installed || tsState !== 'stopped'">
         <p class="field-hint" style="margin: 8px 0 0">
-          {{ $t("gw.hintTsStopped") }}
+          {{ t("gw.hintTsStopped") }}
         </p>
       </div>
 
       <!-- GUI 未启动态：#tsGuiRow -->
       <div id="tsGuiRow" :hidden="!tsStatus?.installed || tsState !== 'needs_gui'">
         <p class="field-hint" style="margin: 8px 0 6px">
-          {{ $t("gw.hintTsGuiDown") }}
+          {{ t("gw.hintTsGuiDown") }}
         </p>
-        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsLaunchGui">{{ $t("gw.openTsApp") }}</button>
+        <button type="button" class="btn" id="tsLaunchGuiBtn" @click="tsLaunchGui">{{ t("gw.openTsApp") }}</button>
       </div>
 
       <!-- 网络扩展待重启态：#tsRebootRow -->
       <div id="tsRebootRow" :hidden="!tsStatus?.installed || tsState !== 'needs_reboot'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
-          {{ $t("gw.hintTsOldExt") }}
+          {{ t("gw.hintTsOldExt") }}
         </p>
-        <button type="button" class="btn" id="tsRebootRecheck" @click="refreshAll">{{ $t("gw.rebootRecheck") }}</button>
+        <button type="button" class="btn" id="tsRebootRecheck" @click="refreshAll">{{ t("gw.rebootRecheck") }}</button>
       </div>
 
       <!-- 网络扩展待授权态：#tsApprovalRow -->
       <div id="tsApprovalRow" :hidden="!tsStatus?.installed || tsState !== 'needs_approval'">
         <p class="field-hint" style="margin: 8px 0 6px; color: rgb(var(--warn))">
-          {{ $t("gw.hintTsExtNotAllowed") }}
+          {{ t("gw.hintTsExtNotAllowed") }}
         </p>
-        <button type="button" class="btn" id="tsApprovalBtn" @click="tsExtensionSettings">{{ $t("gw.openExtSettings") }}</button>
+        <button type="button" class="btn" id="tsApprovalBtn" @click="tsExtensionSettings">{{ t("gw.openExtSettings") }}</button>
       </div>
 
       <!-- Funnel 公网通道区块：#tsfBlock（4 种状态） -->
       <div id="tsfBlock" :hidden="!tsStatus?.installed">
         <div class="tsf-sep">
           <div class="gw-card-head" style="margin: 0">
-            <h3 style="font-size: 13px">{{ $t("gw.funnelPubTitle") }}</h3>
-            <span class="tsf-badge" id="tsfBadge" :hidden="tsfState !== 'ready'">{{ $t("gw.funnelPubBadge") }}</span>
+            <h3 style="font-size: 13px">{{ t("gw.funnelPubTitle") }}</h3>
+            <span class="tsf-badge" id="tsfBadge" :hidden="tsfState !== 'ready'">{{ t("gw.funnelPubBadge") }}</span>
             <span style="flex: 1" />
-            <span class="gw-sw-group" :title="$t('gw.funnelToggleTitle')">
+            <span class="gw-sw-group" :title="t('gw.funnelToggleTitle')">
               <label class="switch" id="tsfSwWrap" :class="{ loading: tsfBusy }">
                 <input
                   type="checkbox"
@@ -1531,55 +1532,55 @@ function deletePair(id: string) {
 
           <!-- off 态说明 -->
           <p class="field-hint" id="tsfOffRow" :hidden="tsfState !== 'off'" style="margin: 8px 0 0">
-            {{ $t("gw.hintFunnelPublish") }}
+            {{ t("gw.hintFunnelPublish") }}
           </p>
 
           <!-- ready 态：公网地址行 -->
           <div id="tsfAddrRow" :hidden="tsfState !== 'ready'">
             <div class="gw-status" style="margin-top: 8px">
-              <span class="field-hint" style="margin: 0">{{ $t("gw.publicAddr") }}</span>
+              <span class="field-hint" style="margin: 0">{{ t("gw.publicAddr") }}</span>
               <span class="mono ts-addr" id="tsfAddr">{{ tsfStatus?.url || "" }}</span>
               <span style="flex: 1" />
-              <button type="button" class="link-btn" id="tsfCopy" @click="copyText(tsfStatus?.url || '')">{{ $t("common.copy") }}</button>
-              <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
+              <button type="button" class="link-btn" id="tsfCopy" @click="copyText(tsfStatus?.url || '')">{{ t("common.copy") }}</button>
+              <button type="button" class="btn" id="tsfPairBtn" @click="pairOpen = true">{{ t("gw.genPairAddr") }}</button>
             </div>
             <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-              {{ $t("gw.funnelWarn") }}
+              {{ t("gw.funnelWarn") }}
             </p>
           </div>
 
           <!-- needs_authorize 态 -->
           <div id="tsfAuthRow" :hidden="tsfState !== 'needs_authorize'">
             <p class="field-hint" style="margin: 8px 0 0">
-              {{ $t("gw.hintFunnelAuth") }}
+              {{ t("gw.hintFunnelAuth") }}
             </p>
             <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-              <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">{{ $t("gw.goAuthPage") }}</button>
-              <button type="button" class="link-btn" id="tsfRetryBtn" @click="tsFunnelToggle(true)">{{ $t("gw.retryAfterAuth") }}</button>
+              <button type="button" class="btn primary" id="tsfAuthBtn" @click="tsFunnelAuth">{{ t("gw.goAuthPage") }}</button>
+              <button type="button" class="link-btn" id="tsfRetryBtn" @click="tsFunnelToggle(true)">{{ t("gw.retryAfterAuth") }}</button>
             </div>
           </div>
 
           <!-- error 态 -->
           <div id="tsfErrRow" :hidden="tsfState !== 'error'">
             <p class="field-hint" id="tsfErrText" style="margin: 8px 0 0">{{ tsfStatus?.message || "" }}</p>
-            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="tsFunnelToggle(true)">{{ $t("gw.retry") }}</button>
+            <button type="button" class="link-btn" id="tsfRetryBtn2" style="margin-top: 4px" @click="tsFunnelToggle(true)">{{ t("gw.retry") }}</button>
           </div>
         </div>
       </div>
 
       <!-- 清除登录凭据：#tsLogoutRow -->
       <div id="tsLogoutRow" style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
-        <button type="button" class="link-btn" id="tsLogoutBtn" @click="tsLogout">{{ $t("gw.clearCredentials") }}</button>
+        <button type="button" class="link-btn" id="tsLogoutBtn" @click="tsLogout">{{ t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          {{ $t("gw.hintTsLogout") }}
+          {{ t("gw.hintTsLogout") }}
         </span>
       </div>
 
       <!-- 自启 -->
       <label class="gw-auto">
         <input type="checkbox" id="tsAutostart" :checked="tsAutostart" @change="toggleTsAutostart" />
-        <span class="gw-auto-t">{{ $t("gw.autoConnectStartup") }}</span>
-        <span class="gw-auto-h">{{ $t("gw.autoConnectStartupHint") }}</span>
+        <span class="gw-auto-t">{{ t("gw.autoConnectStartup") }}</span>
+        <span class="gw-auto-h">{{ t("gw.autoConnectStartupHint") }}</span>
       </label>
     </div>
   </div>
@@ -1588,11 +1589,11 @@ function deletePair(id: string) {
   <div v-show="activeTab === 'tsn'" class="gw-tabpane">
     <div class="gw-card" id="tsnCard">
       <div class="gw-card-head">
-        <h3>{{ $t("gw.tsnTitle") }}</h3>
-        <span class="tsf-badge" id="tsnBadge" :hidden="tsnStatus?.state !== 'ready'">{{ $t("gw.tsnBadge") }}</span>
+        <h3>{{ t("gw.tsnTitle") }}</h3>
+        <span class="tsf-badge" id="tsnBadge" :hidden="tsnStatus?.state !== 'ready'">{{ t("gw.tsnBadge") }}</span>
         <span style="flex: 1" />
-        <span class="gw-sw-group" :title="$t('gw.tsnEngineTitle')">
-          <span class="gw-sw-cap">{{ $t("gw.engine") }}</span>
+        <span class="gw-sw-group" :title="t('gw.tsnEngineTitle')">
+          <span class="gw-sw-cap">{{ t("gw.engine") }}</span>
           <label class="switch" id="tsnSwWrap">
             <input
               type="checkbox"
@@ -1603,9 +1604,9 @@ function deletePair(id: string) {
             <span class="trk" aria-hidden="true" />
           </label>
         </span>
-        <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">{{ $t("gw.uninstall") }}</button>
-        <button type="button" class="btn" id="tsnLogBtn" @click="() => openTsnLog()">{{ $t("gw.log") }}</button>
-        <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">{{ $t("gw.redetect") }}</button>
+        <button type="button" class="btn" id="tsnUninstallBtn" @click="tsnUninstall">{{ t("gw.uninstall") }}</button>
+        <button type="button" class="btn" id="tsnLogBtn" @click="() => openTsnLog()">{{ t("gw.log") }}</button>
+        <button type="button" class="btn" id="tsnRefreshBtn" @click="refreshTsn">{{ t("gw.redetect") }}</button>
       </div>
 
       <div class="gw-status">
@@ -1616,10 +1617,10 @@ function deletePair(id: string) {
       <!-- off 态：说明 + AuthKey 配置 -->
       <div id="tsnOffRow" :hidden="tsnStatus?.state !== 'off'">
         <p class="field-hint" style="margin: 8px 0 0">
-          {{ $t("gw.hintTsnPublish") }}
+          {{ t("gw.hintTsnPublish") }}
         </p>
         <div class="field" style="margin-top: 10px">
-          <label for="tsnKey">{{ $t("gw.authKeyLabel") }}</label>
+          <label for="tsnKey">{{ t("gw.authKeyLabel") }}</label>
           <div style="display: flex; gap: 8px; align-items: center">
             <input
               id="tsnKey"
@@ -1627,13 +1628,13 @@ function deletePair(id: string) {
               type="password"
               class="mono"
               style="flex: 1"
-              :placeholder="$t('gw.tsAuthkeyEmptyField')"
+              :placeholder="t('gw.tsAuthkeyEmptyField')"
               autocomplete="off"
             />
-            <button type="button" class="btn" id="tsnKeySave" :disabled="!!busy" @click="tsnSaveKey">{{ $t("common.save") }}</button>
+            <button type="button" class="btn" id="tsnKeySave" :disabled="!!busy" @click="tsnSaveKey">{{ t("common.save") }}</button>
           </div>
           <p class="field-hint">
-            {{ $t("gw.hintTsnAuthKey") }}
+            {{ t("gw.hintTsnAuthKey") }}
           </p>
         </div>
       </div>
@@ -1641,33 +1642,33 @@ function deletePair(id: string) {
       <!-- needs_auth 态 -->
       <div id="tsnAuthRow" :hidden="tsnStatus?.state !== 'needs_auth'">
         <p class="field-hint" style="margin: 8px 0 0">
-          {{ $t("gw.hintTsnLogin") }}
+          {{ t("gw.hintTsnLogin") }}
         </p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 8px">
-          <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">{{ $t("gw.openLoginPage") }}</button>
-          <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">{{ $t("gw.copyLoginUrl") }}</button>
-          <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">{{ $t("gw.regenerateLink") }}</button>
+          <button type="button" class="btn primary" id="tsnLoginBtn" @click="openLoginPage">{{ t("gw.openLoginPage") }}</button>
+          <button type="button" class="link-btn" id="tsnLoginCopy" @click="copyLoginUrl">{{ t("gw.copyLoginUrl") }}</button>
+          <button type="button" class="link-btn" id="tsnLoginRegen" @click="regenLoginUrl">{{ t("gw.regenerateLink") }}</button>
         </div>
         <p class="field-hint mono" id="tsnLoginUrl" style="margin: 8px 0 0; user-select: all; overflow-wrap: anywhere; word-break: break-all">
-          <a :href="loginUrl" class="gw-url" :title="$t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
+          <a :href="loginUrl" class="gw-url" :title="t('gw.openInBrowser', { url: loginUrl })" @click.prevent="openExternal(loginUrl)">{{ loginUrl }}</a>
         </p>
         <p class="field-hint" style="margin: 6px 0 0">
-          {{ $t("gw.tsnLinkValid") }}
-          {{ $t("gw.tsnLinkCopy") }}
+          {{ t("gw.tsnLinkValid") }}
+          {{ t("gw.tsnLinkCopy") }}
         </p>
       </div>
 
       <!-- ready 态：公网地址行 -->
       <div id="tsnAddrRow" :hidden="tsnStatus?.state !== 'ready'">
         <div class="gw-status" style="margin-top: 8px">
-          <span class="field-hint" style="margin: 0">{{ $t("gw.publicAddr") }}</span>
+          <span class="field-hint" style="margin: 0">{{ t("gw.publicAddr") }}</span>
           <span class="mono ts-addr" id="tsnAddr">{{ tsnStatus?.url || "" }}</span>
           <span style="flex: 1" />
-          <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">{{ $t("common.copy") }}</button>
-          <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">{{ $t("gw.genPairAddr") }}</button>
+          <button type="button" class="link-btn" id="tsnCopy" @click="copyText(tsnStatus?.url || '')">{{ t("common.copy") }}</button>
+          <button type="button" class="btn" id="tsnPairBtn" @click="pairOpen = true">{{ t("gw.genPairAddr") }}</button>
         </div>
         <p class="field-hint" style="margin-top: 8px; color: rgb(var(--warn))">
-          {{ $t("gw.funnelWarn") }}
+          {{ t("gw.funnelWarn") }}
         </p>
       </div>
 
@@ -1675,24 +1676,24 @@ function deletePair(id: string) {
       <div id="tsnErrRow" :hidden="tsnStatus?.state !== 'error'">
         <p class="field-hint" id="tsnErrText" style="margin: 8px 0 0">{{ tsnStatus?.error || "" }}</p>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap">
-          <button type="button" class="link-btn" id="tsnRetryBtn" @click="refreshTsn">{{ $t("gw.retry") }}</button>
-          <button type="button" class="link-btn" id="tsnSetupBtn" :hidden="!tsnStatus?.setupUrl" @click="tsnOpenSetup">{{ $t("gw.goEnableFunnel") }}</button>
+          <button type="button" class="link-btn" id="tsnRetryBtn" @click="refreshTsn">{{ t("gw.retry") }}</button>
+          <button type="button" class="link-btn" id="tsnSetupBtn" :hidden="!tsnStatus?.setupUrl" @click="tsnOpenSetup">{{ t("gw.goEnableFunnel") }}</button>
         </div>
       </div>
 
       <!-- 清除登录凭据 -->
       <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap">
-        <button type="button" class="link-btn" id="tsnLogoutBtn" @click="tsnLogout">{{ $t("gw.clearCredentials") }}</button>
+        <button type="button" class="link-btn" id="tsnLogoutBtn" @click="tsnLogout">{{ t("gw.clearCredentials") }}</button>
         <span class="field-hint" style="margin: 0">
-          {{ $t("gw.tsnLogoutHint") }}
+          {{ t("gw.tsnLogoutHint") }}
         </span>
       </div>
 
       <!-- 自启 -->
       <label class="gw-auto">
         <input type="checkbox" id="tsnAutostart" :checked="tsnAutostart" @change="toggleTsnAutostart" />
-        <span class="gw-auto-t">{{ $t("gw.autostartEngine") }}</span>
-        <span class="gw-auto-h">{{ $t("gw.autostartEngineHint") }}</span>
+        <span class="gw-auto-t">{{ t("gw.autostartEngine") }}</span>
+        <span class="gw-auto-h">{{ t("gw.autostartEngineHint") }}</span>
       </label>
     </div>
   </div>
@@ -1703,15 +1704,15 @@ function deletePair(id: string) {
     <!-- 配对管理卡 -->
     <div class="gw-card">
       <div class="gw-card-head">
-        <h3>{{ $t("gw.tabPair") }}</h3>
-        <button type="button" class="btn primary" id="gwIssueBtn" @click="pairOpen = true">{{ $t("gw.genPairCode") }}</button>
+        <h3>{{ t("gw.tabPair") }}</h3>
+        <button type="button" class="btn primary" id="gwIssueBtn" @click="pairOpen = true">{{ t("gw.genPairCode") }}</button>
       </div>
       <p class="field-hint" style="margin-top: 0">
-        {{ $t("gw.pairIntro") }}
+        {{ t("gw.pairIntro") }}
       </p>
       <div id="gwClientList" class="gw-clients">
         <div v-if="!pairs.length" class="gw-clients-empty">
-          {{ $t("gw.pairNone") }}
+          {{ t("gw.pairNone") }}
         </div>
         <div v-for="pair in pairs" :key="pair.id" class="gw-client">
           <div style="flex: 1; min-width: 0">
@@ -1722,19 +1723,19 @@ function deletePair(id: string) {
             :class="['ts-chip', pairSrcChip(pair).cls]"
             :title="pairSrcChip(pair).tip"
           >{{ pairSrcChip(pair).text }}</span>
-          <button type="button" class="link-btn" @click="reissuePair(pair.id)">{{ $t("gw.reissue") }}</button>
-          <span v-if="pair.revoked" class="gw-client-revoked">{{ $t("gw.revoked") }}</span>
-          <button v-else type="button" class="link-btn" @click="revokePair(pair.id)">{{ $t("gw.revoke") }}</button>
-          <button type="button" class="link-btn" @click="deletePair(pair.id)">{{ $t("gw.deletePair") }}</button>
+          <button type="button" class="link-btn" @click="reissuePair(pair.id)">{{ t("gw.reissue") }}</button>
+          <span v-if="pair.revoked" class="gw-client-revoked">{{ t("gw.revoked") }}</span>
+          <button v-else type="button" class="link-btn" @click="revokePair(pair.id)">{{ t("gw.revoke") }}</button>
+          <button type="button" class="link-btn" @click="deletePair(pair.id)">{{ t("gw.deletePair") }}</button>
         </div>
       </div>
     </div>
 
     <!-- 连别的电脑卡（旧版是纯说明，入口指向「电脑列表 → 编辑电脑」） -->
     <div class="gw-card">
-      <div class="gw-card-head"><h3>{{ $t("gw.connectOther") }}</h3></div>
+      <div class="gw-card-head"><h3>{{ t("gw.connectOther") }}</h3></div>
       <p class="field-hint" style="margin-top: 0">
-        {{ $t("gw.connectOtherHint") }}
+        {{ t("gw.connectOtherHint") }}
       </p>
     </div>
   </div>
@@ -1744,21 +1745,21 @@ function deletePair(id: string) {
   <!-- 卸载确认（旧版 #gwUniOverlay，hub.html:3294）：勾上「保留本机数据」只删程序 -->
   <div v-if="uninstallOpen" id="gwUniOverlay" class="token-modal-overlay" @click.self="uninstallOpen = false">
     <div id="gwUniDialog" class="token-modal gw-uni-modal" role="dialog" aria-modal="true" aria-labelledby="gwUniTitle">
-      <h2 id="gwUniTitle">{{ $t("gw.uninstall") }}</h2>
+      <h2 id="gwUniTitle">{{ t("gw.uninstall") }}</h2>
       <p id="gwUniWhat" class="gw-pair-warn">{{ uninstallWhat }}</p>
       <label class="gw-uni-keep">
         <input id="gwUniKeep" v-model="keepData" type="checkbox" />
         <span>
-          <b>{{ $t("gw.keepData") }}</b>
+          <b>{{ t("gw.keepData") }}</b>
           <span id="gwUniKeepHint" class="field-hint" style="display: block; margin-top: 3px">{{ keepHint }}</span>
         </span>
       </label>
       <p id="gwUniWarn" class="field-hint" style="margin: 10px 0 0">
-        {{ $t("gw.keepDataHint") }}
+        {{ t("gw.keepDataHint") }}
       </p>
       <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
-        <button type="button" id="gwUniCancel" class="btn" @click="uninstallOpen = false">{{ $t("common.cancel") }}</button>
-        <button type="button" id="gwUniOk" class="btn primary" @click="confirmUninstall(keepData)">{{ $t("gw.confirmUninstall") }}</button>
+        <button type="button" id="gwUniCancel" class="btn" @click="uninstallOpen = false">{{ t("common.cancel") }}</button>
+        <button type="button" id="gwUniOk" class="btn primary" @click="confirmUninstall(keepData)">{{ t("gw.confirmUninstall") }}</button>
       </div>
     </div>
   </div>
@@ -1767,7 +1768,7 @@ function deletePair(id: string) {
   <LogDialog
     :open="logOpen"
     id-prefix="gwLog"
-    :title="$t('gw.logChannel')"
+    :title="t('gw.logChannel')"
     :lines="logs"
     @copy="copyText"
     @clear="clearLogs"
@@ -1776,7 +1777,7 @@ function deletePair(id: string) {
   <LogDialog
     :open="tsLogOpen"
     id-prefix="tsLog"
-    :title="$t('gw.logTs')"
+    :title="t('gw.logTs')"
     :lines="tsLogs"
     @copy="copyText"
     @clear="clearTsLogs"
@@ -1786,7 +1787,7 @@ function deletePair(id: string) {
     :open="tsnLogOpen"
     id-prefix="tsnLog"
     button-style="modal"
-    :title="$t('gw.logTsn')"
+    :title="t('gw.logTsn')"
     :lines="tsnLogs"
     @copy="copyText"
     @clear="clearTsnLogs"
@@ -1801,7 +1802,7 @@ function deletePair(id: string) {
         v-if="seg.url"
         :href="seg.url"
         class="gw-url"
-        :title="$t('gw.openInBrowser', { url: seg.url })"
+        :title="t('gw.openInBrowser', { url: seg.url })"
         @click.prevent="openExternal(seg.url)"
       >{{ seg.url }}</a>
       <template v-else>{{ seg.text }}</template>

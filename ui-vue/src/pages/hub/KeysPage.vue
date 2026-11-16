@@ -1,9 +1,10 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * 密钥页（原 `ui/hub.html` 的 `#page-keys`，3446 行）。
@@ -52,7 +53,7 @@ function openKeys() {
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>{{ $t("nav.keys") }}</h2></div>
+    <div class="page-head"><h2>{{ t("nav.keys") }}</h2></div>
     <div class="hub-page-body">
       <div class="act-card">
         <svg
@@ -67,7 +68,7 @@ function openKeys() {
           <circle cx="8" cy="15" r="4" />
           <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
         </svg>
-        <p class="t">{{ $t("nav.keys") }}</p>
+        <p class="t">{{ t("nav.keys") }}</p>
         <p class="s" id="keysPageHint">{{ keysHint }}</p>
         <button type="button" id="keysBtn" class="btn primary" @click="openKeys">
           <svg
@@ -84,7 +85,7 @@ function openKeys() {
             <circle cx="8" cy="15" r="4" />
             <path d="M10.8 12.2 20 3M17 6l2.5 2.5" />
           </svg>
-          {{ $t("keys.open") }}
+          {{ t("keys.open") }}
         </button>
       </div>
     </div>

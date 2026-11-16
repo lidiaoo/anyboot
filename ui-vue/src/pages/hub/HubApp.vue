@@ -17,6 +17,7 @@ import TransfersPage from "./TransfersPage.vue";
 import FilesPage from "./FilesPage.vue";
 import KeysPage from "./KeysPage.vue";
 import TermsetPage from "./TermsetPage.vue";
+const { t } = useI18n();
 
 /**
  * hub 主界面（原 `ui/hub.html`，14921 行）。
@@ -40,7 +41,6 @@ import TermsetPage from "./TermsetPage.vue";
  *       section.page
  */
 
-const { t } = useI18n();
 const toast = useToastStore();
 const ui = useUiStateStore();
 const remote = useRemoteStore();
@@ -433,7 +433,7 @@ onUnmounted(() => {
         <FilesPage v-else-if="currentPage === 'files'" />
         <KeysPage v-else-if="currentPage === 'keys'" />
         <TermsetPage v-else-if="currentPage === 'termset'" />
-        <p v-else class="placeholder">{{ $t("app.pageSuffix", { name: contentLabel }) }}</p>
+        <p v-else class="placeholder">{{ t("app.pageSuffix", { name: contentLabel }) }}</p>
       </section>
     </div>
   </div>

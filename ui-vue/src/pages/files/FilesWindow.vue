@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { call, isTauri } from "@/api/tauri";
+const { t } = useI18n();
 
 /**
  * 文件窗（原 `ui/hub-files.html`，1262 行）—— hub_sftp 命令族 16 个。
@@ -566,35 +567,35 @@ function pct(task: XferTask): number {
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
       </svg>
     </span>
-    <h1 id="title">{{ currentServer?.name || $t("fb.title") }}</h1>
+    <h1 id="title">{{ currentServer?.name || t("fb.title") }}</h1>
     <span id="connPill" class="pill" :class="errorText ? 'bad' : 'ok'" :hidden="!currentServer">
       <span class="dot" />
-      <span id="connText">{{ errorText ? $t("fb.connectFail") : loading ? $t("fb.reading") : $t("fb.connected") }}</span>
+      <span id="connText">{{ errorText ? t("fb.connectFail") : loading ? t("fb.reading") : t("fb.connected") }}</span>
     </span>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('keysWin.themeAria')" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="t('keysWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        {{ $t("keysWin.theme") }}
+        {{ t("keysWin.theme") }}
       </button>
     </div>
   </header>
 
   <div class="pathbar">
-    <button type="button" class="iconbtn" id="upBtn" :aria-label="$t('fb.up')" :title="$t('fb.up')" @click="goUp">
+    <button type="button" class="iconbtn" id="upBtn" :aria-label="t('fb.up')" :title="t('fb.up')" @click="goUp">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M19 12H5M11 18l-6-6 6-6" />
       </svg>
     </button>
-    <button type="button" class="iconbtn" id="refreshBtn" :aria-label="$t('fb.refresh')" :title="$t('fb.refresh')" @click="listDir(cwd)">
+    <button type="button" class="iconbtn" id="refreshBtn" :aria-label="t('fb.refresh')" :title="t('fb.refresh')" @click="listDir(cwd)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
       </svg>
     </button>
-    <nav class="crumbs scroll-thin" id="crumbs" :aria-label="$t('fb.path')">
+    <nav class="crumbs scroll-thin" id="crumbs" :aria-label="t('fb.path')">
       <template v-for="(crumb, i) in crumbs" :key="crumb.path">
         <span v-if="i > 0" class="crumb-sep" aria-hidden="true">›</span>
         <button type="button" class="crumb" :aria-current="i === crumbs.length - 1" @click="listDir(crumb.path)">
@@ -602,7 +603,7 @@ function pct(task: XferTask): number {
         </button>
       </template>
     </nav>
-    <button type="button" class="iconbtn" id="pathDropBtn" :aria-label="$t('fb.jump')" :title="$t('fb.jumpTitle')" @click.stop="pathMenuOpen = !pathMenuOpen">
+    <button type="button" class="iconbtn" id="pathDropBtn" :aria-label="t('fb.jump')" :title="t('fb.jumpTitle')" @click.stop="pathMenuOpen = !pathMenuOpen">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M6 9l6 6 6-6" />
       </svg>
@@ -611,21 +612,21 @@ function pct(task: XferTask): number {
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 5v14M5 12h14" />
       </svg>
-      {{ $t("fb.newDir") }}
+      {{ t("fb.newDir") }}
     </button>
     <button type="button" class="btn primary" id="uploadBtn" @click="upload">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 19V5M5 12l7-7 7 7" />
       </svg>
-      {{ $t("fb.upload") }}
+      {{ t("fb.upload") }}
     </button>
-    <button type="button" class="btn" id="downloadBtn" :disabled="!selectedPath" :title="selectedPath ? $t('fb.dlSel') : $t('fb.dlNone')" @click="download">
-      {{ $t("fb.download") }}
+    <button type="button" class="btn" id="downloadBtn" :disabled="!selectedPath" :title="selectedPath ? t('fb.dlSel') : t('fb.dlNone')" @click="download">
+      {{ t("fb.download") }}
     </button>
   </div>
 
   <!-- 上级目录快跳菜单（旧版 #pathMenu） -->
-  <div v-if="pathMenuOpen" class="popmenu" id="pathMenu" role="menu" :aria-label="$t('fb.upDirMenu')">
+  <div v-if="pathMenuOpen" class="popmenu" id="pathMenu" role="menu" :aria-label="t('fb.upDirMenu')">
     <button
       v-for="p in parentPaths"
       :key="p"
@@ -637,14 +638,14 @@ function pct(task: XferTask): number {
   </div>
 
   <div class="table-wrap scroll-thin" id="tableWrap">
-    <table :aria-label="$t('fb.title')">
+    <table :aria-label="t('fb.title')">
       <thead>
         <tr>
-          <th>{{ $t("fb.colName") }}</th>
-          <th style="width: 90px">{{ $t("fb.colSize") }}</th>
-          <th class="col-perms" style="width: 120px">{{ $t("fb.colPerms") }}</th>
-          <th class="col-time" style="width: 130px">{{ $t("fb.colMtime") }}</th>
-          <th style="width: 64px; text-align: right">{{ $t("fb.colAction") }}</th>
+          <th>{{ t("fb.colName") }}</th>
+          <th style="width: 90px">{{ t("fb.colSize") }}</th>
+          <th class="col-perms" style="width: 120px">{{ t("fb.colPerms") }}</th>
+          <th class="col-time" style="width: 130px">{{ t("fb.colMtime") }}</th>
+          <th style="width: 64px; text-align: right">{{ t("fb.colAction") }}</th>
         </tr>
       </thead>
       <tbody id="tbody">
@@ -661,16 +662,16 @@ function pct(task: XferTask): number {
           <td class="mono col-perms">{{ entry.perms || "—" }}</td>
           <td class="mono col-time">{{ fmtTime(entry.mtime) }}</td>
           <td style="text-align: right">
-            <button type="button" class="rowdl" :title="$t('fb.colAction')" :aria-label="entry.name + ' ' + $t('fb.colAction')" @click.stop="openRowMenu(entry, $event)">
+            <button type="button" class="rowdl" :title="t('fb.colAction')" :aria-label="entry.name + ' ' + t('fb.colAction')" @click.stop="openRowMenu(entry, $event)">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
             </button>
           </td>
         </tr>
       </tbody>
     </table>
-    <div v-if="!serverId" id="emptyTip" class="empty-tip">{{ $t("fb.noServer") }}</div>
+    <div v-if="!serverId" id="emptyTip" class="empty-tip">{{ t("fb.noServer") }}</div>
     <div v-else-if="!loading && !entries.length" id="emptyTip" class="empty-tip">
-      {{ errorText || $t("fb.emptyDir") }}
+      {{ errorText || t("fb.emptyDir") }}
     </div>
   </div>
 
@@ -680,25 +681,25 @@ function pct(task: XferTask): number {
       <path d="M21 12a9 9 0 1 1-9-9" />
     </svg>
     <span id="transferDir" class="tbadge" :class="activeTransfer.dir === 'up' ? 'up' : 'down'">
-      {{ activeTransfer.dir === "up" ? $t("tx.up") : $t("tx.down") }}
+      {{ activeTransfer.dir === "up" ? t("tx.up") : t("tx.down") }}
     </span>
     <span id="transferName">{{ activeTransfer.name }}</span>
     <div id="transferBar" class="bar"><div id="transferFill" :style="{ width: pct(activeTransfer) + '%' }" /></div>
     <span id="transferMeta" class="tmeta">{{ fmtSize(activeTransfer.bytes) }} / {{ fmtSize(activeTransfer.total) }}</span>
     <span id="transferPct" class="pct">{{ pct(activeTransfer) }}%</span>
     <button type="button" id="transferAct" class="tbtn" @click="transferCtl(activeTransfer.state === 'running' ? 'pause' : 'resume')">
-      {{ activeTransfer.state === "running" ? $t("tx.pause") : $t("tx.resume") }}
+      {{ activeTransfer.state === "running" ? t("tx.pause") : t("tx.resume") }}
     </button>
-    <button type="button" id="transferGiveup" class="tbtn danger" @click="transferCtl('abandon')">{{ $t("tx.abandon") }}</button>
+    <button type="button" id="transferGiveup" class="tbtn danger" @click="transferCtl('abandon')">{{ t("tx.abandon") }}</button>
   </div>
 
   <footer>
-    <span id="footCount">{{ $t("fb.count", { n: entries.length }) }}</span>
-    <span aria-hidden="true">·</span><span>{{ $t("fb.sftp") }}</span>
+    <span id="footCount">{{ t("fb.count", { n: entries.length }) }}</span>
+    <span aria-hidden="true">·</span><span>{{ t("fb.sftp") }}</span>
   </footer>
 
   <!-- 行操作菜单（旧版 #rowMenu） -->
-  <div v-if="rowMenuOpen" id="rowMenu" ref="rowMenuRef" class="filemenu" role="menu" :aria-label="$t('fb.fileOps')">
+  <div v-if="rowMenuOpen" id="rowMenu" ref="rowMenuRef" class="filemenu" role="menu" :aria-label="t('fb.fileOps')">
     <div class="fm-preview">
       <span id="fmIcon" class="fm-icon" aria-hidden="true">
         <svg id="fmIcoFile" v-if="!menuEntry?.is_dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -714,21 +715,21 @@ function pct(task: XferTask): number {
       </span>
       <span class="fm-names">
         <span class="fm-name" id="fmName">{{ menuEntry?.name || "—" }}</span>
-        <span class="fm-meta mono" id="fmMeta">{{ menuEntry ? (menuEntry.is_dir ? $t("fb.dir") : fmtSize(menuEntry.size)) : "—" }}</span>
+        <span class="fm-meta mono" id="fmMeta">{{ menuEntry ? (menuEntry.is_dir ? t("fb.dir") : fmtSize(menuEntry.size)) : "—" }}</span>
       </span>
-      <button type="button" id="fmClose" class="fm-close" :aria-label="$t('common.close')" @click="rowMenuOpen = false">✕</button>
+      <button type="button" id="fmClose" class="fm-close" :aria-label="t('common.close')" @click="rowMenuOpen = false">✕</button>
     </div>
-    <button role="menuitem" id="rmDownload" class="fm-act accent" @click="menuAction('download')">{{ $t("fb.download") }}</button>
-    <button role="menuitem" id="rmRename" class="fm-act" @click="menuAction('rename')">{{ $t("fb.rename") }}</button>
-    <button role="menuitem" id="rmCopyPath" class="fm-act" @click="menuAction('copyPath')">{{ $t("fb.copyPath") }}</button>
-    <button role="menuitem" id="rmDelete" class="fm-act danger" @click="menuAction('delete')">{{ $t("fb.delete") }}</button>
-    <p class="fm-label">{{ $t("fb.moreOps") }}</p>
+    <button role="menuitem" id="rmDownload" class="fm-act accent" @click="menuAction('download')">{{ t("fb.download") }}</button>
+    <button role="menuitem" id="rmRename" class="fm-act" @click="menuAction('rename')">{{ t("fb.rename") }}</button>
+    <button role="menuitem" id="rmCopyPath" class="fm-act" @click="menuAction('copyPath')">{{ t("fb.copyPath") }}</button>
+    <button role="menuitem" id="rmDelete" class="fm-act danger" @click="menuAction('delete')">{{ t("fb.delete") }}</button>
+    <p class="fm-label">{{ t("fb.moreOps") }}</p>
     <div class="fm-group">
-    <button role="menuitem" id="rmInfo" class="fm-act" @click="menuAction('info')">{{ $t("fb.info") }}</button>
-    <button role="menuitem" id="rmCopy" class="fm-act" @click="menuAction('copy')">{{ $t("fb.copy") }}</button>
-    <button role="menuitem" id="rmCut" class="fm-act" @click="menuAction('cut')">{{ $t("fb.cut") }}</button>
-    <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">{{ $t("fb.copyTo") }}</button>
-    <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">{{ $t("fb.moveTo") }}</button>
+    <button role="menuitem" id="rmInfo" class="fm-act" @click="menuAction('info')">{{ t("fb.info") }}</button>
+    <button role="menuitem" id="rmCopy" class="fm-act" @click="menuAction('copy')">{{ t("fb.copy") }}</button>
+    <button role="menuitem" id="rmCut" class="fm-act" @click="menuAction('cut')">{{ t("fb.cut") }}</button>
+    <button role="menuitem" id="rmCopyTo" class="fm-act" @click="menuAction('copyTo')">{{ t("fb.copyTo") }}</button>
+    <button role="menuitem" id="rmMoveTo" class="fm-act" @click="menuAction('moveTo')">{{ t("fb.moveTo") }}</button>
     </div>
   </div>
 
@@ -736,14 +737,14 @@ function pct(task: XferTask): number {
   <div v-if="mkdirOpen" id="mkdirModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="mkdirTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="mkdirTitle">{{ $t("fb.mkdirTitle") }}</h3>
-        <button type="button" id="mkdirClose" :aria-label="$t('common.close')" @click="mkdirOpen = false">✕</button>
+        <h3 id="mkdirTitle">{{ t("fb.mkdirTitle") }}</h3>
+        <button type="button" id="mkdirClose" :aria-label="t('common.close')" @click="mkdirOpen = false">✕</button>
       </div>
       <form id="mkdirForm" class="modal-body" @submit.prevent="confirmMkdir">
-        <input id="mkdirName" v-model="mkdirName" :placeholder="$t('fb.mkdirPh')" autocomplete="off" required />
+        <input id="mkdirName" v-model="mkdirName" :placeholder="t('fb.mkdirPh')" autocomplete="off" required />
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="mkdirCancel" @click="mkdirOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="submit" class="btn primary" id="mkdirOk">{{ $t("fb.create") }}</button>
+          <button type="button" class="btn plain" id="mkdirCancel" @click="mkdirOpen = false">{{ t("common.cancel") }}</button>
+          <button type="submit" class="btn primary" id="mkdirOk">{{ t("fb.create") }}</button>
         </div>
       </form>
     </div>
@@ -753,14 +754,14 @@ function pct(task: XferTask): number {
   <div v-if="renameOpen" id="renameModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="renameTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="renameTitle">{{ $t("fb.renameTitle") }}</h3>
-        <button type="button" id="renameClose" :aria-label="$t('common.close')" @click="renameOpen = false">✕</button>
+        <h3 id="renameTitle">{{ t("fb.renameTitle") }}</h3>
+        <button type="button" id="renameClose" :aria-label="t('common.close')" @click="renameOpen = false">✕</button>
       </div>
       <form id="renameForm" class="modal-body" @submit.prevent="confirmRename">
         <input id="renameName" v-model="renameName" autocomplete="off" required />
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="renameCancel" @click="renameOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="submit" class="btn primary" id="renameOk">{{ $t("fb.rename") }}</button>
+          <button type="button" class="btn plain" id="renameCancel" @click="renameOpen = false">{{ t("common.cancel") }}</button>
+          <button type="submit" class="btn primary" id="renameOk">{{ t("fb.rename") }}</button>
         </div>
       </form>
     </div>
@@ -770,14 +771,14 @@ function pct(task: XferTask): number {
   <div v-if="delOpen" id="delModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="delTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="delTitle">{{ $t("fb.delTitle") }}</h3>
-        <button type="button" id="delClose" :aria-label="$t('common.close')" @click="delOpen = false">✕</button>
+        <h3 id="delTitle">{{ t("fb.delTitle") }}</h3>
+        <button type="button" id="delClose" :aria-label="t('common.close')" @click="delOpen = false">✕</button>
       </div>
       <div class="modal-body">
-        <p id="delText">{{ $t("fb.delText", { name: targetEntry?.name }) }}</p>
+        <p id="delText">{{ t("fb.delText", { name: targetEntry?.name }) }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="button" class="btn dangerbtn" id="delOk" @click="confirmDelete">{{ $t("fb.delete") }}</button>
+          <button type="button" class="btn plain" id="delCancel" @click="delOpen = false">{{ t("common.cancel") }}</button>
+          <button type="button" class="btn dangerbtn" id="delOk" @click="confirmDelete">{{ t("fb.delete") }}</button>
         </div>
       </div>
     </div>
@@ -787,19 +788,19 @@ function pct(task: XferTask): number {
   <div v-if="infoOpen" id="infoModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="infoTitle">{{ $t("fb.info") }}</h3>
-        <button type="button" id="infoClose" :aria-label="$t('common.close')" @click="infoOpen = false">✕</button>
+        <h3 id="infoTitle">{{ t("fb.info") }}</h3>
+        <button type="button" id="infoClose" :aria-label="t('common.close')" @click="infoOpen = false">✕</button>
       </div>
       <div id="infoRows" class="modal-body">
-        <p><b>{{ $t("fb.kName") }}</b> {{ targetEntry?.name }}</p>
-        <p><b>{{ $t("fb.kSize") }}</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
-        <p><b>{{ $t("fb.kPerms") }}</b> <span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
-        <p><b>{{ $t("fb.kMtime") }}</b> {{ fmtTime(targetEntry?.mtime ?? "") }}</p>
-        <p><b>{{ $t("fb.kPath") }}</b> <span class="mono">{{ targetEntry?.path }}</span></p>
-        <p v-if="targetEntry?.link"><b>{{ $t("fb.kLink") }}</b> <span class="mono">{{ targetEntry?.target || $t("fb.reading") }}</span></p>
+        <p><b>{{ t("fb.kName") }}</b> {{ targetEntry?.name }}</p>
+        <p><b>{{ t("fb.kSize") }}</b> {{ targetEntry?.is_dir ? "—" : fmtSize(targetEntry?.size ?? 0) }}</p>
+        <p><b>{{ t("fb.kPerms") }}</b> <span class="mono">{{ targetEntry?.perms || "—" }}</span></p>
+        <p><b>{{ t("fb.kMtime") }}</b> {{ fmtTime(targetEntry?.mtime ?? "") }}</p>
+        <p><b>{{ t("fb.kPath") }}</b> <span class="mono">{{ targetEntry?.path }}</span></p>
+        <p v-if="targetEntry?.link"><b>{{ t("fb.kLink") }}</b> <span class="mono">{{ targetEntry?.target || t("fb.reading") }}</span></p>
       </div>
       <div class="modal-foot">
-        <button type="button" class="btn primary" id="infoOk" @click="infoOpen = false">{{ $t("common.close") }}</button>
+        <button type="button" class="btn primary" id="infoOk" @click="infoOpen = false">{{ t("common.close") }}</button>
       </div>
     </div>
   </div>
@@ -808,16 +809,16 @@ function pct(task: XferTask): number {
   <div v-if="destOpen" id="destModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="destTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="destTitle">{{ destMode === "moveTo" ? $t("fb.moveTo") : $t("fb.copyTo") }}</h3>
-        <button type="button" id="destClose" :aria-label="$t('common.close')" @click="destOpen = false">✕</button>
+        <h3 id="destTitle">{{ destMode === "moveTo" ? t("fb.moveTo") : t("fb.copyTo") }}</h3>
+        <button type="button" id="destClose" :aria-label="t('common.close')" @click="destOpen = false">✕</button>
       </div>
       <form id="destForm" class="modal-body" @submit.prevent="confirmDest">
-        <label id="destLabel" for="destPath">{{ $t("fb.destPath") }}</label>
+        <label id="destLabel" for="destPath">{{ t("fb.destPath") }}</label>
         <input id="destPath" v-model="destPath" class="mono" placeholder="/path/to/dir" autocomplete="off" required />
-        <p class="hint">{{ $t("fb.destHint") }}</p>
+        <p class="hint">{{ t("fb.destHint") }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="destCancel" @click="destOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="submit" class="btn primary" id="destOk">{{ $t("fb.ok") }}</button>
+          <button type="button" class="btn plain" id="destCancel" @click="destOpen = false">{{ t("common.cancel") }}</button>
+          <button type="submit" class="btn primary" id="destOk">{{ t("fb.ok") }}</button>
         </div>
       </form>
     </div>
@@ -829,7 +830,7 @@ function pct(task: XferTask): number {
   <div v-if="pickOpen" class="modal" @click.self="pickOpen = false">
     <div class="modal-card" role="dialog" aria-modal="true">
       <div class="modal-head">
-        <h3>{{ $t("fb.selectServer") }}</h3>
+        <h3>{{ t("fb.selectServer") }}</h3>
         <button type="button" aria-label="关闭" @click="pickOpen = false">✕</button>
       </div>
       <div class="modal-body">
@@ -843,7 +844,7 @@ function pct(task: XferTask): number {
         >
           {{ s.name }} · {{ s.host }}
         </button>
-        <p v-if="!sshServers.length" class="hint">{{ $t("fb.noSshShort") }}</p>
+        <p v-if="!sshServers.length" class="hint">{{ t("fb.noSshShort") }}</p>
       </div>
     </div>
   </div>

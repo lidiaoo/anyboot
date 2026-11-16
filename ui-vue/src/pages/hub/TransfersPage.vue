@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
+const { t } = useI18n();
 
 /**
  * 传输页（原 `ui/hub.html` 的 `#page-transfers`，3371 行）。
@@ -137,18 +138,18 @@ function pct(item: TxItem): number {
 
 <template>
   <div class="page-head" style="display: flex; align-items: center; gap: 10px">
-    <h2>{{ $t("nav.transfers") }}</h2>
+    <h2>{{ t("nav.transfers") }}</h2>
     <span style="flex: 1" />
     <button type="button" id="txPauseAll" class="btn" @click="ctlAll('pause', (t) => t.state === 'running')">
-      {{ $t("tx.pauseAll") }}
+      {{ t("tx.pauseAll") }}
     </button>
     <button type="button" id="txResumeAll" class="btn" @click="ctlAll('resume', (t) => t.state === 'paused')">
-      {{ $t("tx.resumeAll") }}
+      {{ t("tx.resumeAll") }}
     </button>
     <button type="button" id="txAbandonAll" class="btn" @click="ctlAll('abandon', (t) => t.state !== 'done')">
-      {{ $t("tx.abandonAll") }}
+      {{ t("tx.abandonAll") }}
     </button>
-    <button type="button" id="txClearDone" class="btn" @click="clearDone">{{ $t("tx.clearDone") }}</button>
+    <button type="button" id="txClearDone" class="btn" @click="clearDone">{{ t("tx.clearDone") }}</button>
   </div>
 
   <div class="tx-list scroll-thin" id="txList">
@@ -156,8 +157,8 @@ function pct(item: TxItem): number {
 
     <!-- 空态（旧版 renderTransfers 的空态文案） -->
     <div v-else-if="!items.length && !history.length" class="act-card" style="margin: 8px 0">
-      <p class="t">{{ $t("tx.emptyTitle") }}</p>
-      <p class="s">{{ $t("tx.emptyHint") }}</p>
+      <p class="t">{{ t("tx.emptyTitle") }}</p>
+      <p class="s">{{ t("tx.emptyHint") }}</p>
     </div>
 
     <template v-else>
@@ -168,10 +169,10 @@ function pct(item: TxItem): number {
           <span class="tx-name" :title="item.name">{{ item.name || "—" }}</span>
           <span class="tx-meta">{{ metaText(item) }}</span>
           <button type="button" class="tx-mini" @click="ctl(item.key, item.state === 'paused' ? 'resume' : 'pause')">
-            {{ item.state === "paused" ? $t("tx.resume") : $t("tx.pause") }}
+            {{ item.state === "paused" ? t("tx.resume") : t("tx.pause") }}
           </button>
-          <button type="button" class="tx-mini danger" :title="$t('tx.abandonTitle')" @click="ctl(item.key, 'abandon')">
-            {{ $t("tx.abandon") }}
+          <button type="button" class="tx-mini danger" :title="t('tx.abandonTitle')" @click="ctl(item.key, 'abandon')">
+            {{ t("tx.abandon") }}
           </button>
         </div>
         <div :class="['tx-bar', { paused: item.state === 'paused' }]">
@@ -182,7 +183,7 @@ function pct(item: TxItem): number {
       <!-- 历史（已完成） -->
       <div v-for="(h, i) in history" :key="'h' + i" class="tx-card">
         <div class="tx-top">
-          <span class="tx-badge done">{{ $t("tx.done") }}</span>
+          <span class="tx-badge done">{{ t("tx.done") }}</span>
           <span class="tx-name">{{ (h.dir === "up" ? "[↑] " : "[↓] ") + (h.name || "—") }}</span>
           <span class="tx-meta">{{ fmtSize(h.total) }}</span>
         </div>

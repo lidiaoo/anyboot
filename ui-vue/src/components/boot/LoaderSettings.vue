@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useI18n } from "vue-i18n";
 /**
  * 「引导器设置」折叠面板：放在每个引导器卡片列表下方，把该引导器**真实的额外设置**
  * （rEFInd：模拟扫描头/摘要/变量目录；GRUB：ESP 配置/分区明细/脚本/读取方式）
@@ -11,6 +12,7 @@ import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
 import GrubEsp from "./GrubEsp.vue";
 import ChannelSettings from "./ChannelSettings.vue";
+const { t } = useI18n();
 
 const props = defineProps<{ loader: string; defaultOpen?: boolean; plain?: boolean }>();
 const open = ref(Boolean(props.defaultOpen));
@@ -27,7 +29,7 @@ const open = ref(Boolean(props.defaultOpen));
     >
       <span class="gear" aria-hidden="true" style="margin-right: 4px">⚙</span>
       <span class="grow">
-        <span>{{ $t("boot.loaderSettings") }}</span>
+        <span>{{ t("boot.loaderSettings") }}</span>
       </span>
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>

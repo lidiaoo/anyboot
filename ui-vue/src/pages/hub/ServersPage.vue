@@ -6,9 +6,10 @@ import ServerEditDialog from "@/components/hub/ServerEditDialog.vue";
 import TunnelDialog from "@/components/hub/TunnelDialog.vue";
 import LatencyTrend from "@/components/hub/LatencyTrend.vue";
 import { useToastStore } from "@/stores/toast";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { isTauri } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 /**
  * 服务器页（原 `ui/hub.html` 的 `#page-servers`）。
@@ -299,7 +300,7 @@ async function testOne(server: HubServer) {
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>{{ $t("server.title") }}</h2></div>
+    <div class="page-head"><h2>{{ t("server.title") }}</h2></div>
     <div class="hub-page-body">
       <div class="toolbar">
         <div class="search-wrap">
@@ -311,14 +312,14 @@ async function testOne(server: HubServer) {
             id="searchBox"
             v-model="query"
             type="search"
-            :placeholder="$t('server.searchPh')"
-            :aria-label="$t('server.searchAria')"
+            :placeholder="t('server.searchPh')"
+            :aria-label="t('server.searchAria')"
           />
         </div>
 
-        <div class="segmented" id="protoTabs" role="tablist" :aria-label="$t('server.protoAria')">
+        <div class="segmented" id="protoTabs" role="tablist" :aria-label="t('server.protoAria')">
           <button role="tab" :aria-selected="protocol === ''" @click="protocol = ''">
-            {{ $t("server.all") }} <span class="mono" id="cntAll">{{ store.byProtocol.all }}</span>
+            {{ t("server.all") }} <span class="mono" id="cntAll">{{ store.byProtocol.all }}</span>
           </button>
           <button role="tab" :aria-selected="protocol === 'ssh'" @click="protocol = 'ssh'">
             SSH <span class="mono" id="cntSsh">{{ store.byProtocol.ssh }}</span>
@@ -329,28 +330,28 @@ async function testOne(server: HubServer) {
         </div>
 
         <div class="toolbar-right">
-          <span class="summary" id="summary">{{ $t("server.summary", { n: rows.length, m: store.servers.length }) }}</span>
+          <span class="summary" id="summary">{{ t("server.summary", { n: rows.length, m: store.servers.length }) }}</span>
           <button type="button" id="addBtn" class="btn primary" @click="openAdd">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            {{ $t("server.add") }}
+            {{ t("server.add") }}
           </button>
         </div>
       </div>
 
       <div class="cols">
-        <aside :aria-label="$t('server.listAria')">
+        <aside :aria-label="t('server.listAria')">
           <div class="aside-head">
-            <h2>{{ $t("server.title") }}</h2>
-            <button type="button" id="refreshBtn" class="link-btn" :aria-label="$t('server.testAll')" @click="store.testAll()">
+            <h2>{{ t("server.title") }}</h2>
+            <button type="button" id="refreshBtn" class="link-btn" :aria-label="t('server.testAll')" @click="store.testAll()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
               </svg>
-              {{ $t("common.refresh") }}
+              {{ t("common.refresh") }}
             </button>
           </div>
-          <div class="list scroll-thin" id="serverList" role="listbox" :aria-label="$t('server.listAria2')">
+          <div class="list scroll-thin" id="serverList" role="listbox" :aria-label="t('server.listAria2')">
             <div
               v-for="server in rows"
               :key="server.id"
@@ -372,7 +373,7 @@ async function testOne(server: HubServer) {
                 </span>
                 <span class="s-main">
                   <span class="s-line">
-                    <span class="s-name">{{ server.name || $t("server.untitled") }}</span>
+                    <span class="s-name">{{ server.name || t("server.untitled") }}</span>
                     <span class="s-proto">{{ server.protocol === "telnet" ? "TEL" : "SSH" }}</span>
                   </span>
                   <span class="s-host">
@@ -388,7 +389,7 @@ async function testOne(server: HubServer) {
                 </span>
               </button>
             </div>
-            <p v-if="!rows.length" class="empty">{{ $t("server.empty") }}</p>
+            <p v-if="!rows.length" class="empty">{{ t("server.empty") }}</p>
           </div>
         </aside>
 
@@ -398,8 +399,8 @@ async function testOne(server: HubServer) {
             <div v-if="!selected" class="placeholder">
               <div class="card-hint">
                 <div class="big">🖥️</div>
-                <h2>{{ $t("server.selectLeft") }}</h2>
-                <p>{{ $t("server.selectLeftHint") }}</p>
+                <h2>{{ t("server.selectLeft") }}</h2>
+                <p>{{ t("server.selectLeftHint") }}</p>
               </div>
             </div>
 
@@ -416,7 +417,7 @@ async function testOne(server: HubServer) {
                 </span>
                 <div class="d-title">
                   <div class="row">
-                    <h3>{{ selected.name || $t("server.untitled") }}</h3>
+                    <h3>{{ selected.name || t("server.untitled") }}</h3>
                     <span :class="['pill', statePillClass]"><span class="pdot" />{{ statePillText }}</span>
                     <span class="badge">{{ selected.protocol === "ssh" ? "SSH" : "TELNET" }}</span>
                   </div>
@@ -429,34 +430,34 @@ async function testOne(server: HubServer) {
                     id="connectBtn"
                     class="btn primary"
                     :disabled="selected.protocol !== 'ssh'"
-                    :title="selected.protocol === 'ssh' ? $t('server.openTermTip') : $t('server.telnetTermTodo')"
+                    :title="selected.protocol === 'ssh' ? t('server.openTermTip') : t('server.telnetTermTodo')"
                     @click="openTerminal(selected)"
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <rect x="2" y="4" width="20" height="14" rx="2" />
                       <path d="M6 9l3 3-3 3" />
                     </svg>
-                    {{ $t("server.openTerm") }}
+                    {{ t("server.openTerm") }}
                   </button>
                   <button
                     type="button"
                     id="filesBtn"
                     class="btn"
                     :disabled="selected.protocol !== 'ssh'"
-                    :title="selected.protocol === 'ssh' ? $t('server.browseTip') : $t('server.telnetNoFiles')"
+                    :title="selected.protocol === 'ssh' ? t('server.browseTip') : t('server.telnetNoFiles')"
                     @click="openFiles(selected)"
                   >
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
-                    {{ $t("server.browseFiles") }}
+                    {{ t("server.browseFiles") }}
                   </button>
-                  <button type="button" id="editBtn" class="icon-btn boxed" :aria-label="$t('server.editAria')" :title="$t('common.edit')" @click="openEdit(selected)">
+                  <button type="button" id="editBtn" class="icon-btn boxed" :aria-label="t('server.editAria')" :title="t('common.edit')" @click="openEdit(selected)">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z" />
                     </svg>
                   </button>
-                  <button type="button" id="delBtn" class="icon-btn boxed danger" :aria-label="$t('server.deleteAria')" :title="$t('common.delete')" @click="onDelete(selected)">
+                  <button type="button" id="delBtn" class="icon-btn boxed danger" :aria-label="t('server.deleteAria')" :title="t('common.delete')" @click="onDelete(selected)">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15M10 11v6M14 11v6" />
                     </svg>
@@ -465,29 +466,29 @@ async function testOne(server: HubServer) {
               </div>
 
               <!-- .info-grid：5 格（用户 / 认证方式 / 端口 / 经由 / 延迟） -->
-              <div class="info-grid" role="group" :aria-label="$t('server.connAria')">
+              <div class="info-grid" role="group" :aria-label="t('server.connAria')">
                 <div>
-                  <p class="k">{{ $t("server.kUser") }}</p>
+                  <p class="k">{{ t("server.kUser") }}</p>
                   <p class="v mono">{{ selected.username || "—" }}</p>
                 </div>
                 <div>
-                  <p class="k">{{ $t("server.kAuth") }}</p>
+                  <p class="k">{{ t("server.kAuth") }}</p>
                   <p class="v">
-                    <template v-if="selected.key_id">{{ $t("nav.keys") }} · <span class="mono">{{ selected.key_id }}</span></template>
-                    <template v-else-if="selected.password_enc">{{ $t("server.pwdStored") }}</template>
-                    <template v-else>{{ $t("server.sysSsh") }}</template>
+                    <template v-if="selected.key_id">{{ t("nav.keys") }} · <span class="mono">{{ selected.key_id }}</span></template>
+                    <template v-else-if="selected.password_enc">{{ t("server.pwdStored") }}</template>
+                    <template v-else>{{ t("server.sysSsh") }}</template>
                   </p>
                 </div>
                 <div>
-                  <p class="k">{{ $t("server.kPort") }}</p>
+                  <p class="k">{{ t("server.kPort") }}</p>
                   <p class="v mono">{{ portOf(selected) }}</p>
                 </div>
                 <div>
-                  <p class="k">{{ $t("server.kVia") }}</p>
+                  <p class="k">{{ t("server.kVia") }}</p>
                   <p class="v">{{ jumpLabel(selected) }}</p>
                 </div>
                 <div>
-                  <p class="k">{{ $t("server.kLatency") }}</p>
+                  <p class="k">{{ t("server.kLatency") }}</p>
                   <p class="v mono" :class="msTextClass">{{ msText }}</p>
                 </div>
               </div>
@@ -495,8 +496,8 @@ async function testOne(server: HubServer) {
               <!-- .d-section 1：连通性 -->
               <div class="d-section">
                 <div class="sec-head">
-                  <h4>{{ $t("server.secConn") }}</h4>
-                  <button type="button" id="testBtn" class="btn small" @click="testOne(selected)">{{ $t("server.test") }}</button>
+                  <h4>{{ t("server.secConn") }}</h4>
+                  <button type="button" id="testBtn" class="btn small" @click="testOne(selected)">{{ t("server.test") }}</button>
                 </div>
                 <p class="test-line" id="detailTestLine">{{ testLine }}</p>
               </div>
@@ -509,29 +510,29 @@ async function testOne(server: HubServer) {
               <!-- .d-section 3：隧道（旧版 #tunnelBlock） -->
               <div class="d-section" id="tunnelBlock">
                 <div class="sec-head">
-                  <h4>{{ $t("server.secTunnel") }}</h4>
-                  <button type="button" class="btn small" id="tunnelAddBtn" @click="openTunnel(selected.id)">{{ $t("server.tunnelAdd") }}</button>
+                  <h4>{{ t("server.secTunnel") }}</h4>
+                  <button type="button" class="btn small" id="tunnelAddBtn" @click="openTunnel(selected.id)">{{ t("server.tunnelAdd") }}</button>
                 </div>
                 <div v-if="!tunnels.length" class="tunnel-empty">
-                  {{ $t("server.tunnelEmpty") }}
+                  {{ t("server.tunnelEmpty") }}
                 </div>
                 <div v-else class="tunnel-list">
                   <div v-for="tn in tunnels" :key="tn.id" :class="['tunnel-row', { off: !tn.running }]">
                     <span :class="['dot', { ok: tn.running }]" />
                     <div class="t-main">
                       <div class="t-name">
-                        <span class="nm">{{ tn.name || $t("server.untitled") }}</span>
-                        <span :class="['tunnel-kind', { dyn: tn.kind === 'dynamic' }]">{{ tn.kind === "dynamic" ? $t("server.tunnelSocks") : $t("server.tunnelFwd") }}</span>
+                        <span class="nm">{{ tn.name || t("server.untitled") }}</span>
+                        <span :class="['tunnel-kind', { dyn: tn.kind === 'dynamic' }]">{{ tn.kind === "dynamic" ? t("server.tunnelSocks") : t("server.tunnelFwd") }}</span>
                       </div>
                       <div class="t-sub">
-                        {{ tn.kind === "dynamic" ? $t("server.tunnelDynDesc", { port: tn.localPort }) : $t("server.tunnelFwdDesc", { port: tn.localPort, host: tn.targetHost || "?", tport: tn.targetPort || "?" }) }}
+                        {{ tn.kind === "dynamic" ? t("server.tunnelDynDesc", { port: tn.localPort }) : t("server.tunnelFwdDesc", { port: tn.localPort, host: tn.targetHost || "?", tport: tn.targetPort || "?" }) }}
                       </div>
                     </div>
                     <div class="t-acts">
-                      <button v-if="tn.running" type="button" class="btn small" @click="toggleTunnel(tn.id)">{{ $t("server.stop") }}</button>
-                      <button v-else type="button" class="btn small primary" @click="toggleTunnel(tn.id)">{{ $t("server.start") }}</button>
-                      <button type="button" class="btn small" @click="openTunnelEdit(tn)">{{ $t("common.edit") }}</button>
-                      <button type="button" class="btn small danger" @click="deleteTunnel(tn.id)">{{ $t("common.delete") }}</button>
+                      <button v-if="tn.running" type="button" class="btn small" @click="toggleTunnel(tn.id)">{{ t("server.stop") }}</button>
+                      <button v-else type="button" class="btn small primary" @click="toggleTunnel(tn.id)">{{ t("server.start") }}</button>
+                      <button type="button" class="btn small" @click="openTunnelEdit(tn)">{{ t("common.edit") }}</button>
+                      <button type="button" class="btn small danger" @click="deleteTunnel(tn.id)">{{ t("common.delete") }}</button>
                     </div>
                   </div>
                 </div>
@@ -558,18 +559,18 @@ async function testOne(server: HubServer) {
 
       <!-- 删除确认（旧版 #deleteOverlay） -->
       <div v-if="deleteTarget" id="deleteOverlay" class="overlay" @click.self="deleteTarget = null">
-        <div class="dialog" role="dialog" aria-modal="true" :aria-label="$t('server.deleteAria')">
+        <div class="dialog" role="dialog" aria-modal="true" :aria-label="t('server.deleteAria')">
           <div class="dialog-head">
-            <h3>{{ $t("server.deleteAria") }}</h3>
-            <button type="button" class="icon-btn" id="deleteX" :aria-label="$t('common.close')" @click="deleteTarget = null">✕</button>
+            <h3>{{ t("server.deleteAria") }}</h3>
+            <button type="button" class="icon-btn" id="deleteX" :aria-label="t('common.close')" @click="deleteTarget = null">✕</button>
           </div>
           <div class="dialog-body">
-            <p class="d-text">{{ $t("srv.delConfirm", { name: deleteTarget?.name ?? "" }) }}</p>
+            <p class="d-text">{{ t("srv.delConfirm", { name: deleteTarget?.name ?? "" }) }}</p>
           </div>
           <div class="dialog-foot">
             <span class="spacer" />
-            <button type="button" class="btn ghost" id="deleteCancel" @click="deleteTarget = null">{{ $t("common.cancel") }}</button>
-            <button type="button" class="btn danger" id="deleteConfirm" @click="confirmDelete">{{ $t("common.delete") }}</button>
+            <button type="button" class="btn ghost" id="deleteCancel" @click="deleteTarget = null">{{ t("common.cancel") }}</button>
+            <button type="button" class="btn danger" id="deleteConfirm" @click="confirmDelete">{{ t("common.delete") }}</button>
           </div>
         </div>
       </div>

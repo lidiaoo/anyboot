@@ -9,7 +9,7 @@ const props = withDefaults(
 const toast = useToastStore();
 const settings = useSettingsStore();
 import { computed, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { call, setLoaderMode } from "@/api/tauri";
@@ -17,6 +17,7 @@ import GrubList from "@/components/boot/GrubList.vue";
 import { simRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * rEFInd / RefindPlus 区块（原 `ui/index.html` 的 `section#refind`，125~195 行）。
@@ -187,10 +188,10 @@ async function selectEntry(selector: string) {
 </script>
 
 <template>
-  <section :aria-label="$t('grub.sectionTitle', { name: who })" class="refind" :id="uid('refind')">
+  <section :aria-label="t('grub.sectionTitle', { name: who })" class="refind" :id="uid('refind')">
     <div v-if="!props.hideList" class="grub-title-row">
-      <span class="zone-tag" :id="uid('refind-zone-tag')">{{ $t("grub.zone", { name: who }) }}</span>
-      <h2>{{ $t("grub.sectionTitle", { name: who }) }}</h2>
+      <span class="zone-tag" :id="uid('refind-zone-tag')">{{ t("grub.zone", { name: who }) }}</span>
+      <h2>{{ t("grub.sectionTitle", { name: who }) }}</h2>
     </div>
 
     <!-- 面板一：自动扫描 -->
@@ -200,21 +201,21 @@ async function selectEntry(selector: string) {
       :id="uid('refind-panel-auto')"
       role="tabpanel"
     >
-      <section :aria-label="$t('refind.simScan')" class="sim-scan" :id="uid('sim-scan')">
+      <section :aria-label="t('refind.simScan')" class="sim-scan" :id="uid('sim-scan')">
         <div class="sim-scan-head">
-          <h3>{{ $t("refind.simScan") }}</h3>
+          <h3>{{ t("refind.simScan") }}</h3>
           <small
-            >{{ $t("refind.simHint", { who }) }}</small
+            >{{ t("refind.simHint", { who }) }}</small
           >
           <button
             type="button"
             :id="uid('sim-scan-refresh')"
             class="secondary"
             :disabled="simBusy"
-            :title="$t('refind.reprobeTitle')"
+            :title="t('refind.reprobeTitle')"
             @click="refreshSim"
           >
-            {{ simBusy ? $t("grub.reading") : $t("grub.reread") }}
+            {{ simBusy ? t("grub.reading") : t("grub.reread") }}
           </button>
         </div>
 
@@ -242,7 +243,7 @@ async function selectEntry(selector: string) {
              折叠面板）里也必须能展开看到，否则用户只看到「N 项」却点开是空的
              （用户报「被隐藏的项折叠没显示条目」）。所以这里去掉 v-if="!props.hideList"。 -->
         <details v-if="hiddenEntries.length" class="sim-scan-hidden" :id="uid('sim-scan-hidden')">
-          <summary>{{ $t("refind.hiddenCount", { n: hiddenEntries.length, who }) }}</summary>
+          <summary>{{ t("refind.hiddenCount", { n: hiddenEntries.length, who }) }}</summary>
           <div class="sim-scan-list" :id="uid('sim-scan-hidden-list')">
             <GrubList :entries="hiddenEntries" :active-selector="''" />
           </div>
@@ -257,7 +258,7 @@ async function selectEntry(selector: string) {
       :id="uid('refind-panel-manual')"
       role="tabpanel"
     >
-      <section :aria-label="$t('refind.systemsAria')" :id="uid('systems')">
+      <section :aria-label="t('refind.systemsAria')" :id="uid('systems')">
         <GrubList
           v-if="!props.hideList"
           :entries="
@@ -272,7 +273,7 @@ async function selectEntry(selector: string) {
     </div>
 
     <!-- 两个横向标签 -->
-    <div class="grub-tabs" :id="uid('refind-tabs')" role="tablist" :aria-label="$t('grub.tabsAria', { name: who })">
+    <div class="grub-tabs" :id="uid('refind-tabs')" role="tablist" :aria-label="t('grub.tabsAria', { name: who })">
       <button
         type="button"
         :id="uid('refind-tab-auto')"
@@ -283,7 +284,7 @@ async function selectEntry(selector: string) {
         :data-refind-tab="lp ? 'refindplus-auto' : 'auto'"
         @click="setRefindTab('auto')"
       >
-        {{ $t("refind.tabAuto") }}
+        {{ t("refind.tabAuto") }}
       </button>
       <button
         type="button"
@@ -295,7 +296,7 @@ async function selectEntry(selector: string) {
         :data-refind-tab="lp ? 'refindplus-manual' : 'manual'"
         @click="setRefindTab('manual')"
       >
-        {{ $t("refind.tabManual") }}
+        {{ t("refind.tabManual") }}
       </button>
     </div>
 
@@ -304,17 +305,17 @@ async function selectEntry(selector: string) {
          三个命令后端只作用于 rEFInd 通道的槽位（无 channel 参数），refindplus
          的变量目录由后端扫描 EFI/refindplus/vars 自动定位，这里不提供目录设置。 -->
     <section v-if="!lp" class="directory">
-      <label :for="uid('vars-dir')">{{ $t("refind.varsDir") }}</label>
+      <label :for="uid('vars-dir')">{{ t("refind.varsDir") }}</label>
       <input
         :id="uid('vars-dir')"
         v-model="varsDir"
-        :placeholder="$t('refind.varsDirPh')"
+        :placeholder="t('refind.varsDirPh')"
         spellcheck="false"
         type="text"
       />
       <div class="actions">
-        <button type="button" :id="uid('open-vars-dir')" class="secondary" @click="openVarsDir">{{ $t("refind.openVarsDir") }}</button>
-        <button type="button" :id="uid('use-directory')" @click="useDirectory">{{ $t("refind.useDir") }}</button>
+        <button type="button" :id="uid('open-vars-dir')" class="secondary" @click="openVarsDir">{{ t("refind.openVarsDir") }}</button>
+        <button type="button" :id="uid('use-directory')" @click="useDirectory">{{ t("refind.useDir") }}</button>
         <button
           v-if="ui.status?.temporaryMount"
           type="button"
@@ -322,9 +323,9 @@ async function selectEntry(selector: string) {
           class="secondary"
           @click="unmountTemp"
         >
-          {{ $t("refind.unmountTmp") }}
+          {{ t("refind.unmountTmp") }}
         </button>
-        <button type="button" :id="uid('refresh')" class="secondary" @click="scan">{{ $t("refind.scan") }}</button>
+        <button type="button" :id="uid('refresh')" class="secondary" @click="scan">{{ t("refind.scan") }}</button>
       </div>
     </section>
   </section>

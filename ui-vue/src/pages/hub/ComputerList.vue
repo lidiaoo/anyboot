@@ -10,8 +10,9 @@ import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
 import RemoteEditDialog from "@/components/hub/RemoteEditDialog.vue";
 import RemoteListDialog from "@/components/hub/RemoteListDialog.vue";
 import { useToastStore } from "@/stores/toast";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 const props = defineProps<{ addSeed?: number; remoteAction?: { act: string; n: number } }>();
 
@@ -577,20 +578,20 @@ useEscape(viewOpen, () => { viewOpen.value = false });
   <div class="cq-list-view">
     <div class="cq-head">
       <div class="cq-head-txt">
-        <h1>{{ $t("hub.list.title") }}</h1>
+        <h1>{{ t("hub.list.title") }}</h1>
       </div>
       <div class="cq-stats">
         <button type="button" class="cq-stat cq-stat--all" :class="{ 'is-active': filter === 'all' }" @click="filter = 'all'">
-          <i>{{ $t("hub.list.all") }}</i><b id="cqStAll">{{ stats.all }}</b>
+          <i>{{ t("hub.list.all") }}</i><b id="cqStAll">{{ stats.all }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--on" :class="{ 'is-active': filter === 'online' }" @click="filter = 'online'">
-          <i>{{ $t("hub.list.online") }}</i><b id="cqStOnline">{{ stats.online }}</b>
+          <i>{{ t("hub.list.online") }}</i><b id="cqStOnline">{{ stats.online }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--off" :class="{ 'is-active': filter === 'offline' }" @click="filter = 'offline'">
-          <i>{{ $t("hub.list.offline") }}</i><b id="cqStOffline">{{ stats.offline }}</b>
+          <i>{{ t("hub.list.offline") }}</i><b id="cqStOffline">{{ stats.offline }}</b>
         </button>
         <button type="button" class="cq-stat cq-stat--pend" :class="{ 'is-active': filter === 'pending' }" @click="filter = 'pending'">
-          <i>{{ $t("hub.list.pending") }}</i><b id="cqStPending">{{ stats.pending }}</b>
+          <i>{{ t("hub.list.pending") }}</i><b id="cqStPending">{{ stats.pending }}</b>
         </button>
       </div>
     </div>
@@ -606,8 +607,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         id="cqQ"
         v-model="query"
           type="search"
-          :placeholder="$t('hub.list.search')"
-          :aria-label="$t('hub.list.searchAria')"
+          :placeholder="t('hub.list.search')"
+          :aria-label="t('hub.list.searchAria')"
           spellcheck="false"
           autocomplete="off"
         />
@@ -615,43 +616,43 @@ useEscape(viewOpen, () => { viewOpen.value = false });
 
       <span class="cq-spacer" />
       <button type="button" id="cqHelpToggle" class="link-btn cq-help-btn" :aria-expanded="helpOpen" @click="helpOpen = !helpOpen">
-        {{ $t("hub.list.help") }}
+        {{ t("hub.list.help") }}
       </button>
       <button
         type="button"
         id="cqSort"
         ref="sortBtnRef"
         class="link-btn menu-anchor"
-        :title="$t('hub.list.sortTitle')"
+        :title="t('hub.list.sortTitle')"
         :aria-expanded="sortMenuOpen"
         @click.stop="sortMenuOpen = !sortMenuOpen"
       >
-        {{ $t("hub.list.sort") }} <span id="cqSortText">{{ $t(SORT_LABELS[sortMode]) }}</span>
+        {{ t("hub.list.sort") }} <span id="cqSortText">{{ t(SORT_LABELS[sortMode]) }}</span>
       </button>
-      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" :title="$t('hub.list.refreshTitle')" @click="manualRefresh">
-        <span id="cqRefreshText">{{ refreshing ? $t("hub.list.probing") : $t("common.refresh") }}</span>
+      <button type="button" id="cqRefresh" class="link-btn" :disabled="refreshing" :title="t('hub.list.refreshTitle')" @click="manualRefresh">
+        <span id="cqRefreshText">{{ refreshing ? t("hub.list.probing") : t("common.refresh") }}</span>
       </button>
       <PcMenu id="cqMore" @menu-action="onMenuAction" />
     </div>
 
     <div v-show="helpOpen" class="cq-help" id="cqHelp">
-      <h4>{{ $t("hub.list.help") }}</h4>
+      <h4>{{ t("hub.list.help") }}</h4>
       <ul>
-        <li v-for="(k, i) in HELP_ITEMS" :key="i">{{ $t(k) }}</li>
+        <li v-for="(k, i) in HELP_ITEMS" :key="i">{{ t(k) }}</li>
       </ul>
     </div>
 
     <div class="cq-card">
-      <div class="cq-grid" role="table" :aria-label="$t('hub.list.title')">
+      <div class="cq-grid" role="table" :aria-label="t('hub.list.title')">
         <!-- 表头（旧版静态 HTML 里就有，CSS 里 `display:none` —— 卡片流时代不用它，
              但 DOM 保留：一是与旧版一致，二是它给 .cq-col 提供字号/颜色继承基线） -->
         <div class="cq-thead" role="row" aria-hidden="true">
-          <div class="cq-col cq-col-dev" role="columnheader">{{ $t("nav.computer") }}</div>
-          <div class="cq-col cq-col-st" role="columnheader">{{ $t("hub.list.colStatus") }}</div>
-          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "rEFInd" }) }}</div>
-          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "RefindPlus" }) }}</div>
-          <div class="cq-col cq-col-boot" role="columnheader">{{ $t("hub.boot.col", { name: "GRUB" }) }}</div>
-          <div class="cq-col cq-col-pwr" role="columnheader">{{ $t("hub.list.colPower") }}</div>
+          <div class="cq-col cq-col-dev" role="columnheader">{{ t("nav.computer") }}</div>
+          <div class="cq-col cq-col-st" role="columnheader">{{ t("hub.list.colStatus") }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ t("hub.boot.col", { name: "rEFInd" }) }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ t("hub.boot.col", { name: "RefindPlus" }) }}</div>
+          <div class="cq-col cq-col-boot" role="columnheader">{{ t("hub.boot.col", { name: "GRUB" }) }}</div>
+          <div class="cq-col cq-col-pwr" role="columnheader">{{ t("hub.list.colPower") }}</div>
           <div class="cq-col cq-col-more" role="columnheader" />
         </div>
         <div class="cq-rows" id="cqTbody">
@@ -678,9 +679,9 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           </div>
       </div>
       <div v-if="!rows.length" class="cq-empty" id="cqEmpty">
-        <div>{{ remote.lastError ? $t("hub.list.loadFailed") : $t("hub.list.empty") }}</div>
-        <p id="cqEmptyHint">{{ remote.lastError || $t("hub.list.emptyHint") }}</p>
-        <button v-if="remote.lastError" type="button" class="link-btn" @click="remote.load()">{{ $t("common.retry") }}</button>
+        <div>{{ remote.lastError ? t("hub.list.loadFailed") : t("hub.list.empty") }}</div>
+        <p id="cqEmptyHint">{{ remote.lastError || t("hub.list.emptyHint") }}</p>
+        <button v-if="remote.lastError" type="button" class="link-btn" @click="remote.load()">{{ t("common.retry") }}</button>
       </div>
     </div>
 
@@ -696,8 +697,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
         <div class="dialog-head" style="flex: none">
           <h3 id="cqViewTitle">{{ viewTitle }}</h3>
           <div style="display: flex; align-items: center; gap: 6px">
-            <button type="button" class="btn small" id="cqViewReload" @click="viewSeed += 1">{{ $t("hub.list.reloadBtn") }}</button>
-            <button type="button" class="icon-btn" id="cqViewClose" :aria-label="$t('common.close')" @click="viewOpen = false">
+            <button type="button" class="btn small" id="cqViewReload" @click="viewSeed += 1">{{ t("hub.list.reloadBtn") }}</button>
+            <button type="button" class="icon-btn" id="cqViewClose" :aria-label="t('common.close')" @click="viewOpen = false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
                 <path d="M6 6l12 12M18 6L6 18" />
               </svg>
@@ -718,8 +719,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
                 <rect x="3" y="4" width="18" height="16" rx="2" />
                 <path d="M3 9h18M8 4v5" />
               </svg>
-              <p><b>{{ $t("hub.list.viewLoading") }}</b></p>
-              <p>{{ $t("hub.list.viewHint") }}</p>
+              <p><b>{{ t("hub.list.viewLoading") }}</b></p>
+              <p>{{ t("hub.list.viewHint") }}</p>
             </div>
           </div>
         </div>
@@ -732,32 +733,32 @@ useEscape(viewOpen, () => { viewOpen.value = false });
       class="pc-menu cq-sort-menu"
       id="cqSortMenu"
       role="menu"
-      :aria-label="$t('hub.list.sortMenuAria')"
+      :aria-label="t('hub.list.sortMenuAria')"
       @click.stop
     >
-      <div class="menu-caption">{{ $t("hub.list.sortMenuAria") }}</div>
-      <button role="menuitem" data-order="custom" :class="{ on: sortMode === 'custom' }" @click="pickSort('custom')">{{ $t("hub.list.sortCustomDesc") }}</button>
-      <button role="menuitem" data-order="name" :class="{ on: sortMode === 'name' }" @click="pickSort('name')">{{ $t("hub.list.sortNameAZ") }}</button>
-      <button role="menuitem" data-order="recent" :class="{ on: sortMode === 'recent' }" @click="pickSort('recent')">{{ $t("hub.list.sortRecent") }}</button>
+      <div class="menu-caption">{{ t("hub.list.sortMenuAria") }}</div>
+      <button role="menuitem" data-order="custom" :class="{ on: sortMode === 'custom' }" @click="pickSort('custom')">{{ t("hub.list.sortCustomDesc") }}</button>
+      <button role="menuitem" data-order="name" :class="{ on: sortMode === 'name' }" @click="pickSort('name')">{{ t("hub.list.sortNameAZ") }}</button>
+      <button role="menuitem" data-order="recent" :class="{ on: sortMode === 'recent' }" @click="pickSort('recent')">{{ t("hub.list.sortRecent") }}</button>
       <div class="menu-divider" role="separator" />
-      <div class="menu-caption" id="cqSortHint">{{ $t("hub.list.sortHint") }}</div>
+      <div class="menu-caption" id="cqSortHint">{{ t("hub.list.sortHint") }}</div>
     </div>
 
     <!-- 行内 ⋮ 菜单（旧版 cqRowMenu，hub.html:8158） -->
     <div v-if="rowMenuId" class="overlay-transparent" @click="rowMenuId = null">
       <div class="pc-menu cq-row-menu" role="menu" @click.stop>
         <div class="menu-caption">{{ renmoteRow(rowMenuId)?.name }}</div>
-        <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">{{ $t("rowMenu.viewInline") }}</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">{{ $t("rowMenu.gotoTab") }}</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">{{ $t("rowMenu.openBrowser") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('view', rowMenuId!)">{{ t("rowMenu.viewInline") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('goto', rowMenuId!)">{{ t("rowMenu.gotoTab") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('browser', rowMenuId!)">{{ t("rowMenu.openBrowser") }}</button>
         <div class="menu-divider" />
-        <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">{{ $t("rowMenu.reprobe") }}</button>
-        <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">{{ $t("rowMenu.sysinfo") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('refresh', rowMenuId!)">{{ t("rowMenu.reprobe") }}</button>
+        <button type="button" role="menuitem" @click="rowMenuAction('sysinfo', rowMenuId!)">{{ t("rowMenu.sysinfo") }}</button>
         <template v-if="rowMenuId !== 'local'">
-          <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">{{ $t("rowMenu.edit") }}</button>
-          <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">{{ $t("rowMenu.copyAddr") }}</button>
+          <button type="button" role="menuitem" @click="rowMenuAction('edit', rowMenuId!)">{{ t("rowMenu.edit") }}</button>
+          <button type="button" role="menuitem" @click="rowMenuAction('copyip', rowMenuId!)">{{ t("rowMenu.copyAddr") }}</button>
           <div class="menu-divider" />
-          <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">{{ $t("rowMenu.delete") }}</button>
+          <button type="button" role="menuitem" class="danger" @click="rowMenuAction('delete', rowMenuId!)">{{ t("rowMenu.delete") }}</button>
         </template>
       </div>
     </div>
@@ -766,8 +767,8 @@ useEscape(viewOpen, () => { viewOpen.value = false });
     <div v-if="browserPickOpen" class="overlay" @click.self="browserPickOpen = false">
       <div class="dialog" role="dialog" aria-modal="true" style="max-width: 460px">
         <div class="dialog-head">
-          <h3>{{ $t("cl.pickConn") }}</h3>
-          <button type="button" class="icon-btn" :aria-label="$t('common.close')" @click="browserPickOpen = false">✕</button>
+          <h3>{{ t("cl.pickConn") }}</h3>
+          <button type="button" class="icon-btn" :aria-label="t('common.close')" @click="browserPickOpen = false">✕</button>
         </div>
         <div class="dialog-body" style="display:flex;flex-direction:column;gap:8px">
           <button
@@ -780,12 +781,12 @@ useEscape(viewOpen, () => { viewOpen.value = false });
           >
             <span class="cq-remote-kind" :class="{ 'ok': c.ok === true, 'bad': c.ok === false }">{{ c.label }}</span>
             <span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.address }}</span>
-            <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">{{ $t("hub.conn.okShort") }}</span>
-            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">{{ $t("hub.conn.fail") }}</span>
+            <span v-if="c.ok === true" style="color:rgb(var(--ok));margin-left:auto;flex:none">{{ t("hub.conn.okShort") }}</span>
+            <span v-else-if="c.ok === false" style="color:rgb(var(--bad));margin-left:auto;flex:none">{{ t("hub.conn.fail") }}</span>
           </button>
         </div>
         <div class="dialog-foot">
-          <button type="button" class="btn" @click="browserPickOpen = false">{{ $t("common.cancel") }}</button>
+          <button type="button" class="btn" @click="browserPickOpen = false">{{ t("common.cancel") }}</button>
         </div>
       </div>
     </div>
@@ -815,7 +816,7 @@ useEscape(viewOpen, () => { viewOpen.value = false });
     />
 
     <div class="cq-foot">
-      {{ $t("cl.footerNote") }}
+      {{ t("cl.footerNote") }}
     </div>
   </div>
 </template>

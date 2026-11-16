@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
 import { useUiStateStore } from "@/stores/uiState";
@@ -9,6 +9,7 @@ import { useToastStore } from "@/stores/toast";
 import { call } from "@/api/tauri";
 import type { ChannelView, GrubEntry } from "@/api/types";
 import { simRows } from "@/pages/boot/bootRows";
+const { t } = useI18n();
 
 /**
  * 一个引导器区块（rEFInd / RefindPlus / GRUB / systemd-boot / OpenCore / Clover）的列表。
@@ -298,7 +299,7 @@ const emit = defineEmits<{
       :disabled="disabled"
       @select="(selector) => { switchEntry(selector); emit('select', selector); }"
     />
-    <p v-if="!entries.length" class="boot-list-empty">{{ $t("boot.listEmpty") }}</p>
+    <p v-if="!entries.length" class="boot-list-empty">{{ t("boot.listEmpty") }}</p>
   </div>
 </template>
 

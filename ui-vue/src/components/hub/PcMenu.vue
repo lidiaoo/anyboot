@@ -3,8 +3,9 @@ const toast = useToastStore();
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 /**
  * ⋮ 菜单（原 `ui/hub.html` 的 `#cqMore` / `#pcMenu`）。
@@ -165,7 +166,7 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
     <button
       type="button"
       class="icon-btn"
-      :aria-label="$t('menu.more')"
+      :aria-label="t('menu.more')"
       aria-haspopup="menu"
       :aria-expanded="open"
       @click.stop="toggle"
@@ -174,37 +175,37 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
     </button>
 
     <div v-if="open" id="pcMenu" class="menu" role="menu" @click.stop>
-      <button role="menuitem" type="button" data-act="add" @click="menuAct('add')">{{ $t("menu.add") }}</button>
-      <button role="menuitem" type="button" data-act="edit" @click="menuAct('edit')">{{ $t("menu.edit") }}</button>
-      <button role="menuitem" type="button" data-act="list" @click="menuAct('list')">{{ $t("menu.list") }}</button>
-      <button role="menuitem" type="button" data-act="reloadCurrent" @click="menuAct('reloadCurrent')">{{ $t("menu.reloadCurrent") }}</button>
-      <button role="menuitem" type="button" data-act="reloadAll" @click="menuAct('reloadAll')">{{ $t("menu.reloadAll") }}</button>
+      <button role="menuitem" type="button" data-act="add" @click="menuAct('add')">{{ t("menu.add") }}</button>
+      <button role="menuitem" type="button" data-act="edit" @click="menuAct('edit')">{{ t("menu.edit") }}</button>
+      <button role="menuitem" type="button" data-act="list" @click="menuAct('list')">{{ t("menu.list") }}</button>
+      <button role="menuitem" type="button" data-act="reloadCurrent" @click="menuAct('reloadCurrent')">{{ t("menu.reloadCurrent") }}</button>
+      <button role="menuitem" type="button" data-act="reloadAll" @click="menuAct('reloadAll')">{{ t("menu.reloadAll") }}</button>
       <button role="menuitem" type="button" id="pcConnectAllItem" :class="{ 'is-on': connectAll }" @click="toggleConnectAll">
-        <span id="pcConnectAllText">{{ $t("menu.connectAll") }}</span>
+        <span id="pcConnectAllText">{{ t("menu.connectAll") }}</span>
       </button>
-      <button role="menuitem" type="button" data-act="transport" disabled :title="$t('menu.transportTip')">{{ $t("menu.transport") }}</button>
+      <button role="menuitem" type="button" data-act="transport" disabled :title="t('menu.transportTip')">{{ t("menu.transport") }}</button>
       <div class="divider" />
 
-      <div class="caption">{{ $t("menu.capGuest") }}</div>
-      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">{{ guestTheme === '' ? '✓ ' : '' }}{{ $t("menu.themeFollow") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">{{ guestTheme === 'K' ? '✓ ' : '' }}{{ $t("menu.themeNone") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">{{ guestTheme === 'A' ? '✓ ' : '' }}{{ $t("menu.schemeA") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">{{ guestTheme === 'B' ? '✓ ' : '' }}{{ $t("menu.schemeB") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">{{ guestTheme === 'C' ? '✓ ' : '' }}{{ $t("menu.schemeC") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">{{ guestTheme === 'G' ? '✓ ' : '' }}{{ $t("menu.schemeG") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">{{ guestTheme === 'I' ? '✓ ' : '' }}{{ $t("menu.schemeI") }}</button>
-      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">{{ guestTheme === 'J' ? '✓ ' : '' }}{{ $t("menu.schemeJ") }}</button>
+      <div class="caption">{{ t("menu.capGuest") }}</div>
+      <button role="menuitem" type="button" data-guesttheme="" @click="setGuestTheme('')">{{ guestTheme === '' ? '✓ ' : '' }}{{ t("menu.themeFollow") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="K" @click="setGuestTheme('K')">{{ guestTheme === 'K' ? '✓ ' : '' }}{{ t("menu.themeNone") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="A" @click="setGuestTheme('A')">{{ guestTheme === 'A' ? '✓ ' : '' }}{{ t("menu.schemeA") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="B" @click="setGuestTheme('B')">{{ guestTheme === 'B' ? '✓ ' : '' }}{{ t("menu.schemeB") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="C" @click="setGuestTheme('C')">{{ guestTheme === 'C' ? '✓ ' : '' }}{{ t("menu.schemeC") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="G" @click="setGuestTheme('G')">{{ guestTheme === 'G' ? '✓ ' : '' }}{{ t("menu.schemeG") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="I" @click="setGuestTheme('I')">{{ guestTheme === 'I' ? '✓ ' : '' }}{{ t("menu.schemeI") }}</button>
+      <button role="menuitem" type="button" data-guesttheme="J" @click="setGuestTheme('J')">{{ guestTheme === 'J' ? '✓ ' : '' }}{{ t("menu.schemeJ") }}</button>
       <div class="divider" />
 
-      <div class="caption">{{ $t("menu.capRefresh") }}</div>
-      <button role="menuitem" type="button" data-refresh="2" :class="{ 'is-on': settings.dataRefreshSec === 2 }" @click="pickRefresh(2)">{{ $t("menu.everyNDefault", { n: 2 }) }}</button>
-      <button role="menuitem" type="button" data-refresh="5" :class="{ 'is-on': settings.dataRefreshSec === 5 }" @click="pickRefresh(5)">{{ $t("menu.everyN", { n: 5 }) }}</button>
-      <button role="menuitem" type="button" data-refresh="10" :class="{ 'is-on': settings.dataRefreshSec === 10 }" @click="pickRefresh(10)">{{ $t("menu.everyN", { n: 10 }) }}</button>
-      <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">{{ $t("menu.everyN", { n: 30 }) }}</button>
-      <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">{{ $t("menu.offRefresh") }}</button>
-      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">{{ $t("menu.custom") }}</button>
-      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="pickReprobe(false)">{{ settings.reprobeAlways ? '' : '✓ ' }}{{ $t("menu.reuseAddr") }}</button>
-      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="pickReprobe(true)">{{ settings.reprobeAlways ? '✓ ' : '' }}{{ $t("menu.alwaysProbe") }}</button>
+      <div class="caption">{{ t("menu.capRefresh") }}</div>
+      <button role="menuitem" type="button" data-refresh="2" :class="{ 'is-on': settings.dataRefreshSec === 2 }" @click="pickRefresh(2)">{{ t("menu.everyNDefault", { n: 2 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="5" :class="{ 'is-on': settings.dataRefreshSec === 5 }" @click="pickRefresh(5)">{{ t("menu.everyN", { n: 5 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="10" :class="{ 'is-on': settings.dataRefreshSec === 10 }" @click="pickRefresh(10)">{{ t("menu.everyN", { n: 10 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="30" :class="{ 'is-on': settings.dataRefreshSec === 30 }" @click="pickRefresh(30)">{{ t("menu.everyN", { n: 30 }) }}</button>
+      <button role="menuitem" type="button" data-refresh="0" :class="{ 'is-on': settings.dataRefreshSec === 0 }" @click="pickRefresh(0)">{{ t("menu.offRefresh") }}</button>
+      <button role="menuitem" type="button" :class="{ 'is-on': customActive }" @click="pickCustom">{{ t("menu.custom") }}</button>
+      <button role="menuitem" type="button" data-reprobe="reuse" :class="{ 'is-on': !settings.reprobeAlways }" @click="pickReprobe(false)">{{ settings.reprobeAlways ? '' : '✓ ' }}{{ t("menu.reuseAddr") }}</button>
+      <button role="menuitem" type="button" data-reprobe="always" :class="{ 'is-on': settings.reprobeAlways }" @click="pickReprobe(true)">{{ settings.reprobeAlways ? '✓ ' : '' }}{{ t("menu.alwaysProbe") }}</button>
 
       <div class="divider" />
       <button
@@ -213,7 +214,7 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
         :class="{ 'is-on': !settings.reprobeAlways }"
         @click="settings.setReprobeAlways(false)"
       >
-        {{ $t("menu.reuseAddrLong") }}
+        {{ t("menu.reuseAddrLong") }}
       </button>
       <button
         role="menuitem"
@@ -221,43 +222,43 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
         :class="{ 'is-on': settings.reprobeAlways }"
         @click="settings.setReprobeAlways(true)"
       >
-        {{ $t("menu.alwaysProbeLong") }}
+        {{ t("menu.alwaysProbeLong") }}
       </button>
 
       <div class="divider" />
-      <div class="caption">{{ $t("menu.capOffRetry") }}</div>
-      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="pickOffretry(1)">{{ $t("menu.times1Most") }}</button>
-      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="pickOffretry(2)">{{ $t("menu.timesN", { n: 2 }) }}</button>
-      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="pickOffretry(3)">{{ $t("menu.timesNDefault", { n: 3 }) }}</button>
-      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="pickOffretry(5)">{{ $t("menu.timesN", { n: 5 }) }}</button>
+      <div class="caption">{{ t("menu.capOffRetry") }}</div>
+      <button role="menuitem" type="button" data-offretry="1" :class="{ 'is-on': settings.offlineRetryCount === 1 }" @click="pickOffretry(1)">{{ t("menu.times1Most") }}</button>
+      <button role="menuitem" type="button" data-offretry="2" :class="{ 'is-on': settings.offlineRetryCount === 2 }" @click="pickOffretry(2)">{{ t("menu.timesN", { n: 2 }) }}</button>
+      <button role="menuitem" type="button" data-offretry="3" :class="{ 'is-on': settings.offlineRetryCount === 3 }" @click="pickOffretry(3)">{{ t("menu.timesNDefault", { n: 3 }) }}</button>
+      <button role="menuitem" type="button" data-offretry="5" :class="{ 'is-on': settings.offlineRetryCount === 5 }" @click="pickOffretry(5)">{{ t("menu.timesN", { n: 5 }) }}</button>
 
       <div class="divider" />
-      <div class="caption">{{ $t("menu.capFailReload") }}</div>
-      <button role="menuitem" type="button" data-reload="5" :class="{ 'is-on': settings.failReloadSec === 5 }" @click="settings.setFailReloadSec(5)">{{ $t("menu.everyNDefault", { n: 5 }) }}</button>
-      <button role="menuitem" type="button" data-reload="10" :class="{ 'is-on': settings.failReloadSec === 10 }" @click="settings.setFailReloadSec(10)">{{ $t("menu.everyN", { n: 10 }) }}</button>
-      <button role="menuitem" type="button" data-reload="30" :class="{ 'is-on': settings.failReloadSec === 30 }" @click="settings.setFailReloadSec(30)">{{ $t("menu.everyN", { n: 30 }) }}</button>
-      <button role="menuitem" type="button" data-reload="60" :class="{ 'is-on': settings.failReloadSec === 60 }" @click="settings.setFailReloadSec(60)">{{ $t("menu.everyN", { n: 60 }) }}</button>
-      <button role="menuitem" type="button" data-reload="0" :class="{ 'is-on': settings.failReloadSec === 0 }" @click="settings.setFailReloadSec(0)">{{ $t("menu.never") }}</button>
-      <button role="menuitem" type="button" data-reload="custom" @click="customReload">{{ $t("menu.custom") }}</button>
+      <div class="caption">{{ t("menu.capFailReload") }}</div>
+      <button role="menuitem" type="button" data-reload="5" :class="{ 'is-on': settings.failReloadSec === 5 }" @click="settings.setFailReloadSec(5)">{{ t("menu.everyNDefault", { n: 5 }) }}</button>
+      <button role="menuitem" type="button" data-reload="10" :class="{ 'is-on': settings.failReloadSec === 10 }" @click="settings.setFailReloadSec(10)">{{ t("menu.everyN", { n: 10 }) }}</button>
+      <button role="menuitem" type="button" data-reload="30" :class="{ 'is-on': settings.failReloadSec === 30 }" @click="settings.setFailReloadSec(30)">{{ t("menu.everyN", { n: 30 }) }}</button>
+      <button role="menuitem" type="button" data-reload="60" :class="{ 'is-on': settings.failReloadSec === 60 }" @click="settings.setFailReloadSec(60)">{{ t("menu.everyN", { n: 60 }) }}</button>
+      <button role="menuitem" type="button" data-reload="0" :class="{ 'is-on': settings.failReloadSec === 0 }" @click="settings.setFailReloadSec(0)">{{ t("menu.never") }}</button>
+      <button role="menuitem" type="button" data-reload="custom" @click="customReload">{{ t("menu.custom") }}</button>
 
       <div class="divider" />
-      <div class="caption">{{ $t("menu.capOpenMode") }}</div>
-      <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">{{ $t("menu.openInline") }}</button>
-      <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">{{ $t("menu.openGoto") }}</button>
+      <div class="caption">{{ t("menu.capOpenMode") }}</div>
+      <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">{{ t("menu.openInline") }}</button>
+      <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">{{ t("menu.openGoto") }}</button>
 
       <div class="divider" />
-      <div class="caption">{{ $t("menu.capGrubFmt") }}</div>
-      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">{{ $t("menu.grubMinimal") }}</button>
-      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">{{ $t("menu.grubSimple") }}</button>
-      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">{{ $t("menu.grubMedium") }}</button>
-      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">{{ $t("menu.grubRaw") }}</button>
-      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">{{ $t("menu.grubDetailed") }}</button>
+      <div class="caption">{{ t("menu.capGrubFmt") }}</div>
+      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">{{ t("menu.grubMinimal") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">{{ t("menu.grubSimple") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">{{ t("menu.grubMedium") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">{{ t("menu.grubRaw") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">{{ t("menu.grubDetailed") }}</button>
 
       <div class="divider" />
-      <div class="caption">{{ $t("menu.capOrder") }}</div>
-      <button role="menuitem" type="button" data-order="custom" :class="{ 'is-on': order === 'custom' }" @click="setOrderMode('custom')">{{ $t("menu.orderCustom") }}</button>
-      <button role="menuitem" type="button" data-order="name" :class="{ 'is-on': order === 'name' }" @click="setOrderMode('name')">{{ $t("menu.orderName") }}</button>
-      <button role="menuitem" type="button" data-order="recent" :class="{ 'is-on': order === 'recent' }" @click="setOrderMode('recent')">{{ $t("menu.orderRecent") }}</button>
+      <div class="caption">{{ t("menu.capOrder") }}</div>
+      <button role="menuitem" type="button" data-order="custom" :class="{ 'is-on': order === 'custom' }" @click="setOrderMode('custom')">{{ t("menu.orderCustom") }}</button>
+      <button role="menuitem" type="button" data-order="name" :class="{ 'is-on': order === 'name' }" @click="setOrderMode('name')">{{ t("menu.orderName") }}</button>
+      <button role="menuitem" type="button" data-order="recent" :class="{ 'is-on': order === 'recent' }" @click="setOrderMode('recent')">{{ t("menu.orderRecent") }}</button>
     </div>
   </div>
 </template>

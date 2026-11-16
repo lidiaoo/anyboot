@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { platformIcon } from "@/pages/boot/bootRows";
 import type { EntryData } from "./types";
+const { t } = useI18n();
 
 /**
  * 引导条目行（**所有引导列表共用的唯一实现**）。
@@ -151,7 +152,7 @@ function onClick() {
   >
     <template v-if="entry.tags?.length || entry.sub || entry.note">
       <span class="grub-entry-body">
-        <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ $t("hub.picker.pinned") }}</span>{{ displayName }}</span>
+        <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ t("hub.picker.pinned") }}</span>{{ displayName }}</span>
         <span v-if="entry.tags?.length" class="grub-entry-tags">
           <small v-for="(tg, i) in entry.tags" :key="i" class="grub-entry-tag">{{ tg }}</small>
         </span>
@@ -160,7 +161,7 @@ function onClick() {
       </span>
     </template>
     <template v-else>
-      <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ $t("hub.picker.pinned") }}</span>{{ displayName }}</span>
+      <span class="grub-entry-name"><span v-if="pinned" class="grub-entry-pin">{{ t("hub.picker.pinned") }}</span>{{ displayName }}</span>
       <small v-if="tagText" :class="group ? 'grub-entry-count' : 'grub-entry-tag'">
         {{ tagText }}
       </small>

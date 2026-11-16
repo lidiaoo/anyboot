@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useServersStore } from "@/stores/servers";
 import { useToastStore } from "@/stores/toast";
 import type { RemoteProfile } from "@/stores/remote";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 /**
  * 添加 / 编辑 AnyBoot 服务端弹窗（原 `ui/hub.html` 的 `#rsEditOverlay`，2533 行）。
@@ -605,7 +606,7 @@ function submit() {
                     :value="pair.addr"
                     @change="pair.addr = ($event.target as HTMLInputElement).value.trim()"
                   />
-                  <span v-if="pair.kind === 'ts'" class="pb-lane">{{ (pair.lane || 'direct') === 'funnel' ? 'funnel' : $t('server.direct') }}</span>
+                  <span v-if="pair.kind === 'ts'" class="pb-lane">{{ (pair.lane || 'direct') === 'funnel' ? 'funnel' : t('server.direct') }}</span>
                   <input
                     class="rp-timeout mono"
                     type="number"
@@ -613,7 +614,7 @@ function submit() {
                     min="0.2"
                     max="30"
                     :placeholder="t('srvEdit.portPh')"
-                    :title="$t('remote.pairTimeoutTitle')"
+                    :title="t('remote.pairTimeoutTitle')"
                     :value="pair.probe_timeout_ms ? String(pair.probe_timeout_ms / 1000) : ''"
                     @change="pair.probe_timeout_ms = Math.round(Math.min(30, Math.max(0.2, parseFloat(($event.target as HTMLInputElement).value) || 0)) * 1000)"
                   />
@@ -628,18 +629,18 @@ function submit() {
                   <input class="pb-note" type="text" :placeholder="t('remote.notePh')" :value="pair.note" @change="pair.note = ($event.target as HTMLInputElement).value.trim()" />
                   <input class="pb-note mono" type="password" spellcheck="false" :placeholder="t('remote.tokenPh')" :value="''" :title="pair.token ? '已存令牌（留空保持不变）' : '配对时对方签发的令牌'" @change="pair.token = ($event.target as HTMLInputElement).value.trim()" />
                   <span class="pb-swtag">
-                    <label class="switch" :title="$t('remote.pairDisableTitle')">
+                    <label class="switch" :title="t('remote.pairDisableTitle')">
                       <input type="checkbox" :checked="pair.enabled !== false" @change="pair.enabled = !(pair.enabled !== false)" />
                       <span class="trk" aria-hidden="true" />
                     </label>
                     <span class="pb-swtag-l">{{ t("remote.enable") }}</span>
                   </span>
                   <span class="pb-swtag">
-                    <label class="switch" :title="$t('remote.pairShowTitle')">
+                    <label class="switch" :title="t('remote.pairShowTitle')">
                       <input type="checkbox" :checked="pair.show_probe !== false" @change="pair.show_probe = !(pair.show_probe !== false)" />
                       <span class="trk" aria-hidden="true" />
                     </label>
-                    <span class="pb-swtag-l">{{ $t("remote.show") }}</span>
+                    <span class="pb-swtag-l">{{ t("remote.show") }}</span>
                   </span>
                 </div>
               </div>
@@ -662,7 +663,7 @@ function submit() {
         </div>
 
         <div class="fold-head" id="rsFoldConnHead" @click="foldConn = !foldConn">
-          <span class="chev">{{ foldConn ? "▼" : "▶" }}</span>{{ $t("remote.connPolicy") }}
+          <span class="chev">{{ foldConn ? "▼" : "▶" }}</span>{{ t("remote.connPolicy") }}
           <span class="fold-count" id="rsFoldConnCount">{{ connCount }}</span>
         </div>
         <div class="fold-body" id="rsFoldConn" :hidden="!foldConn">
@@ -745,7 +746,7 @@ function submit() {
                   step="0.5"
                   min="0.2"
                   max="30"
-                  :placeholder="$t('srvEdit.portPh')"
+                  :placeholder="t('srvEdit.portPh')"
                   :title="t('remote.blockTimeoutTitle')"
                   :value="blockTimeouts[block.id] || ''"
                   @change="setBlockTimeout(block.id, ($event.target as HTMLInputElement).value)"

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 /**
  * 备份与恢复（原 `ui/hub.html` 的 `#page-backup`，3504 行 / 948 行 DOM）。
@@ -462,7 +463,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>{{ $t("bk.title") }}</h2></div>
+    <div class="page-head"><h2>{{ t("bk.title") }}</h2></div>
     <div class="hub-page-body">
       <div class="bk-bk-scroll bk-bk-scroll-thin">
       <!-- ===== 导出 ===== -->
@@ -473,8 +474,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
           </span>
-          <h2>{{ $t("bk.exportTitle") }}</h2>
-          <span class="bk-sub">{{ $t("bk.exportSub") }}</span>
+          <h2>{{ t("bk.exportTitle") }}</h2>
+          <span class="bk-sub">{{ t("bk.exportSub") }}</span>
         </div>
 
         <div class="bk-cats" id="exportCats">
@@ -484,8 +485,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               :checked="exportCats.includes(cat.id)"
               @change="toggleCat('export', cat.id)"
             />
-            <span class="bk-cname">{{ $t(cat.name) }}</span>
-            <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
+            <span class="bk-cname">{{ t(cat.name) }}</span>
+            <span class="bk-cdesc">{{ t(cat.desc) }}</span>
           </label>
         </div>
 
@@ -494,19 +495,19 @@ useEscape(resultOpen, () => { resultOpen.value = false });
             <circle cx="12" cy="12" r="9" />
             <path d="M12 8v5M12 16h.01" />
           </svg>
-          <span>{{ $t("bk.exportKeyWarn") }}</span>
+          <span>{{ t("bk.exportKeyWarn") }}</span>
         </div>
 
         <div v-if="exportIncludeKeys || exportPw1 || exportPw2" class="bk-pw-zone" id="exportPwZone">
           <div class="bk-pw-grid" id="exportPwGrid">
             <div class="bk-field">
-              <label for="expPw1">{{ $t("bk.exportPw") }}</label>
-              <input id="expPw1" v-model="exportPw1" type="password" :placeholder="$t('bk.pwPhMin')" autocomplete="new-password" />
+              <label for="expPw1">{{ t("bk.exportPw") }}</label>
+              <input id="expPw1" v-model="exportPw1" type="password" :placeholder="t('bk.pwPhMin')" autocomplete="new-password" />
               <div class="bk-strength"><i id="expStrength" :style="{ width: pwStrengthPercent + '%', background: pwStrengthColor }" /></div>
             </div>
             <div class="bk-field">
-              <label for="expPw2">{{ $t("bk.retype") }}</label>
-              <input id="expPw2" v-model="exportPw2" type="password" :placeholder="$t('bk.pwPhMatch')" autocomplete="new-password" />
+              <label for="expPw2">{{ t("bk.retype") }}</label>
+              <input id="expPw2" v-model="exportPw2" type="password" :placeholder="t('bk.pwPhMatch')" autocomplete="new-password" />
               <div class="bk-err" id="expPwErr">{{ pwError }}</div>
             </div>
           </div>
@@ -514,7 +515,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
         <div class="bk-row-actions">
           <button type="button" id="exportBtn" class="bk-btn bk-primary" :disabled="exportDisabled" @click="doExport">
-            {{ $t("bk.exportBtn") }}
+            {{ t("bk.exportBtn") }}
           </button>
           <span class="bk-note" id="exportNote">{{ exportNoteText }}</span>
         </div>
@@ -528,14 +529,14 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
             </svg>
           </span>
-          <h2>{{ $t("bk.importTitle") }}</h2>
-          <span class="bk-sub">{{ $t("bk.importSub") }}</span>
+          <h2>{{ t("bk.importTitle") }}</h2>
+          <span class="bk-sub">{{ t("bk.importSub") }}</span>
         </div>
         <div class="bk-row-actions">
           <button type="button" id="importBtn" class="bk-btn bk-primary" :disabled="!!busy" @click="doImport">
-            {{ $t("bk.pickFile") }}
+            {{ t("bk.pickFile") }}
           </button>
-          <span class="bk-note">{{ $t("bk.importNote") }}</span>
+          <span class="bk-note">{{ t("bk.importNote") }}</span>
         </div>
       </section>
 
@@ -549,8 +550,8 @@ useEscape(resultOpen, () => { resultOpen.value = false });
               <path d="M20 7h-9l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
             </svg>
           </span>
-          <h2>{{ $t("bk.syncTitle") }}</h2>
-          <label class="bk-switch" style="margin-left: auto" :title="$t('bk.syncToggleTitle')">
+          <h2>{{ t("bk.syncTitle") }}</h2>
+          <label class="bk-switch" style="margin-left: auto" :title="t('bk.syncToggleTitle')">
             <input type="checkbox" id="syncEnabled" :checked="syncEnabled" @change="toggleSync" />
             <i />
           </label>
@@ -559,27 +560,27 @@ useEscape(resultOpen, () => { resultOpen.value = false });
         <div class="bk-form-grid" id="syncForm">
           <div class="bk-form-row">
             <div class="bk-field" style="flex: 2 1 280px">
-              <label for="syncUrl">{{ $t("bk.serverUrl") }}</label>
+              <label for="syncUrl">{{ t("bk.serverUrl") }}</label>
               <input id="syncUrl" v-model="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off" />
             </div>
             <div class="bk-field">
-              <label for="syncDir">{{ $t("bk.dir") }}</label>
+              <label for="syncDir">{{ t("bk.dir") }}</label>
               <input id="syncDir" v-model="syncDir" placeholder="AnyBoot" autocomplete="off" />
             </div>
           </div>
 
           <div class="bk-form-row">
             <div class="bk-field">
-              <label for="syncUser">{{ $t("bk.account") }}</label>
-              <input id="syncUser" v-model="syncUser" :placeholder="$t('bk.accountPh')" autocomplete="off" />
+              <label for="syncUser">{{ t("bk.account") }}</label>
+              <input id="syncUser" v-model="syncUser" :placeholder="t('bk.accountPh')" autocomplete="off" />
             </div>
             <div class="bk-field">
-              <label for="syncPass">{{ $t("bk.pwdLabel") }}</label>
+              <label for="syncPass">{{ t("bk.pwdLabel") }}</label>
               <input
                 id="syncPass"
                 v-model="syncPass"
                 type="password"
-                :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.pwdPh')"
+                :placeholder="sync?.hasPassword ? t('bk.pwdPhSaved') : t('bk.pwdPh')"
                 autocomplete="new-password"
               />
             </div>
@@ -587,7 +588,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
           <div class="bk-form-row">
             <div class="bk-field">
-              <label>{{ $t("bk.autoFreq") }}</label>
+              <label>{{ t("bk.autoFreq") }}</label>
               <div class="bk-seg" id="syncPeriod">
                 <button
                   v-for="opt in [
@@ -602,7 +603,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                   :class="{ 'is-on': syncPeriod === opt.v }"
                   @click="syncPeriod = opt.v"
                 >
-                  {{ $t(opt.label) }}
+                  {{ t(opt.label) }}
                 </button>
               </div>
             </div>
@@ -610,22 +611,22 @@ useEscape(resultOpen, () => { resultOpen.value = false });
 
           <label class="bk-checkline">
             <input id="syncOnChange" v-model="syncOnChange" type="checkbox" />
-            {{ $t("bk.autoSyncHint") }}
+            {{ t("bk.autoSyncHint") }}
           </label>
 
           <!-- 云端备份加密（旧版 #syncEncryptZone） -->
           <div class="bk-pw-zone" id="syncEncryptZone">
             <label class="bk-checkline">
               <input id="syncEncrypt" v-model="syncEncrypt" type="checkbox" />
-              {{ $t("bk.encryptCloud") }}
+              {{ t("bk.encryptCloud") }}
             </label>
             <div id="syncEncryptPwField" class="bk-field" :hidden="!syncEncrypt" style="max-width: 320px">
-              <label for="syncEncryptPw">{{ $t("bk.syncPw") }}</label>
+              <label for="syncEncryptPw">{{ t("bk.syncPw") }}</label>
               <input
                 id="syncEncryptPw"
                 v-model="syncEncryptPw"
                 type="password"
-                :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.syncPw')"
+                :placeholder="sync?.hasPassword ? t('bk.pwdPhSaved') : t('bk.syncPw')"
                 autocomplete="new-password"
               />
               <span id="syncEncryptErr" class="bk-err">{{ syncEncryptErr }}</span>
@@ -639,30 +640,30 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                 :checked="syncCats.includes(cat.id)"
                 @change="toggleCat('sync', cat.id)"
               />
-              <span class="bk-cname">{{ $t(cat.name) }}</span>
-              <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
+              <span class="bk-cname">{{ t(cat.name) }}</span>
+              <span class="bk-cdesc">{{ t(cat.desc) }}</span>
             </label>
           </div>
         </div>
 
         <div class="bk-sync-status" id="syncStatus">
           <span v-if="sync?.last_error" class="bk-err">{{ sync.last_error }}</span>
-          <span v-else-if="sync?.last_sync_ms">{{ $t("bk.lastSync", { t: new Date(sync.last_sync_ms).toLocaleString() }) }}</span>
-            <span v-else>{{ $t("bk.neverSynced") }}</span>
+          <span v-else-if="sync?.last_sync_ms">{{ t("bk.lastSync", { t: new Date(sync.last_sync_ms).toLocaleString() }) }}</span>
+            <span v-else>{{ t("bk.neverSynced") }}</span>
         </div>
         <div v-if="locked" id="syncLockInfo" class="bk-info">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="9" />
             <path d="M12 8v5M12 16h.01" />
           </svg>
-          <span>{{ $t("bk.lockedDuringTransfer") }}</span>
+          <span>{{ t("bk.lockedDuringTransfer") }}</span>
         </div>
 
         <div class="bk-row-actions">
-          <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">{{ $t("bk.testConn") }}</button>
-          <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">{{ $t("bk.saveCfg") }}</button>
+          <button type="button" id="syncTestBtn" class="bk-btn" :disabled="!!busy" @click="testWebdav">{{ t("bk.testConn") }}</button>
+          <button type="button" id="syncSaveBtn" class="bk-btn" :disabled="!!busy" @click="() => saveSync()">{{ t("bk.saveCfg") }}</button>
           <button type="button" id="syncNowBtn" class="bk-btn bk-primary" :disabled="!syncEnabled || !!busy" @click="syncNow">
-            {{ $t("bk.syncNow") }}
+            {{ t("bk.syncNow") }}
           </button>
         </div>
       </section>
@@ -672,19 +673,19 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="pwOpen" id="pwModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
         <div class="bk-modal-card">
           <div class="bk-modal-head">
-            <h3 id="pwTitle">{{ $t("bk.pwTitle") }}</h3>
-            <button type="button" id="pwClose" :aria-label="$t('common.close')" @click="pwOpen = false">✕</button>
+            <h3 id="pwTitle">{{ t("bk.pwTitle") }}</h3>
+            <button type="button" id="pwClose" :aria-label="t('common.close')" @click="pwOpen = false">✕</button>
           </div>
           <form id="pwForm" class="bk-modal-body" @submit.prevent="submitPw">
             <div class="bk-field">
-              <label for="importPw">{{ $t("bk.pwLabel2") }}</label>
+              <label for="importPw">{{ t("bk.pwLabel2") }}</label>
               <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
               <div id="importPwErr" class="bk-err">{{ importPwErr }}</div>
             </div>
-            <p class="bk-modal-note">{{ $t("bk.pwNote") }}</p>
+            <p class="bk-modal-note">{{ t("bk.pwNote") }}</p>
             <div class="bk-modal-foot" style="border: 0; padding: 4px 0 0">
-              <button type="button" id="pwCancel" class="bk-btn bk-plain" @click="pwOpen = false">{{ $t("common.cancel") }}</button>
-              <button type="submit" class="bk-btn bk-primary">{{ $t("bk.unlockPreview") }}</button>
+              <button type="button" id="pwCancel" class="bk-btn bk-plain" @click="pwOpen = false">{{ t("common.cancel") }}</button>
+              <button type="submit" class="bk-btn bk-primary">{{ t("bk.unlockPreview") }}</button>
             </div>
           </form>
         </div>
@@ -694,32 +695,32 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="previewOpen" id="previewModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
         <div class="bk-modal-card bk-wide">
           <div class="bk-modal-head">
-            <h3 id="prevTitle">{{ $t("bk.prevTitle") }}</h3>
-            <button type="button" id="prevClose" :aria-label="$t('common.close')" @click="previewOpen = false">✕</button>
+            <h3 id="prevTitle">{{ t("bk.prevTitle") }}</h3>
+            <button type="button" id="prevClose" :aria-label="t('common.close')" @click="previewOpen = false">✕</button>
           </div>
           <div class="bk-modal-body">
             <div class="bk-src-line" id="prevSrc">{{ previewSrc }}</div>
             <table class="bk-prev">
               <thead>
                 <tr>
-                  <th>{{ $t("bk.thCat") }}</th>
-                  <th style="text-align: right">{{ $t("bk.thInBackup") }}</th>
-                  <th style="text-align: right">{{ $t("bk.thLocal") }}</th>
-                  <th>{{ $t("bk.thConflict") }}</th>
+                  <th>{{ t("bk.thCat") }}</th>
+                  <th style="text-align: right">{{ t("bk.thInBackup") }}</th>
+                  <th style="text-align: right">{{ t("bk.thLocal") }}</th>
+                  <th>{{ t("bk.thConflict") }}</th>
                 </tr>
               </thead>
               <tbody id="prevRows">
                 <tr v-for="row in previewRows" :key="row.label">
-                  <td>{{ $t(row.label) }}</td>
+                  <td>{{ t(row.label) }}</td>
                   <td class="bk-num" style="text-align: right">{{ row.inBackup }}</td>
                   <td class="bk-num" style="text-align: right">{{ row.local }}</td>
                   <td>
-                    <span v-if="row.conflicts" class="bk-chip bk-conflict">{{ $t("bk.sameIdCount", { n: row.conflicts }) }}</span>
+                    <span v-if="row.conflicts" class="bk-chip bk-conflict">{{ t("bk.sameIdCount", { n: row.conflicts }) }}</span>
                     <span v-else class="bk-chip">—</span>
                   </td>
                 </tr>
                 <tr v-if="!previewRows.length">
-                  <td colspan="4" class="bk-note">{{ $t("bk.noRecognizable") }}</td>
+                  <td colspan="4" class="bk-note">{{ t("bk.noRecognizable") }}</td>
                 </tr>
               </tbody>
             </table>
@@ -732,7 +733,7 @@ useEscape(resultOpen, () => { resultOpen.value = false });
             </div>
 
             <div>
-              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ $t("bk.importCats") }}</label>
+              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ t("bk.importCats") }}</label>
               <div class="bk-cats" id="importCats">
                 <label v-for="cat in CATEGORIES" :key="cat.id" class="bk-cat-row">
                   <input
@@ -740,29 +741,29 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                     :checked="importCats.includes(cat.id)"
                     @change="toggleCat('import', cat.id)"
                   />
-                  <span class="bk-cname">{{ $t(cat.name) }}</span>
-                  <span class="bk-cdesc">{{ $t(cat.desc) }}</span>
+                  <span class="bk-cname">{{ t(cat.name) }}</span>
+                  <span class="bk-cdesc">{{ t(cat.desc) }}</span>
                 </label>
               </div>
             </div>
 
             <div>
-              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ $t("bk.sameIdHandling") }}</label>
+              <label style="display: block; font-size: 12px; font-weight: 500; color: rgb(var(--fg-dim)); margin-bottom: 6px">{{ t("bk.sameIdHandling") }}</label>
               <div class="bk-strategy" id="strategyBox">
                 <label class="bk-radio-line">
                   <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
-                  <span>{{ $t("bk.skipExisting") }}<span class="bk-rdesc">{{ $t("bk.skipExistingDesc") }}</span></span>
+                  <span>{{ t("bk.skipExisting") }}<span class="bk-rdesc">{{ t("bk.skipExistingDesc") }}</span></span>
                 </label>
                 <label class="bk-radio-line">
                   <input v-model="importStrategy" type="radio" name="strategy" value="overwrite" />
-                  <span>{{ $t("bk.overwriteExisting") }}<span class="bk-rdesc">{{ $t("bk.overwriteExistingDesc") }}</span></span>
+                  <span>{{ t("bk.overwriteExisting") }}<span class="bk-rdesc">{{ t("bk.overwriteExistingDesc") }}</span></span>
                 </label>
               </div>
             </div>
           </div>
           <div class="bk-modal-foot">
-            <button type="button" id="prevCancel" class="bk-btn bk-plain" @click="previewOpen = false">{{ $t("common.cancel") }}</button>
-            <button type="button" id="prevGo" class="bk-btn bk-primary" @click="startImport">{{ $t("bk.startImport") }}</button>
+            <button type="button" id="prevCancel" class="bk-btn bk-plain" @click="previewOpen = false">{{ t("common.cancel") }}</button>
+            <button type="button" id="prevGo" class="bk-btn bk-primary" @click="startImport">{{ t("bk.startImport") }}</button>
           </div>
         </div>
       </div>
@@ -776,12 +777,12 @@ useEscape(resultOpen, () => { resultOpen.value = false });
                 <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
               </svg>
             </span>
-            <h3 id="cfmTitle">{{ $t("bk.confirmOverwrite") }}</h3>
+            <h3 id="cfmTitle">{{ t("bk.confirmOverwrite") }}</h3>
           </div>
           <p id="cfmBody" class="bk-del-body">{{ confirmBody }}</p>
           <div class="bk-modal-foot">
-            <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">{{ $t("common.cancel") }}</button>
-            <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="confirmOk">{{ $t("bk.doOverwrite") }}</button>
+            <button type="button" id="cfmCancel" class="bk-btn bk-plain" @click="confirmOpen = false">{{ t("common.cancel") }}</button>
+            <button type="button" id="cfmOk" class="bk-btn bk-danger" @click="confirmOk">{{ t("bk.doOverwrite") }}</button>
           </div>
         </div>
       </div>
@@ -790,23 +791,23 @@ useEscape(resultOpen, () => { resultOpen.value = false });
       <div v-if="resultOpen" id="resultModal" class="bk-modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
         <div class="bk-modal-card">
           <div class="bk-modal-head">
-            <h3 id="resTitle">{{ $t("bk.importDone") }}</h3>
-            <button type="button" id="resClose" :aria-label="$t('common.close')" @click="resultOpen = false">✕</button>
+            <h3 id="resTitle">{{ t("bk.importDone") }}</h3>
+            <button type="button" id="resClose" :aria-label="t('common.close')" @click="resultOpen = false">✕</button>
           </div>
           <div id="resBody" class="bk-modal-body">
             <p v-for="row in resultRows" :key="row.k">{{ row.k }}: {{ row.v }}</p>
-            <p v-if="!resultRows.length">{{ $t("bk.importFinished") }}</p>
+            <p v-if="!resultRows.length">{{ t("bk.importFinished") }}</p>
           </div>
           <div class="bk-modal-foot">
-            <button type="button" id="resOk" class="bk-btn bk-primary" @click="resultOpen = false">{{ $t("bk.done") }}</button>
+            <button type="button" id="resOk" class="bk-btn bk-primary" @click="resultOpen = false">{{ t("bk.done") }}</button>
           </div>
         </div>
       </div>
 
       <!-- 页脚（旧版 .bk-bk-foot） -->
       <div class="bk-bk-foot">
-        <span>{{ $t("bk.portabilityNote1") }}</span>
-        <span>{{ $t("bk.portabilityNote2") }}</span>
+        <span>{{ t("bk.portabilityNote1") }}</span>
+        <span>{{ t("bk.portabilityNote2") }}</span>
       </div>
 
       <!-- toast（旧版 #bkToast） -->

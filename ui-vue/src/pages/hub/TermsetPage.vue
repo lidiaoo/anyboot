@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
+const { t } = useI18n();
 
 /**
  * 终端设置页（原 `ui/hub.html` 的 `#page-termset`，3459 行）。
@@ -127,15 +128,15 @@ function pickDownDir() {
 
 <template>
   <div class="page-head">
-    <h2>{{ $t("nav.termSettings") }}</h2>
+    <h2>{{ t("nav.termSettings") }}</h2>
   </div>
 
   <div class="ts-wrap">
     <div class="ts-card">
       <div class="ts-row">
         <div>
-          <p class="ts-t">{{ $t("termset.fontSize") }}</p>
-          <p class="ts-s">{{ $t("termset.fontSizeNote") }}</p>
+          <p class="ts-t">{{ t("termset.fontSize") }}</p>
+          <p class="ts-s">{{ t("termset.fontSizeNote") }}</p>
         </div>
         <span class="ts-val" id="tsFontVal">{{ settings.fontSize }} pt</span>
       </div>
@@ -147,15 +148,15 @@ function pickDownDir() {
         min="10"
         max="24"
         step="1"
-        :aria-label="$t('termset.fontSizeAria')"
+        :aria-label="t('termset.fontSizeAria')"
       />
     </div>
     <div class="ts-card">
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">{{ $t("termset.cursorBlink") }}</p>
-          <p class="ts-s">{{ $t("termset.cursorBlinkNote") }}</p>
+          <p class="ts-t">{{ t("termset.cursorBlink") }}</p>
+          <p class="ts-s">{{ t("termset.cursorBlinkNote") }}</p>
         </div>
         <input id="tsCursor" v-model="settings.cursorBlink" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -163,8 +164,8 @@ function pickDownDir() {
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">{{ $t("termset.copyOnSelect") }}</p>
-          <p class="ts-s">{{ $t("termset.copyOnSelectNote") }}</p>
+          <p class="ts-t">{{ t("termset.copyOnSelect") }}</p>
+          <p class="ts-s">{{ t("termset.copyOnSelectNote") }}</p>
         </div>
         <input id="tsCopy" v-model="settings.copyOnSelect" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -172,8 +173,8 @@ function pickDownDir() {
 
       <label class="ts-row ts-toggle-row">
         <div>
-          <p class="ts-t">{{ $t("termset.bell") }}</p>
-          <p class="ts-s">{{ $t("termset.bellNote") }}</p>
+          <p class="ts-t">{{ t("termset.bell") }}</p>
+          <p class="ts-s">{{ t("termset.bellNote") }}</p>
         </div>
         <input id="tsBell" v-model="settings.bell" type="checkbox" class="ts-check" />
         <span class="ts-switch" aria-hidden="true" />
@@ -181,23 +182,23 @@ function pickDownDir() {
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">{{ $t("termset.fontFamily") }}</p>
-          <p class="ts-s">{{ $t("termset.fontFamilyNote") }}</p>
+          <p class="ts-t">{{ t("termset.fontFamily") }}</p>
+          <p class="ts-s">{{ t("termset.fontFamilyNote") }}</p>
         </div>
         <input
           id="tsFontFamily"
           v-model="settings.fontFamily"
           class="ts-num"
           type="text"
-          :placeholder="$t('termset.fontFamilyPh')"
+          :placeholder="t('termset.fontFamilyPh')"
           style="width: min(210px, 100%)"
         />
       </div>
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">{{ $t("termset.scrollback") }}</p>
-          <p class="ts-s">{{ $t("termset.scrollbackNote") }}</p>
+          <p class="ts-t">{{ t("termset.scrollback") }}</p>
+          <p class="ts-s">{{ t("termset.scrollbackNote") }}</p>
         </div>
         <input
           id="tsScroll"
@@ -212,9 +213,9 @@ function pickDownDir() {
 
       <div class="ts-row">
         <div>
-          <p class="ts-t">{{ $t("termset.downloadPath") }}</p>
+          <p class="ts-t">{{ t("termset.downloadPath") }}</p>
           <p class="ts-s">
-            {{ $t("termset.downloadPathNote") }}
+            {{ t("termset.downloadPathNote") }}
           </p>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex: none">
@@ -223,11 +224,11 @@ function pickDownDir() {
             v-model="settings.downDir"
             class="ts-num"
             type="text"
-            :placeholder="$t('termset.downloadPathPh')"
+            :placeholder="t('termset.downloadPathPh')"
             style="width: min(210px, 100%)"
           />
           <button type="button" id="tsDownBrowse" class="btn" style="height: 32px; padding: 0 12px" @click="pickDownDir">
-            {{ $t("termset.pick") }}
+            {{ t("termset.pick") }}
           </button>
         </div>
       </div>
@@ -240,7 +241,7 @@ function pickDownDir() {
       style="height: 40px; width: 100%; justify-content: center"
       @click="apply"
     >
-      {{ $t("termset.applySettings") }}
+      {{ t("termset.applySettings") }}
     </button>
     <p v-if="toastText" class="field-hint" style="color: rgb(var(--ok))">{{ toastText }}</p>
   </div>

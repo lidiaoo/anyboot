@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref, watch , computed } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
 import { useEscape } from "@/composables/useEscape";
+const { t } = useI18n();
 
 /**
  * 系统信息弹层（原 `ui/hub.html` 的 `openSysInfo()`）。
@@ -136,8 +137,8 @@ function fmtUptime(sec: number): string {
         </template>
       </div>
       <div class="dialog-foot">
-        <button type="button" class="btn" id="sysInfoCopy" @click="copyAll">{{ $t("common.copy") }}</button>
-        <button type="button" class="btn primary" id="sysInfoOk" @click="emit('close')">{{ $t("common.close") }}</button>
+        <button type="button" class="btn" id="sysInfoCopy" @click="copyAll">{{ t("common.copy") }}</button>
+        <button type="button" class="btn primary" id="sysInfoOk" @click="emit('close')">{{ t("common.close") }}</button>
       </div>
     </div>
   </div>

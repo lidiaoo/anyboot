@@ -12,10 +12,11 @@
  *  任何选择都要**先等这里操作完毕**，调用方再决定是否降级到密码授权框。
  */
 import { computed, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
 import { setHelperReminderSnooze } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
+const { t } = useI18n();
 
 // 平台自适应：Linux 的免密是「polkit/sudo 免密组件」（写 sudoers），
 // macOS 是「root 助手（launchd）」。文案要说对，否则 Linux 用户看到
@@ -73,26 +74,26 @@ function cancel() {
 
 <template>
   <div class="token-modal-overlay" style="z-index: 200">
-    <div class="token-modal" role="dialog" aria-modal="true" :aria-label="$t('helper.ariaTitle')">
-      <h2>{{ $t("helper.title") }}</h2>
-      <p>{{ $t("helper.body", { name: helperName }) }}</p>
+    <div class="token-modal" role="dialog" aria-modal="true" :aria-label="t('helper.ariaTitle')">
+      <h2>{{ t("helper.title") }}</h2>
+      <p>{{ t("helper.body", { name: helperName }) }}</p>
       <p v-if="error" class="error" style="color: #d9534f; font-size: 12px">{{ error }}</p>
 
       <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px">
         <button type="button" class="btn" :disabled="busy || done" @click="install">
           <span v-if="busy" class="btn-spinner" aria-hidden="true"></span>
-          {{ done ? $t("helper.done") : busy ? $t("helper.busy") : installLabel }}
+          {{ done ? t("helper.done") : busy ? t("helper.busy") : installLabel }}
         </button>
 
         <!-- 取消提醒：直接展示 1/7/30 天/永久（不再折叠成「取消提醒…」按钮） -->
-        <small style="font-size: 12px; color: var(--text-faint)">{{ $t("helper.snooze") }}</small>
+        <small style="font-size: 12px; color: var(--text-faint)">{{ t("helper.snooze") }}</small>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(1)">{{ $t("helper.day1") }}</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(7)">{{ $t("helper.day7") }}</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(30)">{{ $t("helper.day30") }}</button>
-          <button type="button" class="btn sm" :disabled="busy" @click="snooze(0)">{{ $t("helper.forever") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(1)">{{ t("helper.day1") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(7)">{{ t("helper.day7") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(30)">{{ t("helper.day30") }}</button>
+          <button type="button" class="btn sm" :disabled="busy" @click="snooze(0)">{{ t("helper.forever") }}</button>
         </div>
-        <button type="button" class="btn ghost" :disabled="busy" @click="cancel">{{ $t("helper.notNow") }}</button>
+        <button type="button" class="btn ghost" :disabled="busy" @click="cancel">{{ t("helper.notNow") }}</button>
       </div>
     </div>
   </div>

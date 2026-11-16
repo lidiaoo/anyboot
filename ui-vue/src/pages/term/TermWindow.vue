@@ -1,10 +1,11 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { onMounted, onUnmounted, ref } from "vue";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * 终端窗（原 `ui/hub-term.html`，695 行）—— hub_term* 命令族 6 个。
@@ -540,27 +541,27 @@ async function closeSession(id: string) {
         <path d="M6 9l3 3-3 3" />
       </svg>
     </span>
-    <h1 id="title">{{ $t("nav.terminal") }}</h1>
+    <h1 id="title">{{ t("nav.terminal") }}</h1>
     <span id="connPill" class="pill" :class="connOk ? 'ok' : 'bad'" :hidden="connText === '—'">
       <span class="dot" />
       <span id="connText">{{ connText }}</span>
     </span>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('termWin.themeAria')" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="t('termWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        {{ $t("termWin.theme") }}
+        {{ t("termWin.theme") }}
       </button>
-      <button type="button" class="toolbtn" id="fontBtn" :aria-label="$t('termWin.fontAria')" :title="$t('termWin.fontTitle')" @click="cycleFont">
+      <button type="button" class="toolbtn" id="fontBtn" :aria-label="t('termWin.fontAria')" :title="t('termWin.fontTitle')" @click="cycleFont">
         <span class="a">A</span><span class="b">A</span>
       </button>
     </div>
   </header>
 
-  <div class="tabbar" id="tabbar" role="tablist" :aria-label="$t('termWin.tabbarAria')">
+  <div class="tabbar" id="tabbar" role="tablist" :aria-label="t('termWin.tabbarAria')">
     <button
       v-for="session in sessions"
       :key="session.id"
@@ -572,7 +573,7 @@ async function closeSession(id: string) {
       {{ session.title }}
       <span class="x" @click.stop="closeSession(session.id)">×</span>
     </button>
-    <button type="button" class="tabbar-add" :aria-label="$t('termWin.newSession')" @click="pickOpen = true">＋</button>
+    <button type="button" class="tabbar-add" :aria-label="t('termWin.newSession')" @click="pickOpen = true">＋</button>
   </div>
 
   <div class="term-wrap">
@@ -584,7 +585,7 @@ async function closeSession(id: string) {
         <path d="M6 9l3 3-3 3" />
         <path d="M12 15h6" />
       </svg>
-      <div>{{ $t("termWin.noSession") }}</div>
+      <div>{{ t("termWin.noSession") }}</div>
     </div>
   </div>
 
@@ -592,22 +593,22 @@ async function closeSession(id: string) {
     <span><span class="dot" id="footDot" /><span id="footHost">{{ footHost }}</span></span>
     <span aria-hidden="true">·</span><span>xterm-256color</span>
     <span aria-hidden="true">·</span><span id="footSize">{{ footSize }}</span>
-    <span class="lat"><span class="dot" />{{ $t("termWin.latency") }} <span id="footLat">—</span></span>
+    <span class="lat"><span class="dot" />{{ t("termWin.latency") }} <span id="footLat">—</span></span>
   </footer>
 
   <!-- 服务器选择弹层（旧版 #pick） -->
   <div v-if="pickOpen" id="pick" class="modal" @click.self="pickOpen = false">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
       <div class="modal-head">
-        <h3 id="pickTitle">{{ $t("termWin.pickTitle") }}</h3>
-        <button type="button" id="pickClose" :aria-label="$t('common.close')" @click="pickOpen = false">
+        <h3 id="pickTitle">{{ t("termWin.pickTitle") }}</h3>
+        <button type="button" id="pickClose" :aria-label="t('common.close')" @click="pickOpen = false">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <path d="M6 6l12 12M18 6L6 18" />
           </svg>
         </button>
       </div>
       <div class="server-list" id="pickList">
-        <p v-if="!servers.length" class="hint">{{ $t("termWin.noSsh") }}</p>
+        <p v-if="!servers.length" class="hint">{{ t("termWin.noSsh") }}</p>
         <button
           v-for="s in servers"
           :key="s.id"

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 const toast = useToastStore();
 import { computed, onMounted, ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { useServersStore } from "@/stores/servers";
 import { call, isTauri } from "@/api/tauri";
 import { useToastStore } from "@/stores/toast";
+const { t } = useI18n();
 
 /**
  * 终端页（原 `ui/hub.html` 的 `#page-term`，3355 行）。
@@ -70,7 +71,7 @@ async function openTerminal() {
 
 <template>
   <div class="hub-page">
-    <div class="page-head"><h2>{{ $t("nav.terminal") }}</h2></div>
+    <div class="page-head"><h2>{{ t("nav.terminal") }}</h2></div>
     <div class="hub-page-body">
       <div class="act-card">
         <svg
@@ -88,22 +89,22 @@ async function openTerminal() {
 
         <!-- 空状态：还没有任何 SSH 服务器 -->
         <template v-if="!sshServers.length">
-          <p class="t">{{ $t("term.emptyTitle") }}</p>
-          <p class="s" id="termPageHint">{{ $t("term.emptyHint") }}</p>
-          <button type="button" class="btn" @click="goServers">{{ $t("term.goServers") }}</button>
+          <p class="t">{{ t("term.emptyTitle") }}</p>
+          <p class="s" id="termPageHint">{{ t("term.emptyHint") }}</p>
+          <button type="button" class="btn" @click="goServers">{{ t("term.goServers") }}</button>
         </template>
 
         <!-- 有服务器：选一台 + 打开 -->
         <template v-else>
-          <p class="t">{{ $t("nav.terminal") }}</p>
+          <p class="t">{{ t("nav.terminal") }}</p>
           <select
             class="term-server-select"
-            :aria-label="$t('term.selectAria')"
+            :aria-label="t('term.selectAria')"
             :value="selectedId"
             @change="selectedId = ($event.target as HTMLSelectElement).value"
           >
             <option v-for="s in sshServers" :key="s.id" :value="s.id">
-              {{ s.name || $t("server.untitled") }} · {{ store.displayAddr(s) }}
+              {{ s.name || t("server.untitled") }} · {{ store.displayAddr(s) }}
             </option>
           </select>
           <p class="s" id="termPageHint">{{ hint }}</p>

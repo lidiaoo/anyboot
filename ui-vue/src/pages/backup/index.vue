@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import WindowNavMenu from "@/components/hub/WindowNavMenu.vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { computed, onMounted, ref , onUnmounted } from "vue";
 import { call } from "@/api/tauri";
+const { t } = useI18n();
 
 /**
  * 备份窗（原 `ui/hub-backup.html`，1057 行）—— backup 命令族 15 个。
@@ -468,15 +469,15 @@ async function executeImport() {
         <path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4" />
       </svg>
     </span>
-    <h1>{{ $t("bk.titleFull") }}</h1>
+    <h1>{{ t("bk.titleFull") }}</h1>
     <div class="tools">
       <WindowNavMenu class="win-nav-menu" />
-      <button type="button" class="toolbtn" id="themeBtn" :aria-label="$t('keysWin.themeAria')" @click="toggleTheme">
+      <button type="button" class="toolbtn" id="themeBtn" :aria-label="t('keysWin.themeAria')" @click="toggleTheme">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="9" />
           <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
         </svg>
-        {{ $t("keysWin.theme") }}
+        {{ t("keysWin.theme") }}
       </button>
     </div>
   </header>
@@ -491,8 +492,8 @@ async function executeImport() {
             <path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
           </svg>
         </span>
-        <h2>{{ $t("bk.exportTitle") }}</h2>
-        <span class="sub">{{ $t("bk.exportSub") }}</span>
+        <h2>{{ t("bk.exportTitle") }}</h2>
+        <span class="sub">{{ t("bk.exportSub") }}</span>
       </div>
 
       <div class="cats" id="exportCats">
@@ -502,8 +503,8 @@ async function executeImport() {
             :checked="exportCats.includes(cat.id)"
             @change="toggleCat('export', cat.id)"
           />
-          <span class="cname">{{ $t(cat.name) }}</span>
-          <span class="cdesc">{{ $t(cat.desc) }}</span>
+          <span class="cname">{{ t(cat.name) }}</span>
+          <span class="cdesc">{{ t(cat.desc) }}</span>
         </label>
       </div>
 
@@ -512,19 +513,19 @@ async function executeImport() {
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16h.01" />
         </svg>
-        <span>{{ $t("bk.exportKeyWarn") }}</span>
+        <span>{{ t("bk.exportKeyWarn") }}</span>
       </div>
 
       <div v-if="exportIncludeKeys" id="exportPwZone" class="pw-zone">
         <div class="pw-grid">
           <div class="field">
-            <label for="expPw1">{{ $t("bk.exportPw") }}</label>
-            <input id="expPw1" v-model="exportPw1" type="password" :placeholder="$t('bk.pwPhMin')" autocomplete="new-password" />
+            <label for="expPw1">{{ t("bk.exportPw") }}</label>
+            <input id="expPw1" v-model="exportPw1" type="password" :placeholder="t('bk.pwPhMin')" autocomplete="new-password" />
             <div class="strength"><i id="expStrength" :style="{ width: exportStrengthPct + '%', background: exportStrengthColor }" /></div>
           </div>
           <div class="field">
-            <label for="expPw2">{{ $t("bk.retype") }}</label>
-            <input id="expPw2" v-model="exportPw2" type="password" :placeholder="$t('bk.pwPhMatch')" autocomplete="new-password" />
+            <label for="expPw2">{{ t("bk.retype") }}</label>
+            <input id="expPw2" v-model="exportPw2" type="password" :placeholder="t('bk.pwPhMatch')" autocomplete="new-password" />
             <div class="err" id="expPwErr">{{ exportPwErr }}</div>
           </div>
         </div>
@@ -532,8 +533,8 @@ async function executeImport() {
 
       <div class="row-actions">
         <button type="button" class="btn primary" id="exportBtn" :disabled="exportDisabled" @click="doExport">
-          <template v-if="busy"><span class="spin"></span>{{ $t("bk.exportingPkg") }}</template>
-          <template v-else>{{ $t("bk.exportBtn") }}</template>
+          <template v-if="busy"><span class="spin"></span>{{ t("bk.exportingPkg") }}</template>
+          <template v-else>{{ t("bk.exportBtn") }}</template>
         </button>
         <span class="note" id="exportNote">{{ exportNoteText }}</span>
       </div>
@@ -547,15 +548,15 @@ async function executeImport() {
             <path d="M12 3v12M8 7l4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
           </svg>
         </span>
-        <h2>{{ $t("bk.importTitle") }}</h2>
-        <span class="sub">{{ $t("bk.importSub") }}</span>
+        <h2>{{ t("bk.importTitle") }}</h2>
+        <span class="sub">{{ t("bk.importSub") }}</span>
       </div>
       <div class="row-actions">
         <button type="button" class="btn primary" id="importBtn" :disabled="!!busy" @click="doImport">
           <template v-if="busy"><span class="spin"></span>{{ busy }}</template>
-          <template v-else>{{ $t("bk.pickFile") }}</template>
+          <template v-else>{{ t("bk.pickFile") }}</template>
         </button>
-        <span class="note">{{ $t("bk.importNote") }}</span>
+        <span class="note">{{ t("bk.importNote") }}</span>
       </div>
     </section>
 
@@ -569,8 +570,8 @@ async function executeImport() {
             <path d="M20 7h-9l-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
           </svg>
         </span>
-        <h2>{{ $t("bk.syncTitle") }}</h2>
-        <label class="switch" style="margin-left: auto" :title="$t('bk.syncToggleTitle')">
+        <h2>{{ t("bk.syncTitle") }}</h2>
+        <label class="switch" style="margin-left: auto" :title="t('bk.syncToggleTitle')">
           <input type="checkbox" id="syncEnabled" :checked="syncEnabled" @change="toggleSync" />
           <i />
         </label>
@@ -579,27 +580,27 @@ async function executeImport() {
       <div class="form-grid" id="syncForm">
         <div class="form-row">
           <div class="field" style="flex: 2 1 280px">
-            <label for="syncUrl">{{ $t("bk.serverUrl") }}</label>
+            <label for="syncUrl">{{ t("bk.serverUrl") }}</label>
             <input id="syncUrl" v-model="syncUrl" placeholder="https://dav.jianguoyun.com/dav/" autocomplete="off" />
           </div>
           <div class="field">
-            <label for="syncDir">{{ $t("bk.dir") }}</label>
+            <label for="syncDir">{{ t("bk.dir") }}</label>
             <input id="syncDir" v-model="syncDir" placeholder="AnyBoot" autocomplete="off" />
           </div>
         </div>
 
         <div class="form-row">
           <div class="field">
-            <label for="syncUser">{{ $t("bk.account") }}</label>
-            <input id="syncUser" v-model="syncUser" :placeholder="$t('bk.accountPh')" autocomplete="off" />
+            <label for="syncUser">{{ t("bk.account") }}</label>
+            <input id="syncUser" v-model="syncUser" :placeholder="t('bk.accountPh')" autocomplete="off" />
           </div>
           <div class="field">
-            <label for="syncPass">{{ $t("bk.pwdLabel") }}</label>
+            <label for="syncPass">{{ t("bk.pwdLabel") }}</label>
             <input
               id="syncPass"
               v-model="syncPass"
               type="password"
-              :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.pwdPh')"
+              :placeholder="sync?.hasPassword ? t('bk.pwdPhSaved') : t('bk.pwdPh')"
               autocomplete="new-password"
             />
           </div>
@@ -607,7 +608,7 @@ async function executeImport() {
 
         <div class="form-row">
           <div class="field">
-            <label>{{ $t("bk.autoFreq") }}</label>
+            <label>{{ t("bk.autoFreq") }}</label>
             <div class="seg" id="syncPeriod">
               <button
                 v-for="opt in [
@@ -630,7 +631,7 @@ async function executeImport() {
 
         <label class="checkline">
           <input id="syncOnChange" v-model="syncOnChange" type="checkbox" />
-          {{ $t("bk.autoSyncHint") }}
+          {{ t("bk.autoSyncHint") }}
         </label>
 
         <div class="cats" id="syncCats">
@@ -640,8 +641,8 @@ async function executeImport() {
               :checked="syncCats.includes(cat.id)"
               @change="toggleCat('sync', cat.id)"
             />
-            <span class="cname">{{ $t(cat.name) }}</span>
-            <span class="cdesc">{{ $t(cat.desc) }}</span>
+            <span class="cname">{{ t(cat.name) }}</span>
+            <span class="cdesc">{{ t(cat.desc) }}</span>
           </label>
         </div>
 
@@ -649,11 +650,11 @@ async function executeImport() {
         <div class="pw-zone" id="syncEncryptZone">
           <label class="checkline">
             <input id="syncEncrypt" v-model="syncEncrypt" type="checkbox" />
-            {{ $t("bk.encryptCloud") }}
+            {{ t("bk.encryptCloud") }}
           </label>
           <div class="field" id="syncEncryptPwField" :hidden="!syncEncrypt" style="max-width: 320px">
-            <label for="syncEncryptPw">{{ $t("bk.syncPw") }}</label>
-            <input id="syncEncryptPw" v-model="syncEncryptPw" type="password" :placeholder="sync?.hasPassword ? $t('bk.pwdPhSaved') : $t('bk.syncPw')" autocomplete="new-password" />
+            <label for="syncEncryptPw">{{ t("bk.syncPw") }}</label>
+            <input id="syncEncryptPw" v-model="syncEncryptPw" type="password" :placeholder="sync?.hasPassword ? t('bk.pwdPhSaved') : t('bk.syncPw')" autocomplete="new-password" />
             <span class="err" id="syncEncryptErr">{{ syncEncryptErr }}</span>
           </div>
         </div>
@@ -661,8 +662,8 @@ async function executeImport() {
 
       <div class="sync-status" id="syncStatus">
         <span v-if="sync?.last_error" class="err">{{ sync.last_error }}</span>
-        <span v-else-if="sync?.last_sync_ms">{{ $t("bk.lastSync", { t: new Date(sync.last_sync_ms).toLocaleString() }) }}</span>
-        <span v-else>{{ $t("bk.neverSynced") }}</span>
+        <span v-else-if="sync?.last_sync_ms">{{ t("bk.lastSync", { t: new Date(sync.last_sync_ms).toLocaleString() }) }}</span>
+        <span v-else>{{ t("bk.neverSynced") }}</span>
       </div>
 
       <div v-if="locked" class="info" id="syncLockInfo">
@@ -670,14 +671,14 @@ async function executeImport() {
           <circle cx="12" cy="12" r="9" />
           <path d="M12 8v5M12 16h.01" />
         </svg>
-        <span>{{ $t("bk.lockedDuringTransfer") }}</span>
+        <span>{{ t("bk.lockedDuringTransfer") }}</span>
       </div>
 
       <div class="row-actions">
-        <button type="button" class="btn" id="syncTestBtn" :disabled="!!busy" @click="testWebdav">{{ $t("bk.testConn") }}</button>
-        <button type="button" class="btn" id="syncSaveBtn" :disabled="!!busy" @click="() => saveSync()">{{ $t("bk.saveCfg") }}</button>
+        <button type="button" class="btn" id="syncTestBtn" :disabled="!!busy" @click="testWebdav">{{ t("bk.testConn") }}</button>
+        <button type="button" class="btn" id="syncSaveBtn" :disabled="!!busy" @click="() => saveSync()">{{ t("bk.saveCfg") }}</button>
         <button type="button" class="btn primary" id="syncNowBtn" :disabled="!syncEnabled || !!busy" @click="syncNow">
-          {{ $t("bk.syncNow") }}
+          {{ t("bk.syncNow") }}
         </button>
       </div>
     </section>
@@ -689,19 +690,19 @@ async function executeImport() {
   <div v-if="pwOpen" id="pwModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pwTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="pwTitle">{{ $t("bk.pwTitle") }}</h3>
-        <button type="button" id="pwClose" :aria-label="$t('common.close')" @click="pwOpen = false">✕</button>
+        <h3 id="pwTitle">{{ t("bk.pwTitle") }}</h3>
+        <button type="button" id="pwClose" :aria-label="t('common.close')" @click="pwOpen = false">✕</button>
       </div>
       <form id="pwForm" class="modal-body" @submit.prevent="submitPw">
         <div class="field">
-          <label for="importPw">{{ $t("bk.pwLabel2") }}</label>
+          <label for="importPw">{{ t("bk.pwLabel2") }}</label>
           <input id="importPw" v-model="importPw" type="password" autocomplete="off" />
           <div class="err" id="importPwErr">{{ importPwErr }}</div>
-          <p class="modal-note">{{ $t("bk.pwNote") }}</p>
+          <p class="modal-note">{{ t("bk.pwNote") }}</p>
         </div>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="pwCancel" @click="pwOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="submit" class="btn primary">{{ $t("bk.unlockPreview") }}</button>
+          <button type="button" class="btn plain" id="pwCancel" @click="pwOpen = false">{{ t("common.cancel") }}</button>
+          <button type="submit" class="btn primary">{{ t("bk.unlockPreview") }}</button>
         </div>
       </form>
     </div>
@@ -711,24 +712,24 @@ async function executeImport() {
   <div v-if="previewOpen" id="previewModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="prevTitle">
     <div class="modal-card wide">
       <div class="modal-head">
-        <h3 id="prevTitle">{{ $t("bk.prevTitle") }}</h3>
-        <button type="button" id="prevClose" :aria-label="$t('common.close')" @click="previewOpen = false">✕</button>
+        <h3 id="prevTitle">{{ t("bk.prevTitle") }}</h3>
+        <button type="button" id="prevClose" :aria-label="t('common.close')" @click="previewOpen = false">✕</button>
       </div>
       <div class="modal-body">
         <div class="src-line" id="prevSrc">{{ previewSrc }}</div>
         <table class="prev">
-          <thead><tr><th>{{ $t("bk.thCat") }}</th><th style="text-align: right">{{ $t("bk.thInBackup") }}</th><th style="text-align: right">{{ $t("bk.thLocal") }}</th><th>{{ $t("bk.thConflict") }}</th></tr></thead>
+          <thead><tr><th>{{ t("bk.thCat") }}</th><th style="text-align: right">{{ t("bk.thInBackup") }}</th><th style="text-align: right">{{ t("bk.thLocal") }}</th><th>{{ t("bk.thConflict") }}</th></tr></thead>
           <tbody id="prevRows">
             <tr v-for="row in previewRows" :key="row.label">
               <td>{{ row.label }}</td>
               <td style="text-align: right">{{ row.inBackup }}</td>
               <td style="text-align: right">{{ row.local }}</td>
               <td>
-                <span v-if="row.conflicts" class="chip conflict">{{ $t("bk.sameIdCount", { n: row.conflicts }) }}</span>
+                <span v-if="row.conflicts" class="chip conflict">{{ t("bk.sameIdCount", { n: row.conflicts }) }}</span>
                 <span v-else>—</span>
               </td>
             </tr>
-            <tr v-if="!previewRows.length"><td colspan="4">{{ $t("bk.noRecognizable") }}</td></tr>
+            <tr v-if="!previewRows.length"><td colspan="4">{{ t("bk.noRecognizable") }}</td></tr>
           </tbody>
         </table>
         <div v-if="previewWarn" id="prevWarn" class="info warn">
@@ -737,24 +738,24 @@ async function executeImport() {
         <div class="cats" id="importCats">
           <label v-for="cat in CATEGORIES" :key="cat.id" class="cat-row">
             <input type="checkbox" :checked="importCats.includes(cat.id)" @change="toggleCat('import', cat.id)" />
-            <span class="cname">{{ $t(cat.name) }}</span>
-            <span class="cdesc">{{ $t(cat.desc) }}</span>
+            <span class="cname">{{ t(cat.name) }}</span>
+            <span class="cdesc">{{ t(cat.desc) }}</span>
           </label>
         </div>
         <div class="strategy" id="strategyBox">
           <label class="radio-line">
             <input v-model="importStrategy" type="radio" name="strategy" value="skipExisting" />
-            <span>{{ $t("bk.skipExisting") }}<span class="rdesc">{{ $t("bk.skipExistingDesc") }}</span></span>
+            <span>{{ t("bk.skipExisting") }}<span class="rdesc">{{ t("bk.skipExistingDesc") }}</span></span>
           </label>
           <label class="radio-line">
             <input v-model="importStrategy" type="radio" name="strategy" value="overwrite" />
-            <span>{{ $t("bk.overwriteExisting") }}<span class="rdesc">{{ $t("bk.overwriteExistingDesc") }}</span></span>
+            <span>{{ t("bk.overwriteExisting") }}<span class="rdesc">{{ t("bk.overwriteExistingDesc") }}</span></span>
           </label>
         </div>
       </div>
       <div class="modal-foot">
-        <button type="button" class="btn plain" id="prevCancel" @click="previewOpen = false">{{ $t("common.cancel") }}</button>
-        <button type="button" class="btn primary" id="prevGo" @click="startImport">{{ $t("bk.startImport") }}</button>
+        <button type="button" class="btn plain" id="prevCancel" @click="previewOpen = false">{{ t("common.cancel") }}</button>
+        <button type="button" class="btn primary" id="prevGo" @click="startImport">{{ t("bk.startImport") }}</button>
       </div>
     </div>
   </div>
@@ -766,13 +767,13 @@ async function executeImport() {
         <span class="icon" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
         </span>
-        <h3 id="cfmTitle">{{ $t("bk.confirmOverwrite") }}</h3>
+        <h3 id="cfmTitle">{{ t("bk.confirmOverwrite") }}</h3>
       </div>
       <div class="modal-body">
         <p class="del-body" id="cfmBody">{{ confirmBody }}</p>
         <div class="modal-foot" style="border: 0; padding: 4px 0 0">
-          <button type="button" class="btn plain" id="cfmCancel" @click="confirmOpen = false">{{ $t("common.cancel") }}</button>
-          <button type="button" class="btn danger" id="cfmOk" @click="confirmOk">{{ $t("bk.doOverwrite") }}</button>
+          <button type="button" class="btn plain" id="cfmCancel" @click="confirmOpen = false">{{ t("common.cancel") }}</button>
+          <button type="button" class="btn danger" id="cfmOk" @click="confirmOk">{{ t("bk.doOverwrite") }}</button>
         </div>
       </div>
     </div>
@@ -782,15 +783,15 @@ async function executeImport() {
   <div v-if="resultOpen" id="resultModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h3 id="resTitle">{{ $t("bk.importDone") }}</h3>
-        <button type="button" id="resClose" :aria-label="$t('common.close')" @click="resultOpen = false">✕</button>
+        <h3 id="resTitle">{{ t("bk.importDone") }}</h3>
+        <button type="button" id="resClose" :aria-label="t('common.close')" @click="resultOpen = false">✕</button>
       </div>
       <div class="modal-body" id="resBody">
         <p v-for="row in resultRows" :key="row.k">{{ row.k }}: {{ row.v }}</p>
-        <p v-if="!resultRows.length">{{ $t("bk.importFinished") }}</p>
+        <p v-if="!resultRows.length">{{ t("bk.importFinished") }}</p>
       </div>
       <div class="modal-foot">
-        <button type="button" class="btn primary" id="resOk" @click="resultOpen = false">{{ $t("bk.done") }}</button>
+        <button type="button" class="btn primary" id="resOk" @click="resultOpen = false">{{ t("bk.done") }}</button>
       </div>
     </div>
   </div>

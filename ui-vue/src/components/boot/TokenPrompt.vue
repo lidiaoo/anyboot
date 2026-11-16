@@ -7,8 +7,9 @@
  * Vue 迁移时漏了它 → 无 token 直接空白/读不到数据。这里补回。
  */
 import { ref } from "vue";
-import { t } from "@/i18n";
+import { useI18n } from "vue-i18n";
 import { setAuthToken } from "@/api/http";
+const { t } = useI18n();
 
 const emit = defineEmits<{ (e: "confirmed"): void }>();
 const input = ref("");
@@ -40,21 +41,21 @@ function submit() {
 
 <template>
   <div class="token-modal-overlay" style="z-index: 300">
-    <div class="token-modal" role="dialog" aria-modal="true" :aria-label="$t('token.ariaTitle')">
-      <h2>{{ $t("token.title") }}</h2>
+    <div class="token-modal" role="dialog" aria-modal="true" :aria-label="t('token.ariaTitle')">
+      <h2>{{ t("token.title") }}</h2>
       <p>
-        {{ $t("token.body") }}
+        {{ t("token.body") }}
       </p>
       <input
         v-model="input"
         type="text"
         spellcheck="false"
-        :placeholder="$t('token.ph')"
+        :placeholder="t('token.ph')"
         @keyup.enter="submit"
       />
       <p v-if="error" style="color: #d9534f; font-size: 12px">{{ error }}</p>
       <div style="display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end">
-        <button type="button" class="btn" :disabled="busy" @click="submit">{{ $t("token.connect") }}</button>
+        <button type="button" class="btn" :disabled="busy" @click="submit">{{ t("token.connect") }}</button>
       </div>
     </div>
   </div>
