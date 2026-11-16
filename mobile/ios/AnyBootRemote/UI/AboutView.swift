@@ -36,8 +36,7 @@ struct AboutView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     versionCard
-                    Spacer().frame(height: ABMetric.px(16))
-                    languageCard
+
                     if updateOpen {
                         Spacer().frame(height: ABMetric.px(12))
                         updatePanel
@@ -73,36 +72,6 @@ struct AboutView: View {
         .padding(.top, ABMetric.px(10))
         .padding(.bottom, ABMetric.px(8))
         .background(ABColor.base)
-    }
-
-    // MARK: - 语言卡（切换即时生效：ABLanguageStore → 根视图 .id 重建）
-    private static let langNames: [(String, String)] = [
-        ("auto", "跟随系统 / Auto"), ("zh-CN", "简体中文"), ("zh-TW", "繁體中文"),
-        ("en-US", "English"), ("ja-JP", "日本語"), ("ko-KR", "한국어"),
-        ("de-DE", "Deutsch"), ("ru-RU", "Русский"), ("pt-BR", "Português (Brasil)"), ("es-ES", "Español"),
-    ]
-    private var languageCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(L("and.language"))
-                .font(.system(size: 12))
-                .foregroundColor(ABColor.fgDim)
-                .padding(.leading, ABMetric.px(16)).padding(.top, ABMetric.px(14)).padding(.bottom, ABMetric.px(6))
-            ForEach(Self.langNames, id: \.0) { tag, name in
-                let selected = ABLanguageStore.shared.current == tag
-                Button { ABLanguageStore.shared.set(tag) } label: {
-                    HStack {
-                        Text(name).font(.system(size: 14)).foregroundColor(selected ? ABColor.accent : ABColor.fg)
-                        Spacer()
-                        if selected { Text("✓").foregroundColor(ABColor.accent) }
-                    }
-                    .padding(.horizontal, ABMetric.px(16)).padding(.vertical, ABMetric.px(10))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(abCardBackground(corner: 16))
     }
 
     // MARK: - 版本卡（:92-131）

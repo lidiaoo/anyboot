@@ -59,6 +59,8 @@ struct RootView: View {
                     AboutView()
                 case .backup:
                     BackupPage()
+                case .settings:
+                    SettingsView()
                 }
             }
             // 全局控件色 = 靛蓝 accent：所有没显式染色的 ProgressView 等
@@ -86,6 +88,7 @@ enum ABPage: String {
     case servers      // 服务器模块
     case about        // 关于
     case backup       // 备份与恢复
+    case settings     // 设置（语言 / 主题 / 终端设置）
 }
 
 @MainActor

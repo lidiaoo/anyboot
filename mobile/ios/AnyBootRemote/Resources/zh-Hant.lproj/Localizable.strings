@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "沒有可見的選單項（都被隱藏規則擋掉了）";
 "and.itemsCountFmt" = "▸ {a}{b}（{c} 項{d}）";
 "and.kernelsCountFmt" = "▸ {a}{b}（{c} 個內核）";
+"and.language" = "語言";
+"and.settings" = "設定";
+"and.themeMode" = "主題";
+"and.themeAuto" = "跟隨系統";
+"and.themeDark" = "深色";
+"and.themeLight" = "淺色";
 "and.editCurrent" = "編輯目前電腦";
 "and.failReloadTitle" = "連不上時自動重新載入";
 "and.dataRefreshTitle" = "資料重新整理";

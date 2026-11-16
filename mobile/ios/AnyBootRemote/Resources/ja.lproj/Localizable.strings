@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "表示できるメニュー項目なし（非表示ルールで除外）";
 "and.itemsCountFmt" = "▸ {a}{b}（{c} 件{d}）";
 "and.kernelsCountFmt" = "▸ {a}{b}（{c} カーネル）";
+"and.language" = "言語";
+"and.settings" = "設定";
+"and.themeMode" = "テーマ";
+"and.themeAuto" = "システムに従う";
+"and.themeDark" = "ダーク";
+"and.themeLight" = "ライト";
 "and.editCurrent" = "現在の PC を編集";
 "and.failReloadTitle" = "接続不可時に自動再読み込み";
 "and.dataRefreshTitle" = "データ更新";

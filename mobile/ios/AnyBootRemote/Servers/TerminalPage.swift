@@ -434,7 +434,7 @@ struct TerminalSettingsSheet: View {
         }
     }
 
-    private var settingsBody: some View {
+    var settingsBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             ABSectionTitle(L("and.termColor"))
             radio(L("and.termThemeDark"), on: jumps.terminalDark) {
@@ -525,7 +525,7 @@ struct TerminalSettingsSheet: View {
     }
 
     /// M3 RadioButton：未选中环 = fgDim（之前恒 accent）；行 padding h8/v2（ThemeRow 223-234）
-    private func radio(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
+    func radio(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: ABMetric.px(6)) {
                 ZStack {
@@ -550,7 +550,7 @@ struct TerminalSettingsSheet: View {
     }
 
     /// M3 Checkbox：未选中描边 = fgDim；行 padding h8/v2（CheckRow 237-251）
-    private func check(_ title: String, hint: String, on: Bool,
+    func check(_ title: String, hint: String, on: Bool,
                        onToggle: @escaping (Bool) -> Void) -> some View {
         Button {
             onToggle(!on)

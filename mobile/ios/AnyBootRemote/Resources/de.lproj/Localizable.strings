@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "Keine sichtbaren Menüpunkte (durch Regeln ausgeblendet)";
 "and.itemsCountFmt" = "▸ {a}{b} ({c} Einträge{d})";
 "and.kernelsCountFmt" = "▸ {a}{b} ({c} Kernel)";
+"and.language" = "Sprache";
+"and.settings" = "Einstellungen";
+"and.themeMode" = "Design";
+"and.themeAuto" = "System folgen";
+"and.themeDark" = "Dunkel";
+"and.themeLight" = "Hell";
 "and.editCurrent" = "Aktuellen Computer bearbeiten";
 "and.failReloadTitle" = "Auto-Neuladen bei Nichterreichen";
 "and.dataRefreshTitle" = "Datenaktualisierung";

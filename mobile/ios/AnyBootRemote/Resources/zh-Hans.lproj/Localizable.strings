@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "没有可见的菜单项（都被隐藏规则挡掉了）";
 "and.itemsCountFmt" = "▸ {a}{b}（{c} 项{d}）";
 "and.kernelsCountFmt" = "▸ {a}{b}（{c} 个内核）";
+"and.language" = "语言";
+"and.settings" = "设置";
+"and.themeMode" = "主题";
+"and.themeAuto" = "跟随系统";
+"and.themeDark" = "暗色";
+"and.themeLight" = "亮色";
 "and.editCurrent" = "编辑当前电脑";
 "and.failReloadTitle" = "连不上时自动重载";
 "and.dataRefreshTitle" = "数据刷新";

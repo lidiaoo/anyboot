@@ -57,7 +57,7 @@ struct ABDrawerOverlay: View {
                     //   「电脑列表」→ ComputerListActivity（卡片列表）
                     // 注意 ABPage 的 case 名是历史包袱，跟直观读法相反：
                     //   .computers = 电脑页（多标签） / .computer = 电脑列表
-                    navRow(.computers, L("nav.computers")) { tint, size in
+                    navRow(.computers, L("nav.computer")) { tint, size in
                         DrawnIcon.desktop(tint, size: size)
                     }
                     navRow(.computer, L("nav.computerList")) { tint, size in
@@ -71,6 +71,9 @@ struct ABDrawerOverlay: View {
                     }
                     navRow(.about, L("nav.about")) { tint, size in
                         DrawnIcon.info(tint, size: size)
+                    }
+                    navRow(.settings, L("and.settings")) { tint, size in
+                        DrawnIcon.gear(tint, size: size)
                     }
                     // 主题项是设计稿没有的既有功能，保留在导航末尾
                     Button {

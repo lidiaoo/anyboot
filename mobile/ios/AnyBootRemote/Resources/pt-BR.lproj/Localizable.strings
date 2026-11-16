@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "Sem itens visíveis (ocultos por regras)";
 "and.itemsCountFmt" = "▸ {a}{b} ({c} itens{d})";
 "and.kernelsCountFmt" = "▸ {a}{b} ({c} kernels)";
+"and.language" = "Idioma";
+"and.settings" = "Configurações";
+"and.themeMode" = "Tema";
+"and.themeAuto" = "Seguir sistema";
+"and.themeDark" = "Escuro";
+"and.themeLight" = "Claro";
 "and.editCurrent" = "Editar computador atual";
 "and.failReloadTitle" = "Recarregar ao falhar";
 "and.dataRefreshTitle" = "Atualização de dados";

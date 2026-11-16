@@ -1985,6 +1985,12 @@
 "and.noVisibleMenu" = "표시할 메뉴 항목 없음(숨김 규칙으로 제외)";
 "and.itemsCountFmt" = "▸ {a}{b} ({c}개{d})";
 "and.kernelsCountFmt" = "▸ {a}{b} ({c}개 커널)";
+"and.language" = "언어";
+"and.settings" = "설정";
+"and.themeMode" = "테마";
+"and.themeAuto" = "시스템 따르기";
+"and.themeDark" = "다크";
+"and.themeLight" = "라이트";
 "and.editCurrent" = "현재 컴퓨터 편집";
 "and.failReloadTitle" = "연결 불가 시 자동 새로 고침";
 "and.dataRefreshTitle" = "데이터 새로 고침";

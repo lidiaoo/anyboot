@@ -87,17 +87,7 @@ struct ServerModuleView: View {
             pagePill
             Spacer(minLength: 0)
 
-            if store.page == .servers {
-                Button {
-                    store.terminalSettingsOpen = true
-                } label: {
-                    DrawnIcon.gear(ABColor.fgDim, size: 20)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L("nav.termSettings"))
-            }
+
 
             // ⚠️ 命中区 44×44（HIG 最小）：此前是 Text("⋮") + padding，
             // 实测 accessibility frame 只有 7×20pt，手指几乎点不到。
@@ -117,7 +107,6 @@ struct ServerModuleView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         menuItem(L("and.menuSessions")) { store.page = .sessions }
                         menuItem(L("and.menuTransfers")) { store.page = .transfers }
-                        menuItem(L("nav.termSettings")) { store.terminalSettingsOpen = true }
                     }
                     .frame(width: ABMetric.px(190))
                     .background(
@@ -345,7 +334,6 @@ struct ServerModuleView: View {
         GenerateKeyDialog()
         DeleteJumpDialog()
         ManualPasswordDialog()
-        TerminalSettingsSheet()
     }
 }
 
