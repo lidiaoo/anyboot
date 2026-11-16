@@ -1436,14 +1436,16 @@ body[data-grub-mode="inline"] .grub-list {
 }
 
 /* 电脑列表下拉(电脑列表弹窗)里同样显示子项竖向引导线（与主界面引导列表一致） */
+/* 与 Android 一致：竖线距左 12，内容(图标)从 26 开始；更深层级 42/28 */
 .cq-picker .grub-entry.is-child {
-  padding-left: 24px;
-  box-shadow: inset 11px 0 0 -10px var(--border-strong);
+  padding-left: 26px;
+  box-shadow: inset 12px 0 0 -11px var(--border-strong);
 }
 .cq-picker .grub-entry.depth-2,
 .cq-picker .grub-entry.depth-3,
 .cq-picker .grub-entry.depth-4 {
-  box-shadow: inset 26px 0 0 -25px var(--border-strong);
+  padding-left: 42px;
+  box-shadow: inset 28px 0 0 -27px var(--border-strong);
 }
 
 /*
