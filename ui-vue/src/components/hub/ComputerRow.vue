@@ -525,6 +525,25 @@ async function openUrl(url: string) {
   }
 }
 
+/** 所有通道（6 个引导器）统一顺序：refind/refindplus/grub + 检测到的 sdboot/opencore/clover */
+const allKinds = computed<string[]>(() => ["refind", "refindplus", "grub", ...(props.channelKinds ?? [])]);
+/** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
+function bootEcho(kind: string): { label: string; dot: string; none: boolean } {
+  if (kind.startsWith("channel:")) {
+    const e = channelEcho(kind);
+    return { label: e.label, dot: e.dot, none: !channelOf(kind)?.available };
+  }
+  const s = bootState(kind);
+  return { label: s.label, dot: s.dot, none: s.none };
+}
+/** 统一切换可用性 */
+function bootUsableFor(kind: string): boolean {
+  if (kind.startsWith("channel:")) {
+    const c = channelOf(kind);
+    return !!(c && c.available && (c.options?.length));
+  }
+  return bootUsable(kind as "refind" | "refindplus" | "grub");
+}
 function bootUsable(kind: "refind" | "refindplus" | "grub") {
   const group = props.info?.[kind];
   return Boolean(group?.available) && online.value;
@@ -584,12 +603,6 @@ function channelEcho(kind: string): { label: string; dot: string } {
       return !!text && (text === cur || text.indexOf(cur) >= 0 || cur.indexOf(text) >= 0);
     })[0];
   return { label: hit?.label || cur || t("hub.state.notSelected"), dot: hit?.class || "" };
-}
-/** 通道 kind → 显示名（channel:opencore → OpenCore） */
-function channelTitle(kind: string): string {
-  const base = kind.startsWith("channel:") ? kind.slice(8) : kind;
-  const map: Record<string, string> = { sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" };
-  return map[base] ?? channelOf(kind)?.title ?? base;
 }
 function onRowClick() {
   emit("select", props.row.id);
@@ -690,66 +703,25 @@ function onRowClick() {
       </div>
     </div>
 
-    <!-- 引导项区 -->
+    <!-- 引导项区：所有引导器统一为「独立通道」，同一个按钮/同一个下拉，无特例 -->
     <div class="cq-row-boots">
-      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'rEFInd' })">
-        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refind').none }">
-          <button
-            type="button"
-            class="cq-boot-btn"
-            :disabled="!bootUsable('refind')"
-            @click.stop="openPicker('refind')"
-          >
-            <span v-if="osIcon(bootState('refind').dot, bootState('refind').label)">{{ osIcon(bootState('refind').dot, bootState('refind').label) }}</span>
-            <span class="t">{{ bootState("refind").label }}</span>
-          </button>
-        </div>
-      </div>
-      <!-- RefindPlus 列：与 rEFInd 完全同构的独立组（kind=refindplus），同一套卡片风格 -->
-      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'RefindPlus' })">
-        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('refindplus').none }">
-          <button
-            type="button"
-            class="cq-boot-btn"
-            :disabled="!bootUsable('refindplus')"
-            @click.stop="openPicker('refindplus')"
-          >
-            <span v-if="osIcon(bootState('refindplus').dot, bootState('refindplus').label)">{{ osIcon(bootState('refindplus').dot, bootState('refindplus').label) }}</span>
-            <span class="t">{{ bootState("refindplus").label }}</span>
-          </button>
-        </div>
-      </div>
-      <div class="cq-col cq-col-boot" role="cell" :data-label="t('hub.boot.col', { name: 'GRUB' })">
-        <div class="cq-boot" :class="{ 'cq-boot--none': bootState('grub').none }">
-          <button
-            type="button"
-            class="cq-boot-btn"
-            :disabled="!bootUsable('grub')"
-            @click.stop="openPicker('grub')"
-          >
-            <span v-if="osIcon(bootState('grub').dot, bootState('grub').label)">{{ osIcon(bootState('grub').dot, bootState('grub').label) }}</span>
-            <span class="t">{{ bootState("grub").label }}</span>
-          </button>
-        </div>
-      </div>
-      <!-- 通道列（systemd-boot / OpenCore / Clover）：按「所有电脑检测到的通道并集」渲染，
-           保证各行通道列对齐（旧版 cqBootColumns 语义）。某行没检测到该通道 → 该列显示「未检测到」。 -->
       <div
-        v-for="kind in (channelKinds ?? [])"
+        v-for="kind in allKinds"
         :key="kind"
-        class="cq-col cq-col-boot cq-col-boot--ch"
+        class="cq-col cq-col-boot"
+        :class="{ 'cq-col-boot--ch': kind.startsWith('channel:') }"
         role="cell"
-        :data-label="t('hub.boot.col', { name: channelTitle(kind) })"
+        :data-label="t('hub.boot.col', { name: bootEcho(kind).label })"
       >
-        <div class="cq-boot" :class="{ 'cq-boot--none': !channelOf(kind)?.available }">
+        <div class="cq-boot" :class="{ 'cq-boot--none': bootEcho(kind).none }">
           <button
             type="button"
             class="cq-boot-btn"
-            :disabled="!channelOf(kind)?.available || !(channelOf(kind)?.options?.length)"
+            :disabled="!bootUsableFor(kind)"
             @click.stop="openPicker(kind)"
           >
-            <span v-if="osIcon(channelEcho(kind).dot, channelEcho(kind).label)">{{ osIcon(channelEcho(kind).dot, channelEcho(kind).label) }}</span>
-            <span class="t">{{ channelEcho(kind).label }}</span>
+            <span v-if="osIcon(bootEcho(kind).dot, bootEcho(kind).label)">{{ osIcon(bootEcho(kind).dot, bootEcho(kind).label) }}</span>
+            <span class="t">{{ bootEcho(kind).label }}</span>
           </button>
         </div>
       </div>
