@@ -484,7 +484,7 @@ const connectLines = computed<ConnectLine[]>(() => {
   if (!disabled.has("lan") && !hidden.has("lan") && addresses.length) {
     for (const addr of addresses) {
       const b = badgeOf(probeByKey.get(`lan\u0000${addr}`));
-      out.push({ dataK: "lan", kindLabel: ROUTE_LABELS.lan, address: addr, ok: b.ok, ms: b.ms, skipped: b.skipped,
+      out.push({ dataK: "lan", kindLabel: t(ROUTE_LABELS.lan), address: addr, ok: b.ok, ms: b.ms, skipped: b.skipped,
         badge: b.badge, reason: b.reason, macs: macsMap[addr] ?? [], isLan: true, tone: b.tone,
         url: `http://${addr}/?token=${encodeURIComponent(rowTok)}` });
     }
@@ -730,6 +730,23 @@ function onRowClick() {
       </div>
     </div>
 
+    <div v-if="connectLines.length" class="cq-boot-meta" style="display:flex;flex-direction:column;gap:5px;width:100%">
+      <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
+        <div class="cq-dev-top">
+          <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
+          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? t('hub.probe.passed') : (ln.skipped ? t('hub.probe.skipped') : t('hub.probe.failed', { reason: ln.reason || t('hub.conn.fail') }))">{{ ln.badge }}</span>
+          <button type="button" class="cq-remote-act" :title="t('hub.conn.copyTitle')" @click.stop="copyUrl(ln.url, ln.address)">{{ t("common.copy") }}</button>
+          <button type="button" class="cq-remote-act" :title="t('hub.conn.openTitle')" @click.stop="openUrl(ln.url)">{{ t("hub.conn.openBrowser") }}</button>
+        </div>
+        <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
+        <div v-if="ln.macs && ln.macs.length" class="cq-dev-macrow">
+          <span v-for="(m, j) in ln.macs" :key="j" class="cq-dev-mac">{{ m }}</span>
+        </div>
+        <span v-if="ln.reason" class="cq-dev-reason">{{ ln.reason }}</span>
+      </div>
+    </div>
+
+
     <!-- 引导项区：所有引导器统一为「独立通道」，同一个按钮/同一个下拉，无特例 -->
     <div class="cq-row-boots">
       <div
@@ -756,22 +773,6 @@ function onRowClick() {
     </div>
 
     <!-- 连接通道连通性（旧版 cq-dev-line 逐地址/通道探测明细）：受「是否展示连通性」控制 -->
-    <div v-if="connectLines.length" class="cq-boot-meta" style="display:flex;flex-direction:column;gap:5px;width:100%">
-      <div v-for="(ln, i) in connectLines" :key="i" class="cq-dev-line">
-        <div class="cq-dev-top">
-          <span class="cq-remote-kind" :data-k="ln.dataK">{{ ln.kindLabel }}</span>
-          <span class="cq-probe-ms" :class="ln.tone" :title="ln.ok ? t('hub.probe.passed') : (ln.skipped ? t('hub.probe.skipped') : t('hub.probe.failed', { reason: ln.reason || t('hub.conn.fail') }))">{{ ln.badge }}</span>
-          <button type="button" class="cq-remote-act" :title="t('hub.conn.copyTitle')" @click.stop="copyUrl(ln.url, ln.address)">{{ t("common.copy") }}</button>
-          <button type="button" class="cq-remote-act" :title="t('hub.conn.openTitle')" @click.stop="openUrl(ln.url)">{{ t("hub.conn.openBrowser") }}</button>
-        </div>
-        <span class="cq-dev-addr" :title="ln.address">{{ ln.address }}</span>
-        <div v-if="ln.macs && ln.macs.length" class="cq-dev-macrow">
-          <span v-for="(m, j) in ln.macs" :key="j" class="cq-dev-mac">{{ m }}</span>
-        </div>
-        <span v-if="ln.reason" class="cq-dev-reason">{{ ln.reason }}</span>
-      </div>
-    </div>
-
     <!-- 电源区 -->
     <div class="cq-row-pwr">
       <div class="cq-col cq-col-pwr" role="cell">
