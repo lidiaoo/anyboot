@@ -2927,6 +2927,7 @@ class ComputerListActivity : ComponentActivity() {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(6.dp))
+                                            .background(if (selected) palette.ok.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent)
                                             .clickable(
                                                 indication = null,
                                                 interactionSource = remember { MutableInteractionSource() },
