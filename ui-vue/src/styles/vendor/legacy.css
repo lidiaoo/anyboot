@@ -1448,6 +1448,19 @@ body[data-grub-mode="inline"] .grub-list {
   box-shadow: inset 28px 0 0 -27px var(--border-strong);
 }
 
+/* 电脑列表下拉：一级组头 / 二级子项 / 选中高亮 —— 抄 Android 样式 */
+.cq-picker .grub-entry.is-group {
+  background: var(--panel-3);
+  box-shadow: inset 3px 0 0 0 var(--link);
+  border-radius: 6px;
+  padding-left: 12px;
+}
+.cq-picker .grub-entry.is-group .grub-entry-name { color: var(--link); font-weight: 700; }
+.cq-picker .grub-entry.is-group .grub-entry-count { color: var(--text-fainter, var(--text-dim)); }
+.cq-picker .grub-entry.is-child .grub-entry-name { color: var(--text); font-weight: 500; }
+.cq-picker .grub-entry.active { background: var(--ok-bg); border-color: var(--ok-border); }
+.cq-picker .grub-entry.active .grub-entry-name { color: var(--link); }
+
 /*
  * 不可选中的条目（组子项 readonly = rEFInd 里无点击处理器的项 / 有动作在跑时整体
  * disabled）统一置灰：降低不透明度 + 变暗 + 禁用光标，明确「点了不会切换」。
