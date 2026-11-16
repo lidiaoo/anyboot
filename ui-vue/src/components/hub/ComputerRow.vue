@@ -565,8 +565,8 @@ function bootEcho(kind: string): { label: string; dot: string; none: boolean; ti
 }
 /** 统一切换可用性 */
 function bootUsableFor(kind: string): boolean {
-  if (kind.startsWith("channel:")) {
-    const c = channelOf(kind);
+  if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
+    const c: any = channelOf(kind);
     return !!(c && c.available && (c.options?.length));
   }
   return bootUsable(kind as "refind" | "refindplus" | "grub");
@@ -736,7 +736,7 @@ function onRowClick() {
         v-for="kind in allKinds"
         :key="kind"
         class="cq-col cq-col-boot"
-        :class="{ 'cq-col-boot--ch': kind.startsWith('channel:') }"
+        :class="{ 'cq-col-boot--ch': (kind === 'sdboot' || kind === 'opencore' || kind === 'clover') }"
         role="cell"
         :data-label="t('hub.boot.col', { name: bootEcho(kind).title })"
       >
