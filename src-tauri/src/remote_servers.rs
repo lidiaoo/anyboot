@@ -4739,10 +4739,42 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
     }
 }
 
-/// Tauri 命令：所有通道（供本机前端直接拉）。
+/// 所有通道 + 多实例扩展（JSON，供 /api/boot-channels 与前端平铺列表）。
+/// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
+pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
+    let mut values: Vec<serde_json::Value> = all_channels(app)
+        .into_iter()
+        .map(|group| serde_json::to_value(group).unwrap_or(serde_json::Value::Null))
+        .collect();
+    let instances = crate::instances::scan_instances(app);
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for instance in instances {
+        let count = seen.entry(instance.kind.clone()).or_insert(0);
+        let is_primary = *count == 0;
+        *count += 1;
+        if is_primary {
+            continue; // 主实例已由上面 6 段承载
+        }
+        values.push(serde_json::json!({
+            "kind": instance.kind,
+            "title": instance.title,
+            "available": instance.available,
+            "current": "",
+            "next": "",
+            "saved": "",
+            "note": "多实例（只读，待接入独立切换）",
+            "instanceId": instance.instance_id,
+            "hidden": instance.hidden,
+            "options": []
+        }));
+    }
+    values
+}
+
+/// Tauri 命令：所有通道（含多实例扩展）。
 #[tauri::command]
-pub(crate) fn boot_channels_all(app: AppHandle) -> Vec<BootGroup> {
-    all_channels(&app)
+pub(crate) fn boot_channels_all(app: AppHandle) -> Vec<serde_json::Value> {
+    all_channels_json(&app)
 }
 
 pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Result<RemoteBootInfo, String> {

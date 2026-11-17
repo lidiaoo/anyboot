@@ -985,7 +985,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             return RemoteReply::ok(200, value);
         }
         "/api/boot-channels" => {
-            let value = serde_json::to_value(crate::remote_servers::all_channels(&app))
+            let value = serde_json::to_value(crate::remote_servers::all_channels_json(&app))
                 .unwrap_or_else(|_| serde_json::json!([]));
             return RemoteReply::ok(200, value);
         }

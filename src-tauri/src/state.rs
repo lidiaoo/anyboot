@@ -844,6 +844,10 @@ pub(crate) struct Settings {
     /// 下载源策略："auto"（直连→镜像回退，默认） / "direct"（只直连） /
     /// 镜像名（"ghfast" / "ghproxy"，只用该镜像）。
     pub(crate) update_mirror: String,
+    /// 引导器实例显示别名（instanceId -> 名称）
+    pub(crate) boot_instance_aliases: std::collections::HashMap<String, String>,
+    /// 隐藏的引导器实例（instanceId 列表；不删除，只从列表隐藏）
+    pub(crate) boot_instance_hidden: Vec<String>,
 }
 
 impl Settings {
@@ -948,6 +952,8 @@ impl Default for Settings {
             update_auto_check: true,
             update_skip_version: String::new(),
             update_mirror: UPDATE_MIRROR_AUTO.to_string(),
+            boot_instance_aliases: std::collections::HashMap::new(),
+            boot_instance_hidden: Vec::new(),
         }
     }
 }

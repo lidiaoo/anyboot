@@ -24,6 +24,8 @@ pub(crate) struct BootInstanceRef {
     /// ESP 内相对安装目录（或 Linux /boot 下的路径）
     pub install_dir: String,
     pub available: bool,
+    /// 是否被设置隐藏（不删除，只是不在主列表展示）
+    pub hidden: bool,
 }
 
 const KINDS: [&str; 6] = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
@@ -121,6 +123,7 @@ fn rel_of(root: &Path, dir: &Path) -> String {
 
 /// 枚举本机所有候选根上的所有引导器实例。
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
+    let settings = crate::stored_settings(app);
     let roots = crate::channels::esp_candidates(app);
     let mut out: Vec<BootInstanceRef> = Vec::new();
     for root in roots {
@@ -161,14 +164,22 @@ pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
                 if out.iter().any(|known| known.instance_id == instance_id) {
                     continue;
                 }
+                let display = settings
+                    .boot_instance_aliases
+                    .get(&instance_id)
+                    .cloned()
+                    .filter(|text| !text.trim().is_empty())
+                    .unwrap_or_else(|| format!("{} · {}", kind_title(kind), short_part));
+                let hidden = settings.boot_instance_hidden.iter().any(|id| id == &instance_id);
                 out.push(BootInstanceRef {
                     kind: kind.to_string(),
                     instance_id,
-                    title: format!("{} · {}", kind_title(kind), short_part),
+                    title: display,
                     partition: part.clone(),
                     origin: "esp".to_string(),
                     install_dir: rel,
                     available: true,
+                    hidden,
                 });
             }
         }
