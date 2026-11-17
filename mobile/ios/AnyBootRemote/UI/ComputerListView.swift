@@ -1244,7 +1244,13 @@ struct ComputerListView: View {
     }
     private func instanceTitle(_ group: BootGroup) -> String {
         let saved = instanceAliases[instanceKey(group)] ?? ""
-        return saved.isEmpty ? group.title : saved
+        if !saved.isEmpty { return saved }
+        // 从 instanceId 派生：kind@/Volumes/<卷名>/... → "类型 · 卷名"（同类多实例可区分）
+        let parts = group.instanceId.split(separator: "/").map(String.init)
+        if let index = parts.firstIndex(of: "Volumes"), index + 1 < parts.count {
+            return "\(BootKind.defaultTitle(group.kind)) · \(parts[index + 1])"
+        }
+        return group.title.isEmpty ? BootKind.defaultTitle(group.kind) : group.title
     }
     private func persistInstancePrefs() {
         UserDefaults.standard.set(instanceAliases, forKey: "anyboot.instanceAliases")

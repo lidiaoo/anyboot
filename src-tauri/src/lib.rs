@@ -1032,8 +1032,13 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         }
         // 所有引导器实例（多实例模型：同类型可多个，平铺列表用）
         "/api/boot-instances" => {
-            let value = serde_json::to_value(crate::instances::scan_instances(&app))
-                .unwrap_or_else(|_| serde_json::json!([]));
+            let deep = matches!(request.param("deep").as_deref(), Some("1") | Some("true"));
+            let list = if deep {
+                crate::instances::scan_instances_deep(&app)
+            } else {
+                crate::instances::scan_instances(&app)
+            };
+            let value = serde_json::to_value(list).unwrap_or_else(|_| serde_json::json!([]));
             return RemoteReply::ok(200, value);
         }
         "/api/boot-channels" => {

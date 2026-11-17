@@ -2327,7 +2327,14 @@ class ComputerListActivity : ComponentActivity() {
     private fun instanceKey(group: BootGroup): String = group.instanceId.ifEmpty { group.kind }
     private fun instanceAlias(group: BootGroup): String {
         val saved = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString("boot_instance_alias:" + instanceKey(group), "") ?: ""
-        return saved.ifEmpty { group.title }
+        if (saved.isNotEmpty()) return saved
+        // 从 instanceId 派生：kind@/Volumes/<卷名>/... → "类型 · 卷名"
+        val parts = group.instanceId.split("/")
+        val index = parts.indexOf("Volumes")
+        if (index >= 0 && index + 1 < parts.size) {
+            return channelTitle(group.kind) + " · " + parts[index + 1]
+        }
+        return group.title.ifEmpty { channelTitle(group.kind) }
     }
     private fun instanceHidden(group: BootGroup): Boolean =
         getSharedPreferences(UI_PREFS, MODE_PRIVATE).getBoolean("boot_instance_hidden:" + instanceKey(group), false)

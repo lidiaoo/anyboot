@@ -126,11 +126,20 @@ fn rel_of(root: &Path, dir: &Path) -> String {
 
 /// 枚举本机所有候选根上的所有引导器实例。
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
+    scan_instances_opts(app, false)
+}
+
+/// 深度扫描：枚举未挂载 ESP 并尝试只读/系统挂载（可能慢/弹授权）。
+pub(crate) fn scan_instances_deep(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
+    scan_instances_opts(app, true)
+}
+
+fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRef> {
     let settings = crate::stored_settings(app);
     let mut roots = crate::channels::esp_candidates(app);
     // 深度枚举（diskutil info -all / lsblk 全盘 + 未挂载挂载）默认关闭：
     // 用户可显式 ANYBOOT_DEEP_SCAN=1 触发，避免每次刷新阻塞十几秒。
-    if std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
+    if deep || std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
         for extra in extra_esp_roots() {
             if !roots.iter().any(|known| known == &extra) {
                 roots.push(extra);
