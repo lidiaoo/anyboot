@@ -978,6 +978,43 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         // 三引导器通道视图（鉴权后）：网页端 / 手机端消费同一份
+        // 设置实例别名（?instance=&alias=）
+        "/api/boot-instance-alias" => {
+            let instance = request.param("instance").unwrap_or_default().trim().to_string();
+            let alias = request.param("alias").unwrap_or_default().trim().to_string();
+            if instance.is_empty() {
+                return RemoteReply::error(400, "missing_instance", "缺少 instance 参数");
+            }
+            let mut settings = stored_settings(&app);
+            if alias.is_empty() {
+                settings.boot_instance_aliases.remove(&instance);
+            } else {
+                settings.boot_instance_aliases.insert(instance.clone(), alias);
+            }
+            if let Err(error) = save_settings(&app, &settings) {
+                return RemoteReply::error(500, "save_failed", &error);
+            }
+            crate::channels::refresh_channels(&app);
+            return RemoteReply::ok(200, serde_json::json!({ "ok": true }));
+        }
+        // 隐藏/恢复实例（?instance=&hidden=1/0）
+        "/api/boot-instance-hidden" => {
+            let instance = request.param("instance").unwrap_or_default().trim().to_string();
+            let hidden = matches!(request.param("hidden").as_deref(), Some("1") | Some("true"));
+            if instance.is_empty() {
+                return RemoteReply::error(400, "missing_instance", "缺少 instance 参数");
+            }
+            let mut settings = stored_settings(&app);
+            settings.boot_instance_hidden.retain(|known| known != &instance);
+            if hidden {
+                settings.boot_instance_hidden.push(instance.clone());
+            }
+            if let Err(error) = save_settings(&app, &settings) {
+                return RemoteReply::error(500, "save_failed", &error);
+            }
+            crate::channels::refresh_channels(&app);
+            return RemoteReply::ok(200, serde_json::json!({ "ok": true }));
+        }
         // 所有引导器实例（多实例模型：同类型可多个，平铺列表用）
         "/api/boot-instances" => {
             let value = serde_json::to_value(crate::instances::scan_instances(&app))
@@ -2959,6 +2996,52 @@ fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 设置某个引导器实例的显示别名（空 = 恢复自动名）。
+#[tauri::command]
+fn set_boot_instance_alias(app: AppHandle, instance_id: String, alias: String) -> Result<(), String> {
+    let id = instance_id.trim().to_string();
+    if id.is_empty() {
+        return Err("instanceId 不能为空".to_string());
+    }
+    update_settings_and_publish(
+        &app,
+        "引导器实例别名",
+        "已更新实例名称",
+        |settings| {
+            let name = alias.trim().to_string();
+            if name.is_empty() {
+                settings.boot_instance_aliases.remove(&id);
+            } else {
+                settings.boot_instance_aliases.insert(id.clone(), name);
+            }
+        },
+        |app| crate::channels::refresh_channels(app),
+    )?;
+    Ok(())
+}
+
+/// 隐藏/恢复某个引导器实例（不删除）。
+#[tauri::command]
+fn set_boot_instance_hidden(app: AppHandle, instance_id: String, hidden: bool) -> Result<(), String> {
+    let id = instance_id.trim().to_string();
+    if id.is_empty() {
+        return Err("instanceId 不能为空".to_string());
+    }
+    update_settings_and_publish(
+        &app,
+        "引导器实例隐藏",
+        if hidden { "已隐藏实例" } else { "已恢复实例" },
+        |settings| {
+            settings.boot_instance_hidden.retain(|known| known != &id);
+            if hidden {
+                settings.boot_instance_hidden.push(id.clone());
+            }
+        },
+        |app| crate::channels::refresh_channels(app),
+    )?;
+    Ok(())
+}
+
 /// 设置窗口不透明度（百分比，0–100；0 = 全透明但窗口还在）
 #[tauri::command]
 fn set_opacity(app: AppHandle, percent: u32) -> Result<(), String> {
@@ -3877,6 +3960,8 @@ pub fn run() {
             backup::backup_pick_export_path,
             crate::remote_servers::boot_channels_all,
             crate::instances::boot_instances,
+            set_boot_instance_alias,
+            set_boot_instance_hidden,
             channels::switch_boot_channel,
             // rEFInd 模拟引导项扫描（与手动获取的 vars 快照并列）
             channels::refind_menu::refind_sim_scan,

@@ -1763,7 +1763,7 @@ struct ComputerListView: View {
                     } else {
                         Button {
                             sheet = nil
-                            switchBoot(profile, kind: group.kind, value: option.value, verb: L("and.switchAction"))
+                            switchBoot(profile, kind: group.instanceId.isEmpty ? group.kind : group.instanceId, value: option.value, verb: L("and.switchAction"))
                         } label: {
                             pickerOptionLabel(displayRow, option: option, selected: selected)
                         }

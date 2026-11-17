@@ -2844,7 +2844,7 @@ class ComputerListActivity : ComponentActivity() {
                                                     toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
-                                                    switchBoot(rid, group.kind, opt.value, getString(R.string.and_switchAction), opt.label)
+                                                    switchBoot(rid, group.instanceId.ifEmpty { group.kind }, opt.value, getString(R.string.and_switchAction), opt.label)
                                                 }
                                             }
                                             .padding(

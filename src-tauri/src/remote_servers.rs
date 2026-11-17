@@ -4815,11 +4815,28 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
 /// 所有通道 + 多实例扩展（JSON，供 /api/boot-channels 与前端平铺列表）。
 /// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
 pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
-    let mut values: Vec<serde_json::Value> = all_channels(app)
-        .into_iter()
-        .map(|group| serde_json::to_value(group).unwrap_or(serde_json::Value::Null))
-        .collect();
     let instances = crate::instances::scan_instances(app);
+    let mut primary: std::collections::HashMap<String, crate::instances::BootInstanceRef> =
+        std::collections::HashMap::new();
+    for instance in &instances {
+        primary.entry(instance.kind.clone()).or_insert_with(|| instance.clone());
+    }
+    let mut values: Vec<serde_json::Value> = Vec::new();
+    for group in all_channels(app) {
+        if let Some(first) = primary.get(&group.kind) {
+            if first.hidden {
+                continue; // 主实例被隐藏：整个类型暂不展示
+            }
+            let mut value = serde_json::to_value(&group).unwrap_or(serde_json::Value::Null);
+            if let Some(object) = value.as_object_mut() {
+                object.insert("title".into(), serde_json::Value::String(first.title.clone()));
+                object.insert("instanceId".into(), serde_json::Value::String(first.instance_id.clone()));
+            }
+            values.push(value);
+        } else {
+            values.push(serde_json::to_value(group).unwrap_or(serde_json::Value::Null));
+        }
+    }
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for instance in instances {
         let count = seen.entry(instance.kind.clone()).or_insert(0);
@@ -5259,7 +5276,8 @@ fn remote_boot_switch_blocking(
     let kind = kind.trim();
     // 通道列是 `channel:<id>`（一张表里可能同时有几列通道，前端拿它当唯一键）；
     // 这里只认前缀，具体是哪个通道由 value（spec）自己带。
-    let base_kind = kind.split(':').next().unwrap_or(kind);
+    // 兼容 instanceId：kind 可能是 "opencore@PARTUUID/EFI/OC" 或 "channel:opencore"
+    let base_kind = kind.split([':', '@']).next().unwrap_or(kind);
     // 本机行：直连 IPC —— 直接调远程命令的进程内执行入口（与 CLI/HTTP 走的
     // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
     if server_id == "local" {
