@@ -2752,27 +2752,6 @@ class ComputerListActivity : ComponentActivity() {
                         maxLines = 1,
                     )
                     Spacer(Modifier.weight(1f))
-                    if (!help && profile != null) {
-                        Text(
-                            profile.displayName(),
-                            fontSize = 11.sp,
-                            color = palette.fgFaint,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Box(
-                        Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(palette.elevate)
-                            .clickable { sheetRequest = null },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CloseIcon(tint = palette.fgDim, size = 13.dp)
-                    }
                 }
                 // head 底边框（.cq-picker-head 的 border-bottom）
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line))

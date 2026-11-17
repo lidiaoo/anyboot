@@ -1593,22 +1593,6 @@ struct ComputerListView: View {
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
                         Spacer(minLength: ABMetric.px(8))
-                        if !help, let profile {
-                            Text(profile.displayName)
-                                .font(.system(size: 11))
-                                .foregroundColor(ABColor.fgFaint)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        Button {
-                            sheet = nil
-                        } label: {
-                            DrawnIcon.close(ABColor.fgDim, size: ABMetric.px(14))
-                                .frame(width: ABMetric.px(30), height: ABMetric.px(30))
-                                .background(Circle().fill(ABColor.elevate))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.leading, ABMetric.px(8))
                     }
                     .padding(.leading, ABMetric.px(18))
                     .padding(.trailing, ABMetric.px(8))
