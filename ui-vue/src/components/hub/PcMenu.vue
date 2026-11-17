@@ -22,6 +22,12 @@ const { t } = useI18n();
  */
 
 const settings = useSettingsStore();
+const grubFmt = ref(settings.grubListFormat || "simple");
+function setGrubFmt(fmt: string) {
+  void import("@/api/tauri").then(({ call }) =>
+    call("set_grub_list_format", { format: fmt }).then(() => { grubFmt.value = fmt; open.value = false; }).catch((e) => { toast.show("切换格式失败：" + e, "bad"); }),
+  );
+}
 const open = ref(false);
 useEscape(open, () => { open.value = false; });
 const rootRef = ref<HTMLElement | null>(null);
@@ -237,6 +243,14 @@ const customActive = computed(() => !refreshOptions.includes(settings.dataRefres
       <div class="caption">{{ t("menu.capOpenMode") }}</div>
       <button role="menuitem" type="button" data-openmode="inline" :class="{ 'is-on': openMode === 'inline' }" @click="setOpenMode('inline')">{{ t("menu.openInline") }}</button>
       <button role="menuitem" type="button" data-openmode="goto" :class="{ 'is-on': openMode === 'goto' }" @click="setOpenMode('goto')">{{ t("menu.openGoto") }}</button>
+
+      <div class="divider" />
+      <div class="caption">{{ t("menu.capGrubFmt") }}</div>
+      <button role="menuitem" type="button" data-grubfmt="minimal" :class="{ 'is-on': grubFmt === 'minimal' }" @click="setGrubFmt('minimal')">{{ t("menu.grubMinimal") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="simple" :class="{ 'is-on': grubFmt === 'simple' }" @click="setGrubFmt('simple')">{{ t("menu.grubSimple") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="medium" :class="{ 'is-on': grubFmt === 'medium' }" @click="setGrubFmt('medium')">{{ t("menu.grubMedium") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="raw" :class="{ 'is-on': grubFmt === 'raw' }" @click="setGrubFmt('raw')">{{ t("menu.grubRaw") }}</button>
+      <button role="menuitem" type="button" data-grubfmt="detailed" :class="{ 'is-on': grubFmt === 'detailed' }" @click="setGrubFmt('detailed')">{{ t("menu.grubDetailed") }}</button>
 
       <div class="divider" />
       <div class="caption">{{ t("menu.capOrder") }}</div>

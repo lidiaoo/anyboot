@@ -71,6 +71,7 @@ const isLocal = computed(() => props.row.id === "local");
 const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null>(null);
 const ui = useUiStateStore();
 const appSettings = useSettingsStore();
+const pickerFmt = ref<string>(""); // 空 = 跟随电脑（settings.grubListFormat）
 /** 本机：引导器数据以「系统引导页」同源快照为准（linuxGrub/refindSim/channel.menuPreview），转换规则与 BootList 一致。 */
 function localEntries(kind: string): { entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null {
   if (kind === "grub") {
@@ -125,6 +126,7 @@ interface PickerSource {
 }
 
 async function openPicker(kind: string) {
+  pickerFmt.value = "";
   const isGrubKind = kind === "grub";
   const isRefindKind = kind === "refind" || kind === "refindplus";
   const isChannelKind = kind === "sdboot" || kind === "opencore" || kind === "clover";
@@ -381,6 +383,15 @@ const connLabel = computed(() => (isLocal.value ? t("hub.conn.local") : online.v
 
 /** 引导项值 */
 /** 旧 cqBootCell 状态：label + 是否不可改(--none) + 内核点色 k-{class} */
+const fmtChoices = [
+  { v: "", label: "hub.picker.fmt.follow" },
+  { v: "minimal", label: "hub.picker.fmt.minimal" },
+  { v: "simple", label: "hub.picker.fmt.simple" },
+  { v: "medium", label: "hub.picker.fmt.medium" },
+  { v: "raw", label: "hub.picker.fmt.raw" },
+  { v: "detailed", label: "hub.picker.fmt.detailed" },
+];
+
 function localTitle(kind: string): string {
   if (kind === "refind") return "rEFInd"; if (kind === "refindplus") return "RefindPlus"; if (kind === "grub") return "GRUB";
   const id = kind.startsWith("channel:") ? kind.slice(8) : kind;
@@ -919,9 +930,17 @@ function onRowClick() {
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
       <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="t('hub.picker.ariaTitle', { title: picker.title })">
         <div class="cq-picker-head">{{ t("hub.picker.title", { loader: picker.title }) }}</div>
+        <div class="cq-picker-fmt">
+          <span class="cq-picker-fmt-label">{{ t("hub.picker.fmtTitle") }}</span>
+          <div class="cq-picker-fmt-chips">
+            <button v-for="c in fmtChoices" :key="c.v" type="button"
+              :class="['cq-fmt-chip', { 'is-on': pickerFmt === c.v }]"
+              @click="pickerFmt = c.v">{{ t(c.label) }}</button>
+          </div>
+        </div>
         <div class="cq-picker-list">
           <GrubList
-            :format="appSettings.grubListFormat"
+            :format="pickerFmt || appSettings.grubListFormat"
             :entries="picker.entries"
             :active-selector="picker.active"
             :group-titles="picker.groupTitles"
