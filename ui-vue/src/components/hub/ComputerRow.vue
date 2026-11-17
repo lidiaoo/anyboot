@@ -644,15 +644,25 @@ function bootEcho(kind: string): { label: string; dot: string; none: boolean; ti
     if (!g.available) return { label: t("hub.state.notDetected"), dot: "", none: true, title };
     const opts: any[] = (g.options ?? []) as any[];
     const cur = String(g.current ?? "").trim();
-    const hit =
-      opts.find((o: any) => !o.header && o.value === cur) ||
-      opts.find((o: any) => !o.header && cur && String(o.label ?? "").includes(cur));
-    return {
-      label: hit?.label || cur || t("hub.state.notSelected"),
-      dot: hit?.class || "",
-      none: false,
-      title,
-    };
+    let hitIndex = opts.findIndex((o: any) => !o.header && o.value === cur);
+    if (hitIndex < 0 && cur) {
+      hitIndex = opts.findIndex((o: any) => !o.header && String(o.label ?? "").includes(cur));
+    }
+    const hit = hitIndex >= 0 ? opts[hitIndex] : undefined;
+    let label = hit?.label || cur || t("hub.state.notSelected");
+    if (hit?.child && hitIndex > 0) {
+      for (let k = hitIndex - 1; k >= 0; k -= 1) {
+        if (opts[k].header) {
+          const parent = String(opts[k].label ?? "")
+            .replace(/^[▾▸\s]+/, "")
+            .replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "")
+            .trim();
+          if (parent) label = `${parent} › ${label}`;
+          break;
+        }
+      }
+    }
+    return { label, dot: hit?.class || "", none: false, title };
   }
   if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
     const e = channelEcho(kind);
