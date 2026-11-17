@@ -1687,16 +1687,31 @@ struct ComputerListView: View {
     private func pinnedBootRow(_ group: BootGroup) -> some View {
         let rows = unifiedRows(group)
         if let pr = rows.first(where: { $0.pinned }), let po = pr.option {
-            let plain: GrubRow = {
-                var copy = pr
-                copy.child = false   // 置顶行不缩进、不画竖线（对齐 Android PinnedBootRow）
-                return copy
-            }()
-            pickerOptionLabel(plain, option: po, selected: true)
-                .padding(.horizontal, ABMetric.px(8))
-                .padding(.vertical, ABMetric.px(7))
-                .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
-                .overlay(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).strokeBorder(ABColor.ok.opacity(0.55), lineWidth: 1))
+            // 直接抄 Android PinnedBootRowFixed：徽标 + 图标文字（无勾/无独立图标列）+ 行下小字
+            VStack(alignment: .leading, spacing: ABMetric.px(2)) {
+                HStack(spacing: ABMetric.px(6)) {
+                    Text(L("hub.picker.pinned"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(ABColor.onAccent)
+                        .padding(.horizontal, ABMetric.px(5))
+                        .padding(.vertical, ABMetric.px(1))
+                        .background(RoundedRectangle(cornerRadius: ABMetric.px(5), style: .continuous).fill(ABColor.accent))
+                    Text(GrubFormat.osIcon(po.kind) + pr.text)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(ABColor.fg)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if !pr.trailing.isEmpty {
+                    Text(pr.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
+                }
+            }
+            .padding(.horizontal, ABMetric.px(9))
+            .padding(.vertical, ABMetric.px(7))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).strokeBorder(ABColor.ok.opacity(0.55), lineWidth: 1))
         }
     }
 
