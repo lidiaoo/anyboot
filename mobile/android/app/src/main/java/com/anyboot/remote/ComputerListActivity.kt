@@ -18,6 +18,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -184,6 +186,8 @@ class ComputerListActivity : ComponentActivity() {
     private var query by mutableStateOf("")
     private var filter by mutableStateOf(FILTER_ALL)
     private var sheetRequest by mutableStateOf<SheetRequest?>(null)
+    private var instanceMenuGroup by mutableStateOf<BootGroup?>(null)
+    private var instanceRenameText by mutableStateOf("")
 
     // ---- 系统信息弹层（点系统徽标 / 行菜单「系统信息」打开） ----
     // 「在浏览器打开」多地址选择弹窗
@@ -367,6 +371,7 @@ class ComputerListActivity : ComponentActivity() {
                 }
 
                 sheetRequest?.let { request -> PickSheet(request) }
+                instanceMenuGroup?.let { group -> InstanceMenuDialog(group) }
                 if (editOpen) EditSheet(editTarget)
                 deleteTarget?.let { profile -> DeleteConfirm(profile) }
                 if (moreServerListOpen) MoreServerListDialog()
@@ -1574,7 +1579,7 @@ class ComputerListActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 11.dp),
             ) {
-                row.channels.filter { !it.hidden }.forEach { group -> BootButton(row, group.kind, group) }
+                row.channels.filter { !it.hidden && !instanceHidden(it) }.forEach { group -> BootButton(row, group.kind, group) }
             }
 
             // 待生效提示条：挂起倒计时（远程/手机发的请求 N 秒后执行，可撤销）优先
@@ -2319,11 +2324,66 @@ class ComputerListActivity : ComponentActivity() {
 
     // ---- 引导项按钮 --------------------------------------------------
 
+    private fun instanceKey(group: BootGroup): String = group.instanceId.ifEmpty { group.kind }
+    private fun instanceAlias(group: BootGroup): String {
+        val saved = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString("boot_instance_alias:" + instanceKey(group), "") ?: ""
+        return saved.ifEmpty { group.title }
+    }
+    private fun instanceHidden(group: BootGroup): Boolean =
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).getBoolean("boot_instance_hidden:" + instanceKey(group), false)
+    private fun saveInstanceAlias(group: BootGroup, alias: String) {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putString("boot_instance_alias:" + instanceKey(group), alias.trim()).apply()
+    }
+    private fun setInstanceHidden(group: BootGroup, hidden: Boolean) {
+        getSharedPreferences(UI_PREFS, MODE_PRIVATE).edit().putBoolean("boot_instance_hidden:" + instanceKey(group), hidden).apply()
+    }
+
     @Composable
+    private fun InstanceMenuDialog(group: BootGroup) {
+        val palette = LocalPalette.current
+        AlertDialog(
+            onDismissRequest = { instanceMenuGroup = null },
+            containerColor = palette.card,
+            title = { Text("实例管理", fontSize = 14.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text("类型：${group.kind}", fontSize = 12.sp, color = palette.fgFaint)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = instanceRenameText,
+                        onValueChange = { instanceRenameText = it },
+                        label = { Text("显示名称（留空 = 隐藏该实例）", fontSize = 11.sp) },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = instanceRenameText.trim()
+                    if (name.isEmpty()) {
+                        setInstanceHidden(group, true)
+                    } else {
+                        saveInstanceAlias(group, name)
+                        setInstanceHidden(group, false)
+                    }
+                    instanceMenuGroup = null
+                }) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    setInstanceHidden(group, false)
+                    instanceMenuGroup = null
+                }) { Text("恢复显示") }
+            },
+        )
+    }
+
+    @Composable
+    @OptIn(ExperimentalFoundationApi::class)
     private fun BootButton(row: CqRow, kind: String, group: BootGroup) {
         val palette = LocalPalette.current
         val tone = LocalTone.current
-        val title = group.title
+        val title = instanceAlias(group)
         val work = busy[row.profile.id]
         val working = work != null && work.startsWith("boot:")
         val pending = grubPending(group)
@@ -2368,14 +2428,20 @@ class ComputerListActivity : ComponentActivity() {
                     if (usable) Modifier.border(1.dp, borderColor, shape)
                     else Modifier.dashedBorder(borderColor, 11.dp, 1.dp)
                 )
-                .clickable(enabled = true) {
-                    when {
-                        !usable -> toast(getString(R.string.error_busy))
-                        group.options.isEmpty() -> toast(getString(R.string.error_noBootOptions, title))
-                        row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
-                        else -> sheetRequest = SheetRequest(row.profile.id, group.kind, group)
-                    }
-                }
+                .combinedClickable(
+                    onClick = {
+                        when {
+                            !usable -> toast(getString(R.string.error_busy))
+                            group.options.isEmpty() -> toast(getString(R.string.error_noBootOptions, title))
+                            row.state != STATE_ONLINE -> toast(getString(R.string.error_deviceOffline))
+                            else -> sheetRequest = SheetRequest(row.profile.id, group.kind, group)
+                        }
+                    },
+                    onLongClick = {
+                        instanceRenameText = instanceAlias(group)
+                        instanceMenuGroup = group
+                    },
+                )
                 .padding(start = 11.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
         ) {
             // 第一行：引导器名（用 group.title，不再按 kind 写死）
