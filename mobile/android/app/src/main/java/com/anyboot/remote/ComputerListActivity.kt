@@ -2757,7 +2757,9 @@ class ComputerListActivity : ComponentActivity() {
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line))
 
                 // —— 固定区：悬浮置顶（滚动不动，对齐 PC sticky）——
-                if (pinned != null) PinnedBootRowFixed(pinned, palette)
+                if (pinned != null) {
+                    Box(Modifier.padding(horizontal = 12.dp)) { PinnedBootRowFixed(pinned, palette) }
+                }
                 // 列表区：滚动 + 右缘 4dp 自绘滚动条（对齐 web 滚动条视觉）
                 BoxWithConstraints(Modifier.weight(1f)) {
                     val scrollState = rememberScrollState()
@@ -2765,7 +2767,7 @@ class ComputerListActivity : ComponentActivity() {
                         Modifier
                             .fillMaxWidth()
                             .verticalScroll(scrollState)
-                            .padding(6.dp),
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         if (help) {
                             HELP_LINES.forEach { line ->
