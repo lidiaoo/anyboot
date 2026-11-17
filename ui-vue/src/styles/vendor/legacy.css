@@ -1466,7 +1466,7 @@ body[data-grub-mode="inline"] .grub-list {
 /* 电脑列表下拉：一级组头 / 二级子项 / 选中高亮 —— 抄 Android 样式 */
 .cq-picker .grub-entry.is-group {
   background: var(--panel-3);
-  box-shadow: none;
+  box-shadow: inset 3px 0 0 0 var(--link);
   border-radius: 6px;
   padding-left: 12px;
 }
@@ -5630,7 +5630,7 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 }
 
 /* 主界面/高级设置 引导列表：同款 Android 样式（一级 accent 加粗+竖条+浅底；二级缩进+居中短线；选中绿底） */
-.ba-theme-root .grub-entry.is-group { background: var(--panel-3); box-shadow: none; border-radius: 6px; padding-left: 12px; }
+.ba-theme-root .grub-entry.is-group { background: var(--panel-3); box-shadow: inset 3px 0 0 0 var(--link); border-radius: 6px; padding-left: 12px; }
 .ba-theme-root .grub-entry.is-group .grub-entry-name { color: var(--link); font-weight: 700; }
 .ba-theme-root .grub-entry.is-group .grub-entry-count { color: var(--text-fainter, var(--text-dim)); }
 .ba-theme-root .grub-entry.is-child { padding-left: 26px; box-shadow: none; position: relative; }
@@ -5671,7 +5671,7 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
   left: 28px;
 }
 #tab-boot .grub-entry.is-group, #tab-adv-boot .grub-entry.is-group {
-  background: var(--panel-3); box-shadow: none; border-radius: 6px; padding-left: 12px;
+  background: var(--panel-3); box-shadow: inset 3px 0 0 0 var(--link); border-radius: 6px; padding-left: 12px;
 }
 #tab-boot .grub-entry.is-group .grub-entry-name, #tab-adv-boot .grub-entry.is-group .grub-entry-name {
   color: var(--link); font-weight: 700;

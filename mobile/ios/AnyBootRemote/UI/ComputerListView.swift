@@ -1721,6 +1721,9 @@ struct ComputerListView: View {
                     .padding(.trailing, ABMetric.px(9))
                     .padding(.vertical, ABMetric.px(7))
                     .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.elevate))
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(ABColor.accent).frame(width: ABMetric.px(3))
+                    }
                     .padding(.top, ABMetric.px(4))
                 } else if let option = row.option {
                     let selected = row.pinned
