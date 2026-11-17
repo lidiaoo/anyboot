@@ -2869,14 +2869,6 @@ class ComputerListActivity : ComponentActivity() {
                                             .padding(top = 4.dp)
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(palette.elevate)
-                                            .drawBehind {
-                                                drawRect(palette.elevate)
-                                                drawRect(
-                                                    palette.accent,
-                                                    topLeft = Offset(0f, 0f),
-                                                    size = Size(3.dp.toPx(), size.height),
-                                                )
-                                            }
                                             .padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
                                     ) {
                                         Text(
