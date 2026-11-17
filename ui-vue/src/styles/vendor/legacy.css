@@ -5696,3 +5696,25 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .ba-theme-root .grub-entry.depth-2::before, .ba-theme-root .grub-entry.depth-3::before, .ba-theme-root .grub-entry.depth-4::before,
 #tab-boot .grub-entry.depth-2::before, #tab-boot .grub-entry.depth-3::before, #tab-boot .grub-entry.depth-4::before,
 #tab-adv-boot .grub-entry.depth-2::before, #tab-adv-boot .grub-entry.depth-3::before, #tab-adv-boot .grub-entry.depth-4::before { left: 28px; }
+
+/* 一级(顶层可选中)不缩进；二级(is-sub=depth>0)才缩进+竖线（三处统一） */
+.cq-picker .grub-entry.is-child:not(.is-sub),
+.ba-theme-root .grub-entry.is-child:not(.is-sub),
+#tab-boot .grub-entry.is-child:not(.is-sub),
+#tab-adv-boot .grub-entry.is-child:not(.is-sub) { padding-left: 9px; box-shadow: none; }
+.cq-picker .grub-entry.is-sub,
+.ba-theme-root .grub-entry.is-sub,
+#tab-boot .grub-entry.is-sub,
+#tab-adv-boot .grub-entry.is-sub { padding-left: 26px; box-shadow: none; position: relative; }
+.cq-picker .grub-entry.is-sub::before,
+.ba-theme-root .grub-entry.is-sub::before,
+#tab-boot .grub-entry.is-sub::before,
+#tab-adv-boot .grub-entry.is-sub::before { content: ""; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 1px; height: 20px; background: var(--border-strong); }
+.cq-picker .grub-entry.is-sub.depth-2, .cq-picker .grub-entry.is-sub.depth-3, .cq-picker .grub-entry.is-sub.depth-4,
+.ba-theme-root .grub-entry.is-sub.depth-2, .ba-theme-root .grub-entry.is-sub.depth-3, .ba-theme-root .grub-entry.is-sub.depth-4,
+#tab-boot .grub-entry.is-sub.depth-2, #tab-boot .grub-entry.is-sub.depth-3, #tab-boot .grub-entry.is-sub.depth-4,
+#tab-adv-boot .grub-entry.is-sub.depth-2, #tab-adv-boot .grub-entry.is-sub.depth-3, #tab-adv-boot .grub-entry.is-sub.depth-4 { padding-left: 42px; }
+.cq-picker .grub-entry.is-sub.depth-2::before, .cq-picker .grub-entry.is-sub.depth-3::before, .cq-picker .grub-entry.is-sub.depth-4::before,
+.ba-theme-root .grub-entry.is-sub.depth-2::before, .ba-theme-root .grub-entry.is-sub.depth-3::before, .ba-theme-root .grub-entry.is-sub.depth-4::before,
+#tab-boot .grub-entry.is-sub.depth-2::before, #tab-boot .grub-entry.is-sub.depth-3::before, #tab-boot .grub-entry.is-sub.depth-4::before,
+#tab-adv-boot .grub-entry.is-sub.depth-2::before, #tab-adv-boot .grub-entry.is-sub.depth-3::before, #tab-adv-boot .grub-entry.is-sub.depth-4::before { left: 28px; }

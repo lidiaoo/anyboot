@@ -127,6 +127,8 @@ const clickable = computed(() => !props.group && !props.disabled && !props.entry
 const classes = computed(() => [
   "grub-entry",
   props.group ? "is-group" : "is-child",
+  // is-sub = 真正的二级子项（depth>0）；一级(顶层可选中)不加，避免被缩进
+  !props.group && props.depth > 0 ? "is-sub" : "",
   props.depth >= 2 ? `depth-${props.depth}` : "",
   props.active ? "active" : "",
   props.pinned ? "is-pinned" : "",
