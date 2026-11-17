@@ -1760,11 +1760,12 @@ struct ComputerListView: View {
                 let isCurrent = !option.value.isEmpty && option.value == group.current && !currentMarked
                 if isCurrent { currentMarked = true }
                 // 置顶行名称 = 一级（父组）＋二级（子项），与 PC/Android 一致
-                let text = (isCurrent && inGroup && !groupTitle.isEmpty) ? "\(groupTitle) › \(label)" : label
+                let isChild = option.child
+                let text = (isCurrent && isChild && !groupTitle.isEmpty) ? "\(groupTitle) › \(label)" : label
                 var trailing = option.tag
                 if trailing.isEmpty { trailing = option.sub }
                 rows.append(GrubRow(option: option, text: text, isGroup: false,
-                                    pinned: isCurrent, child: inGroup,
+                                    pinned: isCurrent, child: isChild,
                                     fixed: option.fixed, trailing: trailing))
             }
         }

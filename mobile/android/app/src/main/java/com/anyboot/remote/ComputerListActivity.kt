@@ -2463,7 +2463,7 @@ class ComputerListActivity : ComponentActivity() {
                     break
                 }
             }
-            val text = if (groupLabel.isNotEmpty()) "$groupLabel › $label" else label
+            val text = if (hit.child && groupLabel.isNotEmpty()) "$groupLabel › $label" else label
             return text to grubOsIcon(hit.kind, label)
         }
         return current.ifEmpty { getString(R.string.hub_state_notSet) } to ""

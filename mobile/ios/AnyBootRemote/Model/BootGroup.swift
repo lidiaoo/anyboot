@@ -331,6 +331,7 @@ enum BootParser {
             header: RemoteHttp.bool(item, "header"),
             tag: RemoteHttp.str(item, "tag").trimmingCharacters(in: .whitespaces),
             fixed: RemoteHttp.bool(item, "fixed"),
+            child: RemoteHttp.bool(item, "child"),
             sub: RemoteHttp.str(item, "sub").trimmingCharacters(in: .whitespaces),
             note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces))
     }
