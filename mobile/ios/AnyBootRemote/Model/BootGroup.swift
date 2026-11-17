@@ -339,7 +339,9 @@ enum BootParser {
             fixed: RemoteHttp.bool(item, "fixed"),
             child: RemoteHttp.bool(item, "child"),
             sub: RemoteHttp.str(item, "sub").trimmingCharacters(in: .whitespaces),
-            note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces))
+            note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces),
+            grubName: RemoteHttp.str(item, "label").trimmingCharacters(in: .whitespaces),
+            grubKernels: (item["kernels"] as? [String]) ?? [])
     }
 
     /// 老对端没有统一 `channels[6]` 时的回退：用 refind/refindplus/grub 拼出 6 个，
@@ -402,6 +404,26 @@ enum GrubFormat {
     static func kernelOf(_ option: BootOption) -> String {
         option.grubKernels.first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
             ?? option.grubName
+    }
+
+    /// 当前生效格式：手机自选优先，其次服务端 listFormat，最后极简
+    static func effectiveFormat(_ group: BootGroup) -> String {
+        let selected = BootService.selectedFormat
+        if !selected.isEmpty { return selected }
+        let server = group.serverFormat
+        return server.isEmpty ? "minimal" : server
+    }
+
+    /// 回显/下拉行文案：GRUB 按格式档位简化（原始/复杂保留全名）
+    static func rowLabel(_ option: BootOption, format: String) -> String {
+        let raw = option.label.isEmpty ? option.value : option.label
+        guard !option.grubKernels.isEmpty else { return raw }
+        let kernel = option.grubKernels.first ?? ""
+        switch format {
+        case "minimal", "simple": return stripKernel(kernel).isEmpty ? raw : stripKernel(kernel)
+        case "medium": return kernel.isEmpty ? raw : kernel
+        default: return raw
+        }
     }
 
 }

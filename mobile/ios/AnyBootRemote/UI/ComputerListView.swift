@@ -1224,7 +1224,9 @@ struct ComputerListView: View {
     /// 卡片回显文字 = 一级(父组) › 二级(子项)（与 Android bootEcho 同口径）
     private func bootEchoText(_ group: BootGroup, hitIndex: Int) -> String {
         let hit = group.options[hitIndex]
-        let label = hit.label.isEmpty ? hit.value : hit.label
+        let label = group.kind == "grub"
+            ? GrubFormat.rowLabel(hit, format: GrubFormat.effectiveFormat(group))
+            : (hit.label.isEmpty ? hit.value : hit.label)
         guard hit.child else { return label }
         var header = ""
         if hitIndex > 0 {
@@ -1849,7 +1851,10 @@ struct ComputerListView: View {
                 rows.append(GrubRow(option: nil, text: GrubFormat.osIcon(option.label) + option.label,
                                     isGroup: true, trailing: option.tag))
             } else {
-                let label = option.label.isEmpty ? option.value : option.label
+                let rawLabel = option.label.isEmpty ? option.value : option.label
+                let label = group.kind == "grub"
+                    ? GrubFormat.rowLabel(option, format: GrubFormat.effectiveFormat(group))
+                    : rawLabel
                 // 当前项只标记一次（rEFInd 子项共享父 title，避免多行同时高亮）
                 let isCurrent = !option.value.isEmpty && option.value == group.current && !currentMarked
                 if isCurrent { currentMarked = true }
