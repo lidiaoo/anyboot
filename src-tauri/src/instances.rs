@@ -427,6 +427,14 @@ fn extra_esp_roots() -> Vec<PathBuf> {
         .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
         .unwrap_or_default();
 
+    fn int_of(segment: &str, key: &str) -> Option<u64> {
+        let needle = format!("<key>{key}</key>");
+        let index = segment.find(&needle)? + needle.len();
+        let rest = &segment[index..];
+        let start = rest.find("<integer>")? + "<integer>".len();
+        let end = rest[start..].find("</integer>")? + start;
+        rest[start..end].trim().parse().ok()
+    }
     fn value_of(segment: &str, key: &str) -> Option<String> {
         let needle = format!("<key>{key}</key>");
         let index = segment.find(&needle)? + needle.len();
@@ -453,14 +461,21 @@ fn extra_esp_roots() -> Vec<PathBuf> {
     for segment in xml.split("<dict>").skip(1) {
         let segment = segment.split("</dict>").next().unwrap_or("");
         let content = value_of(segment, "Content").unwrap_or_default();
-        if !content.to_ascii_uppercase().contains("EFI") {
+        let size = int_of(segment, "Size").unwrap_or(0);
+        // ESP 在 diskutil 里可能被标成 Microsoft Basic Data（尤其黑苹果），不能只看 Content=EFI。
+        // 取「Content=EFI」或「≤4GB 的 Microsoft Basic Data」作为候选，挂载后必须存在 EFI 目录才算。
+        let candidate = content.to_ascii_uppercase().contains("EFI")
+            || (content.eq_ignore_ascii_case("Microsoft Basic Data") && size > 0 && size <= 4 * 1024 * 1024 * 1024);
+        if !candidate {
             continue;
         }
         let Some(device) = value_of(segment, "DeviceIdentifier") else {
             continue;
         };
         if let Some(mount) = mountpoint_of(&mount_text, &device) {
-            roots.push(PathBuf::from(mount));
+            if PathBuf::from(&mount).join("EFI").is_dir() {
+                roots.push(PathBuf::from(mount));
+            }
             continue;
         }
         // 未挂载：直接 diskutil mount <device>，再查挂载点（失败就跳过，不阻塞整体）。
@@ -474,7 +489,14 @@ fn extra_esp_roots() -> Vec<PathBuf> {
                 mount_text = String::from_utf8_lossy(&out.stdout).to_string();
             }
             if let Some(mount) = mountpoint_of(&mount_text, &device) {
-                roots.push(PathBuf::from(mount));
+                if PathBuf::from(&mount).join("EFI").is_dir() {
+                    roots.push(PathBuf::from(mount));
+                } else {
+                    // 挂上了但不是 ESP（普通 FAT 数据盘）→ 立刻卸载，避免留下挂载
+                    let _ = std::process::Command::new("diskutil")
+                        .args(["unmount", &device])
+                        .output();
+                }
             }
         }
     }
