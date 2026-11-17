@@ -3541,6 +3541,11 @@ class ComputerListActivity : ComponentActivity() {
     /** 把任意来源的通道组补齐成固定 6 段。传入的 parsed（新契约 channels[6] 或老 ChannelView→BootGroup）
      *  优先；缺的用独立解析出的 refind/refindplus/grub 或占位组补上。零 kind 特例，纯按数据补齐。 */
     private fun assembleChannels(refind: BootGroup, refindplus: BootGroup, grub: BootGroup, parsed: List<BootGroup>): List<BootGroup> {
+        // 新契约：/api/boot-channels 已经是「实例列表」（同类型可重复，如 2 个 OpenCore）。
+        // 直接平铺返回，绝不能按 kind 去重（否则同类多实例会只剩最后一个）。
+        val instances = parsed.filter { it.instanceId.isNotEmpty() }
+        if (instances.isNotEmpty()) return instances
+        // 老对端（无 instanceId）：回退旧的 6 类兼容映射
         val byKind = LinkedHashMap<String, BootGroup>()
         parsed.forEach { byKind[channelKindOf(it.kind)] = it }
         listOf(refind, refindplus, grub).forEach {
