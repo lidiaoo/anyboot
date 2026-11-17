@@ -1196,6 +1196,24 @@ struct ComputerListView: View {
     /// 全部走同一个 bootButton(row, group) —— 零 loader 特例。
     /// 读取中 / 离线时后端 channels 可能为空，按 BootKind.all 生成 6 个空组占位，
     /// 由 bootButton 内部按 row.state 出「读取中…／离线不可改」。
+    /// 卡片回显文字 = 一级(父组) › 二级(子项)（与 Android bootEcho 同口径）
+    private func bootEchoText(_ group: BootGroup, hitIndex: Int) -> String {
+        let hit = group.options[hitIndex]
+        let label = hit.label.isEmpty ? hit.value : hit.label
+        guard hit.child else { return label }
+        var header = ""
+        if hitIndex > 0 {
+            for k in stride(from: hitIndex - 1, through: 0, by: -1) where group.options[k].header {
+                header = group.options[k].label
+                    .replacingOccurrences(of: "^[▾▸\\s]+", with: "", options: .regularExpression)
+                    .replacingOccurrences(of: "（\\d+\\s*(项|个内核)[^）]*）\\s*$", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                break
+            }
+        }
+        return header.isEmpty ? label : "\(header) › \(label)"
+    }
+
     private func bootButtons(_ row: CqRow) -> some View {
         let groups = row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels
         return VStack(spacing: ABMetric.px(6)) {
@@ -1219,9 +1237,9 @@ struct ComputerListView: View {
             if row.state == Reach.unknown { valueLabel = L("hub.state.reading") }
             else if row.state == Reach.offline { valueLabel = L("hub.state.offlineReadonly") }
             else { valueLabel = L("hub.state.notDetected") }
-        } else if let hit = group.options.first(where: { !$0.header && !$0.value.isEmpty && $0.value == group.current }) {
-            valueLabel = hit.label.isEmpty ? hit.value : hit.label
-            dotKind = hit.kind
+        } else if let hitIndex = group.options.firstIndex(where: { !$0.header && !$0.value.isEmpty && $0.value == group.current }) {
+            valueLabel = bootEchoText(group, hitIndex: hitIndex)
+            dotKind = group.options[hitIndex].kind
         } else if !group.current.isEmpty {
             valueLabel = group.current
             dotKind = "linux"
