@@ -268,6 +268,9 @@ pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target:
         .ok_or_else(|| format!("找不到引导器实例：{instance_id}"))?;
     match instance.kind.as_str() {
         "refind" | "refindplus" => return switch_refind_instance(app, &instance, target),
+        "sdboot" | "opencore" | "clover" => {
+            return crate::channels::apply_channel_spec_at(std::path::Path::new(&instance.root_path), target)
+        }
         "grub" => {}
         other => return Err(format!("暂不支持该类型的实例切换：{other}")),
     }

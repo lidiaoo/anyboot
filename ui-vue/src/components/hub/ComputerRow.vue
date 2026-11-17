@@ -566,17 +566,54 @@ async function openUrl(url: string) {
 }
 
 /** 所有通道（6 个引导器）统一顺序：refind/refindplus/grub + 检测到的 sdboot/opencore/clover */
+const instanceAliases = ref<Record<string, string>>((() => {
+  try { return JSON.parse(localStorage.getItem("anyboot.instanceAliases") || "{}"); } catch { return {}; }
+})());
+const hiddenInstances = ref<string[]>([]);
+try {
+  hiddenInstances.value = JSON.parse(localStorage.getItem("anyboot.hiddenInstances") || "[]");
+} catch { /* 忽略 */ }
+function persistInstances() {
+  try {
+    localStorage.setItem("anyboot.instanceAliases", JSON.stringify(instanceAliases.value));
+    localStorage.setItem("anyboot.hiddenInstances", JSON.stringify(hiddenInstances.value));
+  } catch { /* 忽略 */ }
+}
+function instanceKey(group: any): string {
+  return String(group?.instanceId || group?.kind || "");
+}
+function instanceTitle(group: any): string {
+  const key = instanceKey(group);
+  return instanceAliases.value[key] || group?.title || group?.kind || "";
+}
 const allKinds = computed<string[]>(() => {
   const base = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
   const extras = (props.info?.channels ?? [])
-    .filter((c: any) => !!c.instanceId && !c.hidden)
+    .filter((c: any) => !!c.instanceId && !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
     .map((c: any) => String(c.instanceId));
   return [...base, ...extras];
 });
+/** 右键实例：重命名（留空 = 隐藏） */
+function instanceMenu(kind: string) {
+  const group: any = channelOf(kind);
+  if (!group) return;
+  const key = instanceKey(group);
+  const current = instanceAliases.value[key] || group.title || kind;
+  const value = window.prompt(`${t("hub.boot.col", { name: current })}\n（留空 = 隐藏该实例）`, current);
+  if (value === null) return;
+  const name = value.trim();
+  if (!name) {
+    if (!hiddenInstances.value.includes(key)) hiddenInstances.value = [...hiddenInstances.value, key];
+  } else {
+    instanceAliases.value = { ...instanceAliases.value, [key]: name };
+  }
+  persistInstances();
+}
 /** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
 function bootEcho(kind: string): { label: string; dot: string; none: boolean; title: string } {
   const g: any = channelOf(kind);
-  const title = g?.title ?? ({ refind: "rEFInd", refindplus: "RefindPlus", grub: "GRUB", sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" } as any)[kind] ?? kind;
+  const fallbackTitle = ({ refind: "rEFInd", refindplus: "RefindPlus", grub: "GRUB", sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" } as any)[kind] ?? kind;
+  const title = g ? instanceTitle(g) : fallbackTitle;
   if (g && g.available && (g.options ?? []).length === 0 && g.note) {
     return { label: String(g.note), dot: "", none: false, title };
   }
@@ -791,6 +828,7 @@ function onRowClick() {
             class="cq-boot-btn"
             :disabled="!bootUsableFor(kind)"
             @click.stop="openPicker(kind)"
+            @contextmenu.prevent.stop="instanceMenu(kind)"
           >
             <span class="cq-boot-name">{{ bootEcho(kind).title }}</span>
             <span v-if="osIcon(bootEcho(kind).dot, bootEcho(kind).label)">{{ osIcon(bootEcho(kind).dot, bootEcho(kind).label) }}</span>

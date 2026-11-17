@@ -1215,6 +1215,13 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
 ///
 /// 拆出来是为了让「只读挂载临时转可写」只写一遍：这些动作全都要往 ESP 落文件
 /// （NVRAM 备份 `EFI/anyboot/nvram/`、`state.json`、必要时改 `config.plist`）。
+/// 在指定 ESP 根上执行一条通道 spec（多实例切换用；不依赖 AppState 的“主角 ESP”）。
+pub(crate) fn apply_channel_spec_at(esp_root: &Path, spec: &str) -> Result<String, String> {
+    let parsed = parse_switch_spec(spec).ok_or_else(|| format!("无法识别的通道动作：{spec}"))?;
+    let readonly_mount = crate::mount::readonly_mount_of(esp_root);
+    crate::mount::with_mount(readonly_mount.as_ref(), || apply_spec(&parsed, esp_root))
+}
+
 fn apply_spec(parsed: &SwitchSpec, esp_root: &Path) -> Result<String, String> {
     let message = match parsed {
     SwitchSpec::Sdboot(id) => {
