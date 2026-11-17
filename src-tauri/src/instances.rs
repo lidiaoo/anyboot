@@ -26,6 +26,9 @@ pub(crate) struct BootInstanceRef {
     pub available: bool,
     /// 是否被设置隐藏（不删除，只是不在主列表展示）
     pub hidden: bool,
+    /// 候选根（内部用，不序列化）
+    #[serde(skip)]
+    pub root_path: String,
 }
 
 const KINDS: [&str; 6] = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
@@ -180,6 +183,7 @@ pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
                     install_dir: rel,
                     available: true,
                     hidden,
+                    root_path: root.to_string_lossy().to_string(),
                 });
             }
         }
@@ -193,4 +197,30 @@ pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
 #[tauri::command]
 pub(crate) fn boot_instances(app: AppHandle) -> Vec<BootInstanceRef> {
     scan_instances(&app)
+}
+
+/// GRUB 实例的真实条目：读该实例自己的 grub.cfg 解析成 BootOption。
+pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::remote_servers::BootOption> {
+    let cfg = std::path::Path::new(&instance.root_path)
+        .join(&instance.install_dir)
+        .join("grub.cfg");
+    let text = match fs::read_to_string(&cfg) {
+        Ok(text) => text,
+        Err(_) => return Vec::new(),
+    };
+    crate::grub::parse_grub_cfg(&text)
+        .into_iter()
+        .map(|entry| crate::remote_servers::BootOption {
+            value: entry.selector.clone(),
+            label: entry.name.clone(),
+            class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
+            child: entry.submenu.is_some(),
+            tag: if entry.variants > 1 {
+                format!("{} 个变体", entry.variants)
+            } else {
+                String::new()
+            },
+            ..Default::default()
+        })
+        .collect()
 }

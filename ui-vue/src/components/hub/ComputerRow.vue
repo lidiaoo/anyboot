@@ -129,6 +129,31 @@ async function openPicker(kind: string) {
   const isChannelKind = kind === "sdboot" || kind === "opencore" || kind === "clover";
   const CLASS_LABEL: Record<string, string> = { mac: "macOS", win: "Windows", auto: "hub.class.generic", tool: "hub.class.tool", linux: "Linux", generic: "hub.class.generic" };
 
+  // 多实例（instanceId）统一入口：直接按该实例的 options 生成下拉
+  const instGroup: any = channelOf(kind);
+  if (instGroup && instGroup.instanceId) {
+    const opts: any[] = (instGroup.options ?? []) as any[];
+    const entries = opts.map((o: any) => ({
+      selector: String(o.value ?? ""),
+      name: String(o.label ?? o.value ?? ""),
+      class: o.class,
+      header: !!o.header,
+      tag: o.tag || "",
+      sub: o.sub || "",
+      note: o.note || "",
+      readonly: !!o.fixed || !o.value,
+    }));
+    picker.value = {
+      kind,
+      title: instGroup.title || kind,
+      entries: entries as any,
+      active: String(instGroup.current ?? "").trim(),
+      groupTitles: {},
+      flat: true,
+    };
+    return;
+  }
+
   // 通道（sdboot/opencore/clover）统一：所有通道同一套下拉，直接读 info.channels[].options（BootOption）
   if (isChannelKind) {
     const group: any = (props.info?.channels ?? []).find((c: any) => c.kind === kind);

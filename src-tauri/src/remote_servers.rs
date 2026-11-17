@@ -4845,6 +4845,16 @@ pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
         if is_primary {
             continue; // 主实例已由上面 6 段承载
         }
+        let grub_options = if instance.kind == "grub" {
+            crate::instances::grub_instance_options(&instance)
+        } else {
+            Vec::new()
+        };
+        let note = if grub_options.is_empty() {
+            "多实例（只读，待接入独立切换）"
+        } else {
+            ""
+        };
         values.push(serde_json::json!({
             "kind": instance.kind,
             "title": instance.title,
@@ -4852,10 +4862,10 @@ pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
             "current": "",
             "next": "",
             "saved": "",
-            "note": "多实例（只读，待接入独立切换）",
+            "note": note,
             "instanceId": instance.instance_id,
             "hidden": instance.hidden,
-            "options": []
+            "options": grub_options,
         }));
     }
     values
