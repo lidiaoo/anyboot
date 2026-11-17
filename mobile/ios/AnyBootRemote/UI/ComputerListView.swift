@@ -1765,15 +1765,21 @@ struct ComputerListView: View {
                     .padding(.top, ABMetric.px(4))
                 } else if let option = row.option {
                     let selected = row.pinned
+                    // 列表内不显示「下次启动」徽标（徽标只属于顶部置顶副本）——对齐 Android
+                    let displayRow: GrubRow = {
+                        var copy = row
+                        copy.pinned = false
+                        return copy
+                    }()
                     if option.value.isEmpty {
                         // 不可选（fixed / 纯展示）行：只渲染文案
-                        pickerOptionLabel(row, option: option, selected: false)
+                        pickerOptionLabel(displayRow, option: option, selected: false)
                     } else {
                         Button {
                             sheet = nil
                             switchBoot(profile, kind: group.kind, value: option.value, verb: L("and.switchAction"))
                         } label: {
-                            pickerOptionLabel(row, option: option, selected: selected)
+                            pickerOptionLabel(displayRow, option: option, selected: selected)
                         }
                         .buttonStyle(.plain)
                     }
