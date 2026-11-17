@@ -2484,7 +2484,7 @@ class ComputerListActivity : ComponentActivity() {
                     .replace(Regex("^[▾▸\\s]+"), "")
                     .replace(Regex("（\\d+\\s*(项|个内核)[^）]*）\\s*$"), "")
                     .trim()
-                rows.add(GrubRow(option = null, label = opt.label, isHeader = true, trailing = opt.tag))
+                rows.add(GrubRow(option = null, label = grubOsIcon(null, opt.label) + opt.label, isHeader = true, trailing = opt.tag))
                 return@forEach
             }
             val v = opt.value.trim()
@@ -2877,7 +2877,7 @@ class ComputerListActivity : ComponentActivity() {
                                                     size = Size(3.dp.toPx(), size.height),
                                                 )
                                             }
-                                            .padding(start = 6.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
+                                            .padding(start = 9.dp, end = 9.dp, top = 6.dp, bottom = 6.dp),
                                     ) {
                                         Text(
                                             row.label,

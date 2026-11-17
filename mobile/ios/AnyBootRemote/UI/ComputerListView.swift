@@ -1717,7 +1717,7 @@ struct ComputerListView: View {
                             Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
                         }
                     }
-                    .padding(.leading, ABMetric.px(12))
+                    .padding(.leading, ABMetric.px(9))
                     .padding(.trailing, ABMetric.px(9))
                     .padding(.vertical, ABMetric.px(7))
                     .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.elevate))
@@ -1762,7 +1762,7 @@ struct ComputerListView: View {
                     .replacingOccurrences(of: "^[▾▸\\s]+", with: "", options: .regularExpression)
                     .replacingOccurrences(of: "（\\d+\\s*(项|个内核)[^）]*）\\s*$", with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespaces)
-                rows.append(GrubRow(option: nil, text: option.label,
+                rows.append(GrubRow(option: nil, text: GrubFormat.osIcon(option.label) + option.label,
                                     isGroup: true, trailing: option.tag))
             } else {
                 let label = option.label.isEmpty ? option.value : option.label
