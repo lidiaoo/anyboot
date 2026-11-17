@@ -985,7 +985,7 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             if instance.is_empty() {
                 return RemoteReply::error(400, "missing_instance", "缺少 instance 参数");
             }
-            return match crate::instances::switch_grub_instance(&app, &instance, &target) {
+            return match crate::instances::switch_instance(&app, &instance, &target) {
                 Ok(message) => {
                     crate::channels::refresh_channels(&app);
                     RemoteReply::ok(200, serde_json::json!({ "ok": true, "message": message }))

@@ -444,7 +444,7 @@ fn refind_sim_scan_blocking(app: tauri::AppHandle, channel: &str) -> Option<SimP
 /// 对应 `StoreLoaderName()` 里的 `StrLen(Name) * 2 + 2`（`main.c:230`）——
 /// 请**注意**这里不带 Linux efivarfs 那 4 字节属性头，和 `vars/` 里现存文件的
 /// 形态完全一致（可拿 `PreviousBoot-linux` 这类快照对照）。
-fn previous_boot_bytes(title: &str) -> Vec<u8> {
+pub(crate) fn previous_boot_bytes(title: &str) -> Vec<u8> {
     let mut bytes: Vec<u8> = title
         .encode_utf16()
         .flat_map(|unit| unit.to_le_bytes())

@@ -226,8 +226,38 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
 }
 
 /// 切换某个 GRUB 实例：只写它自己安装目录下的 grubenv（多实例互不影响）。
-pub(crate) fn switch_grub_instance(app: &tauri::AppHandle, instance_id: &str, selector: &str) -> Result<String, String> {
-    let selector = selector.trim();
+fn switch_refind_instance(app: &tauri::AppHandle, instance: &BootInstanceRef, title: &str) -> Result<String, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("没有选择引导项".to_string());
+    }
+    let vars_dir = std::path::Path::new(&instance.root_path)
+        .join(&instance.install_dir)
+        .join("vars");
+    if !vars_dir.is_dir() {
+        return Err(format!("该实例的 vars 目录不存在：{}", vars_dir.display()));
+    }
+    let sim = if instance.kind == "refind" {
+        crate::channels::refind_menu::preview(&vars_dir, &[], None)
+    } else {
+        crate::channels::refind_menu::preview_with_default_use_nvram(&vars_dir, &[], None, false)
+    };
+    if sim.var_mode == "nvram" {
+        return Err(format!("{} 使用 NVRAM 保存 PreviousBoot，暂不支持按实例切换", instance.title));
+    }
+    let hit = sim
+        .entries
+        .iter()
+        .find(|entry| !entry.hidden && entry.title.trim() == title)
+        .ok_or_else(|| format!("当前实例菜单里没有这一项：{title}"))?;
+    let bytes = crate::channels::refind_menu::previous_boot_bytes(&hit.title);
+    std::fs::write(vars_dir.join("PreviousBoot"), bytes)
+        .map_err(|error| format!("写入 PreviousBoot 失败: {error}"))?;
+    Ok(format!("下次启动：{}", hit.title.trim()))
+}
+
+pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target: &str) -> Result<String, String> {
+    let selector = target.trim();
     if selector.is_empty() {
         return Err("没有选择引导项".to_string());
     }
@@ -236,8 +266,10 @@ pub(crate) fn switch_grub_instance(app: &tauri::AppHandle, instance_id: &str, se
         .into_iter()
         .find(|item| item.instance_id == instance_id)
         .ok_or_else(|| format!("找不到引导器实例：{instance_id}"))?;
-    if instance.kind != "grub" {
-        return Err(format!("暂不支持该类型的实例切换：{}", instance.kind));
+    match instance.kind.as_str() {
+        "refind" | "refindplus" => return switch_refind_instance(app, &instance, target),
+        "grub" => {}
+        other => return Err(format!("暂不支持该类型的实例切换：{other}")),
     }
     let dir = std::path::Path::new(&instance.root_path).join(&instance.install_dir);
     let mut env_path = dir.join("grubenv");
@@ -249,4 +281,48 @@ pub(crate) fn switch_grub_instance(app: &tauri::AppHandle, instance_id: &str, se
     }
     crate::grub_esp::grub_write_env(&env_path, selector)?;
     Ok(format!("下次启动：{selector}"))
+}
+
+/// 额外实例 → BootGroup（真实 options）。失败返回 None，由调用方给只读占位。
+pub(crate) fn extra_instance_group(instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
+    let root = std::path::Path::new(&instance.root_path);
+    match instance.kind.as_str() {
+        "grub" => Some(crate::remote_servers::BootGroup {
+            kind: instance.kind.clone(),
+            title: instance.title.clone(),
+            available: instance.available,
+            note: String::new(),
+            options: grub_instance_options(instance),
+            ..Default::default()
+        }),
+        "refind" | "refindplus" => {
+            let vars = root.join(&instance.install_dir).join("vars");
+            let sim = if instance.kind == "refind" {
+                crate::channels::refind_menu::preview(&vars, &[], None)
+            } else {
+                crate::channels::refind_menu::preview_with_default_use_nvram(&vars, &[], None, false)
+            };
+            let json = serde_json::to_value(sim).ok()?;
+            let mut group = if instance.kind == "refind" {
+                crate::remote_servers::refind_from_sim(&json)
+            } else {
+                crate::remote_servers::refindplus_from_sim(&json)
+            };
+            group.kind = instance.kind.clone();
+            group.title = instance.title.clone();
+            Some(group)
+        }
+        "sdboot" | "opencore" | "clover" => {
+            let view = match instance.kind.as_str() {
+                "sdboot" => crate::channels::sdboot::view(root),
+                "opencore" => crate::channels::opencore::view(root),
+                _ => crate::channels::clover::view(root),
+            };
+            let mut group = crate::remote_servers::channel_from_view(&view);
+            group.kind = instance.kind.clone();
+            group.title = instance.title.clone();
+            Some(group)
+        }
+        _ => None,
+    }
 }

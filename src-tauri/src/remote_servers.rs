@@ -3566,7 +3566,7 @@ pub struct RemoteBootInfo {
 /// RefindPlus 组：复用 rEFInd 组的两条生成链（SimPreview / vars 快照形状完全
 /// 同源，见 [`refind_from_sim`] / [`refind_from_status`]），只换 kind / title /
 /// 文案 —— 两个通道在前端渲染上同构，切换值域也同构（标题原文 / system 名）。
-fn refindplus_from_sim(sim: &serde_json::Value) -> BootGroup {
+pub(crate) fn refindplus_from_sim(sim: &serde_json::Value) -> BootGroup {
     let mut group = refind_from_sim(sim);
     group.kind = "refindplus".to_string();
     group.title = "RefindPlus".to_string();
@@ -3777,7 +3777,7 @@ fn refind_row_class(system: &str, label: &str, kind: Option<&str>) -> String {
 /// 一致：同一引导分区折叠的多个内核（children，source=kernel）展开成「父条目 ·
 /// 内核名」子项，并用 header 行标出父条目（组头，不可选）。selected 高亮看
 /// entries[].lastBoot 命中的顶层条目。
-fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
+pub(crate) fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
     let mut options: Vec<BootOption> = Vec::new();
     let mut current = String::new();
     let empty = Vec::new();
@@ -4202,7 +4202,7 @@ pub(crate) fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuE
 }
 
 /// 对端 `/api/boot-channels` 的 menuPreview.entries 一条 → MenuEntry
-fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
+pub(crate) fn channel_from_view(channel: &channels::ChannelView) -> BootGroup {
     let options = if let Some(preview) = channel.menu_preview.as_ref() {
         boot_options_from_menu_entries(&preview.entries)
     } else {
@@ -4845,28 +4845,25 @@ pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
         if is_primary {
             continue; // 主实例已由上面 6 段承载
         }
-        let grub_options = if instance.kind == "grub" {
-            crate::instances::grub_instance_options(&instance)
-        } else {
-            Vec::new()
+        let mut value = match crate::instances::extra_instance_group(&instance) {
+            Some(group) => serde_json::to_value(&group).unwrap_or_else(|_| serde_json::json!({})),
+            None => serde_json::json!({
+                "kind": instance.kind,
+                "title": instance.title,
+                "available": instance.available,
+                "current": "",
+                "next": "",
+                "saved": "",
+                "note": "多实例（只读，待接入独立切换）",
+                "options": [],
+            }),
         };
-        let note = if grub_options.is_empty() {
-            "多实例（只读，待接入独立切换）"
-        } else {
-            ""
-        };
-        values.push(serde_json::json!({
-            "kind": instance.kind,
-            "title": instance.title,
-            "available": instance.available,
-            "current": "",
-            "next": "",
-            "saved": "",
-            "note": note,
-            "instanceId": instance.instance_id,
-            "hidden": instance.hidden,
-            "options": grub_options,
-        }));
+        if let Some(object) = value.as_object_mut() {
+            object.insert("title".into(), serde_json::Value::String(instance.title.clone()));
+            object.insert("instanceId".into(), serde_json::Value::String(instance.instance_id.clone()));
+            object.insert("hidden".into(), serde_json::Value::Bool(instance.hidden));
+        }
+        values.push(value);
     }
     values
 }
@@ -5292,7 +5289,7 @@ fn remote_boot_switch_blocking(
     // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
     if server_id == "local" {
         if kind.contains('@') && base_kind == "grub" {
-            let message = crate::instances::switch_grub_instance(app, kind, value)?;
+            let message = crate::instances::switch_instance(app, kind, value)?;
             crate::channels::refresh_channels(app);
             return Ok(message);
         }
