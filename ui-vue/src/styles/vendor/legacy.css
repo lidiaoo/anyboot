@@ -5725,3 +5725,9 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .ba-theme-root .grub-entry.is-child:not(.is-sub)::before,
 #tab-boot .grub-entry.is-child:not(.is-sub)::before,
 #tab-adv-boot .grub-entry.is-child:not(.is-sub)::before { content: none; display: none; }
+
+/* 置顶行必须 sticky（压过 is-child 的 relative） */
+.cq-picker .grub-entry.is-pinned,
+.ba-theme-root .grub-entry.is-pinned,
+#tab-boot .grub-entry.is-pinned,
+#tab-adv-boot .grub-entry.is-pinned { position: sticky; top: 0; z-index: 2; }
