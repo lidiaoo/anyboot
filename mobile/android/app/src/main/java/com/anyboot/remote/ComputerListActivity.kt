@@ -2438,21 +2438,8 @@ class ComputerListActivity : ComponentActivity() {
         }
     }
 
-    /** 引导组是否为「GRUB 原料」形态（option.label 留空、展示文字在 grubName/内核），
-     *  这是老对端 raw 解析的形态；新契约 options 自带 label。按数据形态兜底，非按 kind 特例。 */
-    private fun isGrubRawGroup(group: BootGroup): Boolean =
-        group.options.any { it.label.isEmpty() && (it.grubName.isNotEmpty() || it.grubKernels.isNotEmpty()) }
-
     /** 统一回显：当前项 → (展示文字, 平台图标)。所有引导器同一套规则。 */
     private fun bootEcho(group: BootGroup): Pair<String, String> {
-        if (isGrubRawGroup(group)) {
-            val rows = grubDisplayRows(group)
-            val hit = rows.firstOrNull { it.option?.value == group.current && it.option?.header != true }
-            val rawLabel = hit?.label ?: group.current.ifEmpty { getString(R.string.hub_state_notSet) }
-            val icon = Regex("^[^\\p{L}\\p{Nd}›·]+").find(rawLabel)?.value ?: ""
-            val label = rawLabel.replaceFirst("^[^\\p{L}\\p{Nd}›·]+".toRegex(), "").trim()
-            return label to icon
-        }
         val options = group.options
         val current = group.current.trim()
         var hitIndex = options.indexOfFirst { !it.header && it.value.trim().isNotEmpty() && it.value.trim() == current }
@@ -2483,7 +2470,7 @@ class ComputerListActivity : ComponentActivity() {
     }
 
     /** 统一下拉行：由 BootGroup.options 按字段生成（header/child/tag/sub/note/pinned/fixed）。
-     *  老 GRUB raw 形态仍走 grubDisplayRows（保留格式档位）。 */
+     *  所有引导器（含 GRUB）共用这一套，无 loader 特例。 */
     private fun bootRows(group: BootGroup): List<GrubRow> {
         if (group.options.isEmpty()) return emptyList()
         val rows = mutableListOf<GrubRow>()
@@ -4304,84 +4291,6 @@ class ComputerListActivity : ComponentActivity() {
 
 
 
-    private fun grubDisplayRows(group: BootGroup): List<GrubRow> {
-        val options = group.options
-        if (options.isEmpty()) return emptyList()
-        val format = grubEffectiveFormat(group)
-        val names = group.grubGroupNames
-        val rows = mutableListOf<GrubRow>()
-
-        fun push(option: BootOption, top: Boolean, prefix: String, counts: Map<String, Int>, emitted: MutableSet<String>, pinned: Boolean = false) {
-            val label = grubRowLabel(format, option)
-            val parts = mutableListOf<String>()
-            if (format == "raw") {
-                // 原始格式不折叠；变体数用解析期并进的 grubVariants
-                if (option.grubVariants > 1) parts.add(getString(R.string.grub_variantsN, option.grubVariants))
-            } else {
-                if (!emitted.add(label)) return
-                val variants = counts[label] ?: 1
-                if (variants > 1) parts.add(getString(R.string.grub_variantsN, variants))
-            }
-            if (format == "raw" || format == "detailed") {
-                val tag = when {
-                    option.grubKernels.any { it.isNotBlank() } ->
-                        option.grubKernels.first { it.isNotBlank() }
-                    option.grubChainloader -> getString(R.string.grub_handoff)
-                    else -> option.grubClassRaw
-                }
-                if (tag.isNotBlank()) parts.add(tag)
-            }
-            val suffix = if (parts.isEmpty()) "" else " · " + parts.joinToString(" · ")
-            // label 里的平台图标按**条目名/组名**判定（比 option.kind 的粗分类准），
-            // 渲染层 GRUB 行不再另画 BootDot（用户定案：保留这个、删另一个）
-            val icon = grubOsIcon(option.kind, prefix + option.grubName)
-            val arrow = if (top) "" else "↳ "
-            rows.add(GrubRow(option, "$arrow$icon$prefix$label$suffix", false, pinned,
-                trailing = option.tag, sub = option.grubSub, note = option.grubNote,
-                readonly = !option.header && option.value.isBlank(),
-                // 原位当前项保留并高亮（置顶副本之外，原位也要高亮）
-                active = !pinned && option.value.isNotBlank() && option.value == group.current))
-        }
-
-        // 置顶当前选中项（组内子项补「组名 › 」前缀）
-        options.firstOrNull { it.value == group.current }?.let { pinned ->
-            val prefix = names[pinned.grubSubmenuId]?.takeIf { it.isNotBlank() }?.let { "$it › " } ?: ""
-            push(pinned, top = true, prefix = prefix, counts = emptyMap(), emitted = mutableSetOf(), pinned = true)
-        }
-
-        // 组头附加的 ESP 位置（简易/中等/复杂带，极简/原始不带）
-        val location = if (format == "minimal" || format == "raw") {
-            ""
-        } else {
-            val parts = mutableListOf<String>()
-            if (group.grubEfiDir.isNotBlank()) parts.add(getString(R.string.and_locatedAt, group.grubEfiDir))
-            if (group.grubPartuuid.isNotBlank()) parts.add("UUID=${group.grubPartuuid}")
-            if (parts.isEmpty()) "" else " · " + parts.joinToString(" ")
-        }
-
-        val children = options.filter { it.grubSubmenuId.isNotEmpty() }
-        val topCounts = grubCollapse(format, options.filter { it.grubSubmenuId.isEmpty() })
-        val topEmitted = mutableSetOf<String>()
-        val emittedGroups = mutableSetOf<String>()
-        options.forEach { option ->
-            val submenuId = option.grubSubmenuId
-            if (submenuId.isEmpty()) {
-                push(option, top = true, prefix = "", counts = topCounts, emitted = topEmitted)
-                return@forEach
-            }
-            if (!emittedGroups.add(submenuId)) return@forEach
-            val title = names[submenuId]?.takeIf { it.isNotBlank() } ?: submenuId
-            val count = children.count { it.grubSubmenuId == submenuId }
-            rows.add(GrubRow(null, "▾ ${grubOsIcon(null, title)}$title", true, trailing = getString(R.string.grub_itemsN, count) + location))
-            val groupChildren = children.filter { it.grubSubmenuId == submenuId }
-            val counts = grubCollapse(format, groupChildren)
-            val emitted = mutableSetOf<String>()
-            groupChildren.forEach { push(it, top = false, prefix = "", counts, emitted) }
-        }
-        return rows
-    }
-
-    /** rEFInd 行的图标分类：优先服务端 `kind`，认不出按 system/标题关键词救 */
     private fun refindClass(system: String, label: String = "", kind: String = ""): String {
         when (kind.trim().lowercase()) {
             "windows" -> return "win"
