@@ -587,8 +587,16 @@ function instanceTitle(group: any): string {
   return instanceAliases.value[key] || group?.title || group?.kind || "";
 }
 const allKinds = computed<string[]>(() => {
-  const base = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
-  const extras = (props.info?.channels ?? [])
+  const all = props.info?.channels ?? [];
+  const hiddenPrimaryKinds = new Set(
+    all
+      .filter((c: any) => !!c.instanceId && hiddenInstances.value.includes(String(c.instanceId)))
+      .map((c: any) => String(c.kind)),
+  );
+  const base = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"].filter(
+    (kind) => !hiddenPrimaryKinds.has(kind),
+  );
+  const extras = all
     .filter((c: any) => !!c.instanceId && !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
     .map((c: any) => String(c.instanceId));
   return [...base, ...extras];
