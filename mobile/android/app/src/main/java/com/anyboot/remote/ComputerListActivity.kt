@@ -2493,9 +2493,9 @@ class ComputerListActivity : ComponentActivity() {
             if (isCurrent) {
                 currentMarked = true
                 val pinnedPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
-                rows.add(GrubRow(opt, icon + pinnedPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                rows.add(GrubRow(opt, pinnedPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            rows.add(GrubRow(opt, icon + plainLabel, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
+            rows.add(GrubRow(opt, plainLabel, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
@@ -2854,21 +2854,22 @@ class ComputerListActivity : ComponentActivity() {
                                     ) {
                                         Column(Modifier.weight(1f)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                                // 图标独立一列（参考 iOS：icon + 名称 + 右侧 tag + 勾）
+                                                Text(grubOsIcon(option?.kind, row.label), fontSize = 13.sp)
+                                                Spacer(Modifier.width(6.dp))
                                                 Text(
                                                     row.label,
                                                     fontSize = 13.sp,
                                                     color = if (selected) palette.accent else palette.fg,
                                                     modifier = Modifier.weight(1f),
                                                 )
+                                                if (row.trailing.isNotEmpty()) {
+                                                    Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1)
+                                                    Spacer(Modifier.width(6.dp))
+                                                }
                                                 if (selected) {
-                                                    Spacer(Modifier.width(8.dp))
                                                     CheckIcon(tint = palette.ok, size = 16.dp)
                                                 }
-                                            }
-                                            // tag/说明在名字**下方**（PC .grub-entry-tags 同口径）：
-                                            // 「默认项 / 折叠内核 / 类型 · 来源」等一行小字
-                                            if (row.trailing.isNotEmpty()) {
-                                                Text(row.trailing, fontSize = 11.sp, color = palette.fgFaint, lineHeight = 17.sp)
                                             }
                                             if (row.sub.isNotEmpty()) {
                                                 Text(row.sub, fontSize = 11.sp, color = palette.fgFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -4184,6 +4185,8 @@ class ComputerListActivity : ComponentActivity() {
                         .background(palette.accent, RoundedCornerShape(5.dp))
                         .padding(horizontal = 5.dp, vertical = 1.dp),
                 )
+                Spacer(Modifier.width(6.dp))
+                Text(grubOsIcon(row.option?.kind, row.label), fontSize = 13.sp)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     row.label,
