@@ -127,7 +127,12 @@ fn rel_of(root: &Path, dir: &Path) -> String {
 /// 枚举本机所有候选根上的所有引导器实例。
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
     let settings = crate::stored_settings(app);
-    let roots = crate::channels::esp_candidates(app);
+    let mut roots = crate::channels::esp_candidates(app);
+    for extra in extra_esp_roots() {
+        if !roots.iter().any(|known| known == &extra) {
+            roots.push(extra);
+        }
+    }
     let mut out: Vec<BootInstanceRef> = Vec::new();
     for root in roots {
         let info = crate::esp_probe(&root).ok();
@@ -345,4 +350,81 @@ fn grub_instance_current(instance: &BootInstanceRef) -> String {
         .filter(|value| !value.trim().is_empty())
         .or_else(|| crate::grub::env_value(&bytes, "saved_entry"))
         .unwrap_or_default()
+}
+
+/// 补充枚举「没挂载」的 ESP 根：多硬盘多 ESP 时，仅扫已挂载卷会漏实例。
+#[cfg(target_os = "macos")]
+fn extra_esp_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for info in crate::esp::macos_all_disks() {
+        let Some(uuid) = info.partition_uuid.clone() else { continue };
+        let personality = info.personality.clone().unwrap_or_default().to_ascii_lowercase();
+        let content = info.content.clone().unwrap_or_default().to_ascii_uppercase();
+        let is_fat = personality.contains("fat") || personality.contains("ms-dos");
+        // 只认 EFI 系统分区（Content=EFI），避免把普通 FAT U 盘/数据盘当 ESP
+        if !is_fat || !content.contains("EFI") {
+            continue;
+        }
+        if let Some(mount) = info.mount_point.clone() {
+            if !mount.trim().is_empty() {
+                roots.push(PathBuf::from(mount));
+                continue;
+            }
+        }
+        if let Ok(Some(mounted)) = crate::esp_mount(&uuid) {
+            roots.push(mounted.mountpoint);
+        }
+    }
+    roots
+}
+
+#[cfg(target_os = "linux")]
+fn extra_esp_roots() -> Vec<PathBuf> {
+    let output = match std::process::Command::new("lsblk")
+        .args(["--json", "--output", "PATH,FSTYPE,PARTUUID,MOUNTPOINTS"])
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
+    };
+    let value: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(value) => value,
+        Err(_) => return Vec::new(),
+    };
+    let mut roots = Vec::new();
+    fn walk(node: &serde_json::Value, roots: &mut Vec<PathBuf>) {
+        if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
+            for child in children {
+                walk(child, roots);
+            }
+        }
+        let fstype = node.get("fstype").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
+        if !(fstype.contains("fat") || fstype == "vfat") {
+            return;
+        }
+        let uuid = node.get("partuuid").and_then(|v| v.as_str()).unwrap_or("");
+        if uuid.is_empty() {
+            return;
+        }
+        if let Some(mounts) = node.get("mountpoints").and_then(|v| v.as_array()) {
+            if let Some(mount) = mounts.iter().filter_map(|v| v.as_str()).find(|m| !m.is_empty()) {
+                roots.push(PathBuf::from(mount));
+                return;
+            }
+        }
+        if let Ok(Some(mounted)) = crate::esp_mount(uuid) {
+            roots.push(mounted.mountpoint);
+        }
+    }
+    if let Some(devices) = value.get("blockdevices").and_then(|v| v.as_array()) {
+        for device in devices {
+            walk(device, &mut roots);
+        }
+    }
+    roots
+}
+
+#[cfg(target_os = "windows")]
+fn extra_esp_roots() -> Vec<PathBuf> {
+    Vec::new()
 }

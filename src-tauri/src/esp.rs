@@ -316,6 +316,8 @@ pub(crate) struct DiskInfo {
     /// 与 Linux blkid/lsblk 的 PARTUUID、Windows Get-Partition 的 Guid 同值，
     /// 是识别 ESP 的权威键。
     pub(crate) partition_uuid: Option<String>,
+    /// diskutil 的 Content（EFI / Apple_HFS / Microsoft Basic Data …）
+    pub(crate) content: Option<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -330,6 +332,8 @@ pub(crate) fn macos_read_line(info: &mut DiskInfo, line: &str) {
         "File System Personality" => info.personality = Some(value.to_string()),
         "Volume UUID" => info.uuid = Some(value.to_string()),
         "Disk / Partition UUID" => info.partition_uuid = Some(value.to_string()),
+        "Content (IOMedia Attribute)" => info.content = Some(value.to_string()),
+        "Content" => info.content = Some(value.to_string()),
         // 未挂载时 diskutil 打的就是 "Mount Point: None"
         "Mount Point" if value != "None" => info.mount_point = Some(value.to_string()),
         _ => {}
