@@ -1,0 +1,185 @@
+//! 引导器实例发现层（多实例模型）。
+//!
+//! 一个「实例」= 某块 ESP（或 Linux /boot）上的一套引导器安装：
+//! `instanceId = "<kind>@<PARTUUID或根路径>/<安装相对目录>"`，稳定、跨重启不变。
+//! 旧的单实例 `kind` 只作为 primary 的兼容映射。
+
+use serde::Serialize;
+use tauri::AppHandle;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BootInstanceRef {
+    pub kind: String,
+    /// 唯一且稳定：kind@分区标识/安装目录（小写归一）
+    pub instance_id: String,
+    /// 展示名：类型 · 分区标识（可被设置里的别名覆盖）
+    pub title: String,
+    /// 分区标识（PARTUUID 优先）
+    pub partition: String,
+    /// esp / linux-boot
+    pub origin: String,
+    /// ESP 内相对安装目录（或 Linux /boot 下的路径）
+    pub install_dir: String,
+    pub available: bool,
+}
+
+const KINDS: [&str; 6] = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
+
+fn kind_title(kind: &str) -> &'static str {
+    match kind {
+        "refind" => "rEFInd",
+        "refindplus" => "RefindPlus",
+        "grub" => "GRUB",
+        "sdboot" => "systemd-boot",
+        "opencore" => "OpenCore",
+        "clover" => "Clover",
+        _ => "引导器",
+    }
+}
+
+/// 递归找指定文件名（最多 5 层，跳过符号链接），返回所在目录列表。
+fn dirs_containing(root: &Path, file_name: &str) -> Vec<PathBuf> {
+    fn walk(dir: &Path, name: &str, depth: usize, out: &mut Vec<PathBuf>) {
+        if depth > 5 {
+            return;
+        }
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if ft.is_symlink() {
+                continue;
+            }
+            if ft.is_dir() {
+                walk(&path, name, depth + 1, out);
+            } else if path.file_name().and_then(|n| n.to_str()) == Some(name) {
+                if let Some(parent) = path.parent() {
+                    if !out.iter().any(|known| known == parent) {
+                        out.push(parent.to_path_buf());
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, file_name, 0, &mut out);
+    out
+}
+
+/// 递归找文件名匹配前缀/后缀的第一个目录（用于 *.efi 系列）。
+fn dirs_with_efi(root: &Path, contains: &str) -> Vec<PathBuf> {
+    fn walk(dir: &Path, needle: &str, depth: usize, out: &mut Vec<PathBuf>) {
+        if depth > 5 {
+            return;
+        }
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ft = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(_) => continue,
+            };
+            if ft.is_symlink() {
+                continue;
+            }
+            if ft.is_dir() {
+                walk(&path, needle, depth + 1, out);
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                let lower = name.to_ascii_lowercase();
+                if lower.ends_with(".efi") && lower.contains(needle) {
+                    if let Some(parent) = path.parent() {
+                        if !out.iter().any(|known| known == parent) {
+                            out.push(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, contains, 0, &mut out);
+    out
+}
+
+fn rel_of(root: &Path, dir: &Path) -> String {
+    dir.strip_prefix(root)
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| dir.to_string_lossy().to_string())
+}
+
+/// 枚举本机所有候选根上的所有引导器实例。
+pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
+    let roots = crate::channels::esp_candidates(app);
+    let mut out: Vec<BootInstanceRef> = Vec::new();
+    for root in roots {
+        let info = crate::esp_probe(&root).ok();
+        let part = info
+            .as_ref()
+            .and_then(|info| info.partuuid.clone())
+            .or_else(|| info.as_ref().and_then(|info| info.uuid.clone()))
+            .unwrap_or_else(|| root.to_string_lossy().to_string());
+        let short_part = part.chars().take(12).collect::<String>();
+        for kind in KINDS {
+            let dirs: Vec<PathBuf> = match kind {
+                "refind" => {
+                    let mut dirs = dirs_containing(&root, "refind.conf");
+                    dirs.extend(dirs_with_efi(&root, "refind"));
+                    dirs
+                }
+                "refindplus" => {
+                    let mut dirs = dirs_containing(&root, "refindplus.conf");
+                    dirs.extend(dirs_with_efi(&root, "refindplus"));
+                    dirs
+                }
+                "grub" => dirs_containing(&root, "grub.cfg"),
+                "sdboot" => {
+                    let mut dirs = dirs_containing(&root, "loader.conf");
+                    dirs.extend(dirs_with_efi(&root, "systemd-boot"));
+                    dirs
+                }
+                "opencore" => dirs_with_efi(&root, "opencore"),
+                "clover" => dirs_with_efi(&root, "cloverx64").into_iter()
+                    .chain(dirs_containing(&root, "CLOVERX64.efi"))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for dir in dirs {
+                let rel = rel_of(&root, &dir);
+                let instance_id = format!("{}@{}/{}", kind, part, rel.to_lowercase());
+                if out.iter().any(|known| known.instance_id == instance_id) {
+                    continue;
+                }
+                out.push(BootInstanceRef {
+                    kind: kind.to_string(),
+                    instance_id,
+                    title: format!("{} · {}", kind_title(kind), short_part),
+                    partition: part.clone(),
+                    origin: "esp".to_string(),
+                    install_dir: rel,
+                    available: true,
+                });
+            }
+        }
+    }
+    out.sort_by(|a, b| (a.kind.clone(), a.partition.clone(), a.install_dir.clone())
+        .cmp(&(b.kind.clone(), b.partition.clone(), b.install_dir.clone())));
+    out
+}
+
+/// Tauri 命令：所有引导器实例（平铺列表用）。
+#[tauri::command]
+pub(crate) fn boot_instances(app: AppHandle) -> Vec<BootInstanceRef> {
+    scan_instances(&app)
+}

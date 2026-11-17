@@ -151,6 +151,7 @@ mod dock_autohide;
 mod dock_commands;
 mod tray_classic;
 mod i18n;
+mod instances;
 mod menu_model;
 mod tray_menu_window;
 mod notify;
@@ -977,6 +978,12 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         // 三引导器通道视图（鉴权后）：网页端 / 手机端消费同一份
+        // 所有引导器实例（多实例模型：同类型可多个，平铺列表用）
+        "/api/boot-instances" => {
+            let value = serde_json::to_value(crate::instances::scan_instances(&app))
+                .unwrap_or_else(|_| serde_json::json!([]));
+            return RemoteReply::ok(200, value);
+        }
         "/api/boot-channels" => {
             let value = serde_json::to_value(crate::remote_servers::all_channels(&app))
                 .unwrap_or_else(|_| serde_json::json!([]));
@@ -3869,6 +3876,7 @@ pub fn run() {
             backup::backup_pick_import_file,
             backup::backup_pick_export_path,
             crate::remote_servers::boot_channels_all,
+            crate::instances::boot_instances,
             channels::switch_boot_channel,
             // rEFInd 模拟引导项扫描（与手动获取的 vars 快照并列）
             channels::refind_menu::refind_sim_scan,
