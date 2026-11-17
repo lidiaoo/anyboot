@@ -137,13 +137,12 @@ pub(crate) fn scan_instances_deep(app: &tauri::AppHandle) -> Vec<BootInstanceRef
 fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRef> {
     let settings = crate::stored_settings(app);
     let mut roots = crate::channels::esp_candidates(app);
-    // 深度枚举（diskutil info -all / lsblk 全盘 + 未挂载挂载）默认关闭：
-    // 用户可显式 ANYBOOT_DEEP_SCAN=1 触发，避免每次刷新阻塞十几秒。
-    if deep || std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
-        for extra in extra_esp_roots() {
-            if !roots.iter().any(|known| known == &extra) {
-                roots.push(extra);
-            }
+    // 默认全盘枚举：已挂载 + 未挂载 EFI 分区（diskutil list -plist / lsblk 全盘）。
+    // `deep` 参数保留兼容；两种模式都做全盘，不再只扫已挂载卷。
+    let _ = deep;
+    for extra in extra_esp_roots() {
+        if !roots.iter().any(|known| known == &extra) {
+            roots.push(extra);
         }
     }
     let mut out: Vec<BootInstanceRef> = Vec::new();
@@ -380,24 +379,70 @@ fn grub_instance_current(instance: &BootInstanceRef) -> String {
 /// 补充枚举「没挂载」的 ESP 根：多硬盘多 ESP 时，仅扫已挂载卷会漏实例。
 #[cfg(target_os = "macos")]
 fn extra_esp_roots() -> Vec<PathBuf> {
+    // diskutil list -plist：一次拿到所有磁盘/分区（含未挂载 EFI），比 diskutil info -all 快得多。
+    let Ok(list) = std::process::Command::new("diskutil").args(["list", "-plist"]).output() else {
+        return Vec::new();
+    };
+    if !list.status.success() {
+        return Vec::new();
+    }
+    let xml = String::from_utf8_lossy(&list.stdout).to_string();
     let mut roots: Vec<PathBuf> = Vec::new();
-    for info in crate::esp::macos_all_disks() {
-        let Some(uuid) = info.partition_uuid.clone() else { continue };
-        let personality = info.personality.clone().unwrap_or_default().to_ascii_lowercase();
-        let content = info.content.clone().unwrap_or_default().to_ascii_uppercase();
-        let is_fat = personality.contains("fat") || personality.contains("ms-dos");
-        // 只认 EFI 系统分区（Content=EFI），避免把普通 FAT U 盘/数据盘当 ESP
-        if !is_fat || !content.contains("EFI") {
-            continue;
-        }
-        if let Some(mount) = info.mount_point.clone() {
-            if !mount.trim().is_empty() {
-                roots.push(PathBuf::from(mount));
-                continue;
+    let mut mount_text = std::process::Command::new("mount")
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+        .unwrap_or_default();
+
+    fn value_of(segment: &str, key: &str) -> Option<String> {
+        let needle = format!("<key>{key}</key>");
+        let index = segment.find(&needle)? + needle.len();
+        let rest = &segment[index..];
+        let start = rest.find("<string>")? + "<string>".len();
+        let end = rest[start..].find("</string>")? + start;
+        Some(rest[start..end].to_string())
+    }
+    fn mountpoint_of(mount_text: &str, device: &str) -> Option<String> {
+        let target = format!("/dev/{device}");
+        for line in mount_text.lines() {
+            if line.starts_with(&target) {
+                if let Some(rest) = line.split(" on ").nth(1) {
+                    let mount = rest.split(" (").next().unwrap_or("").trim();
+                    if !mount.is_empty() {
+                        return Some(mount.to_string());
+                    }
+                }
             }
         }
-        // 未挂载的 ESP 不在默认扫描里自动挂载（会阻塞/弹授权）；由显式深度扫描触发。
-        let _ = uuid;
+        None
+    }
+
+    for segment in xml.split("<dict>").skip(1) {
+        let segment = segment.split("</dict>").next().unwrap_or("");
+        let content = value_of(segment, "Content").unwrap_or_default();
+        if !content.to_ascii_uppercase().contains("EFI") {
+            continue;
+        }
+        let Some(device) = value_of(segment, "DeviceIdentifier") else {
+            continue;
+        };
+        if let Some(mount) = mountpoint_of(&mount_text, &device) {
+            roots.push(PathBuf::from(mount));
+            continue;
+        }
+        // 未挂载：直接 diskutil mount <device>，再查挂载点（失败就跳过，不阻塞整体）。
+        let mounted = std::process::Command::new("diskutil")
+            .args(["mount", &device])
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+        if mounted {
+            if let Ok(out) = std::process::Command::new("mount").output() {
+                mount_text = String::from_utf8_lossy(&out.stdout).to_string();
+            }
+            if let Some(mount) = mountpoint_of(&mount_text, &device) {
+                roots.push(PathBuf::from(mount));
+            }
+        }
     }
     roots
 }
@@ -405,7 +450,7 @@ fn extra_esp_roots() -> Vec<PathBuf> {
 #[cfg(target_os = "linux")]
 fn extra_esp_roots() -> Vec<PathBuf> {
     let output = match std::process::Command::new("lsblk")
-        .args(["--json", "--output", "PATH,FSTYPE,PARTUUID,MOUNTPOINTS"])
+        .args(["--json", "--output", "PATH,FSTYPE,PARTTYPE,PARTUUID,MOUNTPOINTS"])
         .output()
     {
         Ok(output) => output,
@@ -423,7 +468,9 @@ fn extra_esp_roots() -> Vec<PathBuf> {
             }
         }
         let fstype = node.get("fstype").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
-        if !(fstype.contains("fat") || fstype == "vfat") {
+        let parttype = node.get("parttype").and_then(|v| v.as_str()).unwrap_or("").to_ascii_uppercase();
+        // 只认 EFI System Partition（GPT EF00）；避免把普通 FAT 数据盘当 ESP。
+        if parttype != "EF00" || !(fstype.contains("fat") || fstype == "vfat") {
             return;
         }
         let uuid = node.get("partuuid").and_then(|v| v.as_str()).unwrap_or("");
