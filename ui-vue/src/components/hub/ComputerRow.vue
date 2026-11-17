@@ -541,11 +541,20 @@ async function openUrl(url: string) {
 }
 
 /** 所有通道（6 个引导器）统一顺序：refind/refindplus/grub + 检测到的 sdboot/opencore/clover */
-const allKinds = computed<string[]>(() => ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"]);
+const allKinds = computed<string[]>(() => {
+  const base = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
+  const extras = (props.info?.channels ?? [])
+    .filter((c: any) => !!c.instanceId && !c.hidden)
+    .map((c: any) => String(c.instanceId));
+  return [...base, ...extras];
+});
 /** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
 function bootEcho(kind: string): { label: string; dot: string; none: boolean; title: string } {
   const g: any = channelOf(kind);
   const title = g?.title ?? ({ refind: "rEFInd", refindplus: "RefindPlus", grub: "GRUB", sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" } as any)[kind] ?? kind;
+  if (g && g.available && (g.options ?? []).length === 0 && g.note) {
+    return { label: String(g.note), dot: "", none: false, title };
+  }
   if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
     const e = channelEcho(kind);
     return { label: e.label, dot: e.dot, none: !g?.available, title };
@@ -601,7 +610,11 @@ function osIcon(kind: string, name: string): string {
 }
 
 function channelOf(kind: string) {
-  return (props.info?.channels ?? []).find((c: any) => c.kind === kind);
+  const list = props.info?.channels ?? [];
+  return (
+    list.find((c: any) => (c.instanceId && c.instanceId === kind) || (!c.instanceId && c.kind === kind)) ||
+    list.find((c: any) => c.kind === kind)
+  );
 }
 /** 通道列回显：current 是归一后的切换值域（opencore-default:… 裸 spec），直接渲染
  *  会把 spec 原串印出来。照主界面（系统引导页）的口径——显示**命中的条目名**：

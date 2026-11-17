@@ -4419,6 +4419,55 @@ fn channel_from_json(value: &serde_json::Value) -> BootGroup {
     channel_group(&id, &label, detected, &raw_current, note, options)
 }
 
+/// 新契约 `/api/boot-channels`（BootGroup JSON，6 段 + 多实例）→ BootGroup 列表。
+/// kind 可重复（同类型多实例）；旧对端返回 ChannelView 时由调用方回退 channels_from_json。
+fn boot_groups_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
+    value
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let kind = item.get("kind").and_then(|v| v.as_str()).unwrap_or("").trim();
+                    if kind.is_empty() {
+                        return None;
+                    }
+                    let options = item
+                        .get("options")
+                        .and_then(|v| v.as_array())
+                        .map(|list| {
+                            list.iter()
+                                .map(|o| BootOption {
+                                    value: o.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    label: o.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    class: o.get("class").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    header: o.get("header").and_then(|v| v.as_bool()).unwrap_or(false),
+                                    fixed: o.get("fixed").and_then(|v| v.as_bool()).unwrap_or(false),
+                                    child: o.get("child").and_then(|v| v.as_bool()).unwrap_or(false),
+                                    tag: o.get("tag").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    sub: o.get("sub").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    note: o.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    Some(BootGroup {
+                        kind: kind.to_string(),
+                        title: item.get("title").and_then(|v| v.as_str()).unwrap_or(kind).to_string(),
+                        available: item.get("available").and_then(|v| v.as_bool()).unwrap_or(false),
+                        current: item.get("current").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        next: item.get("next").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        saved: item.get("saved").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        note: item.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        options,
+                        ..Default::default()
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 顶层是数组的 `/api/boot-channels` 响应 → 通道组列表。
 fn channels_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
     value
@@ -4718,6 +4767,30 @@ pub async fn remote_boot_info(
 /// 复用 remote_boot_info_blocking 的本机装配（已是统一 BootGroup），直接拼成 6 段。
 /// 把 BootInfo.channels 统一补成 6 段（refind/refindplus/grub + 原 channels3），
 /// 供前端统一遍历 channels[6]；旧 refind/refindplus/grub 字段仍保留（内部/回落用）。
+/// 本机 BootInfo.channels 追加同类型的额外实例（只读占位，供平铺列表展示）。
+fn append_instance_extras(app: &AppHandle, channels: &mut Vec<BootGroup>) {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for instance in crate::instances::scan_instances(app) {
+        let count = seen.entry(instance.kind.clone()).or_insert(0);
+        let primary = *count == 0;
+        *count += 1;
+        if primary || instance.hidden {
+            continue;
+        }
+        channels.push(BootGroup {
+            kind: instance.kind,
+            title: instance.title,
+            available: instance.available,
+            current: String::new(),
+            next: String::new(),
+            saved: String::new(),
+            note: "多实例（只读，待接入独立切换）".to_string(),
+            options: Vec::new(),
+            ..Default::default()
+        });
+    }
+}
+
 fn with_all_channels(mut info: RemoteBootInfo) -> RemoteBootInfo {
     if info.channels.len() < 6 {
         let mut v: Vec<BootGroup> = Vec::with_capacity(6);
@@ -4850,7 +4923,9 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         // 旧版状态里本机显示「在线 127.0.0.1:<port>」，这里带上实际端口
         let port = { let p = crate::stored_settings(app).http_port; if p == 0 { 12300 } else { p } };
         info.addr = format!("127.0.0.1:{port}");
-        return Ok(with_all_channels(info));
+        let mut info = with_all_channels(info);
+        append_instance_extras(app, &mut info.channels);
+        return Ok(info);
     }
     let server = load_store(app)?
         .servers
@@ -5133,7 +5208,10 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
     // 三引导器通道（systemd-boot / OpenCore / Clover）：老版本对端没有这个接口，
     // 404 不该把整次读取判成失败 —— 只记一条 trace，列照常只出 rEFInd/GRUB。
     match remote_http_json(app, &server, "/api/boot-channels") {
-        Ok(value) => info.channels = channels_from_json(&value),
+        Ok(value) => {
+            let groups = boot_groups_from_json(&value);
+            info.channels = if groups.is_empty() { channels_from_json(&value) } else { groups };
+        }
         Err(error) => {
             crate::trace(
                 app,
@@ -5146,7 +5224,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
     if !errors.is_empty() {
         info.error = errors.join("；");
     }
-    Ok(with_all_channels(info))
+    Ok(info)
 }
 
 /// 切换引导项：rEFInd 走 `/api/switch?system=`，GRUB 走 `/api/grub-switch?entry=`。
