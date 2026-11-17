@@ -1687,7 +1687,12 @@ struct ComputerListView: View {
     private func pinnedBootRow(_ group: BootGroup) -> some View {
         let rows = unifiedRows(group)
         if let pr = rows.first(where: { $0.pinned }), let po = pr.option {
-            pickerOptionLabel(pr, option: po, selected: true)
+            let plain: GrubRow = {
+                var copy = pr
+                copy.child = false   // 置顶行不缩进、不画竖线（对齐 Android PinnedBootRow）
+                return copy
+            }()
+            pickerOptionLabel(plain, option: po, selected: true)
                 .padding(.horizontal, ABMetric.px(8))
                 .padding(.vertical, ABMetric.px(7))
                 .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
