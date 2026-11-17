@@ -2008,9 +2008,9 @@ struct ComputerListView: View {
     private func openInBrowser(_ profile: ServerProfile) {
         let cands = profile.openCandidates()
         if cands.isEmpty { toast(L("error.noAddress")); return }
-        if cands.count == 1 { UIApplication.shared.open(cands[0].url); return }
+        // 补全中间页：始终先弹「选择连接」列表（带连通性），再打开浏览器（对齐 Android 多地址选择页）
         openPickProfileId = profile.id
-        openPickCandidates = cands // 多地址 → 弹选择（自定义卡片，带连通性+可滚动）
+        openPickCandidates = cands
     }
 
     private func doDelete(_ id: String) {
@@ -2288,9 +2288,14 @@ struct ComputerListView: View {
     private var openPickDialog: some View {
         ABDialogHost(isPresented: !openPickCandidates.isEmpty,
                      onDismiss: { openPickCandidates = [] }) {
-            ABDialogCard(L("cl.pickConn")) {
+            ABDialogCard(L("and.pickAddrTitle")) {
                 let hits = boots[openPickProfileId]?.hits ?? []
-                ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(L("and.multiAddrPick"))
+                        .font(.system(size: 13))
+                        .foregroundColor(ABColor.fgDim)
+                        .padding(.bottom, ABMetric.px(8))
+                    ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(openPickCandidates) { c in
                             let hit = hits.first { h in
@@ -2315,7 +2320,8 @@ struct ComputerListView: View {
                         }
                     }
                 }
-                .frame(maxHeight: ABMetric.px(320))
+                    .frame(maxHeight: ABMetric.px(320))
+                }
                 HStack(spacing: ABMetric.px(8)) {
                     Spacer(minLength: 0)
                     ABButton(title: L("common.cancel"), kind: .ghost, compact: true) { openPickCandidates = [] }
