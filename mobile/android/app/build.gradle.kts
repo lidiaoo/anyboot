@@ -13,7 +13,7 @@ android {
         minSdk = 24
         targetSdk = 34
         // ⚠️ 版本号与 GitHub release tag 同轴（发版时两处一起改）：
-        //   release 打 v0.2.5 → versionName = "0.2.11"，versionCode = major*10000+minor*100+patch。
+        //   release 打 tag 时 versionName 与 tag 同轴，versionCode = major*10000+minor*100+patch。
         // 检查更新只比 versionName（UpdateCore.isNewer），不同轴会永远判成「已是最新」；
         // 工作流按 tag 把产物命名成 AnyBoot_<version>_debug.apk，客户端按这个名字找包。
         versionCode = 212
