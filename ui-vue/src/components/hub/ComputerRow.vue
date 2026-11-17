@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { call } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
 import type { RemoteProfile } from "@/stores/remote";
@@ -573,6 +574,26 @@ const hiddenInstances = ref<string[]>([]);
 try {
   hiddenInstances.value = JSON.parse(localStorage.getItem("anyboot.hiddenInstances") || "[]");
 } catch { /* 忽略 */ }
+const localInstances = ref<any[]>([]);
+const channelGroups = computed<any[]>(() => {
+  if (isLocal.value && localInstances.value.length) return localInstances.value;
+  return props.info?.channels ?? [];
+});
+onMounted(async () => {
+  if (!isLocal.value) return;
+  try {
+    const result: any = await call("boot_channels_all");
+    if (Array.isArray(result) && result.length) localInstances.value = result;
+  } catch {
+    try {
+      const token = new URLSearchParams(location.search).get("token") || "";
+      const response = await fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`);
+      const data = await response.json();
+      if (Array.isArray(data) && data.length) localInstances.value = data;
+    } catch { /* 忽略 */ }
+  }
+});
+
 function persistInstances() {
   try {
     localStorage.setItem("anyboot.instanceAliases", JSON.stringify(instanceAliases.value));
@@ -587,7 +608,7 @@ function instanceTitle(group: any): string {
   return instanceAliases.value[key] || group?.title || group?.kind || "";
 }
 const allKinds = computed<string[]>(() => {
-  const all = props.info?.channels ?? [];
+  const all = channelGroups.value;
   const instanceKeys = all
     .filter((c: any) => !!c.instanceId)
     .filter((c: any) => !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
@@ -619,6 +640,20 @@ function bootEcho(kind: string): { label: string; dot: string; none: boolean; ti
   if (g && g.available && (g.options ?? []).length === 0 && g.note) {
     return { label: String(g.note), dot: "", none: false, title };
   }
+  if (g && g.instanceId) {
+    if (!g.available) return { label: t("hub.state.notDetected"), dot: "", none: true, title };
+    const opts: any[] = (g.options ?? []) as any[];
+    const cur = String(g.current ?? "").trim();
+    const hit =
+      opts.find((o: any) => !o.header && o.value === cur) ||
+      opts.find((o: any) => !o.header && cur && String(o.label ?? "").includes(cur));
+    return {
+      label: hit?.label || cur || t("hub.state.notSelected"),
+      dot: hit?.class || "",
+      none: false,
+      title,
+    };
+  }
   if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
     const e = channelEcho(kind);
     return { label: e.label, dot: e.dot, none: !g?.available, title };
@@ -628,6 +663,8 @@ function bootEcho(kind: string): { label: string; dot: string; none: boolean; ti
 }
 /** 统一切换可用性 */
 function bootUsableFor(kind: string): boolean {
+  const group: any = channelOf(kind);
+  if (group && group.instanceId) return !!(group.available && (group.options ?? []).length);
   if (kind === "sdboot" || kind === "opencore" || kind === "clover" || kind.startsWith("channel:")) {
     const c: any = channelOf(kind);
     return !!(c && c.available && (c.options?.length));
@@ -674,7 +711,7 @@ function osIcon(kind: string, name: string): string {
 }
 
 function channelOf(kind: string) {
-  const list = props.info?.channels ?? [];
+  const list = channelGroups.value;
   return (
     list.find((c: any) => (c.instanceId && c.instanceId === kind) || (!c.instanceId && c.kind === kind)) ||
     list.find((c: any) => c.kind === kind)
