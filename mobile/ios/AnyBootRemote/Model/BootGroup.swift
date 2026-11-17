@@ -72,6 +72,10 @@ struct BootGroup {
     var next: String
     var saved: String
     var note: String
+    /// 多实例唯一 id（后端下发；缺省=kind，兼容单实例）
+    var instanceId: String = ""
+    /// 是否被设置隐藏
+    var hidden: Bool = false
     var options: [BootOption]
     /// 挂起的远程切换倒计时（对端 /api/status 的 switchPending）——pendingBar 显示「N 秒后执行」+ 撤销
     var pendingSeconds: Int = 0
@@ -317,6 +321,8 @@ enum BootParser {
                 next: RemoteHttp.str(item, "next").trimmingCharacters(in: .whitespaces),
                 saved: RemoteHttp.str(item, "saved").trimmingCharacters(in: .whitespaces),
                 note: RemoteHttp.str(item, "note").trimmingCharacters(in: .whitespaces),
+                instanceId: RemoteHttp.str(item, "instanceId").trimmingCharacters(in: .whitespaces),
+                hidden: RemoteHttp.bool(item, "hidden"),
                 options: RemoteHttp.objects(item, "options").map(parseBootOption))
         }
     }

@@ -1215,7 +1215,7 @@ struct ComputerListView: View {
     }
 
     private func bootButtons(_ row: CqRow) -> some View {
-        let groups = row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels
+        let groups = (row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels).filter { !$0.hidden }
         return VStack(spacing: ABMetric.px(6)) {
             ForEach(groups, id: \.kind) { group in
                 bootButton(row, group: group)

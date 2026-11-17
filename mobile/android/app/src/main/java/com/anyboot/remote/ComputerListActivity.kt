@@ -1574,7 +1574,7 @@ class ComputerListActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.padding(top = 11.dp),
             ) {
-                row.channels.forEach { group -> BootButton(row, group.kind, group) }
+                row.channels.filter { !it.hidden }.forEach { group -> BootButton(row, group.kind, group) }
             }
 
             // 待生效提示条：挂起倒计时（远程/手机发的请求 N 秒后执行，可撤销）优先
@@ -3847,6 +3847,8 @@ class ComputerListActivity : ComponentActivity() {
             next = optStr(item, "next"),
             saved = optStr(item, "saved"),
             note = optStr(item, "note"),
+            instanceId = optStr(item, "instanceId"),
+            hidden = item.optBoolean("hidden", false),
             options = options,
         )
     }
@@ -4607,6 +4609,10 @@ class ComputerListActivity : ComponentActivity() {
         val next: String,
         val saved: String,
         val note: String,
+        /** 多实例唯一 id（缺省=kind） */
+        val instanceId: String = "",
+        /** 是否隐藏 */
+        val hidden: Boolean = false,
         /** 服务端自己的格式偏好（/api/grub 的 listFormat，老版本为空） */
         val serverFormat: String = "",
         /** submenu 内部 id → 组名（老服务端没有 groups 时为空映射） */
