@@ -1224,7 +1224,9 @@ struct ComputerListView: View {
     /// 卡片回显文字 = 一级(父组) › 二级(子项)（与 Android bootEcho 同口径）
     private func bootEchoText(_ group: BootGroup, hitIndex: Int) -> String {
         let hit = group.options[hitIndex]
-        let label = hit.label.isEmpty ? hit.value : hit.label
+        let label = group.kind == "grub"
+            ? GrubFormat.rowLabel(hit, format: GrubFormat.effectiveFormat(group))
+            : (hit.label.isEmpty ? hit.value : hit.label)
         guard hit.child else { return label }
         var header = ""
         if hitIndex > 0 {

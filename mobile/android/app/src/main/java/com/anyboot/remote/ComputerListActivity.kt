@@ -2526,7 +2526,8 @@ class ComputerListActivity : ComponentActivity() {
         }
         if (hitIndex >= 0) {
             val hit = options[hitIndex]
-            val label = hit.label.trim().ifBlank { current }
+            val formatted = if (group.kind == "grub") grubRowLabel(grubEffectiveFormat(group), hit) else ""
+            val label = formatted.ifBlank { hit.label.trim() }.ifBlank { current }
             var groupLabel = ""
             for (k in hitIndex - 1 downTo 0) {
                 if (options[k].header) {

@@ -652,6 +652,20 @@ function instanceMenu(kind: string) {
   persistInstances();
 }
 /** 统一回显：通道走 channelEcho，其余走 bootState —— 只有数据来源差异，无 UI 特例 */
+function bootFormatLabel(option: any, group: any): string {
+  const raw = String(option?.label ?? option?.value ?? "");
+  const baseKind = String(group?.kind ?? "").split("@")[0];
+  if (baseKind !== "grub") return raw;
+  const kernels: string[] = Array.isArray(option?.kernels) ? option.kernels : [];
+  if (!kernels.length) return raw;
+  const kernel = String(kernels[0] ?? "");
+  const strip = (value: string) => value.replace(/^vmlinuz-/, "").replace(/^linux-/, "");
+  const format = appSettings.grubListFormat || "minimal";
+  if (format === "minimal" || format === "simple") return strip(kernel) || raw;
+  if (format === "medium") return kernel || raw;
+  return raw;
+}
+
 function bootEcho(kind: string): { label: string; dot: string; none: boolean; title: string } {
   const g: any = channelOf(kind);
   const fallbackTitle = ({ refind: "rEFInd", refindplus: "RefindPlus", grub: "GRUB", sdboot: "systemd-boot", opencore: "OpenCore", clover: "Clover" } as any)[kind] ?? kind;
@@ -668,7 +682,7 @@ function bootEcho(kind: string): { label: string; dot: string; none: boolean; ti
       hitIndex = opts.findIndex((o: any) => !o.header && String(o.label ?? "").includes(cur));
     }
     const hit = hitIndex >= 0 ? opts[hitIndex] : undefined;
-    let label = hit?.label || cur || t("hub.state.notSelected");
+    let label = hit ? bootFormatLabel(hit, g) : (cur || t("hub.state.notSelected"));
     if (hit?.child && hitIndex > 0) {
       for (let k = hitIndex - 1; k >= 0; k -= 1) {
         if (opts[k].header) {
