@@ -3535,6 +3535,9 @@ pub struct BootGroup {
     /// 不可用或读取失败时的说明（前端挂在 title 上）
     pub note: String,
     pub options: Vec<BootOption>,
+    /// 多实例唯一 id（缺省 None = 旧单实例，按 kind 兼容）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
 }
 
 /// 电脑页「引导项」列的数据：一次请求拿齐 rEFInd + GRUB + 三引导器通道。
@@ -3891,6 +3894,7 @@ pub(crate) fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
             String::new()
         },
         options,
+        instance_id: None,
         raw: Some(sim.clone()),
     }
 }
@@ -4460,6 +4464,11 @@ fn boot_groups_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
                         saved: item.get("saved").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         note: item.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         options,
+                        instance_id: item
+                            .get("instanceId")
+                            .and_then(|v| v.as_str())
+                            .map(|v| v.trim().to_string())
+                            .filter(|v| !v.is_empty()),
                         ..Default::default()
                     })
                 })
@@ -4746,6 +4755,7 @@ fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
         saved,
         note,
         options,
+        instance_id: None,
         raw: Some(value.clone()),
     }
 }

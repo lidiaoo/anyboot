@@ -294,6 +294,7 @@ pub(crate) fn extra_instance_group(instance: &BootInstanceRef) -> Option<crate::
             kind: instance.kind.clone(),
             title: instance.title.clone(),
             available: instance.available,
+            current: grub_instance_current(instance),
             note: String::new(),
             options: grub_instance_options(instance),
             ..Default::default()
@@ -328,4 +329,20 @@ pub(crate) fn extra_instance_group(instance: &BootInstanceRef) -> Option<crate::
         }
         _ => None,
     }
+}
+
+fn grub_instance_current(instance: &BootInstanceRef) -> String {
+    let dir = std::path::Path::new(&instance.root_path).join(&instance.install_dir);
+    let mut env = dir.join("grubenv");
+    if !env.is_file() {
+        let shared = std::path::Path::new(&instance.root_path).join("EFI/grubenv");
+        if shared.is_file() {
+            env = shared;
+        }
+    }
+    let Ok(bytes) = fs::read(env) else { return String::new() };
+    crate::grub::env_value(&bytes, "next_entry")
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| crate::grub::env_value(&bytes, "saved_entry"))
+        .unwrap_or_default()
 }
