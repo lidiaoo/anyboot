@@ -293,21 +293,62 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
         Ok(text) => text,
         Err(_) => return Vec::new(),
     };
-    crate::grub::parse_grub_cfg(&text)
+    let entries = crate::grub::parse_grub_cfg(&text);
+    let group_names: std::collections::HashMap<String, String> = crate::grub::parse_submenus(&text)
         .into_iter()
-        .map(|entry| crate::remote_servers::BootOption {
-            value: entry.selector.clone(),
-            label: entry.name.clone(),
-            class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
-            child: entry.submenu.is_some(),
-            tag: if entry.variants > 1 {
-                format!("{} 个变体", entry.variants)
-            } else {
-                String::new()
-            },
-            ..Default::default()
-        })
-        .collect()
+        .map(|group| (group.id, group.name))
+        .collect();
+    let mut group_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for entry in &entries {
+        if let Some(submenu) = &entry.submenu {
+            *group_counts.entry(submenu.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut options = Vec::new();
+    let mut emitted_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in entries {
+        if let Some(submenu) = entry.submenu.clone() {
+            // 一级（组头）必须保留：含子节点的这一行要按组头样式渲染
+            if emitted_groups.insert(submenu.clone()) {
+                let title = group_names.get(&submenu).cloned().unwrap_or_else(|| submenu.clone());
+                let count = group_counts.get(&submenu).copied().unwrap_or(0);
+                options.push(crate::remote_servers::BootOption {
+                    value: String::new(),
+                    label: format!("{title}（{count} 项）"),
+                    class: String::new(),
+                    header: true,
+                    fixed: true,
+                    ..Default::default()
+                });
+            }
+            options.push(crate::remote_servers::BootOption {
+                value: entry.selector.clone(),
+                label: entry.name.clone(),
+                class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
+                child: true,
+                tag: if entry.variants > 1 {
+                    format!("{} 个变体", entry.variants)
+                } else {
+                    String::new()
+                },
+                ..Default::default()
+            });
+        } else {
+            options.push(crate::remote_servers::BootOption {
+                value: entry.selector.clone(),
+                label: entry.name.clone(),
+                class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
+                child: false,
+                tag: if entry.variants > 1 {
+                    format!("{} 个变体", entry.variants)
+                } else {
+                    String::new()
+                },
+                ..Default::default()
+            });
+        }
+    }
+    options
 }
 
 /// 切换某个 GRUB 实例：只写它自己安装目录下的 grubenv（多实例互不影响）。

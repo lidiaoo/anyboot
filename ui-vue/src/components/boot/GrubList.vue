@@ -140,7 +140,43 @@ const rows = computed<Row[]>(() => {
       tag: variants > 1 ? t("grub.variantsN", { n: variants }) : "",
     });
   };
+  // 新契约（BootOption）：header 行 = 一级组头，child=true 的后续行是组内二级。
+  const genericGroupCounts = new Map<string, number>();
+  let genericCurrent = "";
+  for (const entry of props.entries as any[]) {
+    if (entry.header) {
+      genericCurrent = String(entry.name ?? "");
+      genericGroupCounts.set(genericCurrent, 0);
+    } else if (entry.child && genericCurrent) {
+      genericGroupCounts.set(genericCurrent, (genericGroupCounts.get(genericCurrent) ?? 0) + 1);
+    }
+  }
+  let currentGenericHeader: string | null = null;
   props.entries.forEach((entry) => {
+    const meta = entry as any;
+    if (meta.header) {
+      const rawTitle = String(entry.name ?? "");
+      const matched = rawTitle.match(/（(\d+)\s*项）\s*$/);
+      const title = rawTitle.replace(/（\d+\s*项）\s*$/, "").trim();
+      const count = matched ? Number(matched[1]) : (genericGroupCounts.get(rawTitle) ?? 0);
+      out.push({
+        key: `gh:${title}:${out.length}`,
+        entry: { selector: "", name: title },
+        group: true,
+        depth: -1,
+        childCount: count,
+        groupTitle: title,
+      });
+      currentGenericHeader = title;
+      return;
+    }
+    if (currentGenericHeader) {
+      const label = rowLabel(entry);
+      const counts = new Map<string, number>([[label, 1]]);
+      emitEntry({ ...entry, submenu: currentGenericHeader }, 1, counts, new Set<string>());
+      return;
+    }
+    currentGenericHeader = null;
     if (!entry.submenu) {
       // 顶层：同名折叠去重
       const counts = collapseScope(entries.filter((e) => !e.submenu));
