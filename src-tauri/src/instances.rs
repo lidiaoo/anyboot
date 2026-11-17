@@ -256,10 +256,19 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         .cmp(&(b.kind.clone(), b.partition.clone(), b.install_dir.clone())));
     // 同一分区同类型多份安装（如 EFI/OC 与 EFI/OC2）：标题追加安装目录名以便区分
     let mut counts: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+    let mut kind_totals: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for instance in &out {
         *counts.entry((instance.kind.clone(), instance.partition.clone())).or_insert(0) += 1;
+        *kind_totals.entry(instance.kind.clone()).or_insert(0) += 1;
     }
     for instance in &mut out {
+        // 单实例类型：标题恢复 v0.2.12 的纯类型名（GRUB / rEFInd …）；
+        // 只有同类型多实例时才保留「类型 · 卷名」区分。
+        if kind_totals.get(&instance.kind).copied().unwrap_or(0) == 1
+            && !settings.boot_instance_aliases.contains_key(&instance.instance_id)
+        {
+            instance.title = kind_title(&instance.kind).to_string();
+        }
         if counts.get(&(instance.kind.clone(), instance.partition.clone())).copied().unwrap_or(0) > 1 {
             let leaf = instance
                 .install_dir
@@ -314,10 +323,11 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
                 let count = group_counts.get(&submenu).copied().unwrap_or(0);
                 options.push(crate::remote_servers::BootOption {
                     value: String::new(),
-                    label: format!("{title}（{count} 项）"),
+                    label: title,
                     class: String::new(),
                     header: true,
                     fixed: true,
+                    tag: format!("{count} 项"),
                     ..Default::default()
                 });
             }

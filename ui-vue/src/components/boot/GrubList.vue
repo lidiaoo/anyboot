@@ -170,7 +170,7 @@ const rows = computed<Row[]>(() => {
       currentGenericHeader = title;
       return;
     }
-    if (currentGenericHeader) {
+    if (meta.child && currentGenericHeader) {
       const label = rowLabel(entry);
       const counts = new Map<string, number>([[label, 1]]);
       emitEntry({ ...entry, submenu: currentGenericHeader }, 1, counts, new Set<string>());

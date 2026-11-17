@@ -139,6 +139,7 @@ async function openPicker(kind: string) {
       name: String(o.label ?? o.value ?? ""),
       class: o.class,
       header: !!o.header,
+      child: !!o.child,
       tag: o.tag || "",
       sub: o.sub || "",
       note: o.note || "",
@@ -168,6 +169,7 @@ async function openPicker(kind: string) {
       note: o.note || "",
       readonly: !!o.fixed || !o.value,
       header: !!o.header,
+      child: !!o.child,
     }));
     picker.value = {
       kind,
