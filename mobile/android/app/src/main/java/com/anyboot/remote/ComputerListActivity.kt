@@ -4285,7 +4285,11 @@ class ComputerListActivity : ComponentActivity() {
                 if (!choice.alive) throw Exception(getString(R.string.error_hostOffline))
                 // 6 个引导器统一按 kind 分发到各自端点（kind 可能带 `channel:` 前缀）
                 val baseKind = kind.removePrefix("channel:")
-                val path = when (baseKind) {
+                val path = if (kind.contains('@')) {
+                    var p = "/api/boot-instance-switch?instance=" + URLEncoder.encode(kind, "UTF-8") + "&target=" + URLEncoder.encode(value, "UTF-8")
+                    if (title.isNotEmpty()) p += "&title=" + URLEncoder.encode(title, "UTF-8")
+                    p
+                } else when (baseKind) {
                     KIND_REFIND -> "/api/switch?system=" + URLEncoder.encode(value, "UTF-8")
                     KIND_REFINDPLUS -> "/api/switch?system=" + URLEncoder.encode(value, "UTF-8") + "&channel=refindplus"
                     KIND_GRUB -> "/api/grub-switch?entry=" + URLEncoder.encode(value, "UTF-8")

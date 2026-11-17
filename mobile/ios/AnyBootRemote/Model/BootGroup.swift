@@ -738,7 +738,10 @@ enum BootService {
         }
         let encoded = target.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? target
         let path: String
-        if kind == BootKind.refind {
+        if kind.contains("@") {
+            let encInst = kind.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? kind
+            path = "/api/boot-instance-switch?instance=\(encInst)&target=\(encoded)"
+        } else if kind == BootKind.refind {
             path = "/api/switch?system=\(encoded)"
         } else if kind == BootKind.refindplus {
             path = "/api/switch?system=\(encoded)&channel=refindplus"

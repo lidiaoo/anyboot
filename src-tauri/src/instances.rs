@@ -224,3 +224,29 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
         })
         .collect()
 }
+
+/// 切换某个 GRUB 实例：只写它自己安装目录下的 grubenv（多实例互不影响）。
+pub(crate) fn switch_grub_instance(app: &tauri::AppHandle, instance_id: &str, selector: &str) -> Result<String, String> {
+    let selector = selector.trim();
+    if selector.is_empty() {
+        return Err("没有选择引导项".to_string());
+    }
+    let instances = scan_instances(app);
+    let instance = instances
+        .into_iter()
+        .find(|item| item.instance_id == instance_id)
+        .ok_or_else(|| format!("找不到引导器实例：{instance_id}"))?;
+    if instance.kind != "grub" {
+        return Err(format!("暂不支持该类型的实例切换：{}", instance.kind));
+    }
+    let dir = std::path::Path::new(&instance.root_path).join(&instance.install_dir);
+    let mut env_path = dir.join("grubenv");
+    if !env_path.is_file() {
+        let shared = std::path::Path::new(&instance.root_path).join("EFI/grubenv");
+        if shared.is_file() {
+            env_path = shared;
+        }
+    }
+    crate::grub_esp::grub_write_env(&env_path, selector)?;
+    Ok(format!("下次启动：{selector}"))
+}

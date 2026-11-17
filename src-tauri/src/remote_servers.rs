@@ -5291,6 +5291,11 @@ fn remote_boot_switch_blocking(
     // 本机行：直连 IPC —— 直接调远程命令的进程内执行入口（与 CLI/HTTP 走的
     // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
     if server_id == "local" {
+        if kind.contains('@') && base_kind == "grub" {
+            let message = crate::instances::switch_grub_instance(app, kind, value)?;
+            crate::channels::refresh_channels(app);
+            return Ok(message);
+        }
         let command = match base_kind {
             "refind" => {
                 // 值域不在调用方校验：自动扫描模式下 value 是 rEFInd 菜单条目的
@@ -5324,7 +5329,7 @@ fn remote_boot_switch_blocking(
             Err(status.message)
         };
     }
-    let path = match base_kind {
+    let mut path = match base_kind {
         // 自动扫描模式下 system 是菜单条目标题（含空格 / 中文），必须转义；
         // 值域校验在对端执行端做（按它的读取方式分流）
         "refind" => format!("/api/switch?system={}", encode_query(value)),
@@ -5350,6 +5355,13 @@ fn remote_boot_switch_blocking(
         }
         other => return Err(format!("未知的引导管理器：{other}")),
     };
+    if kind.contains('@') {
+        path = format!(
+            "/api/boot-instance-switch?instance={}&target={}",
+            encode_query(kind),
+            encode_query(value)
+        );
+    }
     let server = load_store(app)?
         .servers
         .into_iter()

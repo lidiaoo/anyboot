@@ -978,6 +978,21 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
         "/api/requests" => return RemoteReply::ok(200, remote_requests_json()),
         "/api/grub" => return RemoteReply::ok(200, remote_grub_json(app)),
         // 三引导器通道视图（鉴权后）：网页端 / 手机端消费同一份
+        // 切换某个引导器实例（?instance=<instanceId>&target=<selector>）
+        "/api/boot-instance-switch" => {
+            let instance = request.param("instance").unwrap_or_default().trim().to_string();
+            let target = request.param("target").unwrap_or_default().to_string();
+            if instance.is_empty() {
+                return RemoteReply::error(400, "missing_instance", "缺少 instance 参数");
+            }
+            return match crate::instances::switch_grub_instance(&app, &instance, &target) {
+                Ok(message) => {
+                    crate::channels::refresh_channels(&app);
+                    RemoteReply::ok(200, serde_json::json!({ "ok": true, "message": message }))
+                }
+                Err(error) => RemoteReply::error(400, "switch_failed", &error),
+            };
+        }
         // 设置实例别名（?instance=&alias=）
         "/api/boot-instance-alias" => {
             let instance = request.param("instance").unwrap_or_default().trim().to_string();
