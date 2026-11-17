@@ -62,6 +62,8 @@ pub(crate) struct AppState {
     /// 三引导器通道（systemd-boot / OpenCore / Clover）：与 GRUB 完全并列的
     /// 又一套切换链路。视图在 channels::refresh 里重算。
     pub(crate) channels: channels::ChannelsRuntime,
+    /// 引导器实例扫描缓存（TTL，channels 刷新时失效），避免每次请求重新全盘枚举。
+    pub(crate) instances_cache: Option<(std::time::Instant, Vec<crate::instances::BootInstanceRef>)>,
     /// 安装 / 卸载 09_anyboot 的执行过程日志（最近一次）
     pub(crate) script_log: ScriptLogView,
     /// 贴边自动隐藏的运行态：是否已停靠、贴在哪条边、贴住时的坐标。

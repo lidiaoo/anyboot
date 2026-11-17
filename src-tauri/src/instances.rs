@@ -6,6 +6,7 @@
 
 use serde::Serialize;
 use tauri::AppHandle;
+use tauri::Manager;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -135,6 +136,16 @@ pub(crate) fn scan_instances_deep(app: &tauri::AppHandle) -> Vec<BootInstanceRef
 }
 
 fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRef> {
+    // 缓存命中（15s）；深度扫描强制刷新并回填缓存。
+    if !deep {
+        if let Ok(state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+            if let Some((at, cached)) = &state.instances_cache {
+                if at.elapsed() < std::time::Duration::from_secs(15) {
+                    return cached.clone();
+                }
+            }
+        }
+    }
     let settings = crate::stored_settings(app);
     let mut roots = crate::channels::esp_candidates(app);
     // 默认全盘枚举：已挂载 + 未挂载 EFI 分区（diskutil list -plist / lsblk 全盘）。
@@ -219,6 +230,9 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
     }
     out.sort_by(|a, b| (a.kind.clone(), a.partition.clone(), a.install_dir.clone())
         .cmp(&(b.kind.clone(), b.partition.clone(), b.install_dir.clone())));
+    if let Ok(mut state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+        state.instances_cache = Some((std::time::Instant::now(), out.clone()));
+    }
     out
 }
 

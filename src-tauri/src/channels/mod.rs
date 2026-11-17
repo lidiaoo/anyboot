@@ -762,7 +762,10 @@ pub(crate) fn refresh_channels_with(app: &AppHandle, candidates: Vec<PathBuf>) {
         esp_probe(&root).ok()
     });
     let state = app.state::<Mutex<AppState>>();
-    state.lock().expect("state mutex poisoned").channels = ChannelsRuntime { esp, views };
+    let mut state = state.lock().expect("state mutex poisoned");
+    state.channels = ChannelsRuntime { esp, views };
+    // 通道刷新时让实例扫描缓存失效（分区/ESP 内容可能已变）
+    state.instances_cache = None;
 }
 
 // ─────────────────── 开机自动「提权扫」（进 App 就有数据） ───────────────────
