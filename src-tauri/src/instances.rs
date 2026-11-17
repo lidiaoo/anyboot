@@ -119,6 +119,34 @@ fn dirs_with_efi(root: &Path, contains: &str) -> Vec<PathBuf> {
     out
 }
 
+/// 与 dirs_with_efi 相同，但排除文件名含 `exclude` 的（如 RefindPlus 的 x64_RefindPlus_REL.efi 不能被当成 rEFInd）。
+fn dirs_with_efi_excluding(root: &Path, needle: &str, exclude: &str) -> Vec<PathBuf> {
+    fn walk(dir: &Path, needle: &str, exclude: &str, depth: usize, out: &mut Vec<PathBuf>) {
+        if depth > 5 { return; }
+        let entries = match fs::read_dir(dir) { Ok(v) => v, Err(_) => return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let ft = match entry.file_type() { Ok(v) => v, Err(_) => continue };
+            if ft.is_symlink() { continue; }
+            if ft.is_dir() {
+                walk(&path, needle, exclude, depth + 1, out);
+            } else if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                let lower = name.to_ascii_lowercase();
+                if lower.ends_with(".efi") && lower.contains(needle) && !lower.contains(exclude) {
+                    if let Some(parent) = path.parent() {
+                        if !out.iter().any(|known| known == parent) {
+                            out.push(parent.to_path_buf());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, needle, exclude, 0, &mut out);
+    out
+}
+
 fn rel_of(root: &Path, dir: &Path) -> String {
     dir.strip_prefix(root)
         .map(|p| p.to_string_lossy().replace('\\', "/"))
@@ -179,11 +207,7 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
             let dirs: Vec<PathBuf> = match kind {
                 "refind" => {
                     let mut dirs = dirs_containing(&efi, "refind.conf");
-                    dirs.extend(
-                        dirs_with_efi(&efi, "refind")
-                            .into_iter()
-                            .filter(|dir| !dir.to_string_lossy().to_ascii_lowercase().contains("refindplus")),
-                    );
+                    dirs.extend(dirs_with_efi_excluding(&efi, "refind", "refindplus"));
                     dirs
                 }
                 "refindplus" => {
