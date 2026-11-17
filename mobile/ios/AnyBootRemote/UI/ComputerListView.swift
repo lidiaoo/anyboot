@@ -1769,6 +1769,8 @@ struct ComputerListView: View {
                     let displayRow: GrubRow = {
                         var copy = row
                         copy.pinned = false
+                        // 列表内文字用纯子项名（父组 › 前缀只在顶部置顶行）——对齐 Android
+                        copy.text = option.label.isEmpty ? option.value : option.label
                         return copy
                     }()
                     if option.value.isEmpty {
