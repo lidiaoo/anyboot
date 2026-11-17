@@ -69,12 +69,6 @@ async function setGrubTab(name: "auto" | "manual"): Promise<void> {
 /** 09_anyboot 脚本正文（旧版 #grub-script） */
 const scriptText = ref("");
 /** GRUB 错误提示（旧版 #grub-error） */
-/** 列表格式（旧版 #grub-list-format） */
-
-function setFormat(format: string) {
-  void call("set_grub_list_format", { format }).catch(() => {});
-}
-
 function installAnyboot() {
   void call("install_grub_script", {}).catch(() => {});
 }
@@ -384,20 +378,5 @@ async function switchEntry(selector: string) {
     <hr aria-hidden="true" class="boot-divider" id="boot-divider" />
 
 
-    <!-- 列表格式（旧版 #grub-format-row） -->
-    <div class="grub-row" id="grub-format-row">
-      <label for="grub-list-format">{{ t("grub.listFormat") }}</label>
-      <select
-        id="grub-list-format"
-        :value="settings.grubListFormat"
-        @change="setFormat(($event.target as HTMLSelectElement).value)"
-      >
-        <option value="raw">{{ t("hub.picker.fmt.raw") }}</option>
-        <option value="minimal">{{ t("hub.picker.fmt.minimal") }}</option>
-        <option value="simple">{{ t("hub.picker.fmt.simple") }}</option>
-        <option value="medium">{{ t("hub.picker.fmt.medium") }}</option>
-        <option value="detailed">{{ t("hub.picker.fmt.detailed") }}</option>
-      </select>
-    </div>
   </section>
 </template>

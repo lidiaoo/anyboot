@@ -200,7 +200,6 @@ class ComputerListActivity : ComponentActivity() {
      * 空 = 跟随服务端 /api/grub 响应里的 listFormat（服务端没给就退 minimal）。
      * 用户在 GRUB 选择框里点过档位后就固定用手机自己的选择（存 anyboot_ui）。
      */
-    private var grubFmt by mutableStateOf("")
 
     /**
      * 正在编辑的电脑；**[editOpen]=true 且本值为 null = 添加**。
@@ -289,7 +288,6 @@ class ComputerListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Ui.applySystemBars(this)
-        grubFmt = getSharedPreferences(UI_PREFS, MODE_PRIVATE).getString("grubListFormat", "") ?: ""
         // ⋮ 菜单的三个全局开关初始值（与电脑页读写同一份偏好）
         moreConnectAll = ServerStore.connectAll(this)
         moreTransport = ServerStore.transport(this)
@@ -2618,59 +2616,6 @@ class ComputerListActivity : ComponentActivity() {
 
     // ---- 底部选择器 --------------------------------------------------
 
-    /**
-     * GRUB 条目文字的格式档位（与 PC 端 ⋮ 菜单同一套五档）。
-     * 「跟随电脑」= 用 /api/grub 响应里的 listFormat（服务端没给就退极简）；
-     * 点了具体档位就固定用手机自己的选择并记住（anyboot_ui/grubListFormat）。
-     */
-    @Composable
-    @OptIn(ExperimentalLayoutApi::class)
-    private fun grubFormatChips(group: BootGroup) {
-        val palette = LocalPalette.current
-        val effective = grubEffectiveFormat(group)
-        val choices = listOf(
-            "" to getString(R.string.hub_picker_fmt_follow),
-            "minimal" to getString(R.string.hub_picker_fmt_minimal),
-            "simple" to getString(R.string.hub_picker_fmt_simple),
-            "medium" to getString(R.string.hub_picker_fmt_medium),
-            "raw" to getString(R.string.hub_picker_fmt_raw),
-            "detailed" to getString(R.string.hub_picker_fmt_detailed),
-        )
-        Column {
-            Text(
-                getString(R.string.hub_picker_fmtLabel, if (grubFmt.isEmpty()) getString(R.string.hub_picker_fmt_follow) + " · $effective" else effective),
-                fontSize = 11.sp,
-                color = palette.fgFaint,
-            )
-            Spacer(Modifier.height(6.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                choices.forEach { (value, name) ->
-                    val selected = grubFmt == value
-                    Text(
-                        name,
-                        fontSize = 12.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        color = if (selected) Color.White else palette.fgDim,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(13.dp))
-                            .background(
-                                if (selected) palette.accent else palette.elevate
-                            )
-                            .clickable {
-                                grubFmt = value
-                                getSharedPreferences(UI_PREFS, MODE_PRIVATE)
-                                    .edit().putString("grubListFormat", value).apply()
-                            }
-                            .padding(horizontal = 9.dp, vertical = 5.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-        }
-    }
-
     /** 三引导器通道的动作列表（对齐 PC 网页端 makeBootChannelCard 的条目区） */
     /**
      * 通道的说明 + 健康检查：默认收进一枚 ⚠/ⓘ 小圆标（用户 2026-10-28：不要占位置）。
@@ -2832,11 +2777,7 @@ class ComputerListActivity : ComponentActivity() {
                 // head 底边框（.cq-picker-head 的 border-bottom）
                 Box(Modifier.fillMaxWidth().height(1.dp).background(palette.line))
 
-                // —— 固定区：格式 chips + 悬浮置顶（滚动不动，对齐 PC sticky）——
-                if (group != null) {
-                    grubFormatChips(group)
-                    Spacer(Modifier.height(4.dp))
-                }
+                // —— 固定区：悬浮置顶（滚动不动，对齐 PC sticky）——
                 if (pinned != null) PinnedBootRowFixed(pinned, palette)
                 // 列表区：滚动 + 右缘 4dp 自绘滚动条（对齐 web 滚动条视觉）
                 BoxWithConstraints(Modifier.weight(1f)) {
@@ -4186,10 +4127,6 @@ class ComputerListActivity : ComponentActivity() {
         if (!obj.has(key) || obj.isNull(key)) return ""
         return obj.optString(key, "")
     }
-
-    /** 这次渲染该用哪一档：手机自选优先，没选过就跟随服务端，再退 minimal */
-    private fun grubEffectiveFormat(group: BootGroup): String =
-        grubFmt.ifEmpty { group.serverFormat.ifEmpty { "minimal" } }
 
     // ---- GRUB 拼装：与 PC 托盘菜单（menu_model::grub_menu_nodes）同一条规则 ----
 
