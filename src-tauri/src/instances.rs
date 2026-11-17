@@ -152,19 +152,14 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         if !root.join("EFI").is_dir() {
             continue;
         }
-        // 快速路径：不逐卷跑 diskutil/lsblk 探测（慢）；用挂载根做稳定键。
-        // 深度扫描（ANYBOOT_DEEP_SCAN=1）才补 PARTUUID。
-        let part = if std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
-            crate::esp_probe(&root)
-                .ok()
-                .and_then(|info| info.partuuid.or(info.uuid))
-                .unwrap_or_else(|| root.to_string_lossy().to_string())
-        } else {
-            root.to_string_lossy().to_string()
-        };
-        let short_part = part
-            .rsplit('/')
-            .next()
+        // 稳定键：优先 PARTUUID（三端同值，跨挂载点不变）；探测失败才退回挂载根。
+        let part = crate::esp_probe(&root)
+            .ok()
+            .and_then(|info| info.partuuid.or(info.uuid))
+            .unwrap_or_else(|| root.to_string_lossy().to_string());
+        let short_part = root
+            .file_name()
+            .and_then(|name| name.to_str())
             .filter(|value| !value.trim().is_empty())
             .map(|value| value.to_string())
             .unwrap_or_else(|| part.chars().take(12).collect::<String>());
