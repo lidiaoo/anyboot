@@ -1697,18 +1697,24 @@ struct ComputerListView: View {
             }
             ForEach(rows) { row in
                 if row.isGroup {
+                    // 组头：accent 蓝加粗 + 左 3px 竖条 + 浅底（对齐 Android/PC）
                     HStack(spacing: ABMetric.px(6)) {
                         Text(row.text)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(ABColor.fgDim)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(ABColor.accent)
                         Spacer(minLength: 0)
                         if !row.trailing.isEmpty {
                             Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint)
                         }
                     }
-                    .padding(.top, ABMetric.px(8))
-                    .padding(.bottom, ABMetric.px(3))
-                    .padding(.leading, ABMetric.px(2))
+                    .padding(.leading, ABMetric.px(12))
+                    .padding(.trailing, ABMetric.px(9))
+                    .padding(.vertical, ABMetric.px(7))
+                    .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.elevate))
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(ABColor.accent).frame(width: ABMetric.px(3))
+                    }
+                    .padding(.top, ABMetric.px(4))
                 } else if let option = row.option {
                     let selected = row.pinned
                     if option.value.isEmpty {
@@ -1770,10 +1776,6 @@ struct ComputerListView: View {
     private func pickerOptionLabel(_ row: GrubRow, option: BootOption, selected: Bool) -> some View {
         VStack(alignment: .leading, spacing: ABMetric.px(2)) {
             HStack(spacing: ABMetric.px(8)) {
-                if row.child {
-                    Rectangle().fill(ABColor.fgFaint.opacity(0.25)).frame(width: ABMetric.px(2))
-                        .padding(.leading, ABMetric.px(6))
-                }
                 Text(GrubFormat.osIcon(option.kind))
                     .font(.system(size: 13))
                 if row.pinned {
@@ -1793,7 +1795,7 @@ struct ComputerListView: View {
                     Text(row.trailing).font(.system(size: 11)).foregroundColor(ABColor.fgFaint).lineLimit(1)
                 }
                 if selected {
-                    DrawnIcon.check(ABColor.accent, size: ABMetric.px(16))
+                    DrawnIcon.check(ABColor.ok, size: ABMetric.px(16))
                 }
             }
             if !option.note.isEmpty {
@@ -1804,12 +1806,20 @@ struct ComputerListView: View {
                     .padding(.leading, ABMetric.px(21))
             }
         }
-        .padding(.horizontal, ABMetric.px(9))
+        .padding(.leading, row.child ? ABMetric.px(26) : ABMetric.px(9))
+        .padding(.trailing, ABMetric.px(9))
         .padding(.vertical, ABMetric.px(6))
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(selected ? ABColor.accent.opacity(0.14) : .clear))
+                .fill(selected ? ABColor.ok.opacity(0.12) : .clear))
+        .overlay(alignment: .leading) {
+            if row.child {
+                Rectangle().fill(ABColor.lineStrong)
+                    .frame(width: 1, height: ABMetric.px(20))
+                    .offset(x: ABMetric.px(12))
+            }
+        }
         .padding(.bottom, ABMetric.px(2))
     }
 
@@ -2393,24 +2403,3 @@ extension View {
     }
 }
 
-/// GRUB 条目文字格式偏好（落盘 key = grubListFormat，与 Android 同 key）
-@MainActor
-final class BootFormatStore: ObservableObject {
-
-    static let shared = BootFormatStore()
-
-    @Published var value: String {
-        didSet { UserDefaults.standard.set(value, forKey: BootService.formatKey) }
-    }
-
-    private init() {
-        value = UserDefaults.standard.string(forKey: BootService.formatKey) ?? ""
-    }
-}
-
-private func kindLabel(_ k: String) -> String {
-    switch k { case "macos": return "macOS"; case "windows": return "Windows"; case "generic": return L("hub.class.generic"); case "linux": return "Linux"; case "tool": return L("hub.class.tool"); default: return L("boot.unknown") }
-}
-private func sourceLabel(_ s: String) -> String {
-    switch s { case "bootorder": return L("hub.oc.private"); case "bless": return L("oc.blessScan"); case "preboot": return "APFS Preboot"; case "protocol": return L("oc.protocolDriver"); default: return L("hub.oc.private") }
-}
