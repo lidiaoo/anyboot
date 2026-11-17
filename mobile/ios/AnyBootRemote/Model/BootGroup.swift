@@ -44,6 +44,8 @@ struct BootOption: Hashable, Identifiable {
     // ---- 统一 6 引导器通道（后端 BootOption）字段 ----
     /// 固定项（后端 fixed=true）：通常不可改，仅展示
     var fixed: Bool = false
+    /// 真实二级子项（后端 child）；缩进/竖线只看它
+    var child: Bool = false
     /// 行副标题（后端 sub）
     var sub: String = ""
     /// 行备注（后端 note）
@@ -181,7 +183,7 @@ enum BootParser {
                 // 父条目作组头（不可选）+ 组内子项（label 仅内核名，来源标签走 tag 字段，渲染时右对齐）
                 options.append(BootOption(value: "", label: title, kind: kind, header: true))  // 统一 GRUB 口径：纯文本，不拼 ▾/emoji
                 for (cname, tag) in childRows {
-                    options.append(BootOption(value: title, label: cname, kind: kind, tag: tag))
+                    options.append(BootOption(value: title, label: cname, kind: kind, tag: tag, child: true))
                 }
             } else {
                 options.append(BootOption(value: title, label: title, kind: kind))

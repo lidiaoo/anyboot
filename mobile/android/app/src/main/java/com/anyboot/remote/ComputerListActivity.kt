@@ -2494,10 +2494,10 @@ class ComputerListActivity : ComponentActivity() {
             val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
             if (isCurrent) {
                 currentMarked = true
-                val pinnedPlain = if (underHeader && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
-                rows.add(GrubRow(opt, icon + pinnedPlain, false, pinned = true, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                val pinnedPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
+                rows.add(GrubRow(opt, icon + pinnedPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            rows.add(GrubRow(opt, icon + plainLabel, false, pinned = false, child = underHeader, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
+            rows.add(GrubRow(opt, icon + plainLabel, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
@@ -3908,6 +3908,7 @@ class ComputerListActivity : ComponentActivity() {
                     kind = optStr(o, "class").ifEmpty { optStr(o, "kind") },
                     header = o.optBoolean("header", false),
                     fixed = o.optBoolean("fixed", false),
+                    child = o.optBoolean("child", false),
                     tag = optStr(o, "tag"),
                     grubSub = optStr(o, "sub"),
                     grubNote = optStr(o, "note"),
@@ -4047,7 +4048,7 @@ class ComputerListActivity : ComponentActivity() {
                 // 统一 GRUB 原料：父条目=组（grubSubmenuId=父title，组名 grubGroupNames）；子项 label=内核名，来源走 tag
                 groupNames[title] = title
                 options.add(BootOption(value = "", label = title, grubName = title, kind = kind, header = true))
-                for ((cname, tag) in childRows) options.add(BootOption(value = title, label = cname, kind = kind, tag = tag, grubName = cname, grubSubmenuId = title))
+                for ((cname, tag) in childRows) options.add(BootOption(value = title, label = cname, kind = kind, child = true, tag = tag, grubName = cname, grubSubmenuId = title))
             } else {
                 options.add(BootOption(value = title, label = title, grubName = title, kind = kind))
             }
@@ -4657,6 +4658,8 @@ class ComputerListActivity : ComponentActivity() {
         val header: Boolean = false,
         /** 固定行（value 恒空、不可切）：OC 预演里没有值域的行、rEFInd 组头 —— 只展示不可切 */
         val fixed: Boolean = false,
+        /** 真实二级子项（组内子项=true；顶层=false）——缩进/竖线只看它 */
+        val child: Boolean = false,
         /** 行右侧来源标签（rEFInd 子项：默认项/折叠内核/macOS 诊断…；OC：类型·来源） */
         val tag: String = "",
         /** 行下第二行小字（OC：卷 · 路径）——所有引导器共用 GRUB 行样式 */

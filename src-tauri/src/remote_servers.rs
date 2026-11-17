@@ -3508,6 +3508,9 @@ pub struct BootOption {
     /// 行下小字：备注
     #[serde(default)]
     pub note: String,
+    /// 是否真实二级子项（组内子项=true；顶层可选中=false）——三端按它判断缩进/竖线
+    #[serde(default)]
+    pub child: bool,
 }
 
 /// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
@@ -3857,6 +3860,7 @@ fn refind_from_sim(sim: &serde_json::Value) -> BootGroup {
                     class: class.clone(),
                     header: false,
                     fixed: false,
+                    child: true,
                     tag: child_tag.clone(),
                     ..Default::default()
                 });
@@ -4183,6 +4187,7 @@ pub(crate) fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuE
             e.path.clone()
         };
         options.push(BootOption {
+            child: false,
             value: e.spec.clone().unwrap_or_default(),
             label: e.title.clone(),
             class: channel_class(&e.kind),
@@ -4477,8 +4482,8 @@ fn push_grub_option(
     // 不再把「↳ 」箭头和图标 emoji 拼进 label：电脑列表的下拉现在用主菜单同款
     // GrubList 渲染（自带 ▾/↳ 箭头与缩进），拼了就会出现「▾ ▸ 🐧 …」「↳ ↳ 🐧 …」
     // 的双重箭头（用户实测）。label 只留纯文字。
-    let _ = top;
     options.push(BootOption {
+        child: !top,
         value: entry.selector.clone(),
         label: format!("{group_prefix}{label}{suffix}"),
         class: grub_class(
