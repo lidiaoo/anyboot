@@ -179,7 +179,7 @@ enum BootParser {
             }
             if !childRows.isEmpty {
                 // 父条目作组头（不可选）+ 组内子项（label 仅内核名，来源标签走 tag 字段，渲染时右对齐）
-                options.append(BootOption(value: "", label: "▾ \(GrubFormat.osIcon(title))\(title)", kind: kind, header: true))
+                options.append(BootOption(value: "", label: title, kind: kind, header: true))  // 统一 GRUB 口径：纯文本，不拼 ▾/emoji
                 for (cname, tag) in childRows {
                     options.append(BootOption(value: title, label: cname, kind: kind, tag: tag))
                 }
