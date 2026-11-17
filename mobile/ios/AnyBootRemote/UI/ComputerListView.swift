@@ -1596,6 +1596,12 @@ struct ComputerListView: View {
                     .padding(.trailing, ABMetric.px(8))
                     .padding(.bottom, ABMetric.px(10))
 
+                    // 置顶（下次启动）：固定区，不随列表滚动
+                    if !help, let group {
+                        pinnedBootRow(group)
+                            .padding(.horizontal, ABMetric.px(18))
+                            .padding(.bottom, ABMetric.px(6))
+                    }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             if help {
@@ -1676,6 +1682,19 @@ struct ComputerListView: View {
         L("and.helpPower6"),
     ]
 
+    /// 固定置顶行（ScrollView 之外）：当前项「下次启动」副本
+    @ViewBuilder
+    private func pinnedBootRow(_ group: BootGroup) -> some View {
+        let rows = unifiedRows(group)
+        if let pr = rows.first(where: { $0.pinned }), let po = pr.option {
+            pickerOptionLabel(pr, option: po, selected: true)
+                .padding(.horizontal, ABMetric.px(8))
+                .padding(.vertical, ABMetric.px(7))
+                .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).strokeBorder(ABColor.ok.opacity(0.55), lineWidth: 1))
+        }
+    }
+
     @ViewBuilder
     private func bootPickerContent(_ profile: ServerProfile, group: BootGroup) -> some View {
         if group.options.isEmpty {
@@ -1686,15 +1705,6 @@ struct ComputerListView: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             let rows = unifiedRows(group)
-            // 置顶高亮副本：当前项（下次启动）固定悬在列表上方，滚动不动（对齐 PC/Android）
-            if let pr = rows.first(where: { $0.pinned }), let po = pr.option {
-                pickerOptionLabel(pr, option: po, selected: true)
-                    .padding(.horizontal, ABMetric.px(8))
-                    .padding(.vertical, ABMetric.px(7))
-                    .background(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).fill(ABColor.ok.opacity(0.12)))
-                    .overlay(RoundedRectangle(cornerRadius: ABMetric.px(6), style: .continuous).strokeBorder(ABColor.ok.opacity(0.55), lineWidth: 1))
-                    .padding(.bottom, ABMetric.px(6))
-            }
             ForEach(rows) { row in
                 if row.isGroup {
                     // 组头：accent 蓝加粗 + 左 3px 竖条 + 浅底（对齐 Android/PC）
