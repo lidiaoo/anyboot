@@ -5718,3 +5718,9 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 .ba-theme-root .grub-entry.is-sub.depth-2::before, .ba-theme-root .grub-entry.is-sub.depth-3::before, .ba-theme-root .grub-entry.is-sub.depth-4::before,
 #tab-boot .grub-entry.is-sub.depth-2::before, #tab-boot .grub-entry.is-sub.depth-3::before, #tab-boot .grub-entry.is-sub.depth-4::before,
 #tab-adv-boot .grub-entry.is-sub.depth-2::before, #tab-adv-boot .grub-entry.is-sub.depth-3::before, #tab-adv-boot .grub-entry.is-sub.depth-4::before { left: 28px; }
+
+/* 一级行(非二级)去掉 ::before 竖线，避免竖线压在文字上 */
+.cq-picker .grub-entry.is-child:not(.is-sub)::before,
+.ba-theme-root .grub-entry.is-child:not(.is-sub)::before,
+#tab-boot .grub-entry.is-child:not(.is-sub)::before,
+#tab-adv-boot .grub-entry.is-child:not(.is-sub)::before { content: none; display: none; }
