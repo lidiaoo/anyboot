@@ -588,18 +588,12 @@ function instanceTitle(group: any): string {
 }
 const allKinds = computed<string[]>(() => {
   const all = props.info?.channels ?? [];
-  const hiddenPrimaryKinds = new Set(
-    all
-      .filter((c: any) => !!c.instanceId && hiddenInstances.value.includes(String(c.instanceId)))
-      .map((c: any) => String(c.kind)),
-  );
-  const base = ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"].filter(
-    (kind) => !hiddenPrimaryKinds.has(kind),
-  );
-  const extras = all
-    .filter((c: any) => !!c.instanceId && !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
+  const instanceKeys = all
+    .filter((c: any) => !!c.instanceId)
+    .filter((c: any) => !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
     .map((c: any) => String(c.instanceId));
-  return [...base, ...extras];
+  if (instanceKeys.length > 0) return instanceKeys; // 多实例：完全平铺
+  return ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
 });
 /** 右键实例：重命名（留空 = 隐藏） */
 function instanceMenu(kind: string) {

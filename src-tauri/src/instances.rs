@@ -128,42 +128,63 @@ fn rel_of(root: &Path, dir: &Path) -> String {
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
     let settings = crate::stored_settings(app);
     let mut roots = crate::channels::esp_candidates(app);
-    for extra in extra_esp_roots() {
-        if !roots.iter().any(|known| known == &extra) {
-            roots.push(extra);
+    // 深度枚举（diskutil info -all / lsblk 全盘 + 未挂载挂载）默认关闭：
+    // 用户可显式 ANYBOOT_DEEP_SCAN=1 触发，避免每次刷新阻塞十几秒。
+    if std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
+        for extra in extra_esp_roots() {
+            if !roots.iter().any(|known| known == &extra) {
+                roots.push(extra);
+            }
         }
     }
     let mut out: Vec<BootInstanceRef> = Vec::new();
     for root in roots {
-        let info = crate::esp_probe(&root).ok();
-        let part = info
-            .as_ref()
-            .and_then(|info| info.partuuid.clone())
-            .or_else(|| info.as_ref().and_then(|info| info.uuid.clone()))
-            .unwrap_or_else(|| root.to_string_lossy().to_string());
-        let short_part = part.chars().take(12).collect::<String>();
+        // 只扫真正的 ESP（根下有 EFI 目录）；避免对数据盘/网络卷递归整盘。
+        if !root.join("EFI").is_dir() {
+            continue;
+        }
+        // 快速路径：不逐卷跑 diskutil/lsblk 探测（慢）；用挂载根做稳定键。
+        // 深度扫描（ANYBOOT_DEEP_SCAN=1）才补 PARTUUID。
+        let part = if std::env::var_os("ANYBOOT_DEEP_SCAN").is_some() {
+            crate::esp_probe(&root)
+                .ok()
+                .and_then(|info| info.partuuid.or(info.uuid))
+                .unwrap_or_else(|| root.to_string_lossy().to_string())
+        } else {
+            root.to_string_lossy().to_string()
+        };
+        let short_part = part
+            .rsplit('/')
+            .next()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| part.chars().take(12).collect::<String>());
         for kind in KINDS {
+            // 只在 ESP 的 EFI 子树里找（避免回收站/备份目录里的假 EFI）
+            let efi = root.join("EFI");
             let dirs: Vec<PathBuf> = match kind {
                 "refind" => {
-                    let mut dirs = dirs_containing(&root, "refind.conf");
-                    dirs.extend(dirs_with_efi(&root, "refind"));
+                    let mut dirs = dirs_containing(&efi, "refind.conf");
+                    dirs.extend(
+                        dirs_with_efi(&efi, "refind")
+                            .into_iter()
+                            .filter(|dir| !dir.to_string_lossy().to_ascii_lowercase().contains("refindplus")),
+                    );
                     dirs
                 }
                 "refindplus" => {
-                    let mut dirs = dirs_containing(&root, "refindplus.conf");
-                    dirs.extend(dirs_with_efi(&root, "refindplus"));
+                    let mut dirs = dirs_containing(&efi, "refindplus.conf");
+                    dirs.extend(dirs_with_efi(&efi, "refindplus"));
                     dirs
                 }
-                "grub" => dirs_containing(&root, "grub.cfg"),
+                "grub" => dirs_containing(&efi, "grub.cfg"),
                 "sdboot" => {
-                    let mut dirs = dirs_containing(&root, "loader.conf");
-                    dirs.extend(dirs_with_efi(&root, "systemd-boot"));
+                    let mut dirs = dirs_containing(&root.join("loader"), "loader.conf");
+                    dirs.extend(dirs_with_efi(&efi, "systemd-boot"));
                     dirs
                 }
-                "opencore" => dirs_with_efi(&root, "opencore"),
-                "clover" => dirs_with_efi(&root, "cloverx64").into_iter()
-                    .chain(dirs_containing(&root, "CLOVERX64.efi"))
-                    .collect(),
+                "opencore" => dirs_with_efi(&efi, "opencore"),
+                "clover" => dirs_with_efi(&efi, "cloverx64"),
                 _ => Vec::new(),
             };
             for dir in dirs {
@@ -371,9 +392,8 @@ fn extra_esp_roots() -> Vec<PathBuf> {
                 continue;
             }
         }
-        if let Ok(Some(mounted)) = crate::esp_mount(&uuid) {
-            roots.push(mounted.mountpoint);
-        }
+        // 未挂载的 ESP 不在默认扫描里自动挂载（会阻塞/弹授权）；由显式深度扫描触发。
+        let _ = uuid;
     }
     roots
 }
@@ -412,9 +432,8 @@ fn extra_esp_roots() -> Vec<PathBuf> {
                 return;
             }
         }
-        if let Ok(Some(mounted)) = crate::esp_mount(uuid) {
-            roots.push(mounted.mountpoint);
-        }
+        // 未挂载的 ESP 不在默认扫描里自动挂载（会阻塞/弹授权）。
+        let _ = uuid;
     }
     if let Some(devices) = value.get("blockdevices").and_then(|v| v.as_array()) {
         for device in devices {

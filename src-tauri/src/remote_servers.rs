@@ -4778,6 +4778,19 @@ pub async fn remote_boot_info(
 /// 把 BootInfo.channels 统一补成 6 段（refind/refindplus/grub + 原 channels3），
 /// 供前端统一遍历 channels[6]；旧 refind/refindplus/grub 字段仍保留（内部/回落用）。
 /// 本机 BootInfo.channels 追加同类型的额外实例（只读占位，供平铺列表展示）。
+/// 本机实例列表 → BootGroup（与 /api/boot-channels 完全同源）。
+fn instance_boot_groups(app: &AppHandle) -> Vec<BootGroup> {
+    crate::instances::scan_instances(app)
+        .into_iter()
+        .filter(|instance| !instance.hidden)
+        .filter_map(|instance| {
+            let mut group = crate::instances::extra_instance_group(&instance)?;
+            group.instance_id = Some(instance.instance_id);
+            Some(group)
+        })
+        .collect()
+}
+
 fn append_instance_extras(app: &AppHandle, channels: &mut Vec<BootGroup>) {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for instance in crate::instances::scan_instances(app) {
@@ -4826,54 +4839,28 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
 /// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
 pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
     let instances = crate::instances::scan_instances(app);
-    let mut primary: std::collections::HashMap<String, crate::instances::BootInstanceRef> =
-        std::collections::HashMap::new();
-    for instance in &instances {
-        primary.entry(instance.kind.clone()).or_insert_with(|| instance.clone());
-    }
     let mut values: Vec<serde_json::Value> = Vec::new();
-    for group in all_channels(app) {
-        if let Some(first) = primary.get(&group.kind) {
-            if first.hidden {
-                continue; // 主实例被隐藏：整个类型暂不展示
-            }
-            let mut value = serde_json::to_value(&group).unwrap_or(serde_json::Value::Null);
-            if let Some(object) = value.as_object_mut() {
-                object.insert("title".into(), serde_json::Value::String(first.title.clone()));
-                object.insert("instanceId".into(), serde_json::Value::String(first.instance_id.clone()));
-            }
-            values.push(value);
-        } else {
-            values.push(serde_json::to_value(group).unwrap_or(serde_json::Value::Null));
+    for instance in &instances {
+        if instance.hidden {
+            continue;
         }
-    }
-    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for instance in instances {
-        let count = seen.entry(instance.kind.clone()).or_insert(0);
-        let is_primary = *count == 0;
-        *count += 1;
-        if is_primary {
-            continue; // 主实例已由上面 6 段承载
-        }
-        let mut value = match crate::instances::extra_instance_group(&instance) {
-            Some(group) => serde_json::to_value(&group).unwrap_or_else(|_| serde_json::json!({})),
-            None => serde_json::json!({
-                "kind": instance.kind,
-                "title": instance.title,
-                "available": instance.available,
-                "current": "",
-                "next": "",
-                "saved": "",
-                "note": "多实例（只读，待接入独立切换）",
-                "options": [],
-            }),
+        let Some(group) = crate::instances::extra_instance_group(instance) else {
+            continue;
         };
+        let mut value = serde_json::to_value(&group).unwrap_or_else(|_| serde_json::json!({}));
         if let Some(object) = value.as_object_mut() {
             object.insert("title".into(), serde_json::Value::String(instance.title.clone()));
             object.insert("instanceId".into(), serde_json::Value::String(instance.instance_id.clone()));
             object.insert("hidden".into(), serde_json::Value::Bool(instance.hidden));
         }
         values.push(value);
+    }
+    if values.is_empty() {
+        // 没有可识别实例时回退旧 6 段（保持老行为/空态）
+        return all_channels(app)
+            .into_iter()
+            .map(|group| serde_json::to_value(group).unwrap_or(serde_json::Value::Null))
+            .collect();
     }
     values
 }
@@ -4958,7 +4945,10 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         let port = { let p = crate::stored_settings(app).http_port; if p == 0 { 12300 } else { p } };
         info.addr = format!("127.0.0.1:{port}");
         let mut info = with_all_channels(info);
-        append_instance_extras(app, &mut info.channels);
+        let instances = instance_boot_groups(app);
+        if !instances.is_empty() {
+            info.channels = instances;
+        }
         return Ok(info);
     }
     let server = load_store(app)?
