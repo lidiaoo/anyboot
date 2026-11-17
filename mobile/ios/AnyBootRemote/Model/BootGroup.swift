@@ -508,7 +508,7 @@ enum BootService {
         if !reprobeAlways, let cached = cachedEndpoint(profile.id), cached.alive {
             if let state = try? await RemoteHttp.json(endpoint: cached.url, token: cached.token,
                                                       path: "/api/ui-state") {
-                return buildInfo(fromUiState: state, choice: cached)
+                return await buildInfo(fromUiState: state, choice: cached)
             }
             setCachedEndpoint(profile.id, nil)   // 直连失败 → 清缓存
         }
@@ -528,7 +528,7 @@ enum BootService {
         // 老服务端没有该接口时自动回落到三个老接口
         if let state = try? await RemoteHttp.json(endpoint: choice.url, token: choice.token,
                                                   path: "/api/ui-state") {
-            return buildInfo(fromUiState: state, choice: choice)
+            return await buildInfo(fromUiState: state, choice: choice)
         }
 
         var pendingSeconds = 0
@@ -614,7 +614,7 @@ enum BootService {
     /// 快照结构：`{ status: {...}, grub: {...}, channels: [...] }` —— 各段与老接口
     /// 的返回**同构**，所以直接复用现成的解析器。
     private static func buildInfo(fromUiState state: [String: Any],
-                                  choice: BootEndpoint) -> BootInfo {
+                                  choice: BootEndpoint) async -> BootInfo {
         var errors: [String] = []
 
         // 2026-11-02 用户指出：「电脑列表页…没有关注到 refind(自动/手动)
@@ -671,11 +671,19 @@ enum BootService {
                                   note: L("and.snapshotNoGrub"), options: [])
         }
 
+        // 6 引导器通道：优先拉 /api/boot-channels（新契约，含格式化好的 label 与 opencore options），
+        // 失败/老对端才回退到 ui-state 的旧通道或三大引导器拼 6 段。
         let channelGroups: [BootGroup]
-        if let channels = state["channels"] as? [[String: Any]], !channels.isEmpty,
-           channels.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
-            channelGroups = BootParser.parseChannels(channels)
-        } else {
+        do {
+            let list = try await RemoteHttp.array(endpoint: choice.url, token: choice.token,
+                                                  path: "/api/boot-channels")
+            if list.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
+                channelGroups = BootParser.parseChannels(list)
+            } else {
+                channelGroups = BootParser.fallbackChannels(refind: refindGroup,
+                                                            refindplus: refindplusGroup, grub: grubGroup)
+            }
+        } catch {
             channelGroups = BootParser.fallbackChannels(refind: refindGroup,
                                                         refindplus: refindplusGroup, grub: grubGroup)
         }
