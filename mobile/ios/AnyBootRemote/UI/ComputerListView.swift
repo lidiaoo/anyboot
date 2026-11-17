@@ -62,6 +62,10 @@ struct ComputerListView: View {
     @State private var probeTask: Task<Void, Never>?
     @State private var openPickCandidates: [ServerProfile.OpenCandidate] = []
     @State private var openPickProfileId = ""
+    @State private var instanceAliases: [String: String] = (UserDefaults.standard.dictionary(forKey: "anyboot.instanceAliases") as? [String: String]) ?? [:]
+    @State private var hiddenInstances: [String] = (UserDefaults.standard.array(forKey: "anyboot.hiddenInstances") as? [String]) ?? []
+    @State private var renameGroup: BootGroup? = nil
+    @State private var renameText = ""
 
     private struct SheetRequest: Identifiable {
         let id = UUID()
@@ -91,6 +95,27 @@ struct ComputerListView: View {
         .overlay { failReloadDialog }
         .overlay { transportDialog }
         .overlay { openPickDialog }
+        .alert(L("fb.renameTitle"), isPresented: Binding(
+            get: { renameGroup != nil },
+            set: { if !$0 { renameGroup = nil } }
+        )) {
+            TextField(L("fb.renameTitle"), text: $renameText)
+            Button(L("common.save")) {
+                if let group = renameGroup {
+                    let key = instanceKey(group)
+                    let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if name.isEmpty {
+                        if !hiddenInstances.contains(key) { hiddenInstances.append(key) }
+                    } else {
+                        instanceAliases[key] = name
+                        hiddenInstances.removeAll { $0 == key }
+                    }
+                    persistInstancePrefs()
+                }
+                renameGroup = nil
+            }
+            Button(L("common.cancel"), role: .cancel) { renameGroup = nil }
+        }
         .sheet(item: $editorTarget) { target in
             ComputerEditorView(profile: target.profile) { result in
                 switch result {
@@ -1214,8 +1239,20 @@ struct ComputerListView: View {
         return header.isEmpty ? label : "\(header) › \(label)"
     }
 
+    private func instanceKey(_ group: BootGroup) -> String {
+        group.instanceId.isEmpty ? group.kind : group.instanceId
+    }
+    private func instanceTitle(_ group: BootGroup) -> String {
+        let saved = instanceAliases[instanceKey(group)] ?? ""
+        return saved.isEmpty ? group.title : saved
+    }
+    private func persistInstancePrefs() {
+        UserDefaults.standard.set(instanceAliases, forKey: "anyboot.instanceAliases")
+        UserDefaults.standard.set(hiddenInstances, forKey: "anyboot.hiddenInstances")
+    }
+
     private func bootButtons(_ row: CqRow) -> some View {
-        let groups = (row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels).filter { !$0.hidden }
+        let groups = (row.channels.isEmpty ? BootKind.all.map { emptyGroup($0) } : row.channels).filter { !$0.hidden && !hiddenInstances.contains(instanceKey($0)) }
         return VStack(spacing: ABMetric.px(6)) {
             ForEach(groups, id: \.kind) { group in
                 bootButton(row, group: group)
@@ -1225,7 +1262,7 @@ struct ComputerListView: View {
     }
 
     private func bootButton(_ row: CqRow, group: BootGroup) -> some View {
-        let title = group.title.isEmpty ? BootKind.defaultTitle(group.kind) : group.title
+        let title = instanceTitle(group).isEmpty ? BootKind.defaultTitle(group.kind) : instanceTitle(group)
         let work = busy[row.profile.id]
         let working = work != nil && work!.hasPrefix("boot:")
         let pending = grubPending(group)
@@ -1338,6 +1375,17 @@ struct ComputerListView: View {
             }
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button(L("fb.rename")) {
+                renameGroup = group
+                renameText = instanceTitle(group)
+            }
+            Button(L("and.hide")) {
+                let key = instanceKey(group)
+                if !hiddenInstances.contains(key) { hiddenInstances.append(key) }
+                persistInstancePrefs()
+            }
+        }
     }
 
     /// 平台 emoji 图标（与 PC 端 osIcon 同映射；圆点弃用）
