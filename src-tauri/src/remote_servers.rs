@@ -4784,7 +4784,7 @@ fn instance_boot_groups(app: &AppHandle) -> Vec<BootGroup> {
         .into_iter()
         .filter(|instance| !instance.hidden)
         .filter_map(|instance| {
-            let mut group = crate::instances::extra_instance_group(&instance)?;
+            let mut group = crate::instances::extra_instance_group(app, &instance)?;
             group.instance_id = Some(instance.instance_id);
             Some(group)
         })
@@ -4844,7 +4844,7 @@ pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
         if instance.hidden {
             continue;
         }
-        let Some(group) = crate::instances::extra_instance_group(instance) else {
+        let Some(group) = crate::instances::extra_instance_group(app, instance) else {
             continue;
         };
         let mut value = serde_json::to_value(&group).unwrap_or_else(|_| serde_json::json!({}));

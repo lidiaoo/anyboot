@@ -330,7 +330,7 @@ pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target:
 }
 
 /// 额外实例 → BootGroup（真实 options）。失败返回 None，由调用方给只读占位。
-pub(crate) fn extra_instance_group(instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
+pub(crate) fn extra_instance_group(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
     let root = std::path::Path::new(&instance.root_path);
     match instance.kind.as_str() {
         "grub" => Some(crate::remote_servers::BootGroup {
@@ -344,10 +344,12 @@ pub(crate) fn extra_instance_group(instance: &BootInstanceRef) -> Option<crate::
         }),
         "refind" | "refindplus" => {
             let vars = root.join(&instance.install_dir).join("vars");
+            // 复用 T7 的 linux_probe_cache（内核/分区清单），不重新全盘扫 ext4
+            let (parts, note) = crate::channels::refind_menu::linux_grub_parts_from_cache(app);
             let sim = if instance.kind == "refind" {
-                crate::channels::refind_menu::preview(&vars, &[], None)
+                crate::channels::refind_menu::preview(&vars, &parts, note.clone())
             } else {
-                crate::channels::refind_menu::preview_with_default_use_nvram(&vars, &[], None, false)
+                crate::channels::refind_menu::preview_with_default_use_nvram(&vars, &parts, note, false)
             };
             let json = serde_json::to_value(sim).ok()?;
             let mut group = if instance.kind == "refind" {
