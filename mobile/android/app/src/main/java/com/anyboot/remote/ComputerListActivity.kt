@@ -2551,6 +2551,7 @@ class ComputerListActivity : ComponentActivity() {
         var underHeader = false
         var curHeader = ""
         var currentMarked = false
+        val effectiveFormat = if (group.kind == "grub") grubEffectiveFormat(group) else ""
         group.options.forEach { opt ->
             if (opt.header) {
                 underHeader = true
@@ -2562,7 +2563,7 @@ class ComputerListActivity : ComponentActivity() {
                 return@forEach
             }
             val v = opt.value.trim()
-            val plainLabel = opt.label.ifBlank { v }
+            val plainLabel = if (group.kind == "grub") grubRowLabel(effectiveFormat, opt).ifBlank { opt.label.ifBlank { v } } else opt.label.ifBlank { v }
             val icon = grubOsIcon(opt.kind, plainLabel)   // 每行都带图标（与旧下拉一致）
             val readonly = v.isEmpty() || opt.fixed
             val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
@@ -3957,6 +3958,8 @@ class ComputerListActivity : ComponentActivity() {
                     value = optStr(o, "value"),
                     label = optStr(o, "label"),
                     kind = optStr(o, "class").ifEmpty { optStr(o, "kind") },
+                    grubName = optStr(o, "label"),
+                    grubKernels = (0 until (o.optJSONArray("kernels")?.length() ?: 0)).mapNotNull { k -> o.optJSONArray("kernels")?.optString(k, "")?.takeIf { it.isNotBlank() } },
                     header = o.optBoolean("header", false),
                     fixed = o.optBoolean("fixed", false),
                     child = o.optBoolean("child", false),

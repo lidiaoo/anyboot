@@ -335,6 +335,7 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
                 value: entry.selector.clone(),
                 label: entry.name.clone(),
                 class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
+                kernels: entry.kernels.clone(),
                 child: true,
                 tag: if entry.variants > 1 {
                     format!("{} 个变体", entry.variants)
@@ -348,6 +349,7 @@ pub(crate) fn grub_instance_options(instance: &BootInstanceRef) -> Vec<crate::re
                 value: entry.selector.clone(),
                 label: entry.name.clone(),
                 class: entry.class.clone().unwrap_or_else(|| "linux".to_string()),
+                kernels: entry.kernels.clone(),
                 child: false,
                 tag: if entry.variants > 1 {
                     format!("{} 个变体", entry.variants)

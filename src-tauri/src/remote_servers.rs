@@ -3489,6 +3489,9 @@ pub struct BootOption {
     pub label: String,
     /// 图标分类：mac / win / linux / auto（前端取色点用）
     pub class: String,
+    /// GRUB 条目的内核文件名（前端 format 档位用它生成 极简/简易/中等 文案）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kernels: Vec<String>,
     /// 组头行（`value` 恒空、不可选）：GRUB 下拉的「▸ 组名（N 项…）」，
     /// 与托盘菜单的组头同一规则 —— 前端渲染成小标题而不是选项。
     #[serde(default)]
@@ -4195,6 +4198,7 @@ pub(crate) fn boot_options_from_menu_entries(entries: &[channels::oc_menu::MenuE
             value: e.spec.clone().unwrap_or_default(),
             label: e.title.clone(),
             class: channel_class(&e.kind),
+            kernels: Vec::new(),
             header: false,
             fixed: e.spec.is_none(),
             tag,
@@ -4445,6 +4449,7 @@ fn boot_groups_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
                                     value: o.get("value").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                     label: o.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                                     class: o.get("class").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                                    kernels: o.get("kernels").and_then(|v| v.as_array()).map(|items| items.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
                                     header: o.get("header").and_then(|v| v.as_bool()).unwrap_or(false),
                                     fixed: o.get("fixed").and_then(|v| v.as_bool()).unwrap_or(false),
                                     child: o.get("child").and_then(|v| v.as_bool()).unwrap_or(false),

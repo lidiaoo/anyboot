@@ -72,6 +72,10 @@ const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: 
 const ui = useUiStateStore();
 const appSettings = useSettingsStore();
 const pickerFmt = ref<string>(""); // 空 = 跟随电脑（settings.grubListFormat）
+const isGrubPicker = computed(() => {
+  const kind = picker.value?.kind ?? "";
+  return kind === "grub" || kind.startsWith("grub@");
+});
 /** 本机：引导器数据以「系统引导页」同源快照为准（linuxGrub/refindSim/channel.menuPreview），转换规则与 BootList 一致。 */
 function localEntries(kind: string): { entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null {
   if (kind === "grub") {
@@ -140,6 +144,7 @@ async function openPicker(kind: string) {
       selector: String(o.value ?? ""),
       name: String(o.label ?? o.value ?? ""),
       class: o.class,
+      kernels: Array.isArray(o.kernels) ? o.kernels : [],
       header: !!o.header,
       child: !!o.child,
       tag: o.tag || "",
@@ -166,6 +171,7 @@ async function openPicker(kind: string) {
       selector: String(o.value ?? ""),
       name: String(o.label ?? o.value ?? ""),
       class: o.class,
+      kernels: Array.isArray(o.kernels) ? o.kernels : [],
       tag: o.tag || "",
       sub: o.sub || "",
       note: o.note || "",
@@ -930,7 +936,7 @@ function onRowClick() {
     <div v-if="picker" class="cq-picker-overlay" @click.self="picker = null">
       <div class="cq-picker" role="dialog" aria-modal="true" :aria-label="t('hub.picker.ariaTitle', { title: picker.title })">
         <div class="cq-picker-head">{{ t("hub.picker.title", { loader: picker.title }) }}</div>
-        <div class="cq-picker-fmt">
+        <div v-if="isGrubPicker" class="cq-picker-fmt">
           <span class="cq-picker-fmt-label">{{ t("hub.picker.fmtTitle") }}</span>
           <div class="cq-picker-fmt-chips">
             <button v-for="c in fmtChoices" :key="c.v" type="button"
