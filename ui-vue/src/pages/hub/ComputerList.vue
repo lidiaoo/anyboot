@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { useRemoteStore, type RemoteProfile } from "@/stores/remote";
 import { useSettingsStore } from "@/stores/settings";
+import { useUiStateStore } from "@/stores/uiState";
 import ComputerRow from "@/components/hub/ComputerRow.vue";
 import PcMenu from "@/components/hub/PcMenu.vue";
 import SystemInfoDialog from "@/components/hub/SystemInfoDialog.vue";
@@ -43,6 +44,7 @@ const props = defineProps<{ addSeed?: number; remoteAction?: { act: string; n: n
 
 const remote = useRemoteStore();
 const settings = useSettingsStore();
+const ui = useUiStateStore();
 
 const query = ref("");
 const filter = ref<"all" | "online" | "offline" | "pending">("all");
@@ -473,6 +475,12 @@ function browserCandidates(id: string): { label: string; address: string; ok: bo
   const info = infoOf(id);
   const out: { label: string; address: string; ok: boolean | null }[] = [];
   const seen = new Set<string>();
+  // 本机没有 addresses：用 HTTP 监听端口（本机回环）作为可打开地址
+  if (id === "local") {
+    const port = Number((ui.settings as any)?.httpPort ?? ui.http?.port ?? 12300);
+    if (port > 0) out.push({ label: t("hub.conn.local"), address: `127.0.0.1:${port}`, ok: true });
+    return out;
+  }
   const push = (label: string, address: string, ok: boolean | null) => {
     const a = String(address || "").trim();
     if (!a || seen.has(a)) return;
@@ -498,7 +506,7 @@ function browserCandidates(id: string): { label: string; address: string; ok: bo
 
 async function openInBrowser(id: string) {
   const row = remote.servers.find((s) => s.id === id);
-  const token = encodeURIComponent(String(row?.token ?? ""));
+  const token = encodeURIComponent(String(row?.token ?? (id === "local" ? ((ui.settings as any)?.httpToken ?? "") : "")));
   const cands = browserCandidates(id);
   if (!cands.length) {
     toast.show(t("hub.list.noOpenAddr"), "bad");
