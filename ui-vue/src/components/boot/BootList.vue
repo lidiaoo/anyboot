@@ -33,6 +33,8 @@ const props = defineProps<{
   loader: string;
   /** 多实例：页面已加载好的实例组，直接使用（避免子组件再拉一次导致竞态） */
   instance?: any;
+  /** 多实例：页面已算好的条目行（最终兜底，防止实例对象晚到） */
+  entries?: EntryData[];
 }>();
 
 const ui = useUiStateStore();
@@ -302,6 +304,7 @@ function applyChannelDefault(
 
 /** 最终要渲染的条目 */
 const instanceEntries = computed<EntryData[]>(() => {
+  if (props.entries?.length) return props.entries;
   if (!instanceGroup.value) return [];
   return ((instanceGroup.value.options ?? []) as any[]).map((o) => ({
     selector: String(o.value ?? ""),

@@ -928,7 +928,7 @@ const statusHidden = computed(() => {
               <b>{{ t("grub.sectionTitle", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</b>
               <span class="cnt">· {{ t("grub.itemsN", { n: bootRowsByLoader[id]?.length ?? 0 }) }}</span>
             </div>
-            <BootList :loader="id" :instance="bootInstances.find((item) => instanceIdOf(item) === id)" @select="(sel: string) => adv.setSelection(id as any, sel)" />
+            <BootList :loader="id" :instance="bootInstances.find((item) => instanceIdOf(item) === id)" :entries="bootRowsByLoader[id] ?? []" @select="(sel: string) => adv.setSelection(id as any, sel)" />
             <LoaderSettings :loader="id" />
           </div>
         </ThemeHost>
