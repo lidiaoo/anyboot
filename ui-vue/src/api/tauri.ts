@@ -26,6 +26,12 @@ export function isTauri(): boolean {
  * @param args    参数对象；Rust 侧是 camelCase 反序列化
  */
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  // 窗口被后端注入本机 HTTP 端点（如「远程管理」窗口）→ 完全走 HTTP 命令桥，
+  // 不碰 IPC，彻底避免动态窗口的 ACL 差异。
+  const injected = (window as unknown as { __ANYBOOT_HTTP__?: { port?: number; token?: string } }).__ANYBOOT_HTTP__;
+  if (injected?.port) {
+    return await httpBridgeCall<T>(command, args, injected.port, injected.token || "");
+  }
   // 非 Tauri（浏览器 / 手机 WebView / 内嵌 iframe）：走本机 HTTP 的 /api/ui-command
   // 桥接（旧 app.js 同一条通道）。此前没有此兜底 → 网页端打开 hub 页命令全报错 → 空数据。
   if (!isTauri()) {
@@ -51,10 +57,19 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
 }
 
 /** 通过本机 HTTP 命令桥执行（端口/令牌取自 get_ui_state，该命令始终可用）。 */
-async function httpBridgeCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const state: any = await invoke<any>("get_ui_state");
-  const port = Number(state?.settings?.httpPort ?? 0);
-  const token = String(state?.settings?.httpToken ?? "");
+async function httpBridgeCall<T>(
+  command: string,
+  args?: Record<string, unknown>,
+  explicitPort?: number,
+  explicitToken?: string,
+): Promise<T> {
+  let port = Number(explicitPort ?? 0);
+  let token = String(explicitToken ?? "");
+  if (!port) {
+    const state: any = await invoke<any>("get_ui_state");
+    port = Number(state?.settings?.httpPort ?? 0);
+    token = String(state?.settings?.httpToken ?? "");
+  }
   if (!port) throw new Error("HTTP 服务端口未知");
   const response = await fetch(`http://127.0.0.1:${port}/api/ui-command?token=${encodeURIComponent(token)}`, {
     method: "POST",

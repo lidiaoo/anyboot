@@ -1120,11 +1120,19 @@ fn open_hub_window(app: &AppHandle) -> Result<(), String> {
         (1080.0, 720.0),
         (860.0, 560.0),
     );
+    // 注入本机 HTTP 端点（端口+令牌）到该窗口，前端可完全走 HTTP 命令桥，
+    // 不依赖 Tauri IPC（避免动态窗口的 ACL 差异）。
+    let settings = stored_settings(app);
+    let init = format!(
+        "window.__ANYBOOT_HTTP__ = {{ port: {}, token: {:?} }};",
+        settings.http_port, settings.http_token
+    );
     apply_browser_args(tauri::WebviewWindowBuilder::new(
         app,
         HUB_WINDOW_LABEL,
         tauri::WebviewUrl::App("hub.html".into()),
     ))
+    .initialization_script(&init)
     .title("AnyBoot 远程管理")
     .inner_size(iw, ih)
     .min_inner_size(mw, mh)
