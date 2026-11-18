@@ -206,6 +206,11 @@ function applyDockStrip(): void {
   }
 }
 
+// 后端 bootAdvJson 变化（web 端/其他客户端修改）→ 实时同步主界面的引导高级设置
+watch(() => (ui.settings as { bootAdvJson?: string } | null)?.bootAdvJson, (json) => {
+  if (json) adv.hydrateFromBackend(json);
+});
+
 watch(() => ui.settings?.accentColor, () => {
   const curTheme = document.documentElement.classList.contains("light") ? "light" : "dark";
   applyAccent(ui.settings?.accentColor, curTheme);

@@ -155,6 +155,8 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     if (!json || !json.trim()) return;
     try {
       const parsed = JSON.parse(json) as Partial<BootAdvState>;
+      // 已经是同一份就不重复赋值，避免 save/watch 回写形成循环
+      if (JSON.stringify(parsed) === JSON.stringify(state.value)) return;
       state.value = {
         ...state.value,
         ...parsed,
