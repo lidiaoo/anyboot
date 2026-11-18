@@ -1072,6 +1072,13 @@ pub(crate) fn remote_ui_command_inner(
         }
         // 与 switch_boot_channel 同级别：直接改本机 ESP 上的文件，不走本机授权窗
         // （网页控制台的 OC/Clover 卡片也是这么切换的）
+        // 多实例切换：电脑列表/系统引导页的下拉在 Web/手机端也走通用命令白名单。
+        "boot_instance_switch" => {
+            let instance = ui_str(args, "instance")?;
+            let target = ui_str(args, "target")?;
+            crate::instances::switch_instance(&app, &instance, &target)
+                .map(serde_json::Value::String)
+        }
         "refind_sim_switch" => status_value(channels::refind_menu::refind_sim_switch(
             app.clone(),
             ui_str(args, "title")?,
