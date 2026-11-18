@@ -3592,6 +3592,16 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 把任意来源的通道组补齐成固定 6 段。传入的 parsed（新契约 channels[6] 或老 ChannelView→BootGroup）
      *  优先；缺的用独立解析出的 refind/refindplus/grub 或占位组补上。零 kind 特例，纯按数据补齐。 */
+    /** 后端 bootAdvJson.instanceHidden（引导高级设置里隐藏的实例）——与本地隐藏取并集。 */
+    private fun backendHiddenInstances(settings: JSONObject): Set<String> {
+        val raw = optStr(settings, "bootAdvJson")
+        if (raw.isBlank()) return emptySet()
+        return try {
+            val arr = JSONObject(raw).optJSONArray("instanceHidden") ?: return emptySet()
+            (0 until arr.length()).mapNotNull { arr.optString(it, "").takeIf { id -> id.isNotBlank() } }.toSet()
+        } catch (_: Exception) { emptySet() }
+    }
+
     /** 按后端 bootAdvJson.instanceOrder 对实例排序；没有配置时保留后端顺序。 */
     private fun sortChannelsByInstanceOrder(channels: List<BootGroup>, settings: JSONObject): List<BootGroup> {
         val raw = optStr(settings, "bootAdvJson")
@@ -3925,10 +3935,11 @@ class ComputerListActivity : ComponentActivity() {
         } catch (_: Exception) {
             emptyList()
         }
+        val backendHidden = backendHiddenInstances(settings)
         val channels = sortChannelsByInstanceOrder(
             assembleChannels(refind, refindplus, grub, if (remoteParsed.isNotEmpty()) remoteParsed else stateParsed),
             settings,
-        )
+        ).filter { it.instanceId.isEmpty() || !backendHidden.contains(it.instanceId) }
         return BootInfo(
             ok = errors.size < 2,
             online = true,

@@ -315,9 +315,12 @@ enum BootParser {
     static func sortChannelsByInstanceOrder(_ groups: [BootGroup], bootAdvJson: String?) -> [BootGroup] {
         guard let raw = bootAdvJson, !raw.isEmpty,
               let data = raw.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let order = object["instanceOrder"] as? [String], !order.isEmpty else { return groups }
-        return groups.sorted { a, b in
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return groups }
+        // 引导高级设置里隐藏的实例：移动端也隐藏（全平台统一）
+        let hidden = Set((object["instanceHidden"] as? [String]) ?? [])
+        let visible = groups.filter { $0.instanceId.isEmpty || !hidden.contains($0.instanceId) }
+        guard let order = object["instanceOrder"] as? [String], !order.isEmpty else { return visible }
+        return visible.sorted { a, b in
             let ia = order.firstIndex(of: a.instanceId) ?? Int.max
             let ib = order.firstIndex(of: b.instanceId) ?? Int.max
             return ia < ib
