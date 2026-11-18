@@ -26,12 +26,6 @@ export function isTauri(): boolean {
  * @param args    参数对象；Rust 侧是 camelCase 反序列化
  */
 export async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  // 窗口被后端注入本机 HTTP 端点（如「远程管理」窗口）→ 完全走 HTTP 命令桥，
-  // 不碰 IPC，彻底避免动态窗口的 ACL 差异。
-  const injected = (window as unknown as { __ANYBOOT_HTTP__?: { port?: number; token?: string } }).__ANYBOOT_HTTP__;
-  if (injected?.port) {
-    return await httpBridgeCall<T>(command, args, injected.port, injected.token || "");
-  }
   // 非 Tauri（浏览器 / 手机 WebView / 内嵌 iframe）：走本机 HTTP 的 /api/ui-command
   // 桥接（旧 app.js 同一条通道）。此前没有此兜底 → 网页端打开 hub 页命令全报错 → 空数据。
   if (!isTauri()) {
@@ -44,7 +38,8 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
     // （/api/ui-command，服务端执行同一套命令，不受 ACL 限制）。
     if (String(error).includes("not allowed by ACL")) {
       try {
-        return await httpBridgeCall<T>(command, args);
+        const inj = (window as unknown as { __ANYBOOT_HTTP__?: { port?: number; token?: string } }).__ANYBOOT_HTTP__;
+        return await httpBridgeCall<T>(command, args, inj?.port, inj?.token);
       } catch (bridgeError) {
         void reportIpcFailure(command, args, error);
         throw bridgeError;

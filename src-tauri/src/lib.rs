@@ -1120,8 +1120,8 @@ fn open_hub_window(app: &AppHandle) -> Result<(), String> {
         (1080.0, 720.0),
         (860.0, 560.0),
     );
-    // 注入本机 HTTP 端点（端口+令牌）到该窗口，前端可完全走 HTTP 命令桥，
-    // 不依赖 Tauri IPC（避免动态窗口的 ACL 差异）。
+    // 注入本机 HTTP 端点：仅当 IPC 命令被 ACL 拒绝时，前端用它改走 HTTP 命令桥。
+    // （心跳/数据等正常命令仍走 IPC，避免打断窗口健康检查。）
     let settings = stored_settings(app);
     let init = format!(
         "window.__ANYBOOT_HTTP__ = {{ port: {}, token: {:?} }};",
