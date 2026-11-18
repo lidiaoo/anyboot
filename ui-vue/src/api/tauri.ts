@@ -34,11 +34,38 @@ export async function call<T>(command: string, args?: Record<string, unknown>): 
   try {
     return await invoke<T>(command, args);
   } catch (error) {
+    // Tauri ACL 对部分自研命令选择性放行，被拒时自动改走本机 HTTP 命令桥
+    // （/api/ui-command，服务端执行同一套命令，不受 ACL 限制）。
+    if (String(error).includes("not allowed by ACL")) {
+      try {
+        return await httpBridgeCall<T>(command, args);
+      } catch (bridgeError) {
+        void reportIpcFailure(command, args, error);
+        throw bridgeError;
+      }
+    }
     // 把失败写进 trace：macOS 上没有 devtools，这是唯一能事后排查的通道。
-    // 只在 Tauri 里报，且**不吞异常** —— 调用方仍要自己 catch。
     void reportIpcFailure(command, args, error);
     throw error;
   }
+}
+
+/** 通过本机 HTTP 命令桥执行（端口/令牌取自 get_ui_state，该命令始终可用）。 */
+async function httpBridgeCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const state: any = await invoke<any>("get_ui_state");
+  const port = Number(state?.settings?.httpPort ?? 0);
+  const token = String(state?.settings?.httpToken ?? "");
+  if (!port) throw new Error("HTTP 服务端口未知");
+  const response = await fetch(`http://127.0.0.1:${port}/api/ui-command?token=${encodeURIComponent(token)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cmd: command, args: args ?? {} }),
+  });
+  const json = (await response.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; message?: string };
+  if (!response.ok || json.ok === false) {
+    throw new Error(json.message || `命令失败：${command}`);
+  }
+  return json.result as T;
 }
 /** 浏览器 / 网页端：POST /api/ui-command {cmd,args} → {ok,result}（沿用旧 app.js 语义） */
 async function httpCall<T>(command: string, args?: Record<string, unknown>): Promise<T> {
