@@ -5286,10 +5286,8 @@ fn remote_boot_switch_blocking(
     // 本机行：直连 IPC —— 直接调远程命令的进程内执行入口（与 CLI/HTTP 走的
     // 是同一个 execute_remote_command，落到 switch_and_update / switch_grub_and_update）
     if server_id == "local" {
-        if kind.contains('@') && base_kind == "grub" {
-            let message = crate::instances::switch_instance(app, kind, value)?;
-            crate::channels::refresh_channels(app);
-            return Ok(message);
+        if kind.contains('@') {
+            return crate::instances::switch_instance_and_update(app, kind, value);
         }
         let command = match base_kind {
             "refind" => {

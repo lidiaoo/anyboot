@@ -480,6 +480,27 @@ pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target:
     Ok(format!("下次启动：{selector}"))
 }
 
+/// 实例切换的统一入口：写入 + 失效实例缓存 + 发布 UI（让三端都刷新/出提示）。
+pub(crate) fn switch_instance_and_update(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+    target: &str,
+) -> Result<String, String> {
+    let message = switch_instance(app, instance_id, target)?;
+    // 让 channels 刷新并让实例扫描缓存失效（否则回显还是旧的 current）
+    crate::channels::refresh_channels(app);
+    if let Ok(mut state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+        state.message = if message.starts_with("下次启动：") {
+            message.clone()
+        } else {
+            String::new()
+        };
+        state.error = None;
+    }
+    crate::ui_state::publish_ui(app);
+    Ok(message)
+}
+
 /// 额外实例 → BootGroup（真实 options）。失败返回 None，由调用方给只读占位。
 pub(crate) fn extra_instance_group(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
     let root = std::path::Path::new(&instance.root_path);

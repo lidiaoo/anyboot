@@ -985,11 +985,8 @@ pub(crate) fn handle_remote_request(app: &AppHandle, request: &RemoteRequest) ->
             if instance.is_empty() {
                 return RemoteReply::error(400, "missing_instance", "缺少 instance 参数");
             }
-            return match crate::instances::switch_instance(&app, &instance, &target) {
-                Ok(message) => {
-                    crate::channels::refresh_channels(&app);
-                    RemoteReply::ok(200, serde_json::json!({ "ok": true, "message": message }))
-                }
+            return match crate::instances::switch_instance_and_update(&app, &instance, &target) {
+                Ok(message) => RemoteReply::ok(200, serde_json::json!({ "ok": true, "message": message })),
                 Err(error) => RemoteReply::error(400, "switch_failed", &error),
             };
         }
@@ -3019,7 +3016,7 @@ fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
 /// 设置某个引导器实例的显示别名（空 = 恢复自动名）。
 #[tauri::command]
 fn boot_instance_switch(app: AppHandle, instance: String, target: String) -> Result<String, String> {
-    crate::instances::switch_instance(&app, &instance, &target)
+    crate::instances::switch_instance_and_update(&app, &instance, &target)
 }
 
 #[tauri::command]

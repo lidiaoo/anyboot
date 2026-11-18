@@ -595,8 +595,10 @@ try {
 } catch { /* 忽略 */ }
 const localInstances = ref<any[]>([]);
 const channelGroups = computed<any[]>(() => {
-  if (isLocal.value && localInstances.value.length) return localInstances.value;
-  return props.info?.channels ?? [];
+  // 优先用（会随 refreshBoot 更新的）props.info.channels；仅在它还没有数据时用一次性加载的兜底
+  const fromInfo = props.info?.channels ?? [];
+  if (fromInfo.length) return fromInfo;
+  return localInstances.value;
 });
 onMounted(async () => {
   if (!isLocal.value) return;

@@ -6,6 +6,7 @@ import type { EntryData } from "./types";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useToastStore } from "@/stores/toast";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 import { call } from "@/api/tauri";
 import type { ChannelView, GrubEntry } from "@/api/types";
 import { simRows } from "@/pages/boot/bootRows";
@@ -40,6 +41,7 @@ const props = defineProps<{
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const toast = useToastStore();
+const instancePrefs = useBootInstancesStore();
 
 const isInstance = computed(() => props.loader.includes("@"));
 const instanceGroup = ref<any>(props.instance ?? null);
@@ -84,8 +86,12 @@ async function switchEntry(selector: string) {
   if (!selector) return;
   try {
     if (isInstance.value) {
-      await call("boot_instance_switch", { instance: props.loader, target: selector });
+      const message = await call<string>("boot_instance_switch", { instance: props.loader, target: selector });
+      await instancePrefs.load(true);
+      const fresh = instancePrefs.list.find((item: any) => String(item?.instanceId || "") === props.loader);
+      if (fresh) instanceGroup.value = fresh;
       await ui.pollOnce().catch(() => {});
+      if (message) toast.show(message, "ok");
       return;
     }
     if (isRefindFamily.value) {
