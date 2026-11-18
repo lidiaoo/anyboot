@@ -238,3 +238,28 @@ export const hubOpenWindow = (label: string, url?: string) =>
 
 export const logClientError = (message: string, stack = "") =>
   call<void>("sol_log_client_error", { message, stack });
+
+
+/**
+ * 切换某个引导器实例（多实例）。桌面端优先 IPC；若被 Tauri ACL 拒绝，
+ * 自动回退本机 HTTP 端点 /api/boot-instance-switch（同一实现，三端一致）。
+ */
+export async function switchBootInstance(instance: string, target: string): Promise<string> {
+  if (!isTauri()) {
+    return await call<string>("boot_instance_switch", { instance, target });
+  }
+  try {
+    return await call<string>("boot_instance_switch", { instance, target });
+  } catch (error) {
+    const endpoint = await call<{ port?: number; token?: string }>("local_http_endpoint").catch(() => null);
+    if (!endpoint?.port) throw error;
+    const query =
+      `token=${encodeURIComponent(endpoint.token || "")}` +
+      `&instance=${encodeURIComponent(instance)}` +
+      `&target=${encodeURIComponent(target)}`;
+    const response = await fetch(`http://127.0.0.1:${endpoint.port}/api/boot-instance-switch?${query}`);
+    const json = (await response.json().catch(() => ({}))) as { ok?: boolean; message?: string; error?: string };
+    if (json.ok === false) throw new Error(json.error || json.message || "切换失败");
+    return json.message || "";
+  }
+}
