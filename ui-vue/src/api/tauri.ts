@@ -245,11 +245,14 @@ export const logClientError = (message: string, stack = "") =>
  * 自动回退本机 HTTP 端点 /api/boot-instance-switch（同一实现，三端一致）。
  */
 export async function switchBootInstance(instance: string, target: string): Promise<string> {
+  // 走已有且稳定的 remote_boot_switch（电脑列表一直用它，不受新命令 ACL 限制）；
+  // 后端本机臂遇到 kind 含 '@' 会内部转 switch_instance_and_update。
+  const payload = { serverId: "local", kind: instance, value: target };
   if (!isTauri()) {
-    return await call<string>("boot_instance_switch", { instance, target });
+    return await call<string>("remote_boot_switch", payload);
   }
   try {
-    return await call<string>("boot_instance_switch", { instance, target });
+    return await call<string>("remote_boot_switch", payload);
   } catch (error) {
     const endpoint = await call<{ port?: number; token?: string }>("local_http_endpoint").catch(() => null);
     if (!endpoint?.port) throw error;
