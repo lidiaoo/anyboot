@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
@@ -29,8 +29,10 @@ const { t } = useI18n();
  */
 
 const props = defineProps<{
-  /** refind / refindplus / grub / sdboot / opencore / clover */
+  /** refind / refindplus / grub / sdboot / opencore / clover，或多实例 instanceId */
   loader: string;
+  /** 多实例：页面已加载好的实例组，直接使用（避免子组件再拉一次导致竞态） */
+  instance?: any;
 }>();
 
 const ui = useUiStateStore();
@@ -38,9 +40,9 @@ const settings = useSettingsStore();
 const toast = useToastStore();
 
 const isInstance = computed(() => props.loader.includes("@"));
-const instanceGroup = ref<any>(null);
+const instanceGroup = ref<any>(props.instance ?? null);
 onMounted(() => {
-  if (!isInstance.value) return;
+  if (!isInstance.value || instanceGroup.value) return;
   const apply = (list: any[]) => {
     const hit = (list ?? []).find((item) => String(item.instanceId || "") === props.loader);
     if (hit) instanceGroup.value = hit;
@@ -53,6 +55,10 @@ onMounted(() => {
     } catch { /* 忽略 */ }
   });
 });
+
+watch(() => props.instance, (value: any) => {
+  if (value) instanceGroup.value = value;
+}, { immediate: true });
 
 const isRefind = computed(() => props.loader === "refind");
 /** RefindPlus：与 rEFInd 同一套列表逻辑的独立通道（数据源/命令只差 channel） */
