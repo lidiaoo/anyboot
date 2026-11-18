@@ -1645,14 +1645,17 @@ struct ComputerListView: View {
                     HStack(spacing: 0) {
                         Text(help ? L("hub.list.help")
                              : L("and.channelBoot", group?.title ?? L("and.channelWord")))
-                            .font(.system(size: 14.5, weight: .bold))
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(ABColor.fg)
                             .lineLimit(1)
                         Spacer(minLength: ABMetric.px(8))
                     }
-                    .padding(.leading, ABMetric.px(18))
-                    .padding(.trailing, ABMetric.px(8))
-                    .padding(.bottom, ABMetric.px(10))
+                    .padding(.horizontal, ABMetric.px(14))
+                    .padding(.vertical, ABMetric.px(12))
+                    // 与 Android PickSheet 一致：header 底部 1px 分隔线
+                    Rectangle()
+                        .fill(ABColor.line)
+                        .frame(height: 1)
 
                     // 置顶（下次启动）：固定区，不随列表滚动
                     if !help, let group {
