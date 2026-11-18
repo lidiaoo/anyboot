@@ -45,6 +45,26 @@ const { t } = useI18n();
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
+/** 多实例：系统引导页的预演/卡片列表也按实例平铺（无实例时回退固定 6 类） */
+const bootInstances = ref<any[]>([]);
+function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
+function currentEntryOf(inst: any): any {
+  const options = (inst?.options ?? []).filter((o: any) => !o.header);
+  const current = String(inst?.current ?? "").trim();
+  return options.find((o: any) => String(o.value ?? "") === current)
+    ?? options.find((o: any) => current && String(o.label ?? "").includes(current));
+}
+onMounted(() => {
+  const apply = (list: any[]) => { if (Array.isArray(list) && list.length) bootInstances.value = list; };
+  call<any[]>("boot_channels_all").then(apply).catch(() => {
+    try {
+      const token = new URLSearchParams(location.search).get("token") || "";
+      void fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`)
+        .then((r) => r.json()).then(apply).catch(() => {});
+    } catch { /* 忽略 */ }
+  });
+});
+
 
 type TabId = "boot" | "adv-boot" | "settings" | "sol";
 
@@ -417,6 +437,25 @@ function loaderState(id: string): "ok" | "warn" | "off" {
 }
 
 const loaders = computed<LoaderInfo[]>(() => {
+  if (bootInstances.value.length) {
+    return bootInstances.value.map((inst) => {
+      const options = (inst?.options ?? []).filter((o: any) => !o.header);
+      const hit = currentEntryOf(inst);
+      const entries: { t?: string; def?: boolean }[] = [];
+      if (hit || inst?.current) entries.push({ t: String(hit?.label ?? inst?.current ?? ""), def: true });
+      while (entries.length < options.length) entries.push({ t: "", def: false });
+      return {
+        id: instanceIdOf(inst),
+        name: String(inst?.title || inst?.kind || ""),
+        state: (inst?.available ? (options.length ? "ok" : "warn") : "off") as "ok" | "warn" | "off",
+        entries,
+        esp: String(inst?.partition || inst?.installDir || ""),
+        perm: "file",
+        detected: !!inst?.available,
+        nextBoot: entries.find((e) => e.def) ?? null,
+      };
+    });
+  }
   const list: LoaderInfo[] = [];
   for (const id of adv.enabledLoaders) {
     const meta = loaderMeta(id);
@@ -485,7 +524,11 @@ const nextBootName = computed(() => {
 const nextBootRows = computed(() =>
   loaders.value.map((loader) => {
     let value = "—";
-    if (loader.id === "refind") {
+    const inst = bootInstances.value.find((item) => instanceIdOf(item) === loader.id);
+    if (inst) {
+      const hit = currentEntryOf(inst);
+      value = String(hit?.label ?? inst.current ?? "—");
+    } else if (loader.id === "refind") {
       value =
         settings.refindMode === "manual"
           ? (ui.status?.variables?.find((v) => v.active)?.displayName ?? "—")
@@ -590,7 +633,21 @@ const defaultEntrySelector = computed<string>(() => {
   const hit = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
   return hit?.title?.trim() ?? "";
 });
-const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => ({
+const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => {
+  if (bootInstances.value.length) {
+    const out: Record<string, EntryData[]> = {};
+    for (const inst of bootInstances.value) {
+      out[instanceIdOf(inst)] = ((inst?.options ?? []) as any[])
+        .filter((o) => !o.header)
+        .map((o) => ({
+          selector: String(o.value ?? ""),
+          name: String(o.label ?? o.value ?? ""),
+          class: String(o.class ?? ""),
+        })) as EntryData[];
+    }
+    return out;
+  }
+  return {
   refind:
     settings.refindMode === "manual"
       ? refindVariableRows(ui.status?.variables)
@@ -608,7 +665,8 @@ const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => ({
   sdboot: channelRows("sdboot"),
   opencore: channelRows("opencore"),
   clover: channelRows("clover"),
-}));
+  };
+});
 function channelRows(id: string): EntryData[] {
   const ch = ui.channels.find((c) => c.id === id);
   if (!ch) return [];
@@ -851,7 +909,7 @@ const statusHidden = computed(() => {
           <!-- G / 不套用主题(K)：与 A 一致——每个引导器只展示引导列表 +
                折叠的「引导器设置」（其余原完整区块内容收进折叠面板）。 -->
           <div
-            v-for="id in adv.enabledLoaders"
+            v-for="id in loaders.map((l) => l.id)"
             :key="id"
             :data-loader-section="id"
             class="boot-loader-block"
@@ -863,7 +921,7 @@ const statusHidden = computed(() => {
               <b>{{ t("grub.sectionTitle", { name: loaders.find((l) => l.id === id)?.name ?? id }) }}</b>
               <span class="cnt">· {{ t("grub.itemsN", { n: bootRowsByLoader[id]?.length ?? 0 }) }}</span>
             </div>
-            <BootList :loader="id" @select="(sel: string) => adv.setSelection(id, sel)" />
+            <BootList :loader="id" @select="(sel: string) => adv.setSelection(id as any, sel)" />
             <LoaderSettings :loader="id" />
           </div>
         </ThemeHost>

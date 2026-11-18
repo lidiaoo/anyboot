@@ -20,6 +20,9 @@ export interface EntryData {
   note?: string;
   /** 只读行（如 rEFInd 组子项：旧版无点击处理器，点击不切换） */
   readonly?: boolean;
+  /** 多实例 BootOption：组头行 / 真实二级子项 */
+  header?: boolean;
+  child?: boolean;
 }
 
 export interface GroupInfo {

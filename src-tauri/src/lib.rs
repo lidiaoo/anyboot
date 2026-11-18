@@ -3018,6 +3018,11 @@ fn set_language(app: AppHandle, lang: String) -> Result<(), String> {
 
 /// 设置某个引导器实例的显示别名（空 = 恢复自动名）。
 #[tauri::command]
+fn boot_instance_switch(app: AppHandle, instance: String, target: String) -> Result<String, String> {
+    crate::instances::switch_instance(&app, &instance, &target)
+}
+
+#[tauri::command]
 fn set_boot_instance_alias(app: AppHandle, instance_id: String, alias: String) -> Result<(), String> {
     let id = instance_id.trim().to_string();
     if id.is_empty() {
@@ -3980,6 +3985,7 @@ pub fn run() {
             backup::backup_pick_export_path,
             crate::remote_servers::boot_channels_all,
             crate::instances::boot_instances,
+            boot_instance_switch,
             set_boot_instance_alias,
             set_boot_instance_hidden,
             channels::switch_boot_channel,

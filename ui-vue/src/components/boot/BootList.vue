@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import GrubList from "./GrubList.vue";
 import type { EntryData } from "./types";
@@ -37,6 +37,23 @@ const ui = useUiStateStore();
 const settings = useSettingsStore();
 const toast = useToastStore();
 
+const isInstance = computed(() => props.loader.includes("@"));
+const instanceGroup = ref<any>(null);
+onMounted(() => {
+  if (!isInstance.value) return;
+  const apply = (list: any[]) => {
+    const hit = (list ?? []).find((item) => String(item.instanceId || "") === props.loader);
+    if (hit) instanceGroup.value = hit;
+  };
+  call<any[]>("boot_channels_all").then(apply).catch(() => {
+    try {
+      const token = new URLSearchParams(location.search).get("token") || "";
+      void fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`)
+        .then((r) => r.json()).then(apply).catch(() => {});
+    } catch { /* 忽略 */ }
+  });
+});
+
 const isRefind = computed(() => props.loader === "refind");
 /** RefindPlus：与 rEFInd 同一套列表逻辑的独立通道（数据源/命令只差 channel） */
 const isRefindPlus = computed(() => props.loader === "refindplus");
@@ -58,6 +75,11 @@ const refindVarsSource = computed(() =>
 async function switchEntry(selector: string) {
   if (!selector) return;
   try {
+    if (isInstance.value) {
+      await call("boot_instance_switch", { instance: props.loader, target: selector });
+      await ui.pollOnce().catch(() => {});
+      return;
+    }
     if (isRefindFamily.value) {
       if (refindMode.value === "manual") {
         await call("switch_system", { system: selector, channel: props.loader });
@@ -140,6 +162,7 @@ const refindEntries = computed<EntryData[]>(() => {
 const channelDefaultSelector = ref("");
 /** 当前选中项 */
 const activeSelector = computed(() => {
+  if (isInstance.value) return String(instanceGroup.value?.current ?? "");
   if (isRefindFamily.value) {
     // 自动模式：lastBoot 命中的那条（与托盘 / PC 主窗同一口径）
     if (refindMode.value !== "manual") {
@@ -272,7 +295,24 @@ function applyChannelDefault(
 }
 
 /** 最终要渲染的条目 */
+const instanceEntries = computed<EntryData[]>(() => {
+  if (!instanceGroup.value) return [];
+  return ((instanceGroup.value.options ?? []) as any[]).map((o) => ({
+    selector: String(o.value ?? ""),
+    name: String(o.label ?? o.value ?? ""),
+    class: String(o.class ?? ""),
+    kernels: Array.isArray(o.kernels) ? o.kernels : [],
+    header: !!o.header,
+    child: !!o.child,
+    tag: String(o.tag ?? ""),
+    sub: String(o.sub ?? ""),
+    note: String(o.note ?? ""),
+    readonly: !!o.fixed || !o.value,
+  })) as EntryData[];
+});
+
 const entries = computed<EntryData[]>(() => {
+  if (isInstance.value) return instanceEntries.value;
   if (isRefindFamily.value) return refindEntries.value;
   if (isGrub.value) return grubEntries.value;
   return channelEntries.value;

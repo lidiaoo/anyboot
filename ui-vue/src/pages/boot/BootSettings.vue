@@ -8,6 +8,7 @@ import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { simRows, refindVariableRows, grubRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import ThemeHost from "@/pages/boot/themes/index.vue";
+import type { LoaderInfo } from "@/pages/boot/themes/types";
 import { THEME_LABELS, THEME_LAYOUT_MODES, type LayoutMode } from "@/pages/boot/themes/registry";
 
 import { call } from "@/api/tauri";
@@ -28,14 +29,41 @@ const { t } = useI18n();
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
+/** 多实例：引导高级设置也按实例平铺（老端无实例时回退固定 6 类） */
+const bootInstances = ref<any[]>([]);
+const instanceOrder = ref<string[]>([]);
+const hiddenInstances = ref<string[]>([]);
+const instanceSides = ref<Record<string, string>>({});
+function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
+function instanceOf(id: string): any { return bootInstances.value.find((item) => instanceIdOf(item) === id); }
+function baseKindOf(id: string): string { return String(instanceOf(id)?.kind || id); }
+function metaOf(id: string): any { return loaderMeta(baseKindOf(id) as LoaderId); }
+function displayNameOf(id: string): string {
+  const inst = instanceOf(id);
+  return String(inst?.title || metaOf(id).name);
+}
+const orderIds = computed<string[]>(() => bootInstances.value.length ? instanceOrder.value : adv.state.order);
+function isVisible(id: string): boolean { return bootInstances.value.length ? !hiddenInstances.value.includes(id) : adv.state.visible[id as LoaderId] !== false; }
+function sideOf(id: string): string { return bootInstances.value.length ? (instanceSides.value[id] ?? "l") : (adv.state.side[id] === "r" ? "r" : "l"); }
+function resetOrder(): void {
+  if (bootInstances.value.length) {
+    instanceOrder.value = bootInstances.value.map(instanceIdOf);
+    hiddenInstances.value = [];
+    instanceSides.value = {};
+  } else {
+    adv.resetOrder();
+  }
+}
+
 /** 旧版 moveLoader（boot-adv.js）：order 内上/下移一位 */
-function moveLoader(id: LoaderId, delta: number) {
-  const order = [...adv.state.order];
+function moveLoader(id: string, delta: number) {
+  const order = [...orderIds.value];
   const i = order.indexOf(id);
   const j = i + delta;
   if (i < 0 || j < 0 || j >= order.length) return;
   order.splice(j, 0, ...order.splice(i, 1));
-  adv.setOrder(order);
+  if (bootInstances.value.length) instanceOrder.value = order;
+  else adv.setOrder(order as LoaderId[]);
 }
 
 /** 引导器默认项（旧版 def = l.nextBoot || entries.find(def)） */
@@ -66,7 +94,7 @@ function loaderDefault(id: string): string {
 }
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
-  return loaderMeta(id).mono;
+  return metaOf(id).mono;
 }
 /** 免密提权总入口：切换 root 助手（boot_helper install/uninstall） */
 const helperBusy = ref(false);
@@ -202,6 +230,22 @@ const varsDirInput = ref("");
 
 onMounted(() => {
   varsDirInput.value = ui.status?.varsDir ?? "";
+  const applyInstances = (list: any[]) => {
+    if (Array.isArray(list) && list.length) {
+      bootInstances.value = list;
+      instanceOrder.value = list.map(instanceIdOf);
+    }
+  };
+  call<any[]>("boot_channels_all").then(applyInstances).catch(() => {
+    // 浏览器/网页端没有 Tauri IPC：走 HTTP（同源，带 URL token）
+    try {
+      const token = new URLSearchParams(location.search).get("token") || "";
+      void fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`)
+        .then((response) => response.json())
+        .then(applyInstances)
+        .catch(() => {});
+    } catch { /* 忽略 */ }
+  });
 });
 
 // 版式主题/布局切换时按档位设定窗口宽度（默认=460 / 加宽=932 / 左右=932）。
@@ -241,14 +285,25 @@ function loaderEsp(id: string): string {
 
 /** 切引导器左右列（旧版 k-rg） */
 function moveSide(id: string) {
+  if (bootInstances.value.length) {
+    const cur = sideOf(id);
+    if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
+    instanceSides.value = { ...instanceSides.value, [id]: cur === "r" ? "l" : "r" };
+    return;
+  }
   const cur = adv.state.side[id] === "r" ? "r" : "l";
-  // 旧版语义：没开左右布局时点「左/右」= 先自动切到左右布局（否则分了列也没效果）
   if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
   adv.setSide(id, cur === "r" ? "l" : "r");
 }
 
-function toggleVisible(id: LoaderId) {
-  adv.setVisible(id, !adv.state.visible[id]);
+function toggleVisible(id: string) {
+  if (bootInstances.value.length) {
+    hiddenInstances.value = hiddenInstances.value.includes(id)
+      ? hiddenInstances.value.filter((x) => x !== id)
+      : [...hiddenInstances.value, id];
+    return;
+  }
+  adv.setVisible(id as LoaderId, !adv.state.visible[id as LoaderId]);
 }
 
 
@@ -287,8 +342,30 @@ function previewLoaderState(id: string): "ok" | "warn" | "off" {
   return "ok";
 }
 
-const previewLoaders = computed(() =>
-  adv.state.order
+const previewLoaders = computed<LoaderInfo[]>(() => {
+  if (bootInstances.value.length) {
+    return orderIds.value.filter(isVisible).map((id) => {
+      const inst = instanceOf(id);
+      const opts = (inst?.options ?? []).filter((o: any) => !o.header && String(o.value ?? "").trim());
+      const current = String(inst?.current ?? "").trim();
+      const hit = opts.find((o: any) => String(o.value ?? "") === current)
+        ?? opts.find((o: any) => current && String(o.label ?? "").includes(current));
+      const entries: { t?: string; def?: boolean }[] = [];
+      if (hit || current) entries.push({ t: String(hit?.label ?? current), def: true });
+      while (entries.length < opts.length) entries.push({ t: "", def: false });
+      return {
+        id,
+        name: String(inst?.title || metaOf(id).name),
+        state: (inst?.available ? (opts.length ? "ok" : "warn") : "off") as "ok" | "warn" | "off",
+        entries,
+        esp: String(inst?.partition || inst?.installDir || ""),
+        perm: "file",
+        detected: true,
+        nextBoot: entries.find((e) => e.def) ?? null,
+      };
+    });
+  }
+  return adv.state.order
     .filter((id) => adv.state.visible[id])
     .map((id) => {
       const perm = loaderMeta(id).perm;
@@ -307,11 +384,24 @@ const previewLoaders = computed(() =>
         detected: true,
         nextBoot: entries.find((e) => e.def) ?? null,
       };
-    }),
-);
+    });
+});
 /** 预演面板用的真实行（与系统引导页同一份行源） */
 const previewRows = computed<Record<string, EntryData[]>>(() => {
   const out: Record<string, EntryData[]> = {};
+  if (bootInstances.value.length) {
+    for (const id of orderIds.value.filter(isVisible)) {
+      const inst = instanceOf(id);
+      out[id] = ((inst?.options ?? []) as any[])
+        .filter((o) => !o.header)
+        .map((o) => ({
+          selector: String(o.value ?? ""),
+          name: String(o.label ?? o.value ?? ""),
+          class: String(o.class ?? ""),
+        })) as EntryData[];
+    }
+    return out;
+  }
   for (const id of adv.state.order.filter((x) => adv.state.visible[x])) {
     if (id === "refind") {
       out[id] = settings.refindMode === "manual"
@@ -492,22 +582,22 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
         <!-- row1：启用引导器（.k-tabs 芯片行 + 重置） -->
         <div class="k-tabs">
           <button
-            v-for="id in adv.state.order"
+            v-for="id in orderIds"
             :key="id"
             type="button"
-            :class="['k-tab', { 'is-on': adv.state.visible[id] }]"
+            :class="['k-tab', { 'is-on': isVisible(id) }]"
             :title="t('bs.toggleShowTitle')"
             @click="toggleVisible(id)"
           >
-            <span>{{ loaderMeta(id).name }}</span>
+            <span>{{ displayNameOf(id) }}</span>
             <span
               class="k-rg"
               :title="t('bs.moveColTitle')"
               @click.stop="moveSide(id)"
-            >{{ adv.state.side[id] === 'r' ? t('bs.right') : t('bs.left') }}</span>
+            >{{ sideOf(id) === 'r' ? t('bs.right') : t('bs.left') }}</span>
           </button>
           <span class="grow" />
-          <button type="button" class="btn xs ghost" :title="t('bs.reset')" @click="adv.resetOrder()">{{ t("bs.reset") }}</button>
+          <button type="button" class="btn xs ghost" :title="t('bs.reset')" @click="resetOrder">{{ t("bs.reset") }}</button>
         </div>
         <!-- row2：版式主题 -->
         <div class="k-row">
@@ -568,10 +658,10 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
           <span class="k-sortwrap" style="display: contents">
             <span class="k-sortbar">
               <span class="k-sort-lbl">{{ t("bs.orderLabel") }}</span>
-              <span v-for="(id, i) in adv.state.order" :key="id" class="k-sortchip">
-                <span class="k-sort-nm">{{ loaderMeta(id).name }}</span>
+              <span v-for="(id, i) in orderIds" :key="id" class="k-sortchip">
+                <span class="k-sort-nm">{{ displayNameOf(id) }}</span>
                 <button type="button" class="k-zop" :title="t('bs.moveUpOne')" :disabled="i === 0" @click="moveLoader(id, -1)">↑</button>
-                <button type="button" class="k-zop" :title="t('bs.moveDownOne')" :disabled="i === adv.state.order.length - 1" @click="moveLoader(id, 1)">↓</button>
+                <button type="button" class="k-zop" :title="t('bs.moveDownOne')" :disabled="i === orderIds.length - 1" @click="moveLoader(id, 1)">↓</button>
               </span>
             </span>
           </span>
@@ -585,7 +675,7 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
     <section class="card k-prev" ref="kPrevEl">
       <header class="k-prev-head">
         <h2>{{ t('bs.previewTitle', { layout: adv.effectiveLayout === 'lr' ? t('bs.previewLr') : t('bs.previewSingle') }) }}</h2>
-        <small>{{ t('bs.loaderCount', { n: adv.state.order.filter((x) => adv.state.visible[x]).length }) }}</small>
+        <small>{{ t('bs.loaderCount', { n: orderIds.filter((x) => isVisible(x)).length }) }}</small>
       </header>
       <!-- K 不套用主题：旧版 k-zone-cards + kLoaderCard 自绘卡片 -->
       <div v-if="adv.effectiveTheme === 'K'" class="k-zone-cards">
