@@ -196,8 +196,26 @@ fn worker(app: AppHandle, server: Arc<Server>, stop: Arc<AtomicBool>) {
     }
 }
 
+fn cors_headers() -> [Header; 3] {
+    [
+        Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).expect("cors"),
+        Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"content-type, x-auth-token"[..]).expect("cors"),
+        Header::from_bytes(&b"Access-Control-Allow-Methods"[..], &b"GET, POST, OPTIONS"[..]).expect("cors"),
+    ]
+}
+
 fn handle_one(app: &AppHandle, mut request: tiny_http::Request) {
     let method = format!("{}", request.method());
+    // CORS 预检：Tauri 页面（tauri://localhost）用 fetch 打本机 HTTP 时必须放行，
+    // 否则跨域被浏览器拦（表现为取不到数据/白屏）。
+    if method.eq_ignore_ascii_case("OPTIONS") {
+        let mut response = Response::empty(204);
+        for header in cors_headers() {
+            response = response.with_header(header);
+        }
+        let _ = request.respond(response);
+        return;
+    }
     let url = request.url().to_string();
     let (path, query) = split_url(&url);
     let source = request
@@ -272,10 +290,14 @@ fn send(request: tiny_http::Request, reply: &RemoteReply) {
                     .expect("静态 content-type 一定合法");
             let no_store = Header::from_bytes(&b"Cache-Control"[..], &b"no-store"[..])
                 .expect("静态 header 一定合法");
-            Response::from_data(bytes.clone())
+            let mut response = Response::from_data(bytes.clone())
                 .with_status_code(reply.status)
                 .with_header(content_type)
-                .with_header(no_store)
+                .with_header(no_store);
+            for header in cors_headers() {
+                response = response.with_header(header);
+            }
+            response
         }
         None => {
             let body =
@@ -285,9 +307,13 @@ fn send(request: tiny_http::Request, reply: &RemoteReply) {
                 &b"application/json; charset=utf-8"[..],
             )
             .expect("静态 header 一定合法");
-            Response::from_string(body)
+            let mut response = Response::from_string(body)
                 .with_status_code(reply.status)
-                .with_header(content_type)
+                .with_header(content_type);
+            for header in cors_headers() {
+                response = response.with_header(header);
+            }
+            response
         }
     };
     if reply.status == 401 {

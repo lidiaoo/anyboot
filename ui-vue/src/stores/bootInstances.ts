@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import { call } from "@/api/tauri";
+import { call, isTauri } from "@/api/tauri";
 import { useBootAdvStore } from "@/stores/bootAdv";
 
 /** 多实例引导器的可见性 / 顺序 / 左右列。统一存后端 bootAdvJson（跨桌面/web），不再只用 localStorage。 */
@@ -23,8 +23,18 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
     loading.value = true;
     pending = (async () => {
       let data: any[] = [];
-      // 桌面端：优先 remote_boot_info('local')（老命令，不受新命令 ACL 限制），
-      // 其返回的 channels 就是实例列表；失败再试 boot_channels_all IPC。
+      // 桌面端优先用本机 HTTP 直取（已加 CORS，绕开 IPC/ACL 的不确定性）。
+      if (isTauri()) {
+        try {
+          const endpoint: any = await call<any>("local_http_endpoint");
+          if (endpoint?.port) {
+            const response = await fetch(`http://127.0.0.1:${endpoint.port}/api/boot-channels?token=${encodeURIComponent(endpoint.token || "")}`);
+            const list = await response.json();
+            if (Array.isArray(list)) data = list;
+          }
+        } catch { /* 继续 */ }
+      }
+      // 兼容老命令 remote_boot_info('local')：其 channels 就是实例列表。
       try {
         const info: any = await call<any>("remote_boot_info", { serverId: "local" });
         if (Array.isArray(info?.channels)) data = info.channels;
