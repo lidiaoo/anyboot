@@ -163,6 +163,36 @@ pub(crate) fn scan_instances_deep(app: &tauri::AppHandle) -> Vec<BootInstanceRef
     scan_instances_opts(app, true)
 }
 
+/// 分区的稳定键：优先 PARTUUID/GUID。Windows 无盘符卷不能走 `esp_probe`（它只认盘符），
+/// 直接查 `partitions::all()` 的共享缓存（60s）取 GUID。
+fn partition_key_for_root(root: &Path) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let target = root.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase();
+        for partition in crate::channels::partitions::all() {
+            let letter_match = partition
+                .root()
+                .map(|candidate| candidate.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase() == target)
+                .unwrap_or(false);
+            let volume_match = partition
+                .volume
+                .as_deref()
+                .map(|candidate| candidate.trim_end_matches('\\').to_ascii_lowercase() == target)
+                .unwrap_or(false);
+            if (letter_match || volume_match) && !partition.guid.is_empty() {
+                return Some(partition.guid.clone());
+            }
+        }
+        return None;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        crate::esp_probe(root)
+            .ok()
+            .and_then(|info| info.partuuid.or(info.uuid))
+    }
+}
+
 fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRef> {
     // 缓存命中（15s）；深度扫描强制刷新并回填缓存。
     if !deep {
@@ -190,10 +220,8 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         if !root.join("EFI").is_dir() {
             continue;
         }
-        // 稳定键：优先 PARTUUID（三端同值，跨挂载点不变）；探测失败才退回挂载根。
-        let part = crate::esp_probe(&root)
-            .ok()
-            .and_then(|info| info.partuuid.or(info.uuid))
+        // 稳定键：优先 PARTUUID/GUID（三端同值，跨挂载点不变）；探测失败才退回挂载根。
+        let part = partition_key_for_root(&root)
             .unwrap_or_else(|| root.to_string_lossy().to_string());
         let short_part = root
             .file_name()
