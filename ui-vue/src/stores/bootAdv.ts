@@ -22,6 +22,10 @@ export type NextBootMode = "off" | "fold" | "open";
 export interface BootAdvState {
   visible: Record<LoaderId, boolean>;
   order: LoaderId[];
+  /** 多实例：实例顺序 / 隐藏 / 左右列（与旧六类的 order/visible 分开） */
+  instanceOrder: string[];
+  instanceHidden: string[];
+  instanceSides: Record<string, string>;
   /** 左右布局时每个引导器分到哪一列（'l' / 'r'） */
   side: Record<string, "l" | "r">;
   layout: LayoutMode;
@@ -39,6 +43,9 @@ export interface BootAdvState {
 const DEFAULT_STATE: BootAdvState = {
   visible: { refind: true, refindplus: true, grub: true, sdboot: true, opencore: true, clover: true },
   order: [...LOADER_IDS],
+  instanceOrder: [],
+  instanceHidden: [],
+  instanceSides: {},
   side: {},
   layout: "default",
   ratio: 0.5,
@@ -58,6 +65,9 @@ function loadState(): BootAdvState {
       ...DEFAULT_STATE,
       ...parsed,
       visible: { ...DEFAULT_STATE.visible, ...(parsed.visible ?? {}) },
+      instanceOrder: Array.isArray(parsed.instanceOrder) ? parsed.instanceOrder : [],
+      instanceHidden: Array.isArray(parsed.instanceHidden) ? parsed.instanceHidden : [],
+      instanceSides: parsed.instanceSides && typeof parsed.instanceSides === "object" ? parsed.instanceSides : {},
       side: { ...(parsed.side ?? {}) },
       order: ensureOrder(parsed.order),
     };
@@ -149,6 +159,9 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
         ...state.value,
         ...parsed,
         visible: { ...DEFAULT_STATE.visible, ...(parsed.visible ?? {}) },
+        instanceOrder: Array.isArray(parsed.instanceOrder) ? parsed.instanceOrder : state.value.instanceOrder,
+        instanceHidden: Array.isArray(parsed.instanceHidden) ? parsed.instanceHidden : state.value.instanceHidden,
+        instanceSides: parsed.instanceSides && typeof parsed.instanceSides === "object" ? parsed.instanceSides : state.value.instanceSides,
         side: { ...(parsed.side ?? {}) },
         order: ensureOrder(parsed.order),
       };
@@ -199,6 +212,13 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     state.value.visible[id] = visible;
   }
 
+  function setInstanceAll(order: string[], hidden: string[], sides: Record<string, string>) {
+    state.value.instanceOrder = order;
+    state.value.instanceHidden = hidden;
+    state.value.instanceSides = sides;
+    syncBackend();
+  }
+
   function setOrder(order: LoaderId[]) {
     state.value.order = order;
   }
@@ -241,6 +261,7 @@ export const useBootAdvStore = defineStore("bootAdv", () => {
     setTheme,
     setLayout,
     setVisible,
+    setInstanceAll,
     setOrder,
     setSide,
     resetOrder,

@@ -194,7 +194,6 @@ const varsDirInput = ref("");
 
 onMounted(() => {
   varsDirInput.value = ui.status?.varsDir ?? "";
-  void instancePrefs.load();
 });
 
 // 版式主题/布局切换时按档位设定窗口宽度（默认=460 / 加宽=932 / 左右=932）。

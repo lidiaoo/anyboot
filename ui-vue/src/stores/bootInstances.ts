@@ -1,37 +1,21 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
+import { useBootAdvStore } from "@/stores/bootAdv";
 
-/** 多实例引导器的可见性 / 顺序 / 左右列，PC「系统引导」与「引导高级设置」共用并持久化。 */
-const KEY = "anyboot.bootInstances";
-
-interface Prefs {
-  order: string[];
-  hidden: string[];
-  sides: Record<string, string>;
-}
-
-function loadPrefs(): Prefs {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<Prefs>;
-      return {
-        order: Array.isArray(parsed.order) ? parsed.order : [],
-        hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
-        sides: parsed.sides && typeof parsed.sides === "object" ? parsed.sides : {},
-      };
-    }
-  } catch { /* 忽略 */ }
-  return { order: [], hidden: [], sides: {} };
-}
-
+/** 多实例引导器的可见性 / 顺序 / 左右列。统一存后端 bootAdvJson（跨桌面/web），不再只用 localStorage。 */
 export const useBootInstancesStore = defineStore("bootInstances", () => {
-  const state = ref<Prefs>(loadPrefs());
+  const adv = useBootAdvStore();
   /** 唯一实例数据源：本应用内只请求一次，BootApp/BootSettings/BootList 共用。 */
   const list = ref<any[]>([]);
   const loading = ref(false);
   let pending: Promise<any[]> | null = null;
+
+  const state = computed(() => ({
+    order: adv.state.instanceOrder,
+    hidden: adv.state.instanceHidden,
+    sides: adv.state.instanceSides,
+  }));
 
   async function load(force = false): Promise<any[]> {
     if (!force && list.value.length) return list.value;
@@ -60,66 +44,61 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
     try { return await pending; } finally { pending = null; }
   }
 
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state.value)); } catch { /* 忽略 */ }
-  }
-
   function idOf(item: any): string {
     return String(item?.instanceId || item?.kind || "");
   }
 
-  /** 新实例列表到达：补进 order 末尾、清理已消失的 id；首次进入按后端顺序。 */
-  function setInstances(list: any[]) {
-    const ids = list.map(idOf).filter(Boolean);
-    const order = state.value.order.filter((id) => ids.includes(id));
+  /** 新实例列表到达：补进 order 末尾、清理已消失的 id；保留后端已 hydrate 的顺序。 */
+  function setInstances(items: any[]) {
+    const ids = items.map(idOf).filter(Boolean);
+    const order = [...adv.state.instanceOrder].filter((id) => ids.includes(id));
     for (const id of ids) if (!order.includes(id)) order.push(id);
-    state.value = {
-      order,
-      hidden: state.value.hidden.filter((id) => ids.includes(id)),
-      sides: Object.fromEntries(Object.entries(state.value.sides).filter(([id]) => ids.includes(id))),
-    };
-    save();
+    const hidden = adv.state.instanceHidden.filter((id) => ids.includes(id));
+    const sides = Object.fromEntries(Object.entries(adv.state.instanceSides).filter(([id]) => ids.includes(id)));
+    if (order.join("\u0000") !== adv.state.instanceOrder.join("\u0000")
+      || hidden.join("\u0000") !== adv.state.instanceHidden.join("\u0000")
+      || JSON.stringify(sides) !== JSON.stringify(adv.state.instanceSides)) {
+      adv.setInstanceAll(order, hidden, sides);
+    }
   }
 
   function isVisible(id: string): boolean {
-    return !state.value.hidden.includes(id);
+    return !adv.state.instanceHidden.includes(id);
   }
 
   function toggleVisible(id: string) {
-    state.value.hidden = state.value.hidden.includes(id)
-      ? state.value.hidden.filter((x) => x !== id)
-      : [...state.value.hidden, id];
-    save();
+    const hidden = adv.state.instanceHidden.includes(id)
+      ? adv.state.instanceHidden.filter((x) => x !== id)
+      : [...adv.state.instanceHidden, id];
+    adv.setInstanceAll([...adv.state.instanceOrder], hidden, { ...adv.state.instanceSides });
   }
 
   function move(id: string, delta: number) {
-    const order = [...state.value.order];
+    const order = [...adv.state.instanceOrder];
     const i = order.indexOf(id);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= order.length) return;
     order.splice(j, 0, ...order.splice(i, 1));
-    state.value.order = order;
-    save();
+    adv.setInstanceAll(order, [...adv.state.instanceHidden], { ...adv.state.instanceSides });
   }
 
   function sideOf(id: string): string {
-    return state.value.sides[id] === "r" ? "r" : "l";
+    return adv.state.instanceSides[id] === "r" ? "r" : "l";
   }
 
   function toggleSide(id: string) {
-    state.value.sides = { ...state.value.sides, [id]: sideOf(id) === "r" ? "l" : "r" };
-    save();
+    const sides = { ...adv.state.instanceSides, [id]: sideOf(id) === "r" ? "l" : "r" };
+    adv.setInstanceAll([...adv.state.instanceOrder], [...adv.state.instanceHidden], sides);
   }
 
-  function reset(list: any[]) {
-    state.value = { order: list.map(idOf).filter(Boolean), hidden: [], sides: {} };
-    save();
+  function reset(items: any[]) {
+    adv.setInstanceAll(items.map(idOf).filter(Boolean), [], {});
   }
 
   /** 实例数组按用户排序 + 可见性过滤。 */
-  function orderedVisible(list: any[]): any[] {
-    const map = new Map(list.map((item) => [idOf(item), item]));
-    return state.value.order
+  function orderedVisible(items: any[]): any[] {
+    const map = new Map(items.map((item) => [idOf(item), item]));
+    return adv.state.instanceOrder
       .map((id) => map.get(id))
       .filter((item): item is any => !!item)
       .filter((item) => isVisible(idOf(item)));
