@@ -626,13 +626,36 @@ function instanceTitle(group: any): string {
   const key = instanceKey(group);
   return instanceAliases.value[key] || group?.title || group?.kind || "";
 }
+function instanceOrderFromSettings(): string[] {
+  try {
+    const raw = String((appSettings as any)?.bootAdvJson || "");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { instanceOrder?: string[] };
+    return Array.isArray(parsed.instanceOrder) ? parsed.instanceOrder : [];
+  } catch { return []; }
+}
+function sortByInstanceOrder(keys: string[]): string[] {
+  const order = instanceOrderFromSettings();
+  if (!order.length) return keys;
+  return [...keys].sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    if (ia < 0 && ib < 0) return 0;
+    if (ia < 0) return 1;
+    if (ib < 0) return -1;
+    return ia - ib;
+  });
+}
+
 const allKinds = computed<string[]>(() => {
   const all = channelGroups.value;
-  // 只展示实例；不再回退旧单实例的固定六类
-  return all
-    .filter((c: any) => !!c.instanceId)
-    .filter((c: any) => !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
-    .map((c: any) => String(c.instanceId));
+  // 只展示实例；顺序跟引导高级设置的 instanceOrder 一致
+  return sortByInstanceOrder(
+    all
+      .filter((c: any) => !!c.instanceId)
+      .filter((c: any) => !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
+      .map((c: any) => String(c.instanceId)),
+  );
 });
 /** 右键实例：重命名（留空 = 隐藏） */
 function instanceMenu(kind: string) {

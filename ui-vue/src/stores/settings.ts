@@ -63,6 +63,8 @@ export const useSettingsStore = defineStore("settings", () => {
   const accentColor = computed(() => ui.settings?.accentColor ?? "#6366f1");
   /** GRUB 条目文字格式（极简 / 完整 …） */
   const grubListFormat = computed(() => ui.settings?.grubListFormat ?? "minimal");
+  /** 引导高级设置编排（含多实例 instanceOrder / hidden / sides） */
+  const bootAdvJson = computed(() => ui.settings?.bootAdvJson ?? "");
 
   // ---- 前端偏好：数据刷新 ---------------------------------------------
   const dataRefreshSec = ref(readNumber(DATA_REFRESH_KEY, DATA_REFRESH_DEFAULT_SEC));
@@ -109,6 +111,7 @@ export const useSettingsStore = defineStore("settings", () => {
     theme,
     accentColor,
     grubListFormat,
+    bootAdvJson,
     // 前端偏好
     dataRefreshSec,
     reprobeAlways,
