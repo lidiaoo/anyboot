@@ -48,7 +48,7 @@ const settings = useSettingsStore();
 const adv = useBootAdvStore();
 const instancePrefs = useBootInstancesStore();
 /** 多实例：系统引导页的预演/卡片列表也按实例平铺（无实例时回退固定 6 类） */
-const bootInstances = ref<any[]>([]);
+const bootInstances = computed(() => instancePrefs.list);
 function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
 function currentEntryOf(inst: any): any {
   const options = (inst?.options ?? []).filter((o: any) => !o.header);
@@ -57,19 +57,7 @@ function currentEntryOf(inst: any): any {
     ?? options.find((o: any) => current && String(o.label ?? "").includes(current));
 }
 onMounted(() => {
-  const apply = (list: any[]) => {
-    if (Array.isArray(list) && list.length) {
-      bootInstances.value = list;
-      instancePrefs.setInstances(list);
-    }
-  };
-  call<any[]>("boot_channels_all").then(apply).catch(() => {
-    try {
-      const token = new URLSearchParams(location.search).get("token") || "";
-      void fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`)
-        .then((r) => r.json()).then(apply).catch(() => {});
-    } catch { /* 忽略 */ }
-  });
+  void instancePrefs.load();
 });
 
 

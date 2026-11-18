@@ -31,7 +31,7 @@ const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
 /** 多实例：引导高级设置也按实例平铺（老端无实例时回退固定 6 类） */
-const bootInstances = ref<any[]>([]);
+const bootInstances = computed(() => instancePrefs.list);
 const instancePrefs = useBootInstancesStore();
 function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
 function instanceOf(id: string): any { return bootInstances.value.find((item) => instanceIdOf(item) === id); }
@@ -224,22 +224,7 @@ const varsDirInput = ref("");
 
 onMounted(() => {
   varsDirInput.value = ui.status?.varsDir ?? "";
-  const applyInstances = (list: any[]) => {
-    if (Array.isArray(list) && list.length) {
-      bootInstances.value = list;
-      instancePrefs.setInstances(list);
-    }
-  };
-  call<any[]>("boot_channels_all").then(applyInstances).catch(() => {
-    // 浏览器/网页端没有 Tauri IPC：走 HTTP（同源，带 URL token）
-    try {
-      const token = new URLSearchParams(location.search).get("token") || "";
-      void fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`)
-        .then((response) => response.json())
-        .then(applyInstances)
-        .catch(() => {});
-    } catch { /* 忽略 */ }
-  });
+  void instancePrefs.load();
 });
 
 // 版式主题/布局切换时按档位设定窗口宽度（默认=460 / 加宽=932 / 左右=932）。

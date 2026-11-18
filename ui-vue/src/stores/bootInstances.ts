@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
+import { call } from "@/api/tauri";
 
 /** 多实例引导器的可见性 / 顺序 / 左右列，PC「系统引导」与「引导高级设置」共用并持久化。 */
 const KEY = "anyboot.bootInstances";
@@ -10,7 +11,7 @@ interface Prefs {
   sides: Record<string, string>;
 }
 
-function load(): Prefs {
+function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -26,7 +27,38 @@ function load(): Prefs {
 }
 
 export const useBootInstancesStore = defineStore("bootInstances", () => {
-  const state = ref<Prefs>(load());
+  const state = ref<Prefs>(loadPrefs());
+  /** 唯一实例数据源：本应用内只请求一次，BootApp/BootSettings/BootList 共用。 */
+  const list = ref<any[]>([]);
+  const loading = ref(false);
+  let pending: Promise<any[]> | null = null;
+
+  async function load(force = false): Promise<any[]> {
+    if (!force && list.value.length) return list.value;
+    if (pending) return pending;
+    loading.value = true;
+    pending = (async () => {
+      let data: any[] = [];
+      try {
+        const result: any = await call<any[]>("boot_channels_all");
+        if (Array.isArray(result)) data = result;
+      } catch {
+        try {
+          const token = new URLSearchParams(location.search).get("token") || "";
+          const response = await fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`);
+          const result = await response.json();
+          if (Array.isArray(result)) data = result;
+        } catch { /* 忽略 */ }
+      }
+      if (data.length) {
+        list.value = data;
+        setInstances(data);
+      }
+      loading.value = false;
+      return list.value;
+    })();
+    try { return await pending; } finally { pending = null; }
+  }
 
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state.value)); } catch { /* 忽略 */ }
@@ -93,5 +125,5 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
       .filter((item) => isVisible(idOf(item)));
   }
 
-  return { state, setInstances, isVisible, toggleVisible, move, sideOf, toggleSide, reset, orderedVisible, idOf };
+  return { state, list, loading, load, setInstances, isVisible, toggleVisible, move, sideOf, toggleSide, reset, orderedVisible, idOf };
 });
