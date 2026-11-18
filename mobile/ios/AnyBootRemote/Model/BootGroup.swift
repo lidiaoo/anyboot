@@ -311,6 +311,19 @@ enum BootParser {
 
     /// `channels`（6 个统一 BootGroup 的 JSON 数组）→ [BootGroup]。
     /// 每个元素形如 {kind,title,available,current,next,saved,note,options[]}。
+    /// 按后端 bootAdvJson.instanceOrder 对实例排序；没有配置时保留后端顺序。
+    static func sortChannelsByInstanceOrder(_ groups: [BootGroup], bootAdvJson: String?) -> [BootGroup] {
+        guard let raw = bootAdvJson, !raw.isEmpty,
+              let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let order = object["instanceOrder"] as? [String], !order.isEmpty else { return groups }
+        return groups.sorted { a, b in
+            let ia = order.firstIndex(of: a.instanceId) ?? Int.max
+            let ib = order.firstIndex(of: b.instanceId) ?? Int.max
+            return ia < ib
+        }
+    }
+
     static func parseChannels(_ list: [[String: Any]]) -> [BootGroup] {
         list.map { item in
             BootGroup(
@@ -719,6 +732,9 @@ enum BootService {
                                                         refindplus: refindplusGroup, grub: grubGroup)
         }
 
+        let bootSettings = state["settings"] as? [String: Any]
+        let bootAdvJson = bootSettings?["bootAdvJson"] as? String
+        let orderedChannels = BootParser.sortChannelsByInstanceOrder(channelGroups, bootAdvJson: bootAdvJson)
         return BootInfo(
             ok: errors.isEmpty,
             online: true,
@@ -727,7 +743,7 @@ enum BootService {
             refind: refindGroup,
             refindplus: refindplusGroup,
             grub: grubGroup,
-            channels: channelGroups,
+            channels: orderedChannels,
             machineOs: choice.os,
             hits: choice.hits,
             winnerKind: choice.kind,

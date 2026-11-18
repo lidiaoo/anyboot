@@ -3592,6 +3592,18 @@ class ComputerListActivity : ComponentActivity() {
 
     /** 把任意来源的通道组补齐成固定 6 段。传入的 parsed（新契约 channels[6] 或老 ChannelView→BootGroup）
      *  优先；缺的用独立解析出的 refind/refindplus/grub 或占位组补上。零 kind 特例，纯按数据补齐。 */
+    /** 按后端 bootAdvJson.instanceOrder 对实例排序；没有配置时保留后端顺序。 */
+    private fun sortChannelsByInstanceOrder(channels: List<BootGroup>, settings: JSONObject): List<BootGroup> {
+        val raw = optStr(settings, "bootAdvJson")
+        if (raw.isBlank()) return channels
+        val order = try {
+            val arr = JSONObject(raw).optJSONArray("instanceOrder") ?: return channels
+            (0 until arr.length()).mapNotNull { arr.optString(it, "").takeIf { id -> id.isNotBlank() } }
+        } catch (_: Exception) { return channels }
+        if (order.isEmpty()) return channels
+        return channels.sortedWith(compareBy({ order.indexOf(it.instanceId).let { i -> if (i < 0) Int.MAX_VALUE else i } }))
+    }
+
     private fun assembleChannels(refind: BootGroup, refindplus: BootGroup, grub: BootGroup, parsed: List<BootGroup>): List<BootGroup> {
         // 新契约：/api/boot-channels 已经是「实例列表」（同类型可重复，如 2 个 OpenCore）。
         // 直接平铺返回，绝不能按 kind 去重（否则同类多实例会只剩最后一个）。
@@ -3913,7 +3925,10 @@ class ComputerListActivity : ComponentActivity() {
         } catch (_: Exception) {
             emptyList()
         }
-        val channels = assembleChannels(refind, refindplus, grub, if (remoteParsed.isNotEmpty()) remoteParsed else stateParsed)
+        val channels = sortChannelsByInstanceOrder(
+            assembleChannels(refind, refindplus, grub, if (remoteParsed.isNotEmpty()) remoteParsed else stateParsed),
+            settings,
+        )
         return BootInfo(
             ok = errors.size < 2,
             online = true,
