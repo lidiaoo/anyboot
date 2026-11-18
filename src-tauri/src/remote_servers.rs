@@ -4860,13 +4860,6 @@ pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
         }
         values.push(value);
     }
-    if values.is_empty() {
-        // 没有可识别实例时回退旧 6 段（保持老行为/空态）
-        return all_channels(app)
-            .into_iter()
-            .map(|group| serde_json::to_value(group).unwrap_or(serde_json::Value::Null))
-            .collect();
-    }
     values
 }
 

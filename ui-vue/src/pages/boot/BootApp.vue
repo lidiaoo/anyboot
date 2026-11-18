@@ -4,16 +4,14 @@ import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { applyAccent, shadeHex } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
-import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
+import { useBootAdvStore } from "@/stores/bootAdv";
 import { useBootInstancesStore } from "@/stores/bootInstances";
-import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
 import { runStartupAdminScan, isTauri, linuxPrivStatus, linuxGrubHelperReady } from "@/api/tauri";
 import HelperPrompt from "@/components/boot/HelperPrompt.vue";
 import TokenPrompt from "@/components/boot/TokenPrompt.vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
-import { simRows, grubRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import BootSettings from "./BootSettings.vue";
 import SettingsPanel from "@/components/boot/SettingsPanel.vue";
@@ -359,148 +357,27 @@ onMounted(async () => {
 
 /** 每引导器的真实设置数据（旧版 boot-adv.js 各 *_Loader 适配器精简）：
  *  esp 副标题、entries(t/def)、nextBoot（默认项）、healthText —— 供各主题「引导器设置」面板显示。 */
-function loaderEspText(id: LoaderId | string): string {
-  if (id === "refind") return settings.refindMode === "manual" ? t("boot.srcSnapshot") : "ESP · refind.conf";
-  if (id === "refindplus") return settings.refindplusMode === "manual" ? t("boot.srcSnapshot") : (ui.refindplusSim?.installDir || "ESP · config.conf");
-  if (id === "grub") {
-    // 旧版定案：各显各的、零回落。手动报 ESP cfgPath，自动报分区 target.cfgRel
-    if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
-    const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
-    return t?.cfgRel || "";
-  }
-  const ch = ui.channels.find((c) => c.id === id);
-  return ch?.detail || "";
-}
-function loaderDefaultTitle(id: LoaderId | string): string {
-  if (id === "refind") {
-    if (settings.refindMode === "manual") {
-      return (ui.status?.variables ?? []).find((v) => v.active)?.displayName ?? t("boot.unknown");
-    }
-    return (ui.refindSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? t("boot.unknown");
-  }
-  if (id === "refindplus") {
-    // 与 refind 同口径，数据源换成 refindplus 通道的独立槽位
-    if (settings.refindplusMode === "manual") {
-      return (ui.refindplusVariables ?? []).find((v) => v.active)?.displayName ?? t("boot.unknown");
-    }
-    return (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot)?.title?.trim() ?? t("boot.unknown");
-  }
-  if (id === "grub") {
-    const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
-    return source?.nextEntry || source?.savedEntry || t("boot.unknown");
-  }
-  const ch = ui.channels.find((c) => c.id === id);
-  const cur = String(ch?.currentDefault || "");
-  const list = ((ch?.entries ?? []) as { id?: string; title?: string }[]);
-  const hit = cur ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000")) : undefined;
-  return hit?.title || cur || ch?.lastBoot || t("boot.unknown");
-}
-/** 引导器状态点(绿/黄/灰)——反映**真实健康**，不是只判"检测到没有"。
- *  · refind/grub 没有 channel 对象，用各自的 issues/error 判；
- *  · sdboot/opencore/clover 用后端算好的 channel.chip(ok/warn/off，含 health 判定)。
- *  之前一律 `!detected ? off : ok`，warn 永远不出现 → "检测到但有问题的"也显示纯绿，不合理。 */
-function loaderState(id: string): "ok" | "warn" | "off" {
-  const hasWarn = (issues?: { severity?: string }[] | null) =>
-    !!issues && issues.some((i) => (i.severity || "").toLowerCase() === "warn");
-  if (id === "refind") {
-    const sim = ui.refindSim;
-    if (!sim) return "off"; // 还没探测
-    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn"; // 有配置但 0 条目
-    return hasWarn(sim.issues) ? "warn" : "ok";
-  }
-  if (id === "refindplus") {
-    // 与 refind 同口径，看 refindplus 通道自己的模拟扫描
-    const sim = ui.refindplusSim;
-    if (!sim) return "off";
-    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
-    return hasWarn(sim.issues) ? "warn" : "ok";
-  }
-  if (id === "grub") {
-    const g = ui.linuxGrub;
-    if (!g) return "off";
-    if (g.error) return "warn";
-    if (!(g.entries?.length) && hasWarn(g.issues)) return "warn";
-    return hasWarn(g.issues) ? "warn" : "ok";
-  }
-  // 通道：detected=false → off；否则用后端 chip 的真实档(ok/warn)
-  const ch = ui.channels.find((c) => c.id === id);
-  if (!ch || !ch.detected) return "off";
-  const chip = String((ch as { chip?: string }).chip || "");
-  if (chip === "warn") return "warn";
-  if (chip === "off") return "off";
-  return "ok";
+function instanceToLoader(inst: any): LoaderInfo {
+  const options = (inst?.options ?? []).filter((o: any) => !o.header);
+  const hit = currentEntryOf(inst);
+  const entries: { t?: string; def?: boolean }[] = [];
+  if (hit || inst?.current) entries.push({ t: String(hit?.label ?? inst?.current ?? ""), def: true });
+  while (entries.length < options.length) entries.push({ t: "", def: false });
+  return {
+    id: instanceIdOf(inst),
+    name: String(inst?.title || inst?.kind || ""),
+    state: (inst?.available ? (options.length ? "ok" : "warn") : "off") as "ok" | "warn" | "off",
+    entries,
+    esp: String(inst?.partition || inst?.installDir || ""),
+    perm: "file",
+    detected: !!inst?.available,
+    nextBoot: entries.find((e) => e.def) ?? null,
+  };
 }
 
-const loaders = computed<LoaderInfo[]>(() => {
-  if (bootInstances.value.length) {
-    return instancePrefs.orderedVisible(bootInstances.value).map((inst) => {
-      const options = (inst?.options ?? []).filter((o: any) => !o.header);
-      const hit = currentEntryOf(inst);
-      const entries: { t?: string; def?: boolean }[] = [];
-      if (hit || inst?.current) entries.push({ t: String(hit?.label ?? inst?.current ?? ""), def: true });
-      while (entries.length < options.length) entries.push({ t: "", def: false });
-      return {
-        id: instanceIdOf(inst),
-        name: String(inst?.title || inst?.kind || ""),
-        state: (inst?.available ? (options.length ? "ok" : "warn") : "off") as "ok" | "warn" | "off",
-        entries,
-        esp: String(inst?.partition || inst?.installDir || ""),
-        perm: "file",
-        detected: !!inst?.available,
-        nextBoot: entries.find((e) => e.def) ?? null,
-      };
-    });
-  }
-  const list: LoaderInfo[] = [];
-  for (const id of adv.enabledLoaders) {
-    const meta = loaderMeta(id);
-    const channel = ui.channels.find((c) => c.id === id);
-    const detected = id === "refind" || id === "refindplus" || id === "grub" ? true : Boolean(channel?.detected);
-    const defTitle = loaderDefaultTitle(id);
-    const count = countEntries(id);
-    // 真实条目：设置面板只需要 length + 默认项（t/def）；用默认项造一个带 def 的条目
-    const entries: { t?: string; def?: boolean }[] = [];
-    if (defTitle && defTitle !== t("boot.unknown")) entries.push({ t: defTitle, def: true });
-    // 补齐到 count（占位仅用于角标长度），首个为真实默认项
-    while (entries.length < count) entries.push({ t: "", def: false });
-    list.push({
-      id,
-      name: meta.name,
-      state: loaderState(id),
-      entries,
-      esp: loaderEspText(id),
-      perm: meta.perm,
-      detected,
-      nextBoot: entries.find((e) => e.def) ?? null,
-      // 健康文案统一按条目数（OpenCore 不再显示「免密已开启/旧构建建议重装」等提示——
-      // 免密提权入口已统一到「引导高级设置」总入口）。
-      healthText: count ? t("boot.healthItems", { src: loaderEspText(id) || "ESP", n: count }) : t("boot.notRead"),
-    });
-  }
-  return list;
-});
-
-function countEntries(id: LoaderId | string): number {
-  if (id === "refind") {
-    return settings.refindMode === "manual"
-      ? (ui.status?.variables ?? []).filter((v) => v.exists).length
-      : (ui.refindSim?.entries ?? []).filter((e) => !e.hidden).length;
-  }
-  if (id === "refindplus") {
-    // 与 refind 同口径，数据源换成 refindplus 通道
-    return settings.refindplusMode === "manual"
-      ? (ui.refindplusVariables ?? []).filter((v) => v.exists).length
-      : (ui.refindplusSim?.entries ?? []).filter((e) => !e.hidden).length;
-  }
-  if (id === "grub") {
-    // 零回落（旧版 grubLoader 定案）：自动=linuxGrub，手动=ESP grub——与列表同源，
-    // 否则 chips 计数 68 而列表空，看起来像坏了
-    const source = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
-    return source?.entries?.length ?? 0;
-  }
-  const ch = ui.channels.find((c) => c.id === id);
-  return (ch?.menuPreview?.entries ?? ch?.entries ?? []).length;
-}
+const loaders = computed<LoaderInfo[]>(() =>
+  bootInstances.value.length ? instancePrefs.orderedVisible(bootInstances.value).map(instanceToLoader) : [],
+);
 
 /** 上次启动项（旧版 #next-boot-last；该 commit 未实现数据源，保持空） */
 const nextBootLast = ref("");
@@ -629,60 +506,19 @@ const defaultEntrySelector = computed<string>(() => {
   return hit?.title?.trim() ?? "";
 });
 const bootRowsByLoader = computed<Record<string, EntryData[]>>(() => {
-  if (bootInstances.value.length) {
-    const out: Record<string, EntryData[]> = {};
-    for (const inst of bootInstances.value) {
-      out[instanceIdOf(inst)] = ((inst?.options ?? []) as any[])
-        .filter((o) => !o.header)
-        .map((o) => ({
-          selector: String(o.value ?? ""),
-          name: String(o.label ?? o.value ?? ""),
-          class: String(o.class ?? ""),
-        })) as EntryData[];
-    }
-    return out;
+  const out: Record<string, EntryData[]> = {};
+  for (const inst of bootInstances.value) {
+    out[instanceIdOf(inst)] = ((inst?.options ?? []) as any[])
+      .filter((o) => !o.header)
+      .map((o) => ({
+        selector: String(o.value ?? ""),
+        name: String(o.label ?? o.value ?? ""),
+        class: String(o.class ?? ""),
+        kernels: Array.isArray(o.kernels) ? o.kernels : [],
+      })) as EntryData[];
   }
-  return {
-  refind:
-    settings.refindMode === "manual"
-      ? refindVariableRows(ui.status?.variables)
-      : simRows(ui.refindSim),
-  refindplus:
-    settings.refindplusMode === "manual"
-      ? refindVariableRows(ui.refindplusVariables)
-      : simRows(ui.refindplusSim),
-  grub: grubRows({
-    grubMode: settings.grubMode,
-    linuxGrubEntries: ui.linuxGrub?.entries,
-    grubEntries: ui.grub?.entries,
-    variables: ui.status?.variables,
-  }),
-  sdboot: channelRows("sdboot"),
-  opencore: channelRows("opencore"),
-  clover: channelRows("clover"),
-  };
+  return out;
 });
-function channelRows(id: string): EntryData[] {
-  const ch = ui.channels.find((c) => c.id === id);
-  if (!ch) return [];
-  const preview = ch.menuPreview?.entries ?? [];
-  if (preview.length) {
-    // 与 BootList 同一套固定排序：可选中（spec 非空）一组在前，不可选中一组在后。
-    // 这里是给各版式主题 / 移动端「电脑列表·选择下拉」用的条目源（ThemeHost :rows），
-    // 之前漏了排序 → OpenCore 在这里仍是原序（选中项/APFS 项位置不固定）。
-    // 只按 spec 分组、与是否选中无关，顺序恒定。
-    const ordered = [
-      ...preview.filter((row) => row.spec),
-      ...preview.filter((row) => !row.spec),
-    ];
-    return ordered.map((row) => ({ selector: row.spec, name: row.title, class: row.kind }));
-  }
-  return (ch.entries ?? []).map((row) => ({
-    selector: String(row.id ?? row.title ?? ""),
-    name: String(row.title ?? row.id ?? ""),
-    class: String(row.kind ?? ""),
-  }));
-}
 
 /** 旧版：非 K 主题整页 fill 链（body[data-ba-fill] + #tab-boot.ba-fill） */
 function syncBodyBaFill(): void {

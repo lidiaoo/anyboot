@@ -2,11 +2,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
-import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { useBootInstancesStore } from "@/stores/bootInstances";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
-import { simRows, refindVariableRows, grubRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import ThemeHost from "@/pages/boot/themes/index.vue";
 import type { LoaderInfo } from "@/pages/boot/themes/types";
@@ -28,7 +26,6 @@ const { t } = useI18n();
  */
 
 const ui = useUiStateStore();
-const settings = useSettingsStore();
 const adv = useBootAdvStore();
 /** 多实例：引导高级设置也按实例平铺（老端无实例时回退固定 6 类） */
 const bootInstances = computed(() => instancePrefs.list);
@@ -41,12 +38,11 @@ function displayNameOf(id: string): string {
   const inst = instanceOf(id);
   return String(inst?.title || metaOf(id).name);
 }
-const orderIds = computed<string[]>(() => bootInstances.value.length ? instancePrefs.state.order : adv.state.order);
-function isVisible(id: string): boolean { return bootInstances.value.length ? instancePrefs.isVisible(id) : adv.state.visible[id as LoaderId] !== false; }
-function sideOf(id: string): string { return bootInstances.value.length ? instancePrefs.sideOf(id) : (adv.state.side[id] === "r" ? "r" : "l"); }
+const orderIds = computed<string[]>(() => instancePrefs.state.order);
+function isVisible(id: string): boolean { return instancePrefs.isVisible(id); }
+function sideOf(id: string): string { return instancePrefs.sideOf(id); }
 function resetOrder(): void {
-  if (bootInstances.value.length) instancePrefs.reset(bootInstances.value);
-  else adv.resetOrder();
+  instancePrefs.reset(bootInstances.value);
 }
 
 /** 旧版 moveLoader（boot-adv.js）：order 内上/下移一位 */
@@ -56,36 +52,10 @@ function moveLoader(id: string, delta: number) {
   const j = i + delta;
   if (i < 0 || j < 0 || j >= order.length) return;
   order.splice(j, 0, ...order.splice(i, 1));
-  if (bootInstances.value.length) instancePrefs.move(id, delta);
-  else adv.setOrder(order as LoaderId[]);
+  instancePrefs.move(id, delta);
 }
 
 /** 引导器默认项（旧版 def = l.nextBoot || entries.find(def)） */
-function loaderDefault(id: string): string {
-  if (id === "refind") {
-    const hit = (ui.status?.variables ?? []).find((v) => v.active);
-    const lb = (ui.refindSim?.entries ?? []).find((e) => e.lastBoot);
-    return (lb?.title || hit?.displayName || t("boot.unknown")).toString();
-  }
-  if (id === "refindplus") {
-    // 与 refind 同口径，看 refindplus 通道的独立槽位
-    const hit = (ui.refindplusVariables ?? []).find((v) => v.active);
-    const lb = (ui.refindplusSim?.entries ?? []).find((e) => e.lastBoot);
-    return (lb?.title || hit?.displayName || t("boot.unknown")).toString();
-  }
-  if (id === "grub") {
-    const g = settings.grubMode === "manual" ? ui.grub : ui.linuxGrub;
-    return (g?.nextEntry || g?.savedEntry || t("boot.unknown")).toString();
-  }
-  const ch = (ui.channels ?? []).find((c) => c.id === id);
-  // 旧版 channelEntries：currentDefault 可能是 id 或标题，命中 channel.entries 取标题
-  const cur = String(ch?.currentDefault || "");
-  const list = ((ch?.entries ?? []) as { id?: string; title?: string }[]);
-  const hit = cur
-    ? list.find((e) => cur === e.id || cur === e.title || cur.includes(e.title || "\u0000"))
-    : undefined;
-  return (hit?.title || cur || (ch?.detected ? t("hub.state.notSelected") : t("boot.unknown"))).toString();
-}
 /** 引导器图标里的两个字母（旧版 ldr 图标文字） */
 function loaderMono(id: string): string {
   return metaOf(id).mono;
@@ -250,36 +220,14 @@ const layoutLabels: Record<LayoutMode, string> = {
 
 /** 引导器 ESP 展示值（旧版 l.esp）：refind/grub 固定，三通道取 channel.detail */
 /** 引导器 ESP 副标题（与 BootApp/旧版适配器一致：按模式零回落） */
-function loaderEsp(id: string): string {
-  if (id === "refind") return settings.refindMode === "manual" ? t("boot.srcSnapshot") : "ESP · refind.conf";
-  if (id === "refindplus") return settings.refindplusMode === "manual" ? t("boot.srcSnapshot") : (ui.refindplusSim?.installDir || "ESP · config.conf");
-  if (id === "grub") {
-    if (settings.grubMode === "manual") return ui.grub?.cfgPath || "grub.cfg";
-    const t = (ui.linuxGrub as unknown as { target?: { cfgRel?: string } } | null)?.target;
-    return t?.cfgRel || "";
-  }
-  const ch = (ui.channels || []).find((c) => c.id === id);
-  return ch?.detail || "";
-}
-
 /** 切引导器左右列（旧版 k-rg） */
 function moveSide(id: string) {
-  if (bootInstances.value.length) {
-    if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
-    instancePrefs.toggleSide(id);
-    return;
-  }
-  const cur = adv.state.side[id] === "r" ? "r" : "l";
   if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
-  adv.setSide(id, cur === "r" ? "l" : "r");
+  instancePrefs.toggleSide(id);
 }
 
 function toggleVisible(id: string) {
-  if (bootInstances.value.length) {
-    instancePrefs.toggleVisible(id);
-    return;
-  }
-  adv.setVisible(id as LoaderId, !adv.state.visible[id as LoaderId]);
+  instancePrefs.toggleVisible(id);
 }
 
 
@@ -287,40 +235,9 @@ function toggleVisible(id: string) {
 /** 预演面板用的真实引导器（ESP/权限/默认项），供各布局预览卡片显示设置 */
 /** 引导器状态点(绿/黄/灰)——与「系统引导」页 BootApp.loaderState 同一套真实健康判定。
  *  之前预演用 `perm==='nvram'?warn:ok` 假逻辑 → 小绿点全不对。 */
-function previewLoaderState(id: string): "ok" | "warn" | "off" {
-  const hasWarn = (issues?: { severity?: string }[] | null) =>
-    !!issues && issues.some((i) => (i.severity || "").toLowerCase() === "warn");
-  if (id === "refind") {
-    const sim = ui.refindSim;
-    if (!sim) return "off";
-    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
-    return hasWarn(sim.issues) ? "warn" : "ok";
-  }
-  if (id === "refindplus") {
-    // 与 refind 同口径，看 refindplus 通道自己的模拟扫描
-    const sim = ui.refindplusSim;
-    if (!sim) return "off";
-    if (sim.entries?.length === 0 && sim.issues?.length === 0) return "warn";
-    return hasWarn(sim.issues) ? "warn" : "ok";
-  }
-  if (id === "grub") {
-    const g = ui.linuxGrub;
-    if (!g) return "off";
-    if (g.error) return "warn";
-    if (!(g.entries?.length) && hasWarn(g.issues)) return "warn";
-    return hasWarn(g.issues) ? "warn" : "ok";
-  }
-  const ch = ui.channels.find((c) => c.id === id);
-  if (!ch || !ch.detected) return "off";
-  const chip = String((ch as { chip?: string }).chip || "");
-  if (chip === "warn") return "warn";
-  if (chip === "off") return "off";
-  return "ok";
-}
-
 const previewLoaders = computed<LoaderInfo[]>(() => {
-  if (bootInstances.value.length) {
-    return orderIds.value.filter(isVisible).map((id) => {
+  if (!bootInstances.value.length) return [];
+  return orderIds.value.filter(isVisible).map((id) => {
       const inst = instanceOf(id);
       const opts = (inst?.options ?? []).filter((o: any) => !o.header && String(o.value ?? "").trim());
       const current = String(inst?.current ?? "").trim();
@@ -340,73 +257,21 @@ const previewLoaders = computed<LoaderInfo[]>(() => {
         nextBoot: entries.find((e) => e.def) ?? null,
       };
     });
-  }
-  return adv.state.order
-    .filter((id) => adv.state.visible[id])
-    .map((id) => {
-      const perm = loaderMeta(id).perm;
-      const defTitle = loaderDefault(id);
-      const count = (previewRows.value[id] ?? []).length;
-      const entries: { t?: string; def?: boolean }[] = [];
-      if (defTitle && defTitle !== t("boot.unknown")) entries.push({ t: defTitle, def: true });
-      while (entries.length < count) entries.push({ t: "", def: false });
-      return {
-        id,
-        name: loaderMeta(id).name,
-        state: previewLoaderState(id),
-        entries,
-        esp: loaderEsp(id),
-        perm,
-        detected: true,
-        nextBoot: entries.find((e) => e.def) ?? null,
-      };
-    });
 });
+
 /** 预演面板用的真实行（与系统引导页同一份行源） */
 const previewRows = computed<Record<string, EntryData[]>>(() => {
   const out: Record<string, EntryData[]> = {};
-  if (bootInstances.value.length) {
-    for (const id of orderIds.value.filter(isVisible)) {
-      const inst = instanceOf(id);
-      out[id] = ((inst?.options ?? []) as any[])
-        .filter((o) => !o.header)
-        .map((o) => ({
-          selector: String(o.value ?? ""),
-          name: String(o.label ?? o.value ?? ""),
-          class: String(o.class ?? ""),
-        })) as EntryData[];
-    }
-    return out;
-  }
-  for (const id of adv.state.order.filter((x) => adv.state.visible[x])) {
-    if (id === "refind") {
-      out[id] = settings.refindMode === "manual"
-        ? refindVariableRows(ui.status?.variables)
-        : simRows(ui.refindSim);
-    } else if (id === "refindplus") {
-      // 与 refind 同口径，看 refindplus 通道的独立槽位
-      out[id] = settings.refindplusMode === "manual"
-        ? refindVariableRows(ui.refindplusVariables)
-        : simRows(ui.refindplusSim);
-    } else if (id === "grub") {
-      out[id] = grubRows({
-        grubMode: settings.grubMode,
-        linuxGrubEntries: (ui.linuxGrub?.entries ?? []) as never,
-        grubEntries: (ui.grub?.entries ?? []) as never,
-        variables: ui.status?.variables,
-      });
-    } else {
-      // 与系统引导页同口径：OpenCore 的真实菜单在 menuPreview.entries（entries 只有动作），
-      // 漏了它会导致预演里 OC 的统计数/行数不对（用户：统计引导列表的数量不对）
-      const ch = ui.channels.find((c) => c.id === id);
-      const source = (ch?.menuPreview?.entries?.length ? ch.menuPreview.entries : ch?.entries ?? []) as {
-        spec?: string; title?: string; id?: string;
-      }[];
-      out[id] = source.map((row) => ({
-        selector: row.spec || row.title || row.id || "",
-        name: row.title || row.id || "",
-      }) as EntryData);
-    }
+  if (!bootInstances.value.length) return out;
+  for (const id of orderIds.value.filter(isVisible)) {
+    const inst = instanceOf(id);
+    out[id] = ((inst?.options ?? []) as any[])
+      .filter((o) => !o.header)
+      .map((o) => ({
+        selector: String(o.value ?? ""),
+        name: String(o.label ?? o.value ?? ""),
+        class: String(o.class ?? ""),
+      })) as EntryData[];
   }
   return out;
 });

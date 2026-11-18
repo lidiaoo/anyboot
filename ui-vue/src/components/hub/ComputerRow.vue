@@ -628,12 +628,11 @@ function instanceTitle(group: any): string {
 }
 const allKinds = computed<string[]>(() => {
   const all = channelGroups.value;
-  const instanceKeys = all
+  // 只展示实例；不再回退旧单实例的固定六类
+  return all
     .filter((c: any) => !!c.instanceId)
     .filter((c: any) => !c.hidden && !hiddenInstances.value.includes(String(c.instanceId)))
     .map((c: any) => String(c.instanceId));
-  if (instanceKeys.length > 0) return instanceKeys; // 多实例：完全平铺
-  return ["refind", "refindplus", "grub", "sdboot", "opencore", "clover"];
 });
 /** 右键实例：重命名（留空 = 隐藏） */
 function instanceMenu(kind: string) {
