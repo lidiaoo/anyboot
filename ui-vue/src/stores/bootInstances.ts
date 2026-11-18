@@ -23,10 +23,19 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
     loading.value = true;
     pending = (async () => {
       let data: any[] = [];
+      // 桌面端：优先 remote_boot_info('local')（老命令，不受新命令 ACL 限制），
+      // 其返回的 channels 就是实例列表；失败再试 boot_channels_all IPC。
       try {
-        const result: any = await call<any[]>("boot_channels_all");
-        if (Array.isArray(result)) data = result;
-      } catch {
+        const info: any = await call<any>("remote_boot_info", { serverId: "local" });
+        if (Array.isArray(info?.channels)) data = info.channels;
+      } catch { /* 继续 */ }
+      if (!data.length) {
+        try {
+          const result: any = await call<any[]>("boot_channels_all");
+          if (Array.isArray(result)) data = result;
+        } catch { /* 继续 */ }
+      }
+      if (!data.length) {
         try {
           const token = new URLSearchParams(location.search).get("token") || "";
           const response = await fetch(`/api/boot-channels?token=${encodeURIComponent(token)}`);
