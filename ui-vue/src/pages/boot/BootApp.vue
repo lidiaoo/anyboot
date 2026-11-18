@@ -5,6 +5,7 @@ import { useUiStateStore } from "@/stores/uiState";
 import { applyAccent, shadeHex } from "@/composables/useAccent";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { call } from "@/api/tauri";
 import { runStartupAdminScan, isTauri, linuxPrivStatus, linuxGrubHelperReady } from "@/api/tauri";
@@ -45,6 +46,7 @@ const { t } = useI18n();
 const ui = useUiStateStore();
 const settings = useSettingsStore();
 const adv = useBootAdvStore();
+const instancePrefs = useBootInstancesStore();
 /** 多实例：系统引导页的预演/卡片列表也按实例平铺（无实例时回退固定 6 类） */
 const bootInstances = ref<any[]>([]);
 function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
@@ -55,7 +57,12 @@ function currentEntryOf(inst: any): any {
     ?? options.find((o: any) => current && String(o.label ?? "").includes(current));
 }
 onMounted(() => {
-  const apply = (list: any[]) => { if (Array.isArray(list) && list.length) bootInstances.value = list; };
+  const apply = (list: any[]) => {
+    if (Array.isArray(list) && list.length) {
+      bootInstances.value = list;
+      instancePrefs.setInstances(list);
+    }
+  };
   call<any[]>("boot_channels_all").then(apply).catch(() => {
     try {
       const token = new URLSearchParams(location.search).get("token") || "";
@@ -438,7 +445,7 @@ function loaderState(id: string): "ok" | "warn" | "off" {
 
 const loaders = computed<LoaderInfo[]>(() => {
   if (bootInstances.value.length) {
-    return bootInstances.value.map((inst) => {
+    return instancePrefs.orderedVisible(bootInstances.value).map((inst) => {
       const options = (inst?.options ?? []).filter((o: any) => !o.header);
       const hit = currentEntryOf(inst);
       const entries: { t?: string; def?: boolean }[] = [];

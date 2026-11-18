@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
 import { simRows, refindVariableRows, grubRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
@@ -31,9 +32,7 @@ const settings = useSettingsStore();
 const adv = useBootAdvStore();
 /** 多实例：引导高级设置也按实例平铺（老端无实例时回退固定 6 类） */
 const bootInstances = ref<any[]>([]);
-const instanceOrder = ref<string[]>([]);
-const hiddenInstances = ref<string[]>([]);
-const instanceSides = ref<Record<string, string>>({});
+const instancePrefs = useBootInstancesStore();
 function instanceIdOf(item: any): string { return String(item?.instanceId || item?.kind || ""); }
 function instanceOf(id: string): any { return bootInstances.value.find((item) => instanceIdOf(item) === id); }
 function baseKindOf(id: string): string { return String(instanceOf(id)?.kind || id); }
@@ -42,17 +41,12 @@ function displayNameOf(id: string): string {
   const inst = instanceOf(id);
   return String(inst?.title || metaOf(id).name);
 }
-const orderIds = computed<string[]>(() => bootInstances.value.length ? instanceOrder.value : adv.state.order);
-function isVisible(id: string): boolean { return bootInstances.value.length ? !hiddenInstances.value.includes(id) : adv.state.visible[id as LoaderId] !== false; }
-function sideOf(id: string): string { return bootInstances.value.length ? (instanceSides.value[id] ?? "l") : (adv.state.side[id] === "r" ? "r" : "l"); }
+const orderIds = computed<string[]>(() => bootInstances.value.length ? instancePrefs.state.order : adv.state.order);
+function isVisible(id: string): boolean { return bootInstances.value.length ? instancePrefs.isVisible(id) : adv.state.visible[id as LoaderId] !== false; }
+function sideOf(id: string): string { return bootInstances.value.length ? instancePrefs.sideOf(id) : (adv.state.side[id] === "r" ? "r" : "l"); }
 function resetOrder(): void {
-  if (bootInstances.value.length) {
-    instanceOrder.value = bootInstances.value.map(instanceIdOf);
-    hiddenInstances.value = [];
-    instanceSides.value = {};
-  } else {
-    adv.resetOrder();
-  }
+  if (bootInstances.value.length) instancePrefs.reset(bootInstances.value);
+  else adv.resetOrder();
 }
 
 /** 旧版 moveLoader（boot-adv.js）：order 内上/下移一位 */
@@ -62,7 +56,7 @@ function moveLoader(id: string, delta: number) {
   const j = i + delta;
   if (i < 0 || j < 0 || j >= order.length) return;
   order.splice(j, 0, ...order.splice(i, 1));
-  if (bootInstances.value.length) instanceOrder.value = order;
+  if (bootInstances.value.length) instancePrefs.move(id, delta);
   else adv.setOrder(order as LoaderId[]);
 }
 
@@ -233,7 +227,7 @@ onMounted(() => {
   const applyInstances = (list: any[]) => {
     if (Array.isArray(list) && list.length) {
       bootInstances.value = list;
-      instanceOrder.value = list.map(instanceIdOf);
+      instancePrefs.setInstances(list);
     }
   };
   call<any[]>("boot_channels_all").then(applyInstances).catch(() => {
@@ -286,9 +280,8 @@ function loaderEsp(id: string): string {
 /** 切引导器左右列（旧版 k-rg） */
 function moveSide(id: string) {
   if (bootInstances.value.length) {
-    const cur = sideOf(id);
     if (adv.effectiveLayout !== "lr" && adv.supportsSplit) adv.setLayout("lr");
-    instanceSides.value = { ...instanceSides.value, [id]: cur === "r" ? "l" : "r" };
+    instancePrefs.toggleSide(id);
     return;
   }
   const cur = adv.state.side[id] === "r" ? "r" : "l";
@@ -298,9 +291,7 @@ function moveSide(id: string) {
 
 function toggleVisible(id: string) {
   if (bootInstances.value.length) {
-    hiddenInstances.value = hiddenInstances.value.includes(id)
-      ? hiddenInstances.value.filter((x) => x !== id)
-      : [...hiddenInstances.value, id];
+    instancePrefs.toggleVisible(id);
     return;
   }
   adv.setVisible(id as LoaderId, !adv.state.visible[id as LoaderId]);
