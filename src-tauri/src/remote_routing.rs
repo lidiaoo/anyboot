@@ -873,6 +873,10 @@ pub(crate) fn remote_ui_command_inner(
             )?)
             .map_err(|error| format!("序列化失败: {error}"))
         }
+        // 多实例引导列表：桌面端走原生 IPC，网页/手机端必须经此 HTTP 桥，
+        // 之前漏了它 → 浏览器打开电脑列表/系统引导页时引导列全空（三端不一致）。
+        "boot_channels_all" => serde_json::to_value(crate::remote_servers::boot_channels_all(app.clone()))
+            .map_err(|error| format!("序列化失败: {error}")),
         "remote_endpoint" => {
             let server_id = ui_str(args, "serverId").or_else(|_| ui_str(args, "server_id"))?;
             let address = ui_opt_str(args, "address");

@@ -3517,7 +3517,10 @@ pub struct BootOption {
 }
 
 /// 一台电脑上的一种引导管理器（rEFInd 或 GRUB）的现状 + 可选项。
+/// `rename_all = "camelCase"`：`instance_id` 必须序列化成 `instanceId`，否则前端
+/// 按实例过滤时拿不到 id → 电脑列表引导列空白（三端同源数据不一致的根因）。
 #[derive(Clone, Debug, Serialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct BootGroup {
     /// refind / grub
     pub kind: String,
