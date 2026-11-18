@@ -72,7 +72,7 @@ impl WinEsp {
 pub(crate) fn list() -> Vec<WinEsp> {
     super::partitions::all()
         .into_iter()
-        .filter(super::partitions::Partition::is_esp)
+        .filter(super::partitions::Partition::is_esp_candidate)
         .map(|row| WinEsp {
             disk: row.disk,
             partition: row.partition,

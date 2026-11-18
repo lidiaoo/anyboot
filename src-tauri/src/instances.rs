@@ -154,6 +154,32 @@ fn rel_of(root: &Path, dir: &Path) -> String {
 }
 
 /// 枚举本机所有候选根上的所有引导器实例。
+/// Windows 上盘符根（`H:\`）没有文件名，用「磁盘X分区Y」代替 GUID 前缀作为别名。
+#[cfg(target_os = "windows")]
+fn volume_coords(root: &std::path::Path) -> Option<String> {
+    let target = root.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase();
+    for partition in crate::channels::partitions::all() {
+        let letter_match = partition
+            .root()
+            .map(|candidate| candidate.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase() == target)
+            .unwrap_or(false);
+        let volume_match = partition
+            .volume
+            .as_deref()
+            .map(|candidate| candidate.trim_end_matches('\\').to_ascii_lowercase() == target)
+            .unwrap_or(false);
+        if letter_match || volume_match {
+            return Some(format!("磁盘{}分区{}", partition.disk, partition.partition));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn volume_coords(_root: &std::path::Path) -> Option<String> {
+    None
+}
+
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
     scan_instances_opts(app, false)
 }
@@ -228,7 +254,9 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
             .and_then(|name| name.to_str())
             .filter(|value| !value.trim().is_empty())
             .map(|value| value.to_string())
-            .unwrap_or_else(|| part.chars().take(12).collect::<String>());
+            .unwrap_or_else(|| {
+                volume_coords(&root).unwrap_or_else(|| part.chars().take(12).collect::<String>())
+            });
         for kind in KINDS {
             // 只在 ESP 的 EFI 子树里找（避免回收站/备份目录里的假 EFI）
             let efi = root.join("EFI");

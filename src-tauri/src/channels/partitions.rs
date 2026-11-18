@@ -37,6 +37,9 @@ pub(crate) const XBOOTLDR_GPT: &str = "bc13c2ff-6689-423b-924d-4f2a0e4d6b6a";
 /// 具体能不能读由 Ext4::open 决定）。
 pub(crate) const LINUX_LVM_GPT: &str = "e6d6d379-f507-44c2-a23c-238f2a3df928";
 pub(crate) const LINUX_RAID_GPT: &str = "a19d880f-05fc-4d3b-a006-743f0f84911e";
+/// Microsoft Basic Data（`ebd0a0a2-...`）。黑苹果/手工分区常见把 ESP 标成这个类型，
+/// 而里面确实是 FAT + `EFI` 目录 —— Windows 上不能只认 `c12a7328` 否则整块 ESP 被漏掉。
+pub(crate) const BASIC_DATA_GPT: &str = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7";
 
 /// 一条分区。只留三处调用方真正要的字段。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +72,20 @@ impl Partition {
         // 只比 GUID 前 8 位：命令宿主的不同版本对 GptType 的括号/大小写不一致
         self.gpt_type.starts_with(&ESP_GPT[..8])
     }
+    /// ESP 候选：真 ESP（c12a7328）或 ≤4GB 的 Microsoft Basic Data（黑苹果常见，
+    /// 内部仍是 FAT + EFI 目录）。真假最后由「有没有 EFI 目录」定。
+    pub(crate) fn is_esp_candidate(&self) -> bool {
+        if self.is_esp() {
+            return true;
+        }
+        self.is_basic_data() && self.size > 0 && self.size <= 4 * 1024 * 1024 * 1024
+    }
+
+    pub(crate) fn is_basic_data(&self) -> bool {
+        self.gpt_type.starts_with(&BASIC_DATA_GPT[..8])
+    }
+
+
 
     pub(crate) fn is_apfs(&self) -> bool {
         self.gpt_type.starts_with(&APFS_GPT[..8])
