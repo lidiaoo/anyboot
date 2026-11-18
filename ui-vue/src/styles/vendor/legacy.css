@@ -5618,14 +5618,14 @@ body[data-boot-style="min"] .oc-menu-set:not(.is-default)  { opacity: 0; pointer
 
 /* 「下次启动」标签：置顶浮动项（pinned）旁的明示徽标 */
 .grub-entry-pin {
-  /* 抄 Android PinnedBootRowFixed：accent 实底 + onAccent(白)字，无边框 */
-  display: inline-block; vertical-align: middle;
-  font-size: 10px; line-height: 1.4; font-weight: 600;
+  /* 对齐 Android PinnedBootRowFixed：10sp + 5dp 水平 + 1dp 垂直内边距；PC 端按浏览器像素等比放大一点 */
+  display: inline-flex; align-items: center; vertical-align: middle;
+  font-size: 10.5px; line-height: 1.3; font-weight: 600;
   color: #fff;
   background: #6366f1;
   border: none;
   border-radius: 5px;
-  padding: 0 5px;
+  padding: 1px 6px;
   margin-right: 6px;
   white-space: nowrap;
 }
