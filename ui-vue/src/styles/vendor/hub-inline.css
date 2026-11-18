@@ -1325,6 +1325,8 @@
   /* 多实例：一行一个，整行撑满（用户 2026-11-18） */
   .cq-row-boots { display: flex; flex-direction: column; gap: 6px; }
   .cq-col-boot { flex: none; width: 100%; min-width: 0; max-width: none; }
+  /* 旧版固定 6 类的通道列（sdboot/opencore/clover）在纵向布局下也要收回高度 */
+  .cq-row-boots > .cq-col-boot--ch { flex: none; width: 100%; min-width: 0; max-width: none; }
   .cq-col-boot::before {
     content: attr(data-label); display: block; margin-bottom: 4px;
     font-size: 10px; font-weight: 600; letter-spacing: .02em; color: rgb(var(--fg-faint));
