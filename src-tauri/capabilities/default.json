@@ -15,6 +15,7 @@
   ],
   "permissions": [
     "core:default",
+    "allow-boot-instance-switch",
     "core:window:allow-start-dragging",
     "positioner:default"
   ]
