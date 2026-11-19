@@ -102,9 +102,12 @@ async function switchEntry(selector: string) {
   if (!selector) return;
   try {
     if (isInstance.value) {
+      const chosen = instanceEntries.value.find((entry) => String(entry.selector ?? "") === selector);
+      const title = String(chosen?.name || selector);
       const message = await switchBootInstance(props.loader, selector);
-      // 先给用户成功回执；实例/channels 刷新放后台，避免「隔好久才说成功」。
-      if (message) toast.show(message, "ok");
+      // 统一回执：所有引导器都显示「下次启动：<显示标题>」，不再用各后端自己的动作描述。
+      void message;
+      toast.show(`下次启动：${title}`, "ok");
       void (async () => {
         await instancePrefs.load(true).catch(() => {});
         const fresh = instancePrefs.list.find((item: any) => String(item?.instanceId || "") === props.loader);

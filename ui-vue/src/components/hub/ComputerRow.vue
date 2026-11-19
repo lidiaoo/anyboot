@@ -360,8 +360,11 @@ async function openPicker(kind: string) {
 }
 function chooseBoot(value: string) {
   const pk = picker.value; if (!pk) return;
+  const hit: any = (pk.entries ?? []).find((entry: any) =>
+    String(entry.selector ?? entry.value ?? "") === value || String(entry.name ?? "") === value,
+  );
   picker.value = null;
-  emit("switchBoot", { serverId: props.row.id, kind: pk.kind, value });
+  emit("switchBoot", { serverId: props.row.id, kind: pk.kind, value, title: String(hit?.name ?? value) });
 }
 /** 旧版：本机恒在线（hub 自身在跑）；远端看 remote_boot_info 的 online */
 const online = computed(() => (isLocal.value ? true : (props.info?.online ?? false)));
