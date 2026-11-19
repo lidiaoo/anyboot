@@ -717,13 +717,10 @@ fn fallback_label(root: &Path) -> String {
         let trimmed = text.trim_end_matches(['\\', '/']);
         let is_drive_root = trimmed.len() == 2 && trimmed.ends_with(':');
         if is_drive_root {
-            // 盘符只是定位符，不是卷标 —— 绝不把 `（K:）` 印到卡片上（与 macOS 一致：
-            // 无卷标的 ESP 显示 "EFI"）。
-            let _ = trimmed;
             return if grub_rel(root, "EFI").is_dir() {
-                "EFI".to_string()
+                format!("EFI（{trimmed}）")
             } else {
-                "本地卷".to_string()
+                format!("本地卷（{trimmed}）")
             };
         }
         // 卷设备路径（`\\?\Volume{guid}\`）：没盘符的 ESP 走这条。原生卷标读不到时
@@ -793,14 +790,13 @@ fn disambiguate_labels(volumes: &mut [Volume]) {
     for volume in volumes.iter_mut() {
         let mut label = volume.label.clone();
         if seen.iter().any(|known| *known == label) {
-            // 重名时用序号区分，不用盘符/路径（避免又把 `（K:）` 带回来）。
+            let base = format!("{}（{}）", label, root_suffix(&volume.root));
+            label = base.clone();
             let mut attempt = 2;
-            let mut candidate = format!("{label} #{attempt}");
-            while seen.iter().any(|known| *known == candidate) {
+            while seen.iter().any(|known| *known == label) {
+                label = format!("{base}#{attempt}");
                 attempt += 1;
-                candidate = format!("{label} #{attempt}");
             }
-            label = candidate;
         }
         seen.push(label.clone());
         volume.label = label;
