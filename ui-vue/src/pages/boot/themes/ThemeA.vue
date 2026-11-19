@@ -6,7 +6,7 @@ function footText(loader: { id: string; state: string; entries: unknown[]; healt
   return `${loader.entries.length} 个可启动项 · 读取正常`;
 }
 
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { LoaderInfo } from "./types";
@@ -36,7 +36,14 @@ const props = defineProps<{
 }>();
 
 const activeId = ref(props.loaders[0]?.id ?? "");
-
+watch(
+  () => props.loaders.map((loader) => loader.id).join(","),
+  () => {
+    if (!props.loaders.some((loader) => loader.id === activeId.value)) {
+      activeId.value = props.loaders[0]?.id ?? "";
+    }
+  },
+);
 
 function focusLoader(id: string) {
   activeId.value = id;

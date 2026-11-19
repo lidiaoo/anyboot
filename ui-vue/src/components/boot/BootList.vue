@@ -64,6 +64,22 @@ watch(() => props.instance, (value: any) => {
   if (value) instanceGroup.value = value;
 }, { immediate: true });
 
+// 切换顶部引导器 tab 时 loader 会变，instanceGroup 必须跟着换成对应实例；
+// 否则组件复用时会一直显示上一个引导器的条目（ThemeA/B/C/J 的 tab 切换问题）。
+watch(() => props.loader, (loader) => {
+  if (!loader.includes("@")) return;
+  const hit = instancePrefs.list.find((item: any) => String(item.instanceId || "") === loader);
+  if (hit) {
+    instanceGroup.value = hit;
+    return;
+  }
+  instanceGroup.value = props.instance ?? null;
+  void instancePrefs.load().then((list) => {
+    const fresh = (list ?? []).find((item: any) => String(item.instanceId || "") === loader);
+    if (fresh) instanceGroup.value = fresh;
+  });
+}, { immediate: true });
+
 const isRefind = computed(() => props.loader === "refind");
 /** RefindPlus：与 rEFInd 同一套列表逻辑的独立通道（数据源/命令只差 channel） */
 const isRefindPlus = computed(() => props.loader === "refindplus");
