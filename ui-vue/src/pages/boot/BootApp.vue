@@ -14,6 +14,7 @@ import BootList from "@/components/boot/BootList.vue";
 import LoaderSettings from "@/components/boot/LoaderSettings.vue";
 import type { EntryData } from "@/components/boot/types";
 import BootSettings from "./BootSettings.vue";
+import { groupedLabel, parentHeaderOf } from "./bootRows";
 import SettingsPanel from "@/components/boot/SettingsPanel.vue";
 import SolPanel from "@/components/boot/SolPanel.vue";
 import ThemeHost from "./themes/index.vue";
@@ -362,7 +363,13 @@ function instanceToLoader(inst: any): LoaderInfo {
   const options = (inst?.options ?? []).filter((o: any) => !o.header);
   const hit = currentEntryOf(inst);
   const entries: { t?: string; def?: boolean }[] = [];
-  if (hit || inst?.current) entries.push({ t: String(hit?.label ?? inst?.current ?? ""), def: true });
+  if (hit || inst?.current) {
+    entries.push({
+      // 组内子项补一级组头（「一级 › 二级」），与置顶行/卡片回显同口径
+      t: groupedLabel(parentHeaderOf(inst?.options, String(inst?.current ?? "")), String(hit?.label ?? inst?.current ?? "")),
+      def: true,
+    });
+  }
   while (entries.length < options.length) entries.push({ t: "", def: false });
   return {
     id: instanceIdOf(inst),
@@ -393,33 +400,56 @@ const nextBootName = computed(() => {
   return active?.displayName || t("boot.unknown");
 });
 
-/** 下次启动：每行 = 一个引导器 + 它选中的条目 */
+/** rEFInd 预演的「上次启动」标题（vars/PreviousBoot 命中的那一项） */
+function simLeafOf(sim: { entries?: { title?: string; lastBoot?: boolean }[] } | null | undefined): string {
+  return String((sim?.entries ?? []).find((e) => e.lastBoot)?.title ?? "").trim();
+}
+
+/** GRUB 下次启动项：「一级组名 › 二级条目」——nextEntry 落在子菜单里时补组头，
+ *  否则「下次启动」卡只看得见裸内核名（与置顶行同口径）。 */
+function grubNextBootLabel(
+  source: { entries?: any[]; groups?: any[]; nextEntry?: string; savedEntry?: string } | null | undefined,
+): string {
+  const raw = String(source?.nextEntry || source?.savedEntry || "").trim();
+  const entries = source?.entries ?? [];
+  const hit =
+    entries.find((e) => String(e?.selector ?? "") === raw) ??
+    entries.find((e) => String(e?.name ?? "") === raw);
+  const gid = String(hit?.submenu ?? "");
+  const gname = gid
+    ? String((source?.groups ?? []).find((g) => String(g?.id ?? "") === gid)?.name ?? "")
+    : "";
+  return groupedLabel(gname, raw);
+}
+
+/** 下次启动：每行 = 一个引导器 + 它选中的条目（条目带一级组头） */
 const nextBootRows = computed(() =>
   loaders.value.map((loader) => {
     let value = "—";
     const inst = bootInstances.value.find((item) => instanceIdOf(item) === loader.id);
     if (inst) {
       const hit = currentEntryOf(inst);
-      value = String(hit?.label ?? inst.current ?? "—");
+      const leaf = String(hit?.label ?? hit?.value ?? inst.current ?? "");
+      value = groupedLabel(parentHeaderOf(inst.options, String(inst.current ?? "")), leaf);
     } else if (loader.id === "refind") {
       value =
         settings.refindMode === "manual"
-          ? (ui.status?.variables?.find((v) => v.active)?.displayName ?? "—")
-          : ((ui.refindSim?.entries?.find((e) => e.lastBoot)?.title ?? "").trim() || "—");
+          ? String(ui.status?.variables?.find((v) => v.active)?.displayName ?? "")
+          : simLeafOf(ui.refindSim);
     } else if (loader.id === "refindplus") {
       // 与 refind 同口径，看 refindplus 通道的独立槽位
       value =
         settings.refindplusMode === "manual"
-          ? (ui.refindplusVariables?.find((v) => v.active)?.displayName ?? "—")
-          : ((ui.refindplusSim?.entries?.find((e) => e.lastBoot)?.title ?? "").trim() || "—");
+          ? String(ui.refindplusVariables?.find((v) => v.active)?.displayName ?? "")
+          : simLeafOf(ui.refindplusSim);
     } else if (loader.id === "grub") {
       const source = settings.grubMode === "manual" ? ui.grub : (ui.linuxGrub ?? ui.grub);
-      value = source?.nextEntry || source?.savedEntry || "—";
+      value = grubNextBootLabel(source as any);
     } else {
       const ch = ui.channels.find((c) => c.id === loader.id);
       value = ch?.currentDefault || ch?.lastBoot || "—";
     }
-    return { id: loader.id, name: loader.name, value };
+    return { id: loader.id, name: loader.name, value: value || "—" };
   }),
 );
 

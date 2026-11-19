@@ -5,6 +5,7 @@ import { useUiStateStore } from "@/stores/uiState";
 import { useBootAdvStore, type LoaderId } from "@/stores/bootAdv";
 import { useBootInstancesStore } from "@/stores/bootInstances";
 import { loaderMeta } from "@/pages/boot/themes/loaders";
+import { groupedLabel, parentHeaderOf } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import ThemeHost from "@/pages/boot/themes/index.vue";
 import type { LoaderInfo } from "@/pages/boot/themes/types";
@@ -243,7 +244,13 @@ const previewLoaders = computed<LoaderInfo[]>(() => {
       const hit = opts.find((o: any) => String(o.value ?? "") === current)
         ?? opts.find((o: any) => current && String(o.label ?? "").includes(current));
       const entries: { t?: string; def?: boolean }[] = [];
-      if (hit || current) entries.push({ t: String(hit?.label ?? current), def: true });
+      if (hit || current) {
+        entries.push({
+          // 组内子项补一级组头（「一级 › 二级」），与系统引导页同口径
+          t: groupedLabel(parentHeaderOf(inst?.options, current), String(hit?.label ?? current)),
+          def: true,
+        });
+      }
       while (entries.length < opts.length) entries.push({ t: "", def: false });
       return {
         id,

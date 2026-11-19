@@ -114,6 +114,19 @@ export function parentHeaderOf(options: any[] | null | undefined, current: strin
   return "";
 }
 
+/** 组内子项的显示文案：「一级 › 二级」。
+ *  一级缺省（顶层项）或与二级同名时只给二级，避免「GRUB › GRUB」。 */
+export function groupedLabel(
+  parent: string | null | undefined,
+  leaf: string | null | undefined,
+  empty = "—",
+): string {
+  const g = String(parent ?? "").trim();
+  const l = String(leaf ?? "").trim();
+  if (!g || !l || g === l) return l || empty;
+  return `${g} › ${l}`;
+}
+
 /** 平台图标（四端唯一映射，对齐后端 grub_os_icon）：class 优先 + 名字关键词兜底。
  *  唯一实现 —— GrubEntry（弹窗/列表行）与 hub ComputerRow（卡片回显）都从这里取，
  *  勿再抄第二份（用户 2026-11-15：图标识别也要统一，别这边一个逻辑那边一个逻辑）。 */
