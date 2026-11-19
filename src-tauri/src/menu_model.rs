@@ -1276,10 +1276,6 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
             .collect(),
     ));
 
-    // —— 分区：扫描 ——
-    nodes.push(menu_separator());
-    nodes.push(menu_item("refresh", crate::t!(crate::i18n::current(),"扫描","掃描","Scan","スキャン","스캔","Scannen","Сканировать","Escanear","Escanear"), !busy));
-
     // —— 分区：电源操作 ——
     // 铺平在主菜单里（不折叠成子菜单：关机/重启是高频动作，多一层展开纯属添堵），
     // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区，而不是粘在「扫描」下面。

@@ -576,20 +576,21 @@ function busyLabel(busy: { power?: string | null; switching?: boolean; unmountin
   if (busy.power) return t("boot.busyPower", { label: busy.power });
   if (busy.switching) return t("boot.switching");
   if (busy.unmounting) return t("boot.unmounting");
-  if (busy.scanning) return t("boot.scanning");
   return "";
 }
 const statusText = computed(() => {
-  if (!ui.ready) return t("boot.scanningRefind");
+  if (!ui.ready) return "";
   const raw = (ui.status?.message || "").trim();
+  if (raw.includes("正在扫描") || raw.includes("扫描中")) return "";
   const duplicatesNextBoot = !raw || raw.startsWith("下次启动：");
   const label = busyLabel(ui.busy);
   return label || (duplicatesNextBoot ? "" : raw);
 });
 /** 旧版：statusElement.classList.toggle("hidden", !label && duplicatesNextBoot) */
 const statusHidden = computed(() => {
-  if (!ui.ready) return false;
+  if (!ui.ready) return true;
   const raw = (ui.status?.message || "").trim();
+  if (raw.includes("正在扫描") || raw.includes("扫描中")) return true;
   const duplicatesNextBoot = !raw || raw.startsWith("下次启动：");
   return !busyLabel(ui.busy) && duplicatesNextBoot;
 });
