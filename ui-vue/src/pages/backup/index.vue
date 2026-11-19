@@ -623,7 +623,7 @@ async function executeImport() {
                 :class="{ 'is-on': syncPeriod === opt.v }"
                 @click="syncPeriod = opt.v"
               >
-                {{ opt.label }}
+                {{ t(opt.label) }}
               </button>
             </div>
           </div>

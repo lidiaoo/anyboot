@@ -410,14 +410,14 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
           type="button"
           :class="{ 'is-on': linuxExt4Mode === m.key }"
           :aria-pressed="linuxExt4Mode === m.key"
-          :title="m.hint"
+          :title="t(m.hint)"
           @click="pickLinuxExt4Mode(m.key)"
         >
-          {{ m.label }}
+          {{ t(m.label) }}
         </button>
       </div>
       <small class="helper-hint" style="display:block; margin-top:4px;">
-        {{ linuxExt4Hint }}
+        {{ t(linuxExt4Hint) }}
       </small>
       <small v-if="linuxExt4Mode === 'mount_only'" class="helper-hint" style="display:block; margin-top:2px; color: var(--warn, #d97706)">
         {{ t("bs.mountOnlyNote") }}
@@ -474,11 +474,11 @@ onUnmounted(() => { vwRo?.disconnect(); vwRo = null; });
               :class="['theme-btn', { 'is-on': adv.effectiveLayout === mode }]"
               @click="adv.setLayout(mode)"
             >
-              {{ layoutLabels[mode] }}
+              {{ t(layoutLabels[mode]) }}
             </button>
           </div>
           <span v-if="layouts.length > 1" class="hint">{{ t("bs.layoutHint") }}</span>
-          <span v-else class="hint">{{ t("bs.layoutOnlyOne", { x: layoutLabels[layouts[0] ?? "default"] }) }}</span>
+          <span v-else class="hint">{{ t("bs.layoutOnlyOne", { x: t(layoutLabels[layouts[0] ?? "default"]) }) }}</span>
         </div>
         <!-- row4：菜单样式 -->
         <div class="k-row">

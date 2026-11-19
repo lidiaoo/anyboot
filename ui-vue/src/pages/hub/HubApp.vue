@@ -355,7 +355,7 @@ onUnmounted(() => {
           type="button"
           class="snav"
           :class="{ active: currentPage === item.id }"
-          :title="item.label"
+          :title="t(item.label)"
           :data-page="item.id"
           @click="goto(item.id)"
         >

@@ -1034,7 +1034,8 @@ function pairSrcChip(pair: PairRow): { cls: string; text: string; tip: string } 
   let text = "";
   if (label) {
     cls = pair.kind === "tunnel" ? "src-tunnel" : "src-ts";
-    text = label;
+    // labels 里存的是 i18n key，必须翻一道再上界面（否则显示 `gw.kindTunnel`）
+    text = t(label);
   } else if (pair.url && /ts\.net|100\./.test(pair.url)) {
     cls = "src-ts";
     text = "Tailscale";

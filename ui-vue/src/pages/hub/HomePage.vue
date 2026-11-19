@@ -391,7 +391,7 @@ useEscape(fabHelpOpen, () => { fabHelpOpen.value = false });
           :data-pact="p.act"
           @click="sendPower(p.act)"
         >
-          {{ p.label }}<span class="hint" />
+          {{ t(p.label) }}<span class="hint" />
         </button>
       </div>
       <button

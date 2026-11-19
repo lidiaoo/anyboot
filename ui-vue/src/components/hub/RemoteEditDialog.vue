@@ -46,6 +46,16 @@ useEscape(computed(() => props.open), () => emit("close"));
 const name = ref("");
 const quick = ref("");
 
+/**
+ * 映射表里**混着品牌名与 i18n key**（Cloudflare / Tailscale 要原样，tsnet 等要走词典）。
+ * 模板里渲染这些 label 时必须过它 —— 直接插值会把 `remote.tsnetLabel` 这种 key
+ * 原样画到界面上（2026-11-19 用户报的「i18n 只显示了 key」）。
+ */
+const tr = (v: string | undefined | null): string => {
+  const s = String(v ?? "");
+  return s.includes(".") ? t(s) : s;
+};
+
 /** 连接优先级六通道（旧版 ROUTE_IDS / ROUTE_LABELS） */
 const PAIR_BLOCKS = [
   { id: "cloudflare", label: "Cloudflare" },
@@ -590,7 +600,7 @@ function submit() {
           <div id="rsPairsBox" class="pair-blocks">
             <div v-for="block in PAIR_BLOCKS_UI" :key="block.id" class="pb-block">
               <div class="pb-head">
-                <span class="pb-title">{{ block.label }}</span>
+                <span class="pb-title">{{ tr(block.label) }}</span>
                 <span class="pb-count">{{ filledCount(block.id) ? t("remote.blockCount", { n: filledCount(block.id) }) : t("remote.blockUnset") }}</span>
                 <button type="button" class="pb-add" @click="addPair(block.id)">{{ t("remote.pairAdd") }}</button>
               </div>
@@ -683,7 +693,7 @@ function submit() {
                 @dragend="onRouteDragEnd"
               >
                 <span class="rp-grip" :title="t('remote.dragSort')">☰</span>
-                <span class="rp-name">{{ ROUTE_LABELS[kind] }}</span>
+                <span class="rp-name">{{ tr(ROUTE_LABELS[kind]) }}</span>
                 <input
                   class="rp-timeout mono"
                   type="number"
@@ -729,7 +739,7 @@ function submit() {
             <label>{{ t("remote.blockStrategyLabel") }}</label>
             <div class="block-policy" id="rsBlockPolicyBox">
               <div v-for="block in PAIR_BLOCKS" :key="block.id" class="bp-row">
-                <span class="bp-name">{{ block.label }}</span>
+                <span class="bp-name">{{ tr(block.label) }}</span>
                 <span class="bp-seg">
                   <button
                     v-for="mode in PAIR_MODES"
@@ -738,7 +748,7 @@ function submit() {
                     :class="['btn', 'small', { primary: (blockProbe[block.id] || 'parallel_first') === mode.id }]"
                     style="flex: 1"
                     @click="setBlockProbe(block.id, mode.id)"
-                  >{{ mode.long }}</button>
+                  >{{ tr(mode.long) }}</button>
                 </span>
                 <input
                   class="bp-timeout mono"
@@ -787,12 +797,12 @@ function submit() {
                 <span class="route-no">{{ i + 1 }}</span>
                 <span class="route-zone-inline">
                   <select v-model="r.action" class="route-act" :title="t('remote.routeActionTitle')">
-                    <option v-for="a in POWER_ACTIONS" :key="a.value" :value="a.value">{{ a.label }}</option>
+                    <option v-for="a in POWER_ACTIONS" :key="a.value" :value="a.value">{{ tr(a.label) }}</option>
                   </select>
                 </span>
                 <span class="route-zone-inline">
                   <select v-model="r.mode" class="route-mode" :title="t('remote.routeModeTitle')">
-                    <option v-for="m in ROUTE_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
+                    <option v-for="m in ROUTE_MODES" :key="m.value" :value="m.value">{{ tr(m.label) }}</option>
                   </select>
                 </span>
                 <span class="route-head-spacer" />
