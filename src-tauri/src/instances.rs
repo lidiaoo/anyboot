@@ -275,7 +275,7 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
     if !deep {
         if let Ok(state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
             if let Some((at, cached)) = &state.instances_cache {
-                if at.elapsed() < std::time::Duration::from_secs(15) {
+                if at.elapsed() < std::time::Duration::from_secs(60) {
                     return cached.clone();
                 }
             }
@@ -541,9 +541,9 @@ pub(crate) fn switch_instance_and_update(
 ) -> Result<String, String> {
     let message = switch_instance(app, instance_id, target)?;
     // 先回执成功（切换命令不再同步跑全量 channels 刷新——那是几秒级延迟的来源）。
-    // 实例缓存失效，前端拿到成功消息后再后台刷新实例/channels。
+    // 复用实例缓存：旧代码切换只读当前状态即可，不能每次切换都全盘扫一遍；
+    // 后台刷新/下一次 60s 缓存过期时自然会更新 current。
     if let Ok(mut state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
-        state.instances_cache = None;
         state.message = if message.starts_with("下次启动：") {
             message.clone()
         } else {
