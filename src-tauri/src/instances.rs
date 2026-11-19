@@ -540,9 +540,10 @@ pub(crate) fn switch_instance_and_update(
     target: &str,
 ) -> Result<String, String> {
     let message = switch_instance(app, instance_id, target)?;
-    // 让 channels 刷新并让实例扫描缓存失效（否则回显还是旧的 current）
-    crate::channels::refresh_channels(app);
+    // 先回执成功（切换命令不再同步跑全量 channels 刷新——那是几秒级延迟的来源）。
+    // 实例缓存失效，前端拿到成功消息后再后台刷新实例/channels。
     if let Ok(mut state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+        state.instances_cache = None;
         state.message = if message.starts_with("下次启动：") {
             message.clone()
         } else {

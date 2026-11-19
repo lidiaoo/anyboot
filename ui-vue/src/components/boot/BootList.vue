@@ -103,11 +103,14 @@ async function switchEntry(selector: string) {
   try {
     if (isInstance.value) {
       const message = await switchBootInstance(props.loader, selector);
-      await instancePrefs.load(true);
-      const fresh = instancePrefs.list.find((item: any) => String(item?.instanceId || "") === props.loader);
-      if (fresh) instanceGroup.value = fresh;
-      await ui.pollOnce().catch(() => {});
+      // 先给用户成功回执；实例/channels 刷新放后台，避免「隔好久才说成功」。
       if (message) toast.show(message, "ok");
+      void (async () => {
+        await instancePrefs.load(true).catch(() => {});
+        const fresh = instancePrefs.list.find((item: any) => String(item?.instanceId || "") === props.loader);
+        if (fresh) instanceGroup.value = fresh;
+        await ui.pollOnce().catch(() => {});
+      })();
       return;
     }
     if (isRefindFamily.value) {
