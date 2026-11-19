@@ -363,25 +363,6 @@ enum BootParser {
     /// 老对端没有统一 `channels[6]` 时的回退：用 refind/refindplus/grub 拼出 6 个，
     /// 缺的 sdboot/opencore/clover 补成不可用的空组。GRUB 旧结构（label 空）
     /// 顺手补全成统一 option，保证通用渲染下有可见文案。
-    static func fallbackChannels(refind: BootGroup,
-                                 refindplus: BootGroup,
-                                 grub: BootGroup) -> [BootGroup] {
-        var out: [BootGroup] = [refind, refindplus]
-        var g = grub
-        g.options = grub.options.map { o in
-            var n = o
-            if n.label.isEmpty { n.label = GrubFormat.kernelOf(o) }
-            if n.label.isEmpty { n.label = o.value }
-            return n
-        }
-        out.append(g)
-        for kind in [BootKind.sdboot, BootKind.opencore, BootKind.clover] {
-            out.append(BootGroup(kind: kind, title: BootKind.defaultTitle(kind),
-                                 available: false, current: "", next: "", saved: "",
-                                 note: "", options: []))
-        }
-        return out
-    }
 }
 
 // MARK: - GRUB 六档拼装（对齐 ComputerListActivity.kt:2690-2821）
@@ -633,12 +614,10 @@ enum BootService {
             if list.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
                 channelGroups = BootParser.parseChannels(list)
             } else {
-                channelGroups = BootParser.fallbackChannels(refind: refindGroup,
-                                                            refindplus: refindplusGroup, grub: grubGroup)
+                channelGroups = []
             }
         } catch {
-            channelGroups = BootParser.fallbackChannels(refind: refindGroup,
-                                                        refindplus: refindplusGroup, grub: grubGroup)
+            channelGroups = []
         }
 
         return BootInfo(
@@ -727,12 +706,10 @@ enum BootService {
             if list.contains(where: { !(($0["kind"] as? String) ?? "").trimmingCharacters(in: .whitespaces).isEmpty }) {
                 channelGroups = BootParser.parseChannels(list)
             } else {
-                channelGroups = BootParser.fallbackChannels(refind: refindGroup,
-                                                            refindplus: refindplusGroup, grub: grubGroup)
+                channelGroups = []
             }
         } catch {
-            channelGroups = BootParser.fallbackChannels(refind: refindGroup,
-                                                        refindplus: refindplusGroup, grub: grubGroup)
+            channelGroups = []
         }
 
         let bootSettings = state["settings"] as? [String: Any]

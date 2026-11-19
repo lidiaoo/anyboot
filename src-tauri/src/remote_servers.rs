@@ -4263,6 +4263,7 @@ let note = channel_note(
 /// 远程行只能拿到序列化后的形状（`ChannelView` 没有 Deserialize），所以照着字段
 /// 读一遍；条目里的 `spec` 仍用**同一个** `channel_entry_spec` 算，别在这里另写
 /// 一份值域（sdboot 要带前缀、clover 是 oneshot —— 写错就是点了没反应）。
+#[cfg_attr(not(test), allow(dead_code))]
 fn channel_from_json(value: &serde_json::Value) -> BootGroup {
     let id = value
         .get("id")
@@ -4486,13 +4487,6 @@ fn boot_groups_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
 }
 
 /// 顶层是数组的 `/api/boot-channels` 响应 → 通道组列表。
-fn channels_from_json(value: &serde_json::Value) -> Vec<BootGroup> {
-    value
-        .as_array()
-        .map(|items| items.iter().map(channel_from_json).collect())
-        .unwrap_or_default()
-}
-
 /// 出一条 GRUB 可选项 —— 与托盘菜单的 `menu_model::grub_push_entry` **同一条拼装
 /// 规则**，只是产物从菜单节点换成 BootOption：
 /// * 文字随格式变（`grub_row_label`：极简/简易=去前缀内核名、中等=完整内核名、
@@ -4799,41 +4793,6 @@ fn instance_boot_groups(app: &AppHandle) -> Vec<BootGroup> {
         .collect()
 }
 
-fn append_instance_extras(app: &AppHandle, channels: &mut Vec<BootGroup>) {
-    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for instance in crate::instances::scan_instances(app) {
-        let count = seen.entry(instance.kind.clone()).or_insert(0);
-        let primary = *count == 0;
-        *count += 1;
-        if primary || instance.hidden {
-            continue;
-        }
-        channels.push(BootGroup {
-            kind: instance.kind,
-            title: instance.title,
-            available: instance.available,
-            current: String::new(),
-            next: String::new(),
-            saved: String::new(),
-            note: "多实例（只读，待接入独立切换）".to_string(),
-            options: Vec::new(),
-            ..Default::default()
-        });
-    }
-}
-
-fn with_all_channels(mut info: RemoteBootInfo) -> RemoteBootInfo {
-    if info.channels.len() < 6 {
-        let mut v: Vec<BootGroup> = Vec::with_capacity(6);
-        v.push(info.refind.clone());
-        v.push(info.refindplus.clone());
-        v.push(info.grub.clone());
-        v.extend(info.channels.drain(..));
-        info.channels = v;
-    }
-    info
-}
-
 pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
     // remote_boot_info_blocking 返回的 info.channels 已由 with_all_channels 补成 6 段
     // （refind/refindplus/grub + sdboot/opencore/clover），直接返回即可，勿再追加。
@@ -4945,7 +4904,6 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         // 旧版状态里本机显示「在线 127.0.0.1:<port>」，这里带上实际端口
         let port = { let p = crate::stored_settings(app).http_port; if p == 0 { 12300 } else { p } };
         info.addr = format!("127.0.0.1:{port}");
-        let mut info = with_all_channels(info);
         let instances = instance_boot_groups(app);
         if !instances.is_empty() {
             info.channels = instances;
@@ -5120,7 +5078,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
             info.refind.note = "电脑离线，无法读取引导项".to_string();
             info.refindplus.note = "电脑离线，无法读取引导项".to_string();
             info.grub.note = "电脑离线，无法读取引导项".to_string();
-            return Ok(with_all_channels(info));
+            return Ok(info);
         }
     }
     // 2026-11-02 用户指出：电脑列表要按 refind/grub 的**自动·手动**模式取数据。
@@ -5186,13 +5144,10 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         let format = crate::read_settings_file(app).grub_list_format;
         info.grub = grub_from_json(grub_value.unwrap_or(&serde_json::Value::Null), &format);
 
-        if let Some(channels) = state_json.get("channels") {
-            info.channels = channels_from_json(channels);
-        }
         // 快照里两套都在，没有「一边失败」的概念；直接收尾
         info.ok = true;
         info.online = true;
-        return Ok(with_all_channels(info));
+        return Ok(info);
     }
 
     // ---- 回落：老服务端没有 /api/ui-state ----
@@ -5235,7 +5190,7 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
     match remote_http_json(app, &server, "/api/boot-channels") {
         Ok(value) => {
             let groups = boot_groups_from_json(&value);
-            info.channels = if groups.is_empty() { channels_from_json(&value) } else { groups };
+            info.channels = groups;
         }
         Err(error) => {
             crate::trace(
@@ -6424,8 +6379,6 @@ mod tests {
             "health": [{"severity": "warn", "text": "ESP 分区没有盘符，先给它挂个盘符"}]
         }));
         assert_eq!(explained.note, "ESP 分区没有盘符，先给它挂个盘符");
-        // 非数组响应（老版本对端 404 时给的是对象）不该炸，按「没有通道」处理
-        assert!(channels_from_json(&serde_json::json!({"error": "not_found"})).is_empty());
     }
 
     #[test]

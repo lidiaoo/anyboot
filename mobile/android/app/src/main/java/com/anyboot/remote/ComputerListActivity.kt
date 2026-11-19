@@ -3617,21 +3617,8 @@ class ComputerListActivity : ComponentActivity() {
     private fun assembleChannels(refind: BootGroup, refindplus: BootGroup, grub: BootGroup, parsed: List<BootGroup>): List<BootGroup> {
         // 新契约：/api/boot-channels 已经是「实例列表」（同类型可重复，如 2 个 OpenCore）。
         // 直接平铺返回，绝不能按 kind 去重（否则同类多实例会只剩最后一个）。
-        val instances = parsed.filter { it.instanceId.isNotEmpty() }
-        if (instances.isNotEmpty()) return instances
-        // 老对端（无 instanceId）：回退旧的 6 类兼容映射
-        val byKind = LinkedHashMap<String, BootGroup>()
-        parsed.forEach { byKind[channelKindOf(it.kind)] = it }
-        listOf(refind, refindplus, grub).forEach {
-            val k = channelKindOf(it.kind)
-            if (!byKind.containsKey(k)) byKind[k] = it
-        }
-        return CHANNEL_ORDER.map { kind ->
-            byKind[kind] ?: BootGroup(
-                kind = kind, title = channelTitle(kind), available = false,
-                current = "", next = "", saved = "", note = "", options = emptyList(),
-            )
-        }
+        // 只认实例（instanceId）；不再兼容老对端/固定 6 类。
+        return parsed.filter { it.instanceId.isNotEmpty() }
     }
 
     /** 通道基名：去掉 `channel:` 前缀（新契约 kind=sdboot，老 ChannelView kind=channel:sdboot）。 */
