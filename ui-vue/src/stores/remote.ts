@@ -201,7 +201,8 @@ export const useRemoteStore = defineStore("remote", () => {
     // 只认三系统名，自动模式下组的 value 是菜单标题原文，会静默吃成「未知系统」
     // （用户实测「点了一个没反应」的根因）。
     const message = await call<string>("remote_boot_switch", payload);
-    if (id) await refreshBoot(id);
+    // 先返回成功回执；远程电脑的 boot info 刷新可能 2.5s，不能挡着 toast。
+    if (id) void refreshBoot(id).catch(() => {});
     return message ?? "";
   }
 
