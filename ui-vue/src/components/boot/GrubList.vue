@@ -38,6 +38,8 @@ const props = withDefaults(
     disabled?: boolean;
     /** 置顶行右侧小字（不给就按条目自己算） */
     pinnedTag?: string;
+    /** 置顶行的「一级」前缀（多实例：当前项所属组头；给了就覆盖内部推算） */
+    pinnedGroupTitle?: string;
     /** 条目文本格式（旧版 grub.listFormat：minimal/simple/medium/detailed/raw） */
     format?: string;
   }>(),
@@ -47,6 +49,7 @@ const props = withDefaults(
     showGroups: true,
     disabled: false,
     pinnedTag: "",
+    pinnedGroupTitle: "",
     format: "minimal",
   },
 );
@@ -226,7 +229,7 @@ function onSelect(selector: string) {
       :active="true"
       :disabled="disabled"
       :group-title="
-        activeEntry.submenu ? groupTitles[activeEntry.submenu] || activeEntry.submenu : ''
+        pinnedGroupTitle || (activeEntry.submenu ? groupTitles[activeEntry.submenu] || activeEntry.submenu : '')
       "
       :tag="pinnedTag"
       @select="onSelect"

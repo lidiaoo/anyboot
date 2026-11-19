@@ -180,6 +180,57 @@ fn volume_coords(_root: &std::path::Path) -> Option<String> {
     None
 }
 
+/// 兼容旧逻辑的「分区短标识」：取候选根路径最后一段（自动挂载时通常就是设备名，
+/// 如 `nvme0n1p8`），否则退到卷坐标，再否则用分区标识（PARTUUID）前 12 位。
+fn fallback_part_name(partition: &str, root_path: &str) -> String {
+    std::path::Path::new(root_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| {
+            volume_coords(std::path::Path::new(root_path))
+                .unwrap_or_else(|| partition.chars().take(12).collect::<String>())
+        })
+}
+
+/// 多实例标题里用来区分分区的「友好名」：优先分区卷标（如 `MACOS-EFI` / `REFIND`），
+/// 取不到再退回设备名/分区标识前缀（保持旧行为）。仅在同类型多实例时才会用到。
+#[cfg(target_os = "linux")]
+fn friendly_part_name(partition: &str, root_path: &str) -> String {
+    linux_volume_label(partition).unwrap_or_else(|| fallback_part_name(partition, root_path))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn friendly_part_name(partition: &str, root_path: &str) -> String {
+    fallback_part_name(partition, root_path)
+}
+
+/// Linux：`lsblk` 不暴露 FAT 的 `LABEL_FATBOOT`，所以按 PARTUUID 用 `blkid` 查卷标。
+/// 先看 FAT 引导标签（`LABEL_FATBOOT`），再看通用 `LABEL`；都没有就返回 None。
+#[cfg(target_os = "linux")]
+fn linux_volume_label(partition: &str) -> Option<String> {
+    let part = partition.trim();
+    if part.is_empty() {
+        return None;
+    }
+    for key in ["LABEL_FATBOOT", "LABEL"] {
+        let output = std::process::Command::new("blkid")
+            .args(["-t", &format!("PARTUUID={part}"), "-o", "value", "-s", key])
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        let label = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !label.is_empty() {
+            return Some(label);
+        }
+    }
+    None
+}
+
 pub(crate) fn scan_instances(app: &tauri::AppHandle) -> Vec<BootInstanceRef> {
     scan_instances_opts(app, false)
 }
@@ -249,14 +300,7 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         // 稳定键：优先 PARTUUID/GUID（三端同值，跨挂载点不变）；探测失败才退回挂载根。
         let part = partition_key_for_root(&root)
             .unwrap_or_else(|| root.to_string_lossy().to_string());
-        let short_part = root
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| {
-                volume_coords(&root).unwrap_or_else(|| part.chars().take(12).collect::<String>())
-            });
+        let short_part = fallback_part_name(&part, &root.to_string_lossy());
         for kind in KINDS {
             // 只在 ESP 的 EFI 子树里找（避免回收站/备份目录里的假 EFI）
             let efi = root.join("EFI");
@@ -318,12 +362,15 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         *kind_totals.entry(instance.kind.clone()).or_insert(0) += 1;
     }
     for instance in &mut out {
+        let aliased = settings.boot_instance_aliases.contains_key(&instance.instance_id);
         // 单实例类型：标题恢复 v0.2.12 的纯类型名（GRUB / rEFInd …）；
-        // 只有同类型多实例时才保留「类型 · 卷名」区分。
-        if kind_totals.get(&instance.kind).copied().unwrap_or(0) == 1
-            && !settings.boot_instance_aliases.contains_key(&instance.instance_id)
-        {
+        // 只有同类型多实例时才保留「类型 · 分区名」区分。
+        if kind_totals.get(&instance.kind).copied().unwrap_or(0) == 1 && !aliased {
             instance.title = kind_title(&instance.kind).to_string();
+        } else if kind_totals.get(&instance.kind).copied().unwrap_or(0) > 1 && !aliased {
+            // 多实例：用分区卷标区分（如 `MACOS-EFI`），取不到再退回设备名/分区标识。
+            let friendly = friendly_part_name(&instance.partition, &instance.root_path);
+            instance.title = format!("{} · {}", kind_title(&instance.kind), friendly);
         }
         if counts.get(&(instance.kind.clone(), instance.partition.clone())).copied().unwrap_or(0) > 1 {
             let leaf = instance
@@ -445,8 +492,14 @@ fn switch_refind_instance(app: &tauri::AppHandle, instance: &BootInstanceRef, ti
         .find(|entry| !entry.hidden && entry.title.trim() == title)
         .ok_or_else(|| format!("当前实例菜单里没有这一项：{title}"))?;
     let bytes = crate::channels::refind_menu::previous_boot_bytes(&hit.title);
-    std::fs::write(vars_dir.join("PreviousBoot"), bytes)
-        .map_err(|error| format!("写入 PreviousBoot 失败: {error}"))?;
+    let target = vars_dir.join("PreviousBoot");
+    // 该实例的 ESP 多半是被我们**只读**挂到 anyboot-esp 上的（启动扫描用），
+    // 直接写会 EROFS。与扫描 / 单实例切换同一套：临时转可写、写完立刻转回只读。
+    let readonly_mount = crate::mount::readonly_mount_of(&vars_dir);
+    crate::mount::with_mount(readonly_mount.as_ref(), || {
+        std::fs::write(&target, &bytes)
+            .map_err(|error| format!("写入 PreviousBoot 失败: {error}"))
+    })?;
     Ok(format!("下次启动：{}", hit.title.trim()))
 }
 
@@ -659,46 +712,15 @@ fn extra_esp_roots() -> Vec<PathBuf> {
 
 #[cfg(target_os = "linux")]
 fn extra_esp_roots() -> Vec<PathBuf> {
-    let output = match std::process::Command::new("lsblk")
-        .args(["--json", "--output", "PATH,FSTYPE,PARTTYPE,PARTUUID,MOUNTPOINTS"])
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return Vec::new(),
-    };
-    let value: serde_json::Value = match serde_json::from_slice(&output.stdout) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
+    // 复用单实例时代那条已经验证过的「未挂载 ESP 枚举 + 只读挂载」链路：
+    // `scan::unmounted_esp_partitions()` 现在也认「≤4GB Microsoft Basic Data」的
+    // 黑苹果 ESP（与 Windows/macOS 端 is_esp_candidate 对齐），
+    // `channels::linux_mount_esp_ro()` 走免密助手静默挂载（allow_pkexec=false，
+    // 绝不弹授权框）。挂不上的（没装助手/非 FAT）静默跳过，不影响其它实例。
     let mut roots = Vec::new();
-    fn walk(node: &serde_json::Value, roots: &mut Vec<PathBuf>) {
-        if let Some(children) = node.get("children").and_then(|v| v.as_array()) {
-            for child in children {
-                walk(child, roots);
-            }
-        }
-        let fstype = node.get("fstype").and_then(|v| v.as_str()).unwrap_or("").to_ascii_lowercase();
-        let parttype = node.get("parttype").and_then(|v| v.as_str()).unwrap_or("").to_ascii_uppercase();
-        // 只认 EFI System Partition（GPT EF00）；避免把普通 FAT 数据盘当 ESP。
-        if parttype != "EF00" || !(fstype.contains("fat") || fstype == "vfat") {
-            return;
-        }
-        let uuid = node.get("partuuid").and_then(|v| v.as_str()).unwrap_or("");
-        if uuid.is_empty() {
-            return;
-        }
-        if let Some(mounts) = node.get("mountpoints").and_then(|v| v.as_array()) {
-            if let Some(mount) = mounts.iter().filter_map(|v| v.as_str()).find(|m| !m.is_empty()) {
-                roots.push(PathBuf::from(mount));
-                return;
-            }
-        }
-        // 未挂载的 ESP 不在默认扫描里自动挂载（会阻塞/弹授权）。
-        let _ = uuid;
-    }
-    if let Some(devices) = value.get("blockdevices").and_then(|v| v.as_array()) {
-        for device in devices {
-            walk(device, &mut roots);
+    for part in crate::scan::unmounted_esp_partitions() {
+        if let Ok(mountpoint) = crate::channels::linux_mount_esp_ro(&part.device, false) {
+            roots.push(mountpoint);
         }
     }
     roots

@@ -9,7 +9,7 @@ import { useToastStore } from "@/stores/toast";
 import { useBootInstancesStore } from "@/stores/bootInstances";
 import { call, switchBootInstance } from "@/api/tauri";
 import type { ChannelView, GrubEntry } from "@/api/types";
-import { simRows } from "@/pages/boot/bootRows";
+import { simRows, parentHeaderOf } from "@/pages/boot/bootRows";
 const { t } = useI18n();
 
 /**
@@ -198,6 +198,13 @@ const activeSelector = computed(() => {
   return channelDefaultSelector.value || "";
 });
 
+/** 多实例置顶行的「一级」前缀：当前项是组内子项时取它所属组头（一级 › 二级）。 */
+const instancePinnedGroupTitle = computed(() =>
+  isInstance.value
+    ? parentHeaderOf(instanceGroup.value?.options, String(instanceGroup.value?.current ?? ""))
+    : "",
+);
+
 /** 组标题映射（submenu id → 标题） */
 const groupTitles = computed(() => {
   const map: Record<string, string> = {};
@@ -352,6 +359,7 @@ const emit = defineEmits<{
       :group-titles="groupTitles"
       :show-groups="showGroups"
       :disabled="disabled"
+      :pinned-group-title="instancePinnedGroupTitle"
       @select="(selector) => { switchEntry(selector); emit('select', selector); }"
     />
     <p v-if="!entries.length" class="boot-list-empty">{{ t("boot.listEmpty") }}</p>

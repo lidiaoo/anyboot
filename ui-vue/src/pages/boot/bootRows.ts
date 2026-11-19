@@ -88,6 +88,32 @@ export function grubRows(opts: {
   return opts.linuxGrubEntries ?? [];
 }
 
+/**
+ * 多实例（BootOption 契约）「一级 › 二级」回显：给当前选中项找它所属的**一级组头**标题。
+ * 返回去掉前导 ▾/▸ 与「（N 项）」尾巴的组名；选中项不是组内子项、或找不到组头时返回 ""。
+ *
+ * 与 Android `pinnedPlain = "$curHeader › $plainLabel"`、iOS
+ * `ComputerListView.swift:1866` 以及 PC `ComputerRow.bootEcho` 完全同口径 ——
+ * 置顶行 / 下次启动区 / 卡片回显都靠它，避免「只显二级、丢了一级」。
+ */
+export function parentHeaderOf(options: any[] | null | undefined, current: string): string {
+  const list = options ?? [];
+  const cur = String(current ?? "").trim();
+  if (!cur) return "";
+  let idx = list.findIndex((o: any) => !o.header && String(o.value ?? "") === cur);
+  if (idx < 0) idx = list.findIndex((o: any) => !o.header && String(o.label ?? "").includes(cur));
+  if (idx < 0 || !list[idx]?.child) return "";
+  for (let k = idx - 1; k >= 0; k -= 1) {
+    if (list[k]?.header) {
+      return String(list[k].label ?? "")
+        .replace(/^[▾▸\s]+/, "")
+        .replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "")
+        .trim();
+    }
+  }
+  return "";
+}
+
 /** 平台图标（四端唯一映射，对齐后端 grub_os_icon）：class 优先 + 名字关键词兜底。
  *  唯一实现 —— GrubEntry（弹窗/列表行）与 hub ComputerRow（卡片回显）都从这里取，
  *  勿再抄第二份（用户 2026-11-15：图标识别也要统一，别这边一个逻辑那边一个逻辑）。 */

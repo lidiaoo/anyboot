@@ -979,7 +979,7 @@ impl SwitchSpec {
 /// - **pkexec**：系统授权框，一次一弹。只在用户亲手点按钮（`allow_pkexec=true`）
 ///   时才允许 —— 启动那一拍没人看着屏幕，弹了等于永远刷不出结果。
 #[cfg(target_os = "linux")]
-fn linux_mount_esp_ro(device: &str, allow_pkexec: bool) -> Result<PathBuf, String> {
+pub(crate) fn linux_mount_esp_ro(device: &str, allow_pkexec: bool) -> Result<PathBuf, String> {
     let _span = perf::span("esp.mount");
     let found = crate::scan::unmounted_esp_partitions()
         .into_iter()

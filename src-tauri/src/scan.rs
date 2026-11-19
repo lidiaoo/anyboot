@@ -475,6 +475,23 @@ pub(crate) fn scan_vars_directory(explicit_dir: Option<&Path>) -> Result<ScanRes
 
 pub(crate) const ESP_PARTTYPE: &str = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b";
 
+/// GPT「Microsoft Basic Data」分区类型 GUID。黑苹果/Hackintosh 把 ESP 标成这个
+/// 类型非常常见；Windows、macOS 端早按「≤4GB + 这个类型」的 `is_esp_candidate`
+/// 兜底识别，Linux 之前没跟上，导致同一块 ESP 在 Linux 上静默扫不出来。
+pub(crate) const BASIC_DATA_GPT: &str = "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7";
+
+/// 分区字节数——直接读 `/sys/class/block/<name>/size`（512 字节扇区），
+/// 不依赖 udev，也不去解析 lsblk 的人类可读 `SIZE`（`1G`）。
+#[cfg(target_os = "linux")]
+fn sysfs_size_bytes(device: &str) -> u64 {
+    let name = device.trim_start_matches("/dev/");
+    std::fs::read_to_string(format!("/sys/class/block/{name}/size"))
+        .ok()
+        .and_then(|text| text.trim().parse::<u64>().ok())
+        .map(|sectors| sectors.saturating_mul(512))
+        .unwrap_or(0)
+}
+
 /// 一块「看着是 ESP、但当前没挂载」的分区（Linux）。
 ///
 /// 这是通道检测的**盲区补丁**：`/proc/self/mounts` 只看得到已经挂上的卷，
@@ -517,8 +534,11 @@ impl UnmountedEsp {
 ///   只靠 lsblk 一块 ESP 都找不出来 —— 而 `nvme0n1p5` 的 `PARTNAME` 正是
 ///   `MacOS-efi`。
 ///
-/// 只挑「看起来就是 ESP」的：GPT 类型是 ESP，或者分区名/卷标里带 efi/esp。
-/// 不按 `vfat` 一刀切 —— 那样每插一个 U 盘都会多出一行「要不要挂载」的噪声。
+/// 只挑「看起来就是 ESP」的：GPT 类型是 ESP；分区名/卷标带 efi/esp；
+/// 或者是「≤4GB 的 Microsoft Basic Data FAT 分区」——黑苹果常把 ESP 标成这个
+/// 类型（没有 efi/esp 字样），与 Windows/macOS 端的 `is_esp_candidate` 对齐。
+/// 不做「是 vfat 就全收」那一刀切，免得每插个 U 盘都多一行噪声；Basic Data
+/// 那条最多把极小概率的 ≤4GB FAT 小 U 盘也列进来，可忽略。
 #[cfg(target_os = "linux")]
 pub(crate) fn unmounted_esp_partitions() -> Vec<UnmountedEsp> {
     let _span = crate::perf::span("cmd.lsblk_esp");
@@ -547,12 +567,28 @@ pub(crate) fn unmounted_esp_partitions() -> Vec<UnmountedEsp> {
                 let partlabel = device.partlabel.unwrap_or_default();
                 let label_raw = device.label.unwrap_or_default();
                 let hints = format!("{partlabel} {label_raw}").to_lowercase();
+                // 没 udev 时 FSTYPE 是空的：这时候别拿「不是 FAT」把 ESP 否掉
+                let fstype = device.fstype.clone().filter(|value| !value.trim().is_empty());
                 let is_esp_type = device
                     .parttype
                     .as_deref()
                     .is_some_and(|parttype| parttype.eq_ignore_ascii_case(ESP_PARTTYPE));
                 let named = hints.contains("efi") || hints.contains("esp");
-                if !is_esp_type && !named {
+                // 黑苹果/Hackintosh 的 ESP 常被标成「Microsoft Basic Data」（没有
+                // efi/esp 字样、卷标也不进 lsblk 的 LABEL）。Windows、macOS 端早按
+                // 「≤4GB + FAT」兜底识别，Linux 这里补齐——这就是本次回归的根因。
+                let basic_data_esp = device
+                    .parttype
+                    .as_deref()
+                    .is_some_and(|parttype| parttype.eq_ignore_ascii_case(BASIC_DATA_GPT))
+                    && fstype
+                        .as_deref()
+                        .map_or(true, |ft| FAT_FILESYSTEMS.contains(&ft.to_lowercase().as_str()))
+                    && {
+                        let bytes = sysfs_size_bytes(&path);
+                        bytes > 0 && bytes <= 4 * 1024 * 1024 * 1024
+                    };
+                if !is_esp_type && !named && !basic_data_esp {
                     continue;
                 }
                 if device
@@ -564,8 +600,6 @@ pub(crate) fn unmounted_esp_partitions() -> Vec<UnmountedEsp> {
                 {
                     continue;
                 }
-                // 没 udev 时 FSTYPE 是空的：这时候别拿「不是 FAT」把 ESP 否掉
-                let fstype = device.fstype.filter(|value| !value.trim().is_empty());
                 let label = if !partlabel.trim().is_empty() {
                     partlabel
                 } else if !label_raw.trim().is_empty() {
@@ -573,9 +607,16 @@ pub(crate) fn unmounted_esp_partitions() -> Vec<UnmountedEsp> {
                 } else {
                     fstype.clone().unwrap_or_else(|| "未知文件系统".to_string())
                 };
+                let priority = if is_esp_type {
+                    0
+                } else if named {
+                    1
+                } else {
+                    2
+                };
                 seen.push(path.clone());
                 found.push((
-                    if is_esp_type { 0 } else { 1 },
+                    priority,
                     UnmountedEsp {
                         device: path,
                         size: device.size.unwrap_or_default(),
