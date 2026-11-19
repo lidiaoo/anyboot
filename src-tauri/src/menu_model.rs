@@ -1175,7 +1175,7 @@ pub(crate) fn build_menu_nodes(state: &UiState) -> Vec<MenuNode> {
     // 某块为空 = 该引导器没检测到 / 没读到条目，整块不出现。
     let loaders = loader_menu_nodes(state);
     if loaders.is_empty() {
-        nodes.push(menu_item("boot-empty", crate::t!(crate::i18n::current(),"没有可用的引导项（先扫描）","沒有可用的引導項（先掃描）","No usable boot entry (scan first)","利用可能な起動項目なし（先にスキャン）","사용 가능한 부팅 항목 없음(먼저 스캔)","Kein nutzbarer Starteintrag (zuerst scannen)","Нет доступной записи загрузки (сначала сканируйте)","Sem entrada utilizável (escaneie antes)","Sin entrada utilizable (escanea primero)"), false));
+        nodes.push(menu_item("boot-empty", crate::t!(crate::i18n::current(),"没有可用的引导项","沒有可用的引導項","No usable boot entry","利用可能な起動項目なし","사용 가능한 부팅 항목 없음","Kein nutzbarer Starteintrag","Нет доступной записи загрузки","Sem entrada utilizável","Sin entrada utilizable"), false));
     } else {
         nodes.extend(loaders);
     }

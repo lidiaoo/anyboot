@@ -204,7 +204,8 @@ pub(crate) fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result
         menu.append(&MenuItem::with_id(
             app,
             "boot-empty",
-            "没有可用的引导项（先扫描）",
+            // 扫描入口 2026-11-19 已移除，提示文案不再指向一个不存在的按钮
+            "没有可用的引导项",
             false,
             None::<&str>,
         )?)?;
@@ -364,19 +365,11 @@ pub(crate) fn build_tray_menu(app: &AppHandle, state: &UiState) -> tauri::Result
     }
     menu.append(&close_action_menu)?;
 
-    // —— 分区：扫描 ——
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "refresh",
-        "扫描",
-        !busy,
-        None::<&str>,
-    )?)?;
-
     // —— 分区：电源操作 ——
     // 铺平在主菜单里（不折叠成子菜单：关机/重启是高频动作，多一层展开纯属添堵），
-    // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区，而不是粘在「扫描」下面。
+    // 但上下各有一条分隔线 + 一个标题，这样它是一块独立分区。
+    // 「扫描」一项 2026-11-19 用户定案移除（主界面已按需自动扫，手动扫没人用）——
+    // build_menu_nodes（Linux SNI / 自绘窗）那边同步删过，这里别再补回来。
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&menu_section_header(app, "power-label", "电源操作")?)?;
     for action in [
