@@ -8,7 +8,7 @@ import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { CHILD_SOURCE, platformIcon } from "@/pages/boot/bootRows";
+import { CHILD_SOURCE, parentHeaderOf, platformIcon } from "@/pages/boot/bootRows";
 import { useI18n } from "vue-i18n";
 import { currentLocale } from "@/i18n";
 const { t } = useI18n();
@@ -68,7 +68,7 @@ const emit = defineEmits<{
 
 const isLocal = computed(() => props.row.id === "local");
 /** 点启动项列弹出的条目选择器：{ kind, title, options } —— 选中后带 value 调 switchBoot */
-const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean } | null>(null);
+const picker = ref<{ kind: string; title: string; entries: EntryData[]; active: string; groupTitles: Record<string, string>; flat: boolean; pinnedGroupTitle: string } | null>(null);
 const ui = useUiStateStore();
 const appSettings = useSettingsStore();
 const pickerFmt = ref<string>(""); // 空 = 跟随电脑（settings.grubListFormat）
@@ -159,6 +159,9 @@ async function openPicker(kind: string) {
       active: String(instGroup.current ?? "").trim(),
       groupTitles: {},
       flat: true,
+      // 多实例条目是扁平化的（用 header/child 标记层级，无 submenu），
+      // 置顶副本需借 options 回溯一级组头，否则只显示二级（m00787）。
+      pinnedGroupTitle: parentHeaderOf(opts, String(instGroup.current ?? "").trim()),
     };
     return;
   }
@@ -186,6 +189,7 @@ async function openPicker(kind: string) {
       active: String(group?.current ?? "").trim(),
       groupTitles: {},
       flat: true,
+      pinnedGroupTitle: "",
     };
     return;
   }
@@ -352,7 +356,7 @@ async function openPicker(kind: string) {
     }
   }
   if (!entries.length) return;
-  picker.value = { kind, title: src.title, entries, active, groupTitles: src.groupTitles, flat: !src.hasGroups };
+  picker.value = { kind, title: src.title, entries, active, groupTitles: src.groupTitles, flat: !src.hasGroups, pinnedGroupTitle: "" };
 }
 function chooseBoot(value: string) {
   const pk = picker.value; if (!pk) return;
@@ -989,6 +993,7 @@ function onRowClick() {
             :active-selector="picker.active"
             :group-titles="picker.groupTitles"
             :show-groups="!picker.flat"
+            :pinned-group-title="picker.pinnedGroupTitle"
             @select="chooseBoot"
           />
         </div>
