@@ -1078,6 +1078,83 @@ fn matches_previous(previous: Option<&str>, title: &str) -> bool {
     !pattern.is_empty() && (target.contains(&pattern) || pattern.contains(&target))
 }
 
+/// 收尾：把 `last_boot` 收敛到**唯一**一条最可信的条目。
+///
+/// `matches_previous` 是双向子串（rEFInd 的 `includes DefaultSelection` 语义 +
+/// 卷标短写的兜底），当两条标题互为前缀时会双双命中：
+///
+/// ```text
+/// PreviousBoot = "Boot EFI\OC\OpenCore.efi from MacOS-efi-t "
+///   "…from MacOS-efi"     ← 被上面那条包含（误标）
+///   "…from MacOS-efi-t"   ← 正主
+/// ```
+///
+/// 之前各自独立判定、谁先遇到算谁 → 用户明明切到 `MacOS-efi-t`，高亮却回落到
+/// 排在前面的 `MacOS-efi`（这个值还会被 `refind_from_sim` 当成 `current` 回显，
+/// 电脑列表/手机/托盘跟着一起错）。
+///
+/// 取舍规则（与前端 `bootRows.matchCurrent` 同一口径）：
+/// ① 精确命中（trim 后全等）只认精确；
+/// ② 标题「延伸」了 PreviousBoot（标题更长）→ 取**最短**的那条，多出来的通常是
+///    装饰/后缀，越贴近 PreviousBoot 越可信；
+/// ③ PreviousBoot「延伸」了标题（标题是简写）→ 取**最长**的那条，越具体越可能是
+///    正主（`MacOS-efi-t` 胜过 `MacOS-efi`）。
+fn settle_last_boot(entries: &mut [SimEntry], previous: Option<&str>) {
+    let Some(previous) = previous else { return };
+    let pattern = previous.trim().to_lowercase();
+    if pattern.is_empty() {
+        return;
+    }
+    let text_of = |entry: &SimEntry| entry.title.trim().to_lowercase();
+    let len_of = |entry: &SimEntry| entry.title.trim().chars().count();
+
+    // ① 精确命中（trim 后全等）
+    let mut keep: Vec<usize> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| text_of(entry) == pattern)
+        .map(|(index, _)| index)
+        .collect();
+
+    if keep.is_empty() {
+        // ② 标题更长（延伸了 PreviousBoot）→ 取最短
+        let mut pool: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| text_of(entry).contains(&pattern))
+            .map(|(index, _)| index)
+            .collect();
+        let mut shortest = true;
+        if pool.is_empty() {
+            // ③ PreviousBoot 更长（标题是简写）→ 取最长
+            pool = entries
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| {
+                    let text = text_of(entry);
+                    !text.is_empty() && pattern.contains(&text)
+                })
+                .map(|(index, _)| index)
+                .collect();
+            shortest = false;
+        }
+        let target = pool
+            .iter()
+            .map(|&index| len_of(&entries[index]))
+            .reduce(|a, b| if shortest { a.min(b) } else { a.max(b) });
+        if let Some(target) = target {
+            keep = pool
+                .into_iter()
+                .filter(|&index| len_of(&entries[index]) == target)
+                .collect();
+        }
+    }
+
+    for (index, entry) in entries.iter_mut().enumerate() {
+        entry.last_boot = keep.contains(&index);
+    }
+}
+
 /// 文件名线索 → 图标 kind（`SetLoaderDefaults`，`scan.c:520-586` 的简化版）。
 fn kind_of(path: &str) -> &'static str {
     let lower = norm_path(path);
@@ -1530,6 +1607,10 @@ pub(crate) fn preview_with_default_use_nvram(
             });
         }
     }
+
+    // 上次启动标记收敛：两条标题互为前缀时（MacOS-efi / MacOS-efi-t）只留最具体的那条，
+    // 否则高亮会回落给排在前面的短标题（见 settle_last_boot）。
+    settle_last_boot(&mut entries, previous_boot.as_deref());
 
     let (visible, hidden): (Vec<SimEntry>, Vec<SimEntry>) =
         entries.into_iter().partition(|entry| !entry.hidden);
@@ -2853,5 +2934,86 @@ mod tests {
         for issue in &sim.issues {
             println!("  [{}] {}", issue.severity, issue.text);
         }
+    }
+
+    /// 两条标题互为前缀时（`MacOS-efi` / `MacOS-efi-t`），只有**更具体**的那条算
+    /// 「上次启动」。真机现场：`vars/PreviousBoot` = `"Boot EFI\OC\OpenCore.efi
+    /// from MacOS-efi-t "`，双向子串会把排在前面的 `…from MacOS-efi` 一起标上，
+    /// 于是用户切到 `MacOS-efi-t`、高亮却回落到第一个。
+    #[test]
+    fn settle_last_boot_prefers_most_specific_title() {
+        fn entry(title: &str) -> SimEntry {
+            SimEntry {
+                title: title.to_string(),
+                kind: "opencore".to_string(),
+                source: "internal".to_string(),
+                volume: String::new(),
+                path: String::new(),
+                hidden: false,
+                last_boot: false,
+                hidden_by: None,
+                note: None,
+                subscreen: None,
+                children: Vec::new(),
+            }
+        }
+        let marked = |entries: &[SimEntry]| -> Vec<String> {
+            entries
+                .iter()
+                .filter(|entry| entry.last_boot)
+                .map(|entry| entry.title.trim().to_string())
+                .collect()
+        };
+
+        // ① 模糊命中：两条都包含于 PreviousBoot，取最长的（MacOS-efi-t）
+        let mut entries = vec![
+            entry("Boot EFI\\OC\\OpenCore.efi from MacOS-efi "),
+            entry("Boot EFI\\OC\\OpenCore.efi from MacOS-efi-t "),
+            entry("Boot Microsoft EFI boot from WINDOWS-EFI "),
+        ];
+        settle_last_boot(&mut entries, Some("Boot EFI\\OC\\OpenCore.efi from MacOS-efi-t "));
+        assert_eq!(
+            marked(&entries),
+            vec!["Boot EFI\\OC\\OpenCore.efi from MacOS-efi-t".to_string()],
+            "只应标上更具体的 MacOS-efi-t"
+        );
+
+        // ② 精确命中优先：PreviousBoot 就是短标题时，短的那条才是正主
+        let mut entries = vec![
+            entry("Boot EFI\\OC\\OpenCore.efi from MacOS-efi "),
+            entry("Boot EFI\\OC\\OpenCore.efi from MacOS-efi-t "),
+        ];
+        settle_last_boot(&mut entries, Some("Boot EFI\\OC\\OpenCore.efi from MacOS-efi"));
+        assert_eq!(
+            marked(&entries),
+            vec!["Boot EFI\\OC\\OpenCore.efi from MacOS-efi".to_string()],
+            "精确命中时不因另有更长的前缀项而改判"
+        );
+
+        // ③ 一个都对不上：保持全灭（调用方会补「卷标可能改过名」的提示）
+        let mut entries = vec![entry("Boot macOS from MAC ")];
+        settle_last_boot(&mut entries, Some("Boot something else entirely"));
+        assert!(marked(&entries).is_empty());
+
+        // ④ 标题比 PreviousBoot 长（存的是简写）→ 取最短的那条，多出来的只是装饰
+        let mut entries = vec![
+            entry("Boot macOS from MAC (64-bit) "),
+            entry("Boot macOS from MAC (64-bit) verbose "),
+        ];
+        settle_last_boot(&mut entries, Some("Boot macOS from MAC"));
+        assert_eq!(
+            marked(&entries),
+            vec!["Boot macOS from MAC (64-bit)".to_string()],
+            "两条都延伸了 PreviousBoot 时取最短"
+        );
+
+        // ⑤ PreviousBoot 比标题长（标题是简写）→ 取最长的那条
+        let mut entries = vec![entry("MacOS-efi "), entry("MacOS-efi-t ")];
+        settle_last_boot(&mut entries, Some("Boot EFI\\OC\\OpenCore.efi from MacOS-efi-t "));
+        assert_eq!(
+            marked(&entries),
+            vec!["MacOS-efi-t".to_string()],
+            "两条都是 PreviousBoot 的简写时取最长"
+        );
     }
 }

@@ -8,7 +8,7 @@ import type { RemoteBootInfo } from "@/api/types";
 import { useToastStore } from "@/stores/toast";
 import { useUiStateStore } from "@/stores/uiState";
 import { useSettingsStore } from "@/stores/settings";
-import { CHILD_SOURCE, parentHeaderOf, platformIcon } from "@/pages/boot/bootRows";
+import { CHILD_SOURCE, parentHeaderOf, platformIcon, matchCurrent } from "@/pages/boot/bootRows";
 import { useI18n } from "vue-i18n";
 import { currentLocale } from "@/i18n";
 const { t } = useI18n();
@@ -800,13 +800,15 @@ function channelEcho(kind: string): { label: string; dot: string } {
   const opts = ((ch.options ?? []) as { value?: string; label?: string; header?: boolean; class?: string }[]);
   if (!opts.length) return { label: t("hub.state.notSelected"), dot: "" };
   const cur = String(ch.current || "");
-  const hit =
-    opts.filter((o) => !o.header && o.value === cur)[0] ||
-    opts.filter((o) => {
-      if (o.header || !cur) return false;
-      const text = String(o.label || "").trim();
-      return !!text && (text === cur || text.indexOf(cur) >= 0 || cur.indexOf(text) >= 0);
-    })[0];
+  // 精确优先 + 模糊取最长（matchCurrent）：卷标互为前缀时（MacOS-efi / MacOS-efi-t）
+  // 短名不会抢先，与后端 lastBoot 判定同口径。
+  const hit = matchCurrent(
+    opts,
+    cur,
+    (o) => String(o.value || ""),
+    (o) => String(o.label || ""),
+    (o) => !!o.header,
+  );
   return { label: hit?.label || cur || t("hub.state.notSelected"), dot: hit?.class || "" };
 }
 function onRowClick() {

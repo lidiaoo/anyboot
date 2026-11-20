@@ -9,7 +9,7 @@ import { useToastStore } from "@/stores/toast";
 import { useBootInstancesStore } from "@/stores/bootInstances";
 import { call, switchBootInstance } from "@/api/tauri";
 import type { ChannelView, GrubEntry } from "@/api/types";
-import { simRows, parentHeaderOf } from "@/pages/boot/bootRows";
+import { simRows, parentHeaderOf, matchCurrent } from "@/pages/boot/bootRows";
 const { t } = useI18n();
 
 /**
@@ -329,11 +329,13 @@ function applyChannelDefault(
   ch: ChannelView,
 ): void {
   const cur = (ch.currentDefault || "").toString();
-  const hit = rows.find(
-    (row, index) =>
-      defaults[index] === true ||
-      (cur && (cur === row.selector || cur.includes(row.name))),
-  );
+  // ① 先认 entry.default === true（OC 的 OCBtOrder 落在预演行上），
+  // ② 再按值/标题精确命中，③ 最后才退到模糊（matchCurrent 会让最长的胜出，
+  //    避免 "MacOS-efi" 抢在 "MacOS-efi-t" 前面）。
+  const flagged = rows.find((_, index) => defaults[index] === true);
+  const hit =
+    flagged ??
+    matchCurrent(rows, cur, (row) => row.selector ?? "", (row) => row.name ?? "");
   if (hit?.selector) channelDefaultSelector.value = hit.selector;
 }
 

@@ -114,6 +114,50 @@ export function parentHeaderOf(options: any[] | null | undefined, current: strin
   return "";
 }
 
+/** 「当前项」判定：**精确优先；模糊时按方向取舍**。
+ *
+ *  不能只写「值相等 || 标题互相包含」然后取第一条 —— 当两条标题互为前缀时
+ *  （卷标 `MacOS-efi` / `MacOS-efi-t`），短的那条会先命中，于是「选了第二个、
+ *  高亮却回落到第一个」。
+ *
+ *  也不能一律「取最长」：存的是短名、候选带装饰（`（1 个内核）`）时，长的那条
+ *  反而是错主。所以分方向：
+ *    ① 精确（值或标题全等）→ 直接用
+ *    ② 标题「延伸」了当前值（text 比 cur 长，cur 是它的简写）→ 取**最短**的那条
+ *       （多出来的只是装饰，候选里最贴近 cur 的最可信）
+ *    ③ 当前值「延伸」了标题（text 比 cur 短，标题是简写）→ 取**最长**的那条
+ *       （越具体越可能是正主，`MacOS-efi-t` 胜过 `MacOS-efi`）
+ *
+ *  与后端 `refind_menu::settle_last_boot` 同一口径。 */
+export function matchCurrent<T>(
+  rows: T[],
+  current: string,
+  valueOf: (row: T) => string,
+  textOf: (row: T) => string,
+  skip?: (row: T) => boolean,
+): T | undefined {
+  const cur = String(current ?? "").trim();
+  if (!cur) return undefined;
+  const pool = rows.filter((row) => !skip?.(row));
+  const exact = pool.find((row) => {
+    const text = textOf(row).trim();
+    return valueOf(row) === cur || text === cur;
+  });
+  if (exact) return exact;
+  const pick = (mode: "extend" | "short", take: "min" | "max") => {
+    const hits = pool.filter((row) => {
+      const text = textOf(row).trim();
+      if (!text) return false;
+      return mode === "extend" ? text.includes(cur) : cur.includes(text);
+    });
+    if (!hits.length) return undefined;
+    const lengths = hits.map((row) => textOf(row).trim().length);
+    const target = take === "min" ? Math.min(...lengths) : Math.max(...lengths);
+    return hits.find((row) => textOf(row).trim().length === target);
+  };
+  return pick("extend", "min") ?? pick("short", "max");
+}
+
 /** 组内子项的显示文案：「一级 › 二级」。
  *  一级缺省（顶层项）或与二级同名时只给二级，避免「GRUB › GRUB」。 */
 export function groupedLabel(
