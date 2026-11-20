@@ -194,15 +194,46 @@ fn fallback_part_name(partition: &str, root_path: &str) -> String {
         })
 }
 
-/// 多实例标题里用来区分分区的「友好名」：优先分区卷标（如 `MACOS-EFI` / `REFIND`），
-/// 取不到再退回设备名/分区标识前缀（保持旧行为）。仅在同类型多实例时才会用到。
-#[cfg(target_os = "linux")]
-fn friendly_part_name(partition: &str, root_path: &str) -> String {
-    linux_volume_label(partition).unwrap_or_else(|| fallback_part_name(partition, root_path))
+/// 卷标重名时的区分后缀：取分区标识前 6 位（PARTUUID / 卷 GUID 三端同值、
+/// 跨挂载点与重启都稳定）。分区标识不是 GUID（退回挂载根）时用挂载点末段。
+fn part_suffix(partition: &str, root_path: &str) -> String {
+    let head: String = partition
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .take(6)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if head.len() == 6 {
+        head
+    } else {
+        fallback_part_name(partition, root_path)
+    }
 }
 
-#[cfg(not(target_os = "linux"))]
+/// 多实例标题里用来区分分区的「友好名」：**三端一律优先卷标**
+/// （`MACOS-EFI` / `OC` / `EFI`），取不到才退回设备名 / 分区坐标 / 标识前缀。
+/// 仅在同类型多实例时才会用到。
+///
+/// 为什么必须是卷标而不是「磁盘0分区5」这类坐标：卷标是唯一三端同值、且和
+/// OpenCore 菜单、macOS `/Volumes` 目录名、Linux `blkid` 对得上的字符串 ——
+/// 用户切到某块 ESP 的引导器时，标题能直接和他在引导菜单里看到的名字对应上。
+/// 之前只有 Linux 走卷标，Windows 印成「磁盘0分区5」、macOS 靠挂载点末段碰巧对上，
+/// 同一次升级三端名字不同（用户 2026-11-20 报）。
 fn friendly_part_name(partition: &str, root_path: &str) -> String {
+    // Linux：PARTUUID 直接问 blkid 最稳（ESP 未必挂在我们手里这个路径上）。
+    #[cfg(target_os = "linux")]
+    if let Some(label) = linux_volume_label(partition) {
+        return label;
+    }
+    // 三端同源的原生卷标：Windows `GetVolumeInformationW`（认盘符也认
+    // `\\?\Volume{guid}\`）、macOS 取 `/Volumes/<卷标>` 末段、Linux 走 findmnt+lsblk。
+    // 与 OC 菜单里的卷标是同一个字符串。
+    if let Some(label) = crate::channels::oc_menu::native_volume_label(Path::new(root_path)) {
+        let label = label.trim();
+        if !label.is_empty() {
+            return label.to_string();
+        }
+    }
     fallback_part_name(partition, root_path)
 }
 
@@ -361,6 +392,19 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         *counts.entry((instance.kind.clone(), instance.partition.clone())).or_insert(0) += 1;
         *kind_totals.entry(instance.kind.clone()).or_insert(0) += 1;
     }
+    // 同一个 kind 下卷标重名（两块 ESP 都叫 `EFI` / `SYSTEM` 很常见）：卷标本身
+    // 区分不了，补一段分区标识尾巴，否则两个 tab 看起来一模一样、点了也不知道
+    // 切到哪块。别名（用户手工起的）不参与，那是用户自己的选择。
+    let mut label_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut label_seen: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+    for instance in &out {
+        if settings.boot_instance_aliases.contains_key(&instance.instance_id) {
+            continue;
+        }
+        let friendly = friendly_part_name(&instance.partition, &instance.root_path);
+        *label_seen.entry((instance.kind.clone(), friendly.clone())).or_insert(0) += 1;
+        label_of.insert(instance.instance_id.clone(), friendly);
+    }
     for instance in &mut out {
         let aliased = settings.boot_instance_aliases.contains_key(&instance.instance_id);
         // 单实例类型：标题恢复 v0.2.12 的纯类型名（GRUB / rEFInd …）；
@@ -368,8 +412,20 @@ fn scan_instances_opts(app: &tauri::AppHandle, deep: bool) -> Vec<BootInstanceRe
         if kind_totals.get(&instance.kind).copied().unwrap_or(0) == 1 && !aliased {
             instance.title = kind_title(&instance.kind).to_string();
         } else if kind_totals.get(&instance.kind).copied().unwrap_or(0) > 1 && !aliased {
-            // 多实例：用分区卷标区分（如 `MACOS-EFI`），取不到再退回设备名/分区标识。
-            let friendly = friendly_part_name(&instance.partition, &instance.root_path);
+            // 多实例：用分区卷标区分（如 `MacOS-efi` / `OC`），三端同源；
+            // 读不到卷标才退回设备名 / 分区坐标。
+            let mut friendly = label_of.get(&instance.instance_id).cloned().unwrap_or_default();
+            if friendly.trim().is_empty() {
+                friendly = fallback_part_name(&instance.partition, &instance.root_path);
+            }
+            if label_seen
+                .get(&(instance.kind.clone(), friendly.clone()))
+                .copied()
+                .unwrap_or(0)
+                > 1
+            {
+                friendly = format!("{} ({})", friendly, part_suffix(&instance.partition, &instance.root_path));
+            }
             instance.title = format!("{} · {}", kind_title(&instance.kind), friendly);
         }
         if counts.get(&(instance.kind.clone(), instance.partition.clone())).copied().unwrap_or(0) > 1 {
@@ -730,4 +786,56 @@ fn extra_esp_roots() -> Vec<PathBuf> {
 #[cfg(target_os = "windows")]
 fn extra_esp_roots() -> Vec<PathBuf> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// PARTUUID / 卷 GUID 前 6 位做重名后缀；非 GUID 退回挂载点名。
+    #[test]
+    fn part_suffix_prefers_guid_head() {
+        assert_eq!(
+            part_suffix("f1d02f84-6406-4b8f-8430-f8ab38d41b67", "/Volumes/MacOS-efi-t"),
+            "f1d02f"
+        );
+        assert_eq!(part_suffix("42074C1D-E063-431C-AAC4-4FFBE441298E", "R://"), "42074c");
+        // 不是 GUID（Linux 拿不到 PARTUUID 时会把挂载根当标识）→ 用挂载点末段
+        assert_eq!(part_suffix("/boot/efi", "/boot/efi"), "efi");
+    }
+
+    /// 真机探针：`cargo test --lib -- --ignored real_instance_labels --nocapture`
+    ///
+    /// 打出每块 ESP 的候选根与读到的卷标 —— 多实例标题「三端优先卷标」就靠这一列
+    /// 对齐（Windows 上必须看到 `MacOS-efi` 这类卷标，不是 `磁盘0分区5`）。
+    #[test]
+    #[ignore = "真机：读本机真实 ESP 卷标"]
+    fn real_instance_labels() {
+        #[cfg(target_os = "windows")]
+        for esp in crate::channels::win_esp::list() {
+            let root = esp.access_root();
+            let label = root
+                .as_deref()
+                .and_then(crate::channels::oc_menu::native_volume_label);
+            println!(
+                "磁盘{}分区{:<3} root={:<32} label={:?}",
+                esp.disk,
+                esp.partition,
+                root.map(|path| path.display().to_string()).unwrap_or_else(|| "-".into()),
+                label
+            );
+        }
+        #[cfg(target_os = "macos")]
+        for entry in std::fs::read_dir("/Volumes").into_iter().flatten().flatten() {
+            let path = entry.path();
+            println!("{:<40} label={:?}", path.display(), crate::channels::oc_menu::native_volume_label(&path));
+        }
+        #[cfg(target_os = "linux")]
+        for root in ["/efi", "/boot/efi"] {
+            let path = Path::new(root);
+            if path.is_dir() {
+                println!("{:<40} label={:?}", root, crate::channels::oc_menu::native_volume_label(path));
+            }
+        }
+    }
 }
