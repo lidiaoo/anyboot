@@ -2637,10 +2637,16 @@ pub(crate) fn switch_blocking(app: AppHandle, selector: String) -> LinuxGrubView
                                 })
                             })
                             .unwrap_or_default();
+                        // GRUB 条目名形如「Arch Linux, with Linux linux-git」，
+                        // 组头已说明是哪个系统 → 只留内核部分，避免「系统名 › 系统名, with Linux X」
+                        let short = match entry.name.find(", with Linux ") {
+                            Some(index) => entry.name[index + ", with Linux ".len()..].to_string(),
+                            None => entry.name.clone(),
+                        };
                         if group_name.is_empty() {
                             entry.name
                         } else {
-                            format!("{group_name} › {}", entry.name)
+                            format!("{group_name} › {short}")
                         }
                     }
                     None => selector.clone(),
