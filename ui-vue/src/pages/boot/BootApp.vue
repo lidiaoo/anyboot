@@ -480,10 +480,18 @@ const statusBar = ref<{ icon: string; text: string; error: boolean }>({ icon: ""
 let statusBarDismissed = "";
 
 /** 旧版 actionMessage：失败优先，其次 lastAction.message */
+/** 「下次启动：…」类回执已经由**浮动 toast** 提示，底部状态栏不再重复（用户 2026-11-21） */
+function isSwitchEcho(text: string): boolean {
+  return text.trim().startsWith("下次启动：");
+}
+
 function actionMessage(state: { status?: { error?: string | null }; lastAction?: { message?: string } | null } | null): string {
   if (!state) return "";
   if (state.status?.error) return state.status.error;
-  if (state.lastAction && state.lastAction.message) return state.lastAction.message;
+  if (state.lastAction && state.lastAction.message) {
+    const message = state.lastAction.message;
+    return isSwitchEcho(message) ? "" : message;
+  }
   return "";
 }
 
@@ -509,6 +517,7 @@ watch(
   () => ui.bootNotice,
   (n) => {
     if (!n || !n.text) return;
+    if (isSwitchEcho(n.text)) return; // 与浮动 toast 重复，底部不再显示
     statusBar.value = { icon: n.error ? "✕" : "✓", text: n.text, error: n.error };
   },
   { deep: true },
