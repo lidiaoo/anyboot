@@ -728,6 +728,13 @@ pub(crate) fn remote_ui_command_inner(
             Ok(serde_json::Value::Bool(crate::update::update_take_focus_pending(app.clone())))
         }
         // 检查更新（只读网络动作，可安全暴露给本机 HTTP；下载/安装**不**暴露）
+        "update_dismiss" => {
+            let version = ui_str(args, "version").unwrap_or_default();
+            let days = args.get("days").and_then(|v| v.as_u64()).map(|v| v as u32);
+            crate::update::update_dismiss(app.clone(), version, days)
+                .map(|_| serde_json::json!({}))
+                .map_err(|e| e.to_string())
+        }
         "update_open_window" => crate::update::update_open_window(app.clone())
             .map(|_| serde_json::json!({}))
             .map_err(|e| e.to_string()),

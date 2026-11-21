@@ -95,6 +95,7 @@ class AboutActivity : ComponentActivity() {
             val palette = LocalPalette.current
             // 「版本更新弹窗」（独立弹窗，带下载/安装/跳过/稍后；每次新版本只弹一次）
             var showUpdateDialog by remember { mutableStateOf(false) }
+            var showSkipDialog by remember { mutableStateOf(false) }
             var promptedVersion by remember { mutableStateOf("") }
             val pendingRelease = updateState.release
             LaunchedEffect(updateState.phase, pendingRelease?.version) {
@@ -131,11 +132,36 @@ class AboutActivity : ComponentActivity() {
                     },
                     dismissButton = {
                         Row {
-                            TextButton(onClick = {
-                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version)
-                                showUpdateDialog = false
-                            }) { Text("跳过") }
+                            TextButton(onClick = { showSkipDialog = true }) { Text("跳过…") }
                             TextButton(onClick = { showUpdateDialog = false }) { Text("稍后") }
+                        }
+                    },
+                )
+            }
+            if (showSkipDialog && pendingRelease != null) {
+                AlertDialog(
+                    onDismissRequest = { showSkipDialog = false },
+                    title = { Text("跳过此版本（选择忽略时长）", fontSize = 15.sp) },
+                    text = { Text("v${pendingRelease.version}", fontSize = 12.sp) },
+                    confirmButton = {},
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = {
+                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version, 1)
+                                showSkipDialog = false; showUpdateDialog = false
+                            }) { Text("1 天") }
+                            TextButton(onClick = {
+                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version, 7)
+                                showSkipDialog = false; showUpdateDialog = false
+                            }) { Text("7 天") }
+                            TextButton(onClick = {
+                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version, 30)
+                                showSkipDialog = false; showUpdateDialog = false
+                            }) { Text("30 天") }
+                            TextButton(onClick = {
+                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version, 0)
+                                showSkipDialog = false; showUpdateDialog = false
+                            }) { Text("永久") }
                         }
                     },
                 )

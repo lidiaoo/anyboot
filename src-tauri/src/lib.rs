@@ -4169,6 +4169,7 @@ pub fn run() {
             update::update_state,
             update::update_check,
             update::update_open_window,
+            update::update_close_window,
             update::update_download,
             update::update_install,
             update::update_dismiss,

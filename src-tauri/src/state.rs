@@ -867,6 +867,9 @@ pub(crate) struct Settings {
     /// 用户点过「跳过这个版本」的版本号（`0.2.1` 形式，不带 v）。命中时不弹提醒，
     /// 但设置页仍可见（可随时改成安装）。
     pub(crate) update_skip_version: String,
+    /// 跳过截止时间（Unix 秒；0 = 永久跳过该版本）。配合 update_skip_version 使用。
+    #[serde(default)]
+    pub(crate) update_skip_until_epoch: u64,
     /// 下载源策略："auto"（直连→镜像回退，默认） / "direct"（只直连） /
     /// 镜像名（"ghfast" / "ghproxy"，只用该镜像）。
     pub(crate) update_mirror: String,
@@ -978,6 +981,7 @@ impl Default for Settings {
             update_auto_check: true,
             update_check_interval_hours: default_update_interval_hours(),
             update_skip_version: String::new(),
+            update_skip_until_epoch: 0,
             update_mirror: UPDATE_MIRROR_AUTO.to_string(),
             boot_instance_aliases: std::collections::HashMap::new(),
             boot_instance_hidden: Vec::new(),

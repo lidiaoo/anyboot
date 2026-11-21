@@ -24,6 +24,7 @@ interface UpdateState {
   autoCheck?: boolean;
   mirror?: string;
   intervalHours?: number;
+  skipUntilEpoch?: number;
 }
 
 const invoke = (window as any).__TAURI__?.core?.invoke as
@@ -105,16 +106,32 @@ watch(mirror, (value) => {
   void run("set_update_mirror", { value });
 });
 
-function close(): void {
+async function close(): Promise<void> {
   if (props.inline) {
     emit("close");
     return;
+  }
+  // 弹窗窗口里 `window.__TAURI__.window` 不一定有实例（之前点「稍后」没反应就是这里），
+  // 统一交给后端命令关窗；命令失败再退回浏览器侧 API。
+  try {
+    if (invoke) {
+      await invoke("update_close_window");
+      return;
+    }
+  } catch {
+    /* 落到下面的兜底 */
   }
   try {
     (window as any).__TAURI__.window.getCurrentWindow().close();
   } catch {
     emit("close");
   }
+}
+
+/** 阶梯忽略：0 = 永久，其余 = 忽略 N 天 */
+async function skipForDays(days: number): Promise<void> {
+  await run("update_dismiss", { version: state.value?.latestVersion || "", days });
+  await close();
 }
 
 onMounted(async () => {
@@ -172,7 +189,18 @@ onMounted(async () => {
     </div>
 
     <footer class="upd-actions">
-      <button type="button" class="ghost" :disabled="busy" @click="run('update_dismiss', { version: state?.latestVersion || '' }); close()">跳过此版本</button>
+      <select
+        class="skip-select"
+        :disabled="busy"
+        title="跳过此版本（可选择忽略时长）"
+        @change="(e) => { const v = Number((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; if (!Number.isNaN(v)) skipForDays(v); }"
+      >
+        <option value="">跳过此版本…</option>
+        <option value="1">忽略 1 天</option>
+        <option value="7">忽略 7 天</option>
+        <option value="30">忽略 30 天</option>
+        <option value="0">永久跳过此版本</option>
+      </select>
       <button type="button" class="ghost" @click="close">稍后</button>
       <button v-if="canDownload" type="button" class="primary" :disabled="busy || downloading" @click="run('update_download')">
         {{ downloading ? "下载中…" : "下载" }}
@@ -233,6 +261,16 @@ onMounted(async () => {
 }
 .upd-source input { flex: 1 1 220px; }
 .upd-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.upd-actions select.skip-select {
+  font: inherit;
+  font-size: 12px;
+  border-radius: 9px;
+  padding: 7px 10px;
+  border: 1px solid var(--line, #d4d4d8);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
 .upd-actions button {
   font: inherit;
   border-radius: 9px;

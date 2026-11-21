@@ -64,6 +64,8 @@ pub(crate) struct UpdateState {
     pub(crate) mirror: String,
     /// 自动检查间隔（小时）
     pub(crate) interval_hours: u32,
+    /// 跳过截止时间（Unix 秒；0 = 永久跳过该版本）
+    pub(crate) skip_until_epoch: u64,
 }
 
 /// 进程内单例：状态 + 单飞闸 + 已选好的资产（URL 不暴露给前端）
@@ -370,6 +372,7 @@ fn snapshot(app: &AppHandle) -> UpdateState {
     state.auto_check = settings.update_auto_check;
     state.mirror = settings.update_mirror.clone();
     state.interval_hours = settings.update_check_interval_hours.clamp(1, 168);
+    state.skip_until_epoch = settings.update_skip_until_epoch;
     state
 }
 
@@ -405,7 +408,12 @@ pub(crate) fn check_blocking(app: &AppHandle) -> Result<UpdateState, String> {
         .and_then(|json| pick_asset_from_api(json, &latest))
         .or_else(|| probe_asset_by_name(app, &latest));
 
-    let skip = stored_settings(app).update_skip_version.trim().to_string();
+    let settings_for_skip = stored_settings(app);
+    let skip = settings_for_skip.update_skip_version.trim().to_string();
+    let skip_until = settings_for_skip.update_skip_until_epoch;
+    let skip_active = !skip.is_empty()
+        && skip == latest
+        && (skip_until == 0 || skip_until > crate::unix_millis() / 1000);
     let newer = is_newer(&latest, &current);
 
     let result = {
@@ -423,7 +431,8 @@ pub(crate) fn check_blocking(app: &AppHandle) -> Result<UpdateState, String> {
         state.asset_name = asset.as_ref().map(|a| a.name.clone()).unwrap_or_default();
         state.source.clear();
         state.error.clear();
-        state.skipped = !skip.is_empty() && skip == latest;
+        state.skipped = skip_active;
+        state.skip_until_epoch = skip_until;
         state.phase = if !newer {
             "up_to_date".to_string()
         } else if asset.is_none() {
@@ -1015,18 +1024,52 @@ pub(crate) fn update_install(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 跳过此版本（只写设置，不改状态机）
+/// 跳过此版本。`days`：0 或缺省 = 永久跳过；否则只忽略这么多天（阶梯忽略时间）。
 #[tauri::command]
-pub(crate) fn update_dismiss(app: AppHandle, version: String) -> Result<(), String> {
+pub(crate) fn update_dismiss(
+    app: AppHandle,
+    version: String,
+    days: Option<u32>,
+) -> Result<(), String> {
     let version = version.trim().trim_start_matches(['v', 'V']).to_string();
+    let days = days.unwrap_or(0).min(3650);
+    let until = if days == 0 {
+        0
+    } else {
+        crate::unix_millis() / 1000 + days as u64 * 86_400
+    };
+    let note = if version.is_empty() {
+        "已取消跳过".to_string()
+    } else if days == 0 {
+        format!("已永久跳过 v{version}")
+    } else {
+        format!("已忽略 v{version} {days} 天")
+    };
     update_settings_and_publish(
         &app,
         "检查更新",
-        if version.is_empty() { "已取消跳过" } else { "已跳过此版本" },
-        |settings| settings.update_skip_version = version.clone(),
+        &note,
+        |settings| {
+            settings.update_skip_version = version.clone();
+            settings.update_skip_until_epoch = until;
+        },
         |_app| {},
     )?;
-    set_phase(&app, |state| state.skipped = !version.is_empty());
+    set_phase(&app, |state| {
+        state.skipped = !version.is_empty();
+        state.skip_until_epoch = until;
+    });
+    Ok(())
+}
+
+/// 关闭更新弹窗（前端「稍后 / 跳过」用：弹窗窗口里拿不到可靠的 window 实例，
+/// 统一走这条命令，避免「点了没反应」）。
+#[tauri::command]
+pub(crate) fn update_close_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(UPDATE_WINDOW_LABEL) {
+        let _ = window.hide();
+        let _ = window.close();
+    }
     Ok(())
 }
 

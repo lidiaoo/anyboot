@@ -31,6 +31,9 @@ struct AboutView: View {
     /// 版本更新弹窗（发现新版本时弹一次；iOS 只引导到 Releases）
     @State private var showUpdatePopup = false
     @State private var updateNotes = ""
+    /// 阶梯忽略：版本 → 截止时间（秒）；0 = 永久
+    @AppStorage("updateSkipVersion") private var skipVersion = ""
+    @AppStorage("updateSkipUntilEpoch") private var skipUntilEpoch: Double = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,6 +66,18 @@ struct AboutView: View {
             isPresented: $showUpdatePopup
         ) {
             Button("打开 Releases 下载页") { open(Self.repoURL + "/releases") }
+            Button("忽略 7 天") {
+                if let v = latestVersion {
+                    skipVersion = v
+                    skipUntilEpoch = Date().timeIntervalSince1970 + 7 * 86400
+                }
+            }
+            Button("忽略 30 天") {
+                if let v = latestVersion {
+                    skipVersion = v
+                    skipUntilEpoch = Date().timeIntervalSince1970 + 30 * 86400
+                }
+            }
             Button("稍后", role: .cancel) { }
         } message: {
             Text(updateNotes.isEmpty ? "点「打开 Releases 下载页」获取安装包（iOS 需手动重签名安装）。" : updateNotes)
@@ -273,7 +288,9 @@ struct AboutView: View {
                         latestVersion = outcome.version
                         updateUpToDate = false
                         updateNotes = outcome.notes
-                        showUpdatePopup = true
+                        let skippedActive = skipVersion == outcome.version
+                            && (skipUntilEpoch == 0 || skipUntilEpoch > Date().timeIntervalSince1970)
+                        if !skippedActive { showUpdatePopup = true }
                     } else {
                         latestVersion = nil
                         updateUpToDate = true

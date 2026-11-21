@@ -39,6 +39,7 @@ object AppUpdate {
 
     private const val PREFS = "anyboot_update"
     private const val KEY_SKIP = "skip_version"
+    private const val KEY_SKIP_UNTIL = "skip_until_epoch"
     private const val KEY_MIRROR = "update_mirror"
     private const val KEY_CHECKED_AT = "checked_at"
     private const val KEY_LATEST = "latest_version"
@@ -405,12 +406,22 @@ object AppUpdate {
         "?"
     }
 
-    fun skippedVersion(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SKIP, "").orEmpty()
+    /** 当前仍有效的「跳过版本」（过期或未设置 = 空） */
+    fun skippedVersion(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val version = prefs.getString(KEY_SKIP, "").orEmpty()
+        if (version.isEmpty()) return ""
+        val until = prefs.getLong(KEY_SKIP_UNTIL, 0L)
+        if (until > 0 && System.currentTimeMillis() / 1000 >= until) return ""
+        return version
+    }
 
-    fun skipVersion(context: Context, version: String) {
+    /** 跳过某版本：days = 0 永久；否则忽略 N 天（阶梯忽略时间） */
+    fun skipVersion(context: Context, version: String, days: Int = 0) {
+        val until = if (days <= 0) 0L else System.currentTimeMillis() / 1000 + days.toLong() * 86_400
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_SKIP, version.trim())
+            .putLong(KEY_SKIP_UNTIL, until)
             .apply()
     }
 
