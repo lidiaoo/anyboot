@@ -2971,7 +2971,8 @@ class ComputerListActivity : ComponentActivity() {
                                                     toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
-                                                    switchBoot(rid, group.instanceId.ifEmpty { group.kind }, opt.value, getString(R.string.and_switchAction), opt.label)
+                                                    // 回执标题用 row.label（已含「一级 › 二级」），不要用裸 opt.label
+                                                    switchBoot(rid, group.instanceId.ifEmpty { group.kind }, opt.value, getString(R.string.and_switchAction), row.label)
                                                 }
                                             }
                                             .padding(
