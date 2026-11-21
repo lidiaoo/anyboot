@@ -62,7 +62,10 @@ pub(crate) fn action_label(action: &str) -> &'static str {
 // ==================== 按路由发 UDP ====================
 
 /// 一个待发的 UDP 包（目标 + 端口 + 包体 + 发几个 / 重试几次）
+#[derive(Clone)]
 pub(crate) struct Delivery {
+    /// `direct` / `jump` / `both` —— 这条投递走哪条链路（来自路由的 broadcast_link）
+    pub link: String,
     pub target: String,
     pub port: u16,
     pub packet: Vec<u8>,
@@ -126,6 +129,12 @@ pub(crate) fn plan_routes(
         let waking = action == POWER_WAKE;
         let times = route.effective_burst();
         let retry = route.effective_retry();
+        let link = match route.broadcast_link.trim() {
+            "direct" => "direct",
+            "jump" => "jump",
+            _ => "both",
+        }
+        .to_string();
         let packets: Vec<Vec<u8>> = if waking {
             macs.iter()
                 .map(|mac| magic_packet(mac))
@@ -136,6 +145,7 @@ pub(crate) fn plan_routes(
         for target in &targets {
             for packet in &packets {
                 deliveries.push(Delivery {
+                    link: link.clone(),
                     target: target.clone(),
                     port,
                     packet: packet.clone(),
@@ -178,43 +188,85 @@ pub(crate) fn send_plan(
         };
         return Err(crate::t!(crate::i18n::current(),"没有可发的电源包：{}","沒有可發的電源封包：{}","No power packet to send: {}","送信できる電源パケットなし：{}","보낼 전원 패킷 없음: {}","Kein Energiepaket zu senden: {}","Нечего отправлять: {}","Nenhum pacote de energia para enviar: {}","Ningún paquete de energía para enviar: {}").replace("{}", &detail));
     }
-    let (sent, where_from) = match jump {
-        None => (send_local(&plan.deliveries)?, crate::t!(crate::i18n::current(),"本机","本機","This machine","このマシン","이 기기","Dieser Rechner","Этот компьютер","Esta máquina","Este equipo").to_string()),
-        Some(jump) => {
-            // 重试次数取各路由里的最大值：没发出去就重连跳板机再打一轮。
-            // 每次尝试都新起一个 ssh 进程 = 重新连接跳板机。
-            let max_retry = plan.deliveries.iter().map(|d| d.retry).max().unwrap_or(0);
-            let mut last_error = String::new();
-            let mut done: Option<(usize, String)> = None;
-            for attempt in 0..=max_retry {
-                if attempt > 0 {
-                    power_log(app, &format!("第 {attempt}/{max_retry} 轮重试：重新连接跳板机再发一轮"));
-                    std::thread::sleep(RETRY_INTERVAL);
-                }
-                match send_via_jump(app, jump, &plan.deliveries) {
-                    Ok(result) => {
-                        done = Some(result);
-                        break;
-                    }
-                    Err(error) => {
-                        // 跳板机没装 python3 不会自愈，重试没有意义
-                        if error.contains("python3") {
-                            return Err(error);
-                        }
-                        last_error = error;
-                    }
-                }
+
+    // 按链路拆两批：direct = 本机 UDP；jump = 经跳板机。both 两边都发（默认）。
+    let direct: Vec<Delivery> = plan
+        .deliveries
+        .iter()
+        .filter(|d| d.link != "jump")
+        .cloned()
+        .collect();
+    let via_jump: Vec<Delivery> = plan
+        .deliveries
+        .iter()
+        .filter(|d| d.link != "direct")
+        .cloned()
+        .collect();
+
+    let mut sent_total = 0usize;
+    let mut where_parts: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+
+    if !direct.is_empty() {
+        match send_local(&direct) {
+            Ok(sent) => {
+                sent_total += sent;
+                where_parts.push(crate::t!(crate::i18n::current(),"本机","本機","This machine","このマシン","이 기기","Dieser Rechner","Этот компьютер","Esta máquina","Este equipo").to_string());
             }
-            match done {
-                Some(result) => result,
-                None => return Err(last_error),
+            Err(error) => errors.push(format!("本机：{error}")),
+        }
+    }
+
+    if !via_jump.is_empty() {
+        match jump {
+            None => errors.push(crate::t!(crate::i18n::current(),"跳板机：未配置跳板机（这条路由要求走跳板机）","跳板機：未設定跳板機（這條路由要求走跳板機）","Jump host: none configured (this route requires jump)","踏み台：未設定（このルートは踏み台必須）","점프 호스트: 미설정(이 라우트는 점프 필요)","Sprungserver: keiner konfiguriert (Route verlangt Sprung)","Узел: не настроен (маршрут требует узел)","Jump host: não configurado (rota exige jump)","Host de salto: no configurado (la ruta lo exige)").to_string()),
+            Some(jump) => {
+                let max_retry = via_jump.iter().map(|d| d.retry).max().unwrap_or(0);
+                let mut last_error = String::new();
+                let mut done: Option<(usize, String)> = None;
+                for attempt in 0..=max_retry {
+                    if attempt > 0 {
+                        power_log(app, &format!("第 {attempt}/{max_retry} 轮重试：重新连接跳板机再发一轮"));
+                        std::thread::sleep(RETRY_INTERVAL);
+                    }
+                    match send_via_jump(app, jump, &via_jump) {
+                        Ok(result) => {
+                            done = Some(result);
+                            break;
+                        }
+                        Err(error) => {
+                            if error.contains("python3") {
+                                last_error = error;
+                                break;
+                            }
+                            last_error = error;
+                        }
+                    }
+                }
+                match done {
+                    Some((sent, from)) => {
+                        sent_total += sent;
+                        where_parts.push(from);
+                    }
+                    None => errors.push(last_error),
+                }
             }
         }
-    };
-    if sent == 0 {
-        return Err(crate::t!(crate::i18n::current(),"{where_from}一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，或者广播地址填错了","{where_from}一個封包都沒發出去：可能在隔離網路、防火牆攔了 UDP 廣播，或者廣播位址填錯了","{where_from} sent no packet: possibly an isolated network, firewall blocking UDP broadcast, or a wrong broadcast address","{where_from} は 1 パケットも送信されず：隔離ネットワーク、ファイアウォールの UDP 遮断、またはブロードキャストアドレス誤り","{where_from} 1개도 전송 안 됨: 격리 네트워크, 방화벽 UDP 차단, 또는 브로드캐스트 주소 오류","{where_from} sendete kein Paket: isoliertes Netz, Firewall blockiert UDP oder falsche Broadcast-Adresse","{where_from} не отправил ни пакета: изолированная сеть, брандмауэр блокирует UDP или неверный адрес","{where_from} não enviou pacote: rede isolada, firewall bloqueando UDP ou endereço errado","{where_from} no envió ningún paquete: red aislada, firewall bloqueando UDP o dirección incorrecta").replace("{where_from}", &where_from));
     }
-    Ok((sent, where_from))
+
+    if sent_total == 0 {
+        return Err(if errors.is_empty() {
+            crate::t!(crate::i18n::current(),"一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，或者广播地址填错了","一個封包都沒發出去：可能在隔離網路、防火牆攔了 UDP 廣播，或者廣播位址填錯了","No packet sent: isolated network, firewall blocking UDP broadcast, or wrong broadcast address","1 パケットも送信されず：隔離ネットワーク／UDP 遮断／ブロードキャスト誤り","1개도 전송 안 됨: 격리 네트워크/방화벽 UDP 차단/브로드캐스트 오류","Kein Paket gesendet: isoliertes Netz, Firewall oder falsche Adresse","Пакеты не отправлены: сеть/файрвол/адрес","Nenhum pacote enviado: rede/firewall/endereço","Ningún paquete enviado: red/firewall/dirección").to_string()
+        } else {
+            format!("所有通道都失败：{}", errors.join("；"))
+        });
+    }
+
+    let mut where_from = where_parts.join(" + ");
+    if !errors.is_empty() {
+        where_from.push_str(&format!("（其余通道失败：{}）", errors.join("；")));
+    }
+    Ok((sent_total, where_from))
 }
 
 /// 路由没写目标地址时的默认目标：**先各访问地址所在 /24 的广播，再全局广播**。
@@ -479,6 +531,8 @@ mod tests {
             retry: 0,
             mode: String::new(),
             http_fallback: false,
+            broadcast_link: "both".to_string(),
+            http_link: "both".to_string(),
         };
         let plan = plan_routes(POWER_REBOOT, &[], &[], &[route]).expect("编译路由");
         // 没配 MAC 就没有包体：这条路由进 problems，不产生投递
@@ -510,6 +564,8 @@ mod tests {
             retry: 0,
             mode: String::new(),
             http_fallback: false,
+            broadcast_link: "both".to_string(),
+            http_link: "both".to_string(),
         };
         let plan = plan_routes(
             POWER_SLEEP,
@@ -536,6 +592,7 @@ mod tests {
         let port = listener.local_addr().expect("本地地址").port();
         let packet = magic_packet("aa:bb:cc:dd:ee:ff").expect("造包");
         let deliveries = vec![Delivery {
+            link: "both".to_string(),
             target: "127.0.0.1".to_string(),
             port,
             packet: packet.clone(),
@@ -560,6 +617,7 @@ mod tests {
         let port = listener.local_addr().expect("本地地址").port();
         let packet = magic_packet("aa:bb:cc:dd:ee:ff").expect("造包");
         let deliveries = vec![Delivery {
+            link: "both".to_string(),
             target: "127.0.0.1".to_string(),
             port,
             packet,

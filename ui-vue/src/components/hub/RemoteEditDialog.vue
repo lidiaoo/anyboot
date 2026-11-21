@@ -218,6 +218,10 @@ interface PowerRoute {
   enabled: boolean;
   burst: number;
   retry: number;
+  /** 广播包链路：direct / jump / both（默认 both） */
+  broadcastLink: string;
+  /** HTTP 链路：direct / jump / both（默认 both） */
+  httpLink: string;
 }
 const POWER_ACTIONS = [
   { value: "wake", label: "hub.power.wake" },
@@ -232,8 +236,20 @@ const ROUTE_MODES = [
   { value: "packet_only", label: "remote.packetOnly" },
 ];
 const powerRoutes = ref<PowerRoute[]>([]);
+/** 电源 HTTP 同时发的通道（多选，默认全选） */
+const powerHttpKinds = ref<string[]>([...ROUTE_IDS]);
+const POWER_LINKS = [
+  { value: "both", label: "remote.linkBoth" },
+  { value: "direct", label: "remote.linkDirect" },
+  { value: "jump", label: "remote.linkJump" },
+];
+function togglePowerKind(kind: string): void {
+  powerHttpKinds.value = powerHttpKinds.value.includes(kind)
+    ? powerHttpKinds.value.filter((k) => k !== kind)
+    : [...powerHttpKinds.value, kind];
+}
 function newPowerRoute(): PowerRoute {
-  return { action: "wake", mode: "auto", target: "", port: 9, macs: [], enabled: true, burst: 0, retry: 0 };
+  return { action: "wake", mode: "auto", target: "", port: 9, macs: [], enabled: true, burst: 0, retry: 0, broadcastLink: "both", httpLink: "both" };
 }
 function routeDefaultBurst(r: PowerRoute): string {
   return r.action === "wake" ? "10" : "3";
@@ -377,11 +393,17 @@ watch(
           enabled: o.enabled !== false,
           burst: Number(o.burst ?? 0),
           retry: Number(o.retry ?? 0),
+          broadcastLink: String(o.broadcast_link ?? "both") || "both",
+          httpLink: String(o.http_link ?? "both") || "both",
         };
       });
     } else {
       powerRoutes.value = [];
     }
+    const kinds = (r as Record<string, unknown>).power_http_kinds;
+    powerHttpKinds.value = Array.isArray(kinds) && kinds.length
+      ? (kinds as string[]).filter((k) => ROUTE_IDS.includes(k))
+      : [...ROUTE_IDS];
     // 连接优先级探测方式 / 多网卡探测（之前只改 ref 不读档 → 重开回默认，看起来"选中不了"）
     const shortOf = (raw: unknown): "first" | "all" | "serial" => {
       const v = String(raw ?? "").trim();
@@ -487,7 +509,10 @@ function submit() {
     power_routes: powerRoutes.value.map((r) => ({
       action: r.action, mode: r.mode, target: r.target, port: r.port,
       macs: r.macs, enabled: r.enabled, burst: r.burst, retry: r.retry,
+      broadcast_link: r.broadcastLink || "both",
+      http_link: r.httpLink || "both",
     })),
+    power_http_kinds: powerHttpKinds.value.length ? [...powerHttpKinds.value] : [...ROUTE_IDS],
     // 默认探测超时（秒→ms；通道那格留空时用它）
     probe_timeout_ms: probeTimeout.value > 0 ? Math.round(probeTimeout.value * 1000) : 0,
     // 连接优先级探测方式 / 多网卡探测（first↔parallel_first / all↔parallel_all / serial）
@@ -727,6 +752,16 @@ function submit() {
             </div>
           </div>
           <div class="field">
+            <label><b>{{ t("remote.powerHttpKinds") }}</b></label>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <label v-for="kind in ROUTE_IDS" :key="'pk-' + kind" style="display:inline-flex;align-items:center;gap:5px">
+                <input type="checkbox" :checked="powerHttpKinds.includes(kind)" @change="togglePowerKind(kind)" />
+                <span>{{ tr(ROUTE_LABELS[kind]) }}</span>
+              </label>
+            </div>
+            <p class="field-hint">{{ t("remote.powerHttpKindsHint") }}</p>
+          </div>
+          <div class="field">
             <label><b>{{ t("remote.priorityProbeLabel") }}</b></label>
             <div class="seg-row" role="group" :aria-label="t('remote.priorityProbeAria')">
               <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'first' }" id="rsRouteProbeFirst" @click="routeProbe = 'first'">{{ t("remote.probeFirst") }}</button>
@@ -822,6 +857,12 @@ function submit() {
                   <input v-model.number="r.port" class="route-port mono" type="number" min="0" max="65535" placeholder="9" />
                 </div>
                 <div class="route-main">
+                  <span class="route-num-label">{{ t("remote.broadcastSend") }}</span>
+                  <select v-model="r.broadcastLink" class="route-mode">
+                    <option v-for="l in POWER_LINKS" :key="l.value" :value="l.value">{{ tr(l.label) }}</option>
+                  </select>
+                </div>
+                <div class="route-main">
                   <span class="route-num-label">{{ t("remote.perNic") }}</span>
                   <input v-model.number="r.burst" class="route-burst mono" type="number" min="0" max="20" :placeholder="routeDefaultBurst(r)" />
                   <span class="route-num-label">{{ t("remote.retryIfFail") }}</span>
@@ -835,6 +876,12 @@ function submit() {
               <!-- HTTP 区 -->
               <div class="route-zone route-zone-http">
                 <div class="route-zone-title">HTTP</div>
+                <div class="route-main">
+                  <span class="route-num-label">{{ t("remote.httpSend") }}</span>
+                  <select v-model="r.httpLink" class="route-mode">
+                    <option v-for="l in POWER_LINKS" :key="l.value" :value="l.value">{{ tr(l.label) }}</option>
+                  </select>
+                </div>
                 <p class="route-zone-hint">{{ t("remote.routeZoneHint") }}</p>
               </div>
             </div>

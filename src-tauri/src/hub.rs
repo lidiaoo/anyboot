@@ -48,6 +48,19 @@ pub(crate) fn normalize_power_action(raw: &str) -> Option<&'static str> {
 ///
 /// <p>为空 = 没配，电源操作照旧：重启/关机/睡眠走 SSH（要求 sudo 免密），
 /// 唤醒走标准 WOL（9 + 7 端口，本机或跳板机广播）。
+/// 电源路由的链路选择默认值：混合（直连 + 跳板机都发）
+pub(crate) fn default_power_link() -> String {
+    "both".to_string()
+}
+
+/// 电源 HTTP 通道多选默认值：全选
+pub(crate) fn default_power_http_kinds() -> Vec<String> {
+    ["lan", "jump", "tunnel", "ts", "funnel", "tsnet"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct PowerRoute {
     /// wake / reboot / shutdown / sleep（空 = wake）
@@ -66,6 +79,12 @@ pub struct PowerRoute {
     /// 关掉但不想删（留着自己记）
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 广播包（UDP）链路：`direct` / `jump` / `both`（默认 both —— 有无跳板机都发）
+    #[serde(default = "default_power_link")]
+    pub broadcast_link: String,
+    /// HTTP（/api/power）链路：`direct` / `jump` / `both`（默认 both）
+    #[serde(default = "default_power_link")]
+    pub http_link: String,
     /// 这条路由每次发几个包（0 = 默认 10，所有动作一样，2026-10-31）。
     /// 每个动作都能单独设 —— 非唤醒动作发多个包可能让 sol 执行多次，改之前想清楚。
     #[serde(default)]
@@ -777,6 +796,8 @@ mod tests {
             retry: 0,
             mode: String::new(),
             http_fallback: true,
+            broadcast_link: "both".to_string(),
+            http_link: "both".to_string(),
         };
         let legacy_off = PowerRoute {
             http_fallback: false,
@@ -816,6 +837,8 @@ mod tests {
             retry: 0,
             mode: String::new(),
             http_fallback: false,
+            broadcast_link: "both".to_string(),
+            http_link: "both".to_string(),
         };
         assert_eq!(route.effective_burst(), 10);
         assert_eq!(route.effective_retry(), 10);

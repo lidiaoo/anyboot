@@ -63,6 +63,8 @@ pub(crate) fn default_power_routes() -> Vec<PowerRoute> {
             // auto = 优先广播包（旧「HTTP 兜底」勾选的语义），http_fallback 同步派生
             mode: "auto".to_string(),
             http_fallback: true,
+            broadcast_link: crate::hub::default_power_link(),
+            http_link: crate::hub::default_power_link(),
         })
         .collect()
 }
@@ -366,6 +368,9 @@ pub struct RemoteServer {
     /// 形状与 [`Self::macs`]（地址 → MAC）一致。
     #[serde(default)]
     pub jumps: std::collections::BTreeMap<String, String>,
+    /// 电源 HTTP（/api/power）同时发往哪些通道（多选 lan/jump/tunnel/ts/funnel/tsnet，默认全选）
+    #[serde(default = "crate::hub::default_power_http_kinds")]
+    pub power_http_kinds: Vec<String>,
     /// 访问令牌；空 = 服务端未设 token
     #[serde(default)]
     pub token: String,
@@ -948,6 +953,8 @@ impl RemoteServer {
                     _ => String::new(),
                 },
                 http_fallback: matches!(raw.effective_mode(), "auto" | "http_first"),
+                broadcast_link: raw.broadcast_link.clone(),
+                http_link: raw.http_link.clone(),
             });
         }
         self.power_routes = routes;
@@ -1455,47 +1462,118 @@ fn encode_query(value: &str) -> String {
 /// 有效的探测：请求能送达就说明机器醒着（服务端回 WakeAck，不做任何动作）。
 /// 局域网地址全连不上时自动兜底远程接入地址（https 隧道 + ab_token）——
 /// 出门在外时电源指令照样能发。
-fn remote_http_power(server: &RemoteServer, action: &str) -> Result<String, String> {
+fn remote_http_power(
+    app: &AppHandle,
+    server: &RemoteServer,
+    action: &str,
+    routes: &[PowerRoute],
+) -> Result<String, String> {
     let path = format!("/api/power?action={action}");
-    // 按用户优先级逐通道试（route_candidates 已滤禁用与不可用项）；
-    // 电源路径没有 AppHandle：jump 候选解析不了转发端点，这里跳过（引导项/JSON 路径支持）
-    let candidates = server.route_candidates();
-    let mut last_error = String::from("没有可用连接通道");
-    let mut tried = 0usize;
-    for cand in &candidates {
-        if cand.kind == "jump" {
-            continue;
-        }
-        tried += 1;
-        let result = if cand.kind == "lan" {
-            lan_http_get(
-                &cand.origin,
-                &power_query_path(action, server.token.trim()),
-                15,
-            )
-            .and_then(|(status, body)| parse_power_reply(status, &body))
-        } else {
-            // 令牌用**这条候选自己的**：不同配对各带各的网关客户端令牌
-            remote_https_get(&cand.origin, &cand.token, &path)
-                .and_then(|(status, body)| parse_power_reply(status, &body))
-        };
-        match result {
-            Ok(message) => {
-                return Ok(if cand.kind == "lan" {
-                    message
-                } else {
-                    format!("（经{}）{message}", route_label(&cand.kind))
-                });
+    let kinds: Vec<String> = if server.power_http_kinds.is_empty() {
+        crate::hub::default_power_http_kinds()
+    } else {
+        server.power_http_kinds.clone()
+    };
+    let want = |kind: &str| kinds.iter().any(|k| k == kind);
+    // 每条路由自己的 http_link：任一要求直连/混合 → 走直连侧；任一要求跳板/混合 → 走跳板侧
+    let allow_direct = routes.is_empty() || routes.iter().any(|r| r.http_link.trim() != "jump");
+    let allow_jump = routes.is_empty() || routes.iter().any(|r| r.http_link.trim() != "direct");
+
+    #[derive(Clone)]
+    enum Job {
+        /// 直连/隧道/tailscale 等候选（origin 已含 host:port 或 https origin）
+        Url { label: String, origin: String, token: String },
+        /// 经跳板机：先建本地转发，再打 127.0.0.1:port
+        Jump { label: String, address: String },
+    }
+
+    let mut jobs: Vec<Job> = Vec::new();
+    if allow_direct {
+        for cand in server.route_candidates() {
+            if cand.kind == "jump" || !want(&cand.kind) {
+                continue;
             }
-            Err(error) => last_error = error,
+            jobs.push(Job::Url {
+                label: format!("直连{}", crate::remote_servers::route_label(&cand.kind)),
+                origin: cand.origin.clone(),
+                token: cand.token.clone(),
+            });
         }
     }
-    if tried == 0 {
-        return Err(
-            "没有可用连接通道（局域网地址为空，或优先级里所有通道都被禁用/不可用）".to_string(),
-        );
+    if allow_jump && want("jump") {
+        for address in server.addresses.iter().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+            if !server.jump_for_address(address).is_empty() {
+                jobs.push(Job::Jump { label: "跳板机".to_string(), address: address.to_string() });
+            }
+        }
     }
-    Err(last_error)
+    if jobs.is_empty() {
+        return Err("没有可用的 HTTP 通道（多选里都未勾选 / 都被禁用 / 没配地址）".to_string());
+    }
+
+    // 所有选中通道**同时发**（并发），谁成功都算成功，最后逐条汇报
+    let results: Vec<(String, Result<String, String>)> = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for job in jobs {
+            let action = action.to_string();
+            let path = path.clone();
+            let server = server;
+            let token = server.token.trim().to_string();
+            handles.push(scope.spawn(move || {
+                let outcome = match job {
+                    Job::Url { label, origin, token: cand_token } => {
+                        let result = if origin.starts_with("http://") {
+                            lan_http_get(&origin, &format!("{path}{}", if token.is_empty() { String::new() } else { format!("&token={}", encode_query(&token)) }), 15)
+                        } else {
+                            remote_https_get(&origin, &cand_token, &path)
+                        };
+                        result.and_then(|(status, body)| parse_power_reply(status, &body))
+                        .map(|m| (label, m))
+                    }
+                    Job::Jump { label, address } => {
+                        let endpoint = {
+                            let state = app.state::<crate::remote_servers::RemoteJumpState>();
+                            remote_endpoint_inner(app, state.inner(), &server.id, Some(&address))
+                        };
+                        match endpoint {
+                            Ok(ep) => {
+                                let target = format!("{}:{}", ep.host, ep.port);
+                                lan_http_get(&target, &format!("{path}{}", if token.is_empty() { String::new() } else { format!("&token={}", encode_query(&token)) }), 15)
+                                    .and_then(|(status, body)| parse_power_reply(status, &body))
+                                    .map(|m| (label, m))
+                            }
+                            Err(error) => Err(error),
+                        }
+                    }
+                };
+                match outcome {
+                    Ok((label, message)) => (label, Ok(message)),
+                    Err(error) => ("通道".to_string(), Err(error)),
+                }
+            }));
+        }
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap_or_else(|_| ("通道".to_string(), Err("线程异常退出".to_string()))))
+            .collect()
+    });
+
+    let mut ok_parts: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    for (label, outcome) in results {
+        match outcome {
+            Ok(message) => ok_parts.push(format!("{label}：{message}")),
+            Err(error) => errors.push(format!("{label}：{error}")),
+        }
+    }
+    if ok_parts.is_empty() {
+        return Err(format!("所有 HTTP 通道都失败：{}", errors.join("；")));
+    }
+    let mut text = format!("已同时调用 {} 个通道：{}", ok_parts.len(), ok_parts.join("；"));
+    if !errors.is_empty() {
+        text.push_str(&format!("（其余失败：{}）", errors.join("；")));
+    }
+    Ok(text)
 }
 
 /// 电源接口的查询串（`?action=..&token=..`），LAN 直连用
@@ -1669,6 +1747,8 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                 retry: 0,
                 mode: String::new(),
                 http_fallback: false,
+                broadcast_link: crate::hub::default_power_link(),
+                http_link: crate::hub::default_power_link(),
             };
             let plan = crate::hub_power::plan_routes(
                 crate::hub::POWER_WAKE,
@@ -1683,7 +1763,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
                 plan.described.join(" · ")
             ));
         }
-        let message = remote_http_power(&server, action)?;
+        let message = remote_http_power(app, &server, action, &[])?;
         return Ok(format!(
             "（这台电脑没配「{label}」路由，走的是它自己的 AnyBoot 接口）{message}"
         ));
@@ -1693,14 +1773,14 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
 
     // 仅 HTTP：一个广播包都不发，直接调它自己的接口
     if mode == "http_only" {
-        let message = remote_http_power(&server, action)?;
+        let message = remote_http_power(app, &server, action, &routes)?;
         return Ok(crate::t!(crate::i18n::current(),"（仅 HTTP 模式）已调它自己的 AnyBoot 接口：{}","（僅 HTTP 模式）已調它自己的 AnyBoot 介面：{}","(HTTP only) called its AnyBoot API: {}","（HTTP のみ）AnyBoot API を呼びました：{}","(HTTP만) AnyBoot API 호출: {}","(nur HTTP) AnyBoot-API aufgerufen: {}","(только HTTP) вызван API AnyBoot: {}","(somente HTTP) chamei a API AnyBoot: {}","(solo HTTP) llamé a la API AnyBoot: {}").replace("{}", &message));
     }
 
     // 优先 HTTP：先调接口，通了就完事（一个广播包都不发）；没通退回广播包
     let mut http_first_error: Option<String> = None;
     if mode == "http_first" {
-        match remote_http_power(&server, action) {
+        match remote_http_power(app, &server, action, &routes) {
             Ok(message) => {
                 return Ok(crate::t!(crate::i18n::current(),"（优先 HTTP 模式）已调它自己的 AnyBoot 接口：{}","（優先 HTTP 模式）已調它自己的 AnyBoot 介面：{}","(prefer HTTP) called its AnyBoot API: {}","（HTTP 優先）AnyBoot API を呼びました：{}","(HTTP 우선) AnyBoot API 호출: {}","(HTTP bevorzugt) AnyBoot-API aufgerufen: {}","(сначала HTTP) вызван API AnyBoot: {}","(preferir HTTP) chamei a API AnyBoot: {}","(preferir HTTP) llamé a la API AnyBoot: {}").replace("{}", &message));
             }
@@ -1716,7 +1796,9 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
         let plan = crate::hub_power::plan_routes(action, &server.addresses, &all_macs, &routes)?;
         let http_server = server.clone();
         let http_action = action.to_string();
-        let http = std::thread::spawn(move || remote_http_power(&http_server, &http_action));
+        let http_routes = routes.clone();
+        let http_app = app.clone();
+        let http = std::thread::spawn(move || remote_http_power(&http_app, &http_server, &http_action, &http_routes));
         let send_result = crate::hub_power::send_plan(app, jump.as_ref(), &plan);
         let http_result =
             http.join()
@@ -1763,7 +1845,7 @@ fn remote_power_blocking(app: &AppHandle, id: &str, action: &str) -> Result<Stri
             if mode != "auto" {
                 return Err(format!("{prefix}{send_error}"));
             }
-            match remote_http_power(&server, action) {
+            match remote_http_power(app, &server, action, &routes) {
                 Ok(message) => Ok(format!(
                     "sol 包没发出去（{send_error}），已改走它自己的 AnyBoot 接口：{message}"
                 )),
@@ -5865,6 +5947,7 @@ mod tests {
             route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
             jumps: Default::default(),
+            power_http_kinds: crate::hub::default_power_http_kinds(),
             macs: Default::default(),
             power_routes: vec![],
             conn_mode: String::new(),
@@ -6167,6 +6250,7 @@ mod tests {
             route_probe_mode: "parallel_first".into(),
             jump_id: String::new(),
             jumps: Default::default(),
+            power_http_kinds: crate::hub::default_power_http_kinds(),
             macs: Default::default(),
             power_routes: vec![],
             conn_mode: String::new(),
@@ -6209,6 +6293,7 @@ mod tests {
                 route_probe_mode: "parallel_first".into(),
                 jump_id: String::new(),
                 jumps: Default::default(),
+                power_http_kinds: crate::hub::default_power_http_kinds(),
                 macs: Default::default(),
                 power_routes: vec![],
                 conn_mode: String::new(),
