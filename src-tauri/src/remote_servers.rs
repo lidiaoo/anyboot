@@ -4594,7 +4594,7 @@ fn grub_submenu_titles(value: &serde_json::Value) -> std::collections::HashMap<S
 ///   （极简/原始不带）；组名翻自 `groups`（老服务端没有 groups 时退回内部 id）；
 /// * 子项「↳ 」缩进；顶层与各组各有一套折叠状态（非原始格式折叠同名变体）；
 /// * 条目文字随格式变（`push_grub_option`，与 `grub_row_label` 同一规则）。
-fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
+pub(crate) fn grub_from_json(value: &serde_json::Value, format: &str) -> BootGroup {
     let next = value
         .get("nextEntry")
         .and_then(|item| item.as_str())

@@ -615,15 +615,37 @@ pub(crate) fn switch_instance_and_update(
 pub(crate) fn extra_instance_group(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
     let root = std::path::Path::new(&instance.root_path);
     match instance.kind.as_str() {
-        "grub" => Some(crate::remote_servers::BootGroup {
-            kind: instance.kind.clone(),
-            title: instance.title.clone(),
-            available: instance.available,
-            current: grub_instance_current(instance),
-            note: String::new(),
-            options: grub_instance_options(instance),
-            ..Default::default()
-        }),
+        "grub" => {
+            // **读取方式决定数据源**（与系统引导页 / 电脑列表本机行 / 托盘同一口径）：
+            // · 自动（默认）：GRUB 列表看 Linux 分区里那份 grub.cfg + grubenv
+            //   （`remote_grub_json` 已经把 linuxGrub overlay 上去）；
+            // · 手动：才解析 ESP 上那份副本（现状行为）。
+            // 以前一律读「实例目录下的 grubenv」（= ESP 那份），与自动模式的真值
+            // 不同步 → 电脑列表/电脑页的 GRUB 回显显示成另一颗内核（实测：真值
+            // saved_entry=linux-zen，界面却显示 mainline）。2026-11-21 用户实测。
+            let settings = crate::stored_settings(app);
+            if !settings.grub_mode.is_manual() {
+                let json = crate::remote_routing::remote_grub_json(app);
+                let mut group = crate::remote_servers::grub_from_json(
+                    &json,
+                    &settings.grub_list_format,
+                );
+                group.kind = instance.kind.clone();
+                group.title = instance.title.clone();
+                group.available = instance.available || group.available;
+                Some(group)
+            } else {
+                Some(crate::remote_servers::BootGroup {
+                    kind: instance.kind.clone(),
+                    title: instance.title.clone(),
+                    available: instance.available,
+                    current: grub_instance_current(instance),
+                    note: String::new(),
+                    options: grub_instance_options(instance),
+                    ..Default::default()
+                })
+            }
+        }
         "refind" | "refindplus" => {
             let vars = root.join(&instance.install_dir).join("vars");
             // 复用 T7 的 linux_probe_cache（内核/分区清单），不重新全盘扫 ext4
