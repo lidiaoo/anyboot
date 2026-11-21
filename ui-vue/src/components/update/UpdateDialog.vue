@@ -56,8 +56,47 @@ const bytesText = computed(() => {
   return `${mb(downloaded)}/${mb(total)} MB`;
 });
 const downloading = computed(() => phase.value === "downloading" || phase.value === "verifying");
-const canDownload = computed(() => phase.value === "available" || (phase.value === "error" && !!state.value?.assetName));
 const canInstall = computed(() => phase.value === "ready_to_install" || phase.value === "installing");
+/** 主按钮永远可见：有新版本=下载；下载/校验/安装中=对应文案；已最新/检查中=置灰并说明 */
+const primaryLabel = computed(() => {
+  switch (phase.value) {
+    case "available":
+      return "下载";
+    case "downloading":
+      return `下载中 ${percent.value}%`;
+    case "verifying":
+      return "校验中…";
+    case "ready_to_install":
+      return "安装并重启";
+    case "installing":
+      return "安装中…";
+    case "checking":
+      return "检查中…";
+    case "up_to_date":
+      return "已是最新";
+    case "error":
+      return state.value?.assetName ? "重试下载" : "重新检查";
+    default:
+      return "检查更新";
+  }
+});
+const primaryDisabled = computed(() =>
+  busy.value || ["downloading", "verifying", "installing", "checking", "up_to_date", "idle"].includes(phase.value),
+);
+function onPrimary(): void {
+  switch (phase.value) {
+    case "available":
+    case "error":
+      if (state.value?.assetName) void run("update_download");
+      else void run("update_check");
+      break;
+    case "ready_to_install":
+      void run("update_install");
+      break;
+    default:
+      break;
+  }
+}
 
 function applyState(next: UpdateState | null): void {
   if (!next) return;
@@ -202,11 +241,14 @@ onMounted(async () => {
         <option value="0">永久跳过此版本</option>
       </select>
       <button type="button" class="ghost" @click="close">稍后</button>
-      <button v-if="canDownload" type="button" class="primary" :disabled="busy || downloading" @click="run('update_download')">
-        {{ downloading ? "下载中…" : "下载" }}
-      </button>
-      <button v-if="canInstall" type="button" class="primary" :disabled="busy || phase === 'installing'" @click="run('update_install')">
-        {{ phase === "installing" ? "安装中…" : "安装并重启" }}
+      <button
+        type="button"
+        class="primary"
+        :disabled="primaryDisabled"
+        :title="phase === 'up_to_date' ? '当前已经是最新版本，无需下载' : ''"
+        @click="onPrimary"
+      >
+        {{ primaryLabel }}
       </button>
     </footer>
     <p class="upd-hint">下载源与检查频率可在「远程管理 → 关于」里设置 · 关闭窗口 = 稍后再说</p>
