@@ -923,6 +923,7 @@ about: {
   autoCheck: "Comprobación automática (30 s tras iniciar + cada 12 h)",
   checkEvery: "Frecuencia de comprobación",
   downloadSrc: "Origen de descarga",
+  srcCustom: "Personalizado…",
   srcAuto: "Auto (directo → espejo)",
   srcDirect: "Solo GitHub directo",
   srcGhfast: "Espejo ghfast.top",

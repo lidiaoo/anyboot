@@ -218,8 +218,13 @@ fn probe_latest_tag(app: &AppHandle) -> Result<String, String> {
     let url = format!("https://github.com/{UPDATE_REPO}/releases/latest");
     // 直连 → 镜像逐源回退（设计 §2：主通道失败也要试镜像）
     let mut sources: Vec<(String, String)> = vec![("直连".to_string(), String::new())];
-    for (label, prefix) in MIRROR_PREFIXES {
-        sources.push((label.to_string(), prefix.to_string()));
+    let choice = stored_settings(app).update_mirror.clone();
+    if let Some(custom) = normalize_custom_prefix(&choice) {
+        sources.push((format!("自定义（{}）", short_host(&custom)), custom));
+    } else {
+        for (label, prefix) in MIRROR_PREFIXES {
+            sources.push((label.to_string(), prefix.to_string()));
+        }
     }
     let mut failures: Vec<String> = Vec::new();
     for (label, prefix) in sources {
@@ -460,6 +465,9 @@ fn download_sources(settings: &Settings) -> Vec<(String, String)> {
         name if !name.is_empty() && name != UPDATE_MIRROR_AUTO => {
             if let Some((label, prefix)) = MIRROR_PREFIXES.iter().find(|(label, _)| *label == name) {
                 list.push((label.to_string(), prefix.to_string()));
+            } else if let Some(prefix) = normalize_custom_prefix(name) {
+                // 自定义镜像：只接受 https://，前缀统一补尾斜杠（只改 host/前缀，路径不变）
+                list.push((format!("自定义（{}）", short_host(&prefix)), prefix));
             } else {
                 list.push(direct());
             }
@@ -472,6 +480,36 @@ fn download_sources(settings: &Settings) -> Vec<(String, String)> {
         }
     }
     list
+}
+
+/// 校验并规整「自定义下载源」：必须是 `https://host[/path]`，补尾斜杠。
+pub(crate) fn normalize_custom_prefix(raw: &str) -> Option<String> {
+    let text = raw.trim();
+    if !text.starts_with("https://") {
+        return None;
+    }
+    let rest = &text["https://".len()..];
+    let host = rest.split('/').next().unwrap_or("");
+    if host.is_empty() || !host.contains('.') {
+        return None;
+    }
+    let mut prefix = text.to_string();
+    while prefix.ends_with("//") {
+        prefix.pop();
+    }
+    if !prefix.ends_with('/') {
+        prefix.push('/');
+    }
+    Some(prefix)
+}
+
+fn short_host(prefix: &str) -> String {
+    prefix
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .to_string()
 }
 
 fn apply_prefix(prefix: &str, url: &str) -> String {
@@ -569,14 +607,23 @@ fn fetch_sums(app: &AppHandle, tag: &str, prefix: &str) -> Result<String, String
     let url = format!(
         "https://github.com/{UPDATE_REPO}/releases/download/{tag}/SHA256SUMS.txt"
     );
-    let response = agent(5)
-        .get(&apply_prefix(prefix, &url))
-        .set("User-Agent", &user_agent(app))
-        .call()
-        .map_err(|error| format!("取 SHA256SUMS.txt 失败：{error}"))?;
-    response
-        .into_string()
-        .map_err(|error| format!("读 SHA256SUMS.txt 失败：{error}"))
+    // **校验锚点永远优先取可信直连**：自定义/第三方镜像可能连校验文件一起伪造，
+    // 直连拿到的哈希才是可信基准；直连不通才退回当前源（并记录在返回里）。
+    let mut attempts: Vec<String> = vec![url.clone()];
+    if !prefix.is_empty() {
+        attempts.push(apply_prefix(prefix, &url));
+    }
+    let mut errors: Vec<String> = Vec::new();
+    for candidate in attempts {
+        match agent(5).get(&candidate).set("User-Agent", &user_agent(app)).call() {
+            Ok(response) => match response.into_string() {
+                Ok(text) => return Ok(text),
+                Err(error) => errors.push(format!("读失败：{error}")),
+            },
+            Err(error) => errors.push(format!("{error}")),
+        }
+    }
+    Err(format!("取 SHA256SUMS.txt 失败（直连与当前源都失败）：{}", errors.join("；")))
 }
 
 fn staging_dir() -> PathBuf {
@@ -995,6 +1042,12 @@ pub(crate) fn set_update_mirror(app: AppHandle, value: String) -> Result<(), Str
         "" => UPDATE_MIRROR_AUTO.to_string(),
         other => other.to_string(),
     };
+    let known = value == UPDATE_MIRROR_AUTO
+        || value == "direct"
+        || MIRROR_PREFIXES.iter().any(|(label, _)| *label == value);
+    if !known && normalize_custom_prefix(&value).is_none() {
+        return Err("自定义下载源必须以 https:// 开头（例如 https://ghfast.top/）".to_string());
+    }
     update_settings_and_publish(
         &app,
         "更新下载源",
@@ -1145,6 +1198,15 @@ mod tests {
         assert_eq!(parse_sums(&text, "missing.dmg"), None);
         // 长度不是 64 的哈希不算数（防止误把说明行当校验行）
         assert_eq!(parse_sums("deadbeef  a.dmg", "a.dmg"), None);
+    }
+
+    #[test]
+    fn custom_mirror_prefix_validation() {
+        assert_eq!(normalize_custom_prefix("https://ghfast.top"), Some("https://ghfast.top/".into()));
+        assert_eq!(normalize_custom_prefix(" https://a.example/m/ "), Some("https://a.example/m/".into()));
+        assert_eq!(normalize_custom_prefix("http://ghfast.top"), None);
+        assert_eq!(normalize_custom_prefix("https://"), None);
+        assert_eq!(normalize_custom_prefix("ghfast"), None);
     }
 
     #[test]

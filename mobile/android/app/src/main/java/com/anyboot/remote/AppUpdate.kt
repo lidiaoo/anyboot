@@ -255,19 +255,26 @@ object AppUpdate {
      * 名字里带 Text 是刻意的：这里返回的不是哈希，拿它直接跟 SHA-256 比就是错的。
      */
     private fun fetchSumsText(ctx: Context, tag: String, prefix: String): String? {
-        val url = UpdateCore.applyPrefix(prefix, UpdateCore.sumsUrl(tag))
-        val request = Request.Builder().url(url).header("User-Agent", "AnyBootRemote").build()
-        return try {
-            plain.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
-                // 有镜像会把 404 渲染成网页返回 200，正文里全是 HTML
-                if (body.contains("<html", ignoreCase = true)) return null
-                body
-            }
-        } catch (ignored: Exception) {
-            null
+        // 校验锚点优先可信直连：自定义/第三方镜像可能连 SHA256SUMS 一起伪造
+        val candidates = buildList {
+            add(UpdateCore.sumsUrl(tag))
+            if (prefix.isNotEmpty()) add(UpdateCore.applyPrefix(prefix, UpdateCore.sumsUrl(tag)))
         }
+        for (url in candidates) {
+            val request = Request.Builder().url(url).header("User-Agent", "AnyBootRemote").build()
+            try {
+                plain.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val body = response.body?.string() ?: return@use
+                    // 有镜像会把 404 渲染成网页返回 200，正文里全是 HTML
+                    if (body.contains("<html", ignoreCase = true)) return@use
+                    return body
+                }
+            } catch (_: Exception) {
+                // 换下一个候选
+            }
+        }
+        return null
     }
 
     /** 一次下载拿到的东西：实际字节数、服务端声明的长度、Content-Type（用来识别拦截页） */

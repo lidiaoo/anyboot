@@ -16,6 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -256,28 +261,90 @@ fun UpdatePanel(state: UpdateState, modifier: Modifier = Modifier) {
     }
 }
 
-/** 下载源选择（Auto / Direct / ghproxy / ghfast）—— 与桌面端「下载源」下拉同一语义 */
+/** 下载源：下拉框（Auto / Direct / ghproxy / ghfast / 自定义…），与 PC 一致 */
 @Composable
 private fun MirrorRow(state: UpdateState) {
     val palette = LocalPalette.current
     var choice by remember { mutableStateOf(state.mirrorChoice()) }
+    var expanded by remember { mutableStateOf(false) }
+    var customOpen by remember { mutableStateOf(false) }
+    var customText by remember {
+        mutableStateOf(if (choice.startsWith("https://")) choice else "")
+    }
+    val label = when {
+        choice == "auto" -> "Auto"
+        choice == "direct" -> "Direct"
+        choice == "ghproxy" -> "ghproxy"
+        choice == "ghfast" -> "ghfast"
+        choice.startsWith("https://") -> "Custom"
+        else -> choice
+    }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Text("Source", fontSize = 11.sp, color = palette.fgFaint)
         Spacer(Modifier.width(8.dp))
-        for (option in listOf("auto", "direct", "ghproxy", "ghfast")) {
-            val on = choice == option
+        Box {
             Text(
-                option,
+                "$label ▾",
                 fontSize = 11.sp,
-                color = if (on) palette.onAccent else palette.fgDim,
+                color = palette.fg,
                 modifier = Modifier
-                    .padding(end = 6.dp)
                     .clip(RoundedCornerShape(7.dp))
-                    .background(if (on) palette.accent else palette.elevate)
-                    .clickable { choice = option; state.setMirrorChoice(option) }
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .background(palette.elevate)
+                    .clickable { expanded = true }
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
             )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                for (option in listOf("auto", "direct", "ghproxy", "ghfast")) {
+                    DropdownMenuItem(
+                        text = { Text(option, fontSize = 12.sp) },
+                        onClick = {
+                            choice = option
+                            state.setMirrorChoice(option)
+                            expanded = false
+                        },
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Custom…", fontSize = 12.sp) },
+                    onClick = {
+                        expanded = false
+                        customText = if (choice.startsWith("https://")) choice else ""
+                        customOpen = true
+                    },
+                )
+            }
         }
+    }
+    if (customOpen) {
+        AlertDialog(
+            onDismissRequest = { customOpen = false },
+            title = { Text("Custom download source", fontSize = 14.sp) },
+            text = {
+                Column {
+                    Text("https://host/path/", fontSize = 11.sp, color = palette.fgFaint)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = customText,
+                        onValueChange = { customText = it },
+                        singleLine = true,
+                        placeholder = { Text("https://ghfast.top/", fontSize = 12.sp) },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val value = customText.trim()
+                    if (value.startsWith("https://")) {
+                        choice = value
+                        state.setMirrorChoice(value)
+                    }
+                    customOpen = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { customOpen = false }) { Text("Cancel") }
+            },
+        )
     }
 }
 

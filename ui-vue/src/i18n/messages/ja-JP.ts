@@ -923,6 +923,7 @@ about: {
   autoCheck: "自動確認（起動 30 秒後 + 12 時間ごと）",
   checkEvery: "確認頻度",
   downloadSrc: "ダウンロード元",
+  srcCustom: "カスタム…",
   srcAuto: "自動（直接 → ミラー）",
   srcDirect: "GitHub 直結のみ",
   srcGhfast: "ミラー ghfast.top",

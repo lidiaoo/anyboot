@@ -125,8 +125,11 @@ const downloading = computed(() =>
 
 /** 自动检查开关（旧版 #update-auto-check） */
 const autoCheck = ref(true);
-/** 下载源（旧版 #update-mirror） */
-const mirror = ref<"auto" | "direct" | "ghfast" | "ghproxy">("auto");
+/** 下载源：auto / direct / ghfast / ghproxy / custom（自定义 https 前缀） */
+const KNOWN_MIRRORS = ["auto", "direct", "ghfast", "ghproxy"] as const;
+const mirror = ref<string>("auto");
+/** 自定义下载源前缀（https://…），与 PC 下拉框的「自定义…」配套 */
+const customUrl = ref("");
 /** 自动检查间隔（小时，0=关闭） */
 const intervalHours = ref(12);
 /** 初始化期间不把「读回来的值」再写回后端（否则一进页面就覆盖用户设置） */
@@ -152,8 +155,18 @@ watch(autoCheck, (value) => {
 });
 watch(mirror, (value) => {
   if (!optionsReady.value) return;
+  if (value === "custom") return; // 等用户填完自定义地址再落盘
   void call("set_update_mirror", { value }).catch((e) => (updateError.value = String(e)));
 });
+
+/** 应用自定义下载源（https://…），后端会校验格式 */
+function applyCustomMirror(): void {
+  const value = customUrl.value.trim();
+  if (!value) return;
+  void call("set_update_mirror", { value })
+    .then(() => (updateError.value = ""))
+    .catch((e) => (updateError.value = String(e)));
+}
 watch(intervalHours, (value) => {
   if (!optionsReady.value) return;
   void call("set_update_interval", { hours: value }).catch((e) => (updateError.value = String(e)));
@@ -225,7 +238,14 @@ onMounted(async () => {
   try {
     update.value = await call<UpdateState>("update_state");
     autoCheck.value = update.value?.autoCheck ?? true;
-    mirror.value = (update.value?.mirror as typeof mirror.value) ?? "auto";
+    const loadedMirror = String(update.value?.mirror ?? "auto");
+    if ((KNOWN_MIRRORS as readonly string[]).includes(loadedMirror)) {
+      mirror.value = loadedMirror;
+      customUrl.value = "";
+    } else {
+      mirror.value = "custom";
+      customUrl.value = loadedMirror;
+    }
     intervalHours.value = update.value?.intervalHours ?? 12;
     optionsReady.value = true;
     // 兜底：getVersion 拿不到时用快照里的版本（浏览器 / mock 环境）
@@ -364,7 +384,20 @@ function openPage(which: string) {
                 <option value="direct">{{ t("about.srcDirect") }}</option>
                 <option value="ghfast">{{ t("about.srcGhfast") }}</option>
                 <option value="ghproxy">{{ t("about.srcGhproxy") }}</option>
+                <option value="custom">{{ t("about.srcCustom") }}</option>
               </select>
+            </label>
+            <label v-if="mirror === 'custom'" class="update-opt" style="flex: 1 1 100%">
+              <span class="update-k">https://</span>
+              <input
+                id="update-mirror-custom"
+                type="url"
+                placeholder="https://ghfast.top/"
+                v-model="customUrl"
+                style="flex:1;min-width:0"
+                @change="applyCustomMirror"
+                @keyup.enter="applyCustomMirror"
+              />
             </label>
             <label class="update-opt">
               <span class="update-k">{{ t("about.checkEvery") }}</span>

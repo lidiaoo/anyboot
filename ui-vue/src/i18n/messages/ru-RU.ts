@@ -923,6 +923,7 @@ about: {
   autoCheck: "Автопроверка (через 30 с после запуска + каждые 12 ч)",
   checkEvery: "Частота проверки",
   downloadSrc: "Источник загрузки",
+  srcCustom: "Свой…",
   srcAuto: "Авто (напрямую → зеркало)",
   srcDirect: "Только GitHub напрямую",
   srcGhfast: "Зеркало ghfast.top",

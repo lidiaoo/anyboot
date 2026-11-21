@@ -923,6 +923,7 @@ about: {
   autoCheck: "자동 확인 (시작 30초 후 + 12시간마다)",
   checkEvery: "확인 주기",
   downloadSrc: "다운로드 소스",
+  srcCustom: "사용자 지정…",
   srcAuto: "자동 (직접 → 미러)",
   srcDirect: "GitHub 직접만",
   srcGhfast: "미러 ghfast.top",

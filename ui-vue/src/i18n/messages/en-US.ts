@@ -923,6 +923,7 @@ about: {
   autoCheck: "Auto check (30 s after start, then at the frequency below)",
   checkEvery: "Check frequency",
   downloadSrc: "Download source",
+  srcCustom: "Custom…",
   srcAuto: "Auto (direct → mirror)",
   srcDirect: "Direct GitHub only",
   srcGhfast: "Mirror ghfast.top",

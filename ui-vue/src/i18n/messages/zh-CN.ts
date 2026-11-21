@@ -923,6 +923,7 @@ about: {
   autoCheck: "自动检查（启动 30 秒后 + 按下方频率）",
   checkEvery: "检查频率",
   downloadSrc: "下载源",
+  srcCustom: "自定义…",
   srcAuto: "自动（直连 → 镜像）",
   srcDirect: "只直连 GitHub",
   srcGhfast: "镜像 ghfast.top",

@@ -923,6 +923,7 @@ about: {
   autoCheck: "Auto-Prüfung (30 s nach Start + alle 12 h)",
   checkEvery: "Prüfhäufigkeit",
   downloadSrc: "Download-Quelle",
+  srcCustom: "Benutzerdefiniert…",
   srcAuto: "Auto (direkt → Spiegel)",
   srcDirect: "Nur direkt GitHub",
   srcGhfast: "Spiegel ghfast.top",

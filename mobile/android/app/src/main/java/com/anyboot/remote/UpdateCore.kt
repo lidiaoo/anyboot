@@ -141,12 +141,22 @@ object UpdateCore {
         return when {
             trimmed == "direct" -> listOf("直连" to "")
             trimmed.isEmpty() || trimmed == "auto" -> listOf("直连" to "") + MIRRORS
+            trimmed.startsWith("https://") -> listOf("自定义" to normalizeCustomPrefix(trimmed))
             else -> MIRRORS.firstOrNull { it.first == trimmed }?.let { listOf(it) }
                 ?: (listOf("直连" to "") + MIRRORS)
         }
     }
 
-    /** 从下载地址取文件名（去掉查询串与百分号编码尾巴） */
+    /** 自定义镜像：只接受 https://，补尾斜杠（只改 host/前缀，路径不变） */
+    fun normalizeCustomPrefix(raw: String): String {
+        var text = raw.trim()
+        if (!text.startsWith("https://")) return ""
+        while (text.endsWith("//")) text = text.dropLast(1)
+        if (!text.endsWith("/")) text += "/"
+        return text
+    }
+
+    /** 下载地址取文件名（去掉查询串与百分号编码尾巴） */
     fun fileNameOf(url: String): String =
         url.substringBefore('?').substringBefore('#').substringAfterLast('/')
 }
