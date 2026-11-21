@@ -921,6 +921,7 @@ about: {
   installRestart: "Instalar e reiniciar",
   skip: "Pular esta versão",
   autoCheck: "Verificação automática (30 s após iniciar + a cada 12 h)",
+  checkEvery: "Frequência de verificação",
   downloadSrc: "Fonte de download",
   srcAuto: "Auto (direto → espelho)",
   srcDirect: "Só GitHub direto",

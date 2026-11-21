@@ -58,6 +58,12 @@ pub(crate) struct UpdateState {
     pub(crate) source: String,
     /// 用户点过「跳过这个版本」—— 仍为 available，只是不弹提醒
     pub(crate) skipped: bool,
+    /// 自动检查开关（前端要显示真实当前值）
+    pub(crate) auto_check: bool,
+    /// 下载源策略（auto / direct / ghfast / ghproxy）
+    pub(crate) mirror: String,
+    /// 自动检查间隔（小时）
+    pub(crate) interval_hours: u32,
 }
 
 /// 进程内单例：状态 + 单飞闸 + 已选好的资产（URL 不暴露给前端）
@@ -210,20 +216,41 @@ pub(crate) fn tag_from_location(location: &str) -> Option<String> {
 /// 主通道：302 探测（不跟随重定向，读 Location）
 fn probe_latest_tag(app: &AppHandle) -> Result<String, String> {
     let url = format!("https://github.com/{UPDATE_REPO}/releases/latest");
-    let response = agent(0)
-        .head(&url)
-        .set("User-Agent", &user_agent(app))
-        .call();
-    let location = match response {
-        Ok(resp) => resp.header("location").map(str::to_string),
-        // 关闭跟随重定向后，3xx 也可能以 Err(Status) 形式返回
-        Err(ureq::Error::Status(code, resp)) if (300..400).contains(&code) => {
-            resp.header("location").map(str::to_string)
+    // 直连 → 镜像逐源回退（设计 §2：主通道失败也要试镜像）
+    let mut sources: Vec<(String, String)> = vec![("直连".to_string(), String::new())];
+    for (label, prefix) in MIRROR_PREFIXES {
+        sources.push((label.to_string(), prefix.to_string()));
+    }
+    let mut failures: Vec<String> = Vec::new();
+    for (label, prefix) in sources {
+        let candidate = apply_prefix(&prefix, &url);
+        let response = agent(0)
+            .head(&candidate)
+            .set("User-Agent", &user_agent(app))
+            .call();
+        let location = match response {
+            Ok(resp) => resp.header("location").map(str::to_string),
+            Err(ureq::Error::Status(code, resp)) if (300..400).contains(&code) => {
+                resp.header("location").map(str::to_string)
+            }
+            Err(error) => {
+                failures.push(format!("{label}：{error}"));
+                continue;
+            }
+        };
+        match location.as_deref().and_then(tag_from_location) {
+            Some(tag) => return Ok(tag),
+            None => failures.push(format!(
+                "{label}：{}",
+                location.unwrap_or_else(|| "响应里没有 Location".to_string())
+            )),
         }
-        Err(error) => return Err(format!("探测最新版本失败：{error}")),
-    };
-    let location = location.ok_or_else(|| "探测最新版本失败：响应里没有 Location".to_string())?;
-    tag_from_location(&location).ok_or_else(|| format!("探测最新版本失败：Location 认不出 tag（{location}）"))
+    }
+    Err(format!(
+        "探测最新版本失败（已试 {} 个源）：{}。下一步：检查网络/代理后重试，或直接打开 Releases 页。",
+        failures.len(),
+        failures.join("；")
+    ))
 }
 
 /// 补充通道：匿名 API（可能 403，失败不算错）
@@ -317,17 +344,28 @@ fn set_phase(app: &AppHandle, update: impl FnOnce(&mut UpdateState)) {
     let snapshot = {
         let mut state = manager.state.lock().expect("update mutex poisoned");
         update(&mut state);
+        // 设置项每次都回填，前端据此显示开关/下拉的真实当前值
+        let settings = stored_settings(app);
+        state.auto_check = settings.update_auto_check;
+        state.mirror = settings.update_mirror.clone();
+        state.interval_hours = settings.update_check_interval_hours.clamp(1, 168);
         state.clone()
     };
     let _ = app.emit(UPDATE_STATE_EVENT, &snapshot);
 }
 
 fn snapshot(app: &AppHandle) -> UpdateState {
-    app.state::<UpdateManager>()
+    let mut state = app
+        .state::<UpdateManager>()
         .state
         .lock()
         .expect("update mutex poisoned")
-        .clone()
+        .clone();
+    let settings = stored_settings(app);
+    state.auto_check = settings.update_auto_check;
+    state.mirror = settings.update_mirror.clone();
+    state.interval_hours = settings.update_check_interval_hours.clamp(1, 168);
+    state
 }
 
 /// 检查更新（同步，两个短请求；最坏几秒，调用方在命令线程上跑）
@@ -967,6 +1005,27 @@ pub(crate) fn set_update_mirror(app: AppHandle, value: String) -> Result<(), Str
     Ok(())
 }
 
+/// 自动检查间隔（小时，0 = 关闭；最多 168）
+#[tauri::command]
+pub(crate) fn set_update_interval(app: AppHandle, hours: u32) -> Result<(), String> {
+    let hours = hours.min(168);
+    let note = if hours == 0 { "已关闭自动检查".to_string() } else { format!("每 {hours} 小时检查一次") };
+    update_settings_and_publish(
+        &app,
+        "检查更新频率",
+        &note,
+        |settings| {
+            settings.update_check_interval_hours = hours;
+            if hours == 0 {
+                settings.update_auto_check = false;
+            }
+        },
+        |_app| {},
+    )?;
+    set_phase(&app, |_| {});
+    Ok(())
+}
+
 /// 安装前置条件：任何进行中的引导切换 / 电源操作 / 备份都不许装
 fn install_blocked_reason(app: &AppHandle) -> Option<String> {
     let busy = busy_snapshot(app);
@@ -990,19 +1049,35 @@ pub(crate) fn spawn_auto_check(app: AppHandle) {
         std::thread::sleep(Duration::from_secs(AUTO_CHECK_DELAY_SECS));
         loop {
             let settings = stored_settings(&app);
-            if settings.update_auto_check {
+            let hours = settings.update_check_interval_hours.min(168);
+            if settings.update_auto_check && hours > 0 {
                 let manager = app.state::<UpdateManager>();
                 if !manager.busy.swap(true, Ordering::SeqCst) {
                     match check_blocking(&app) {
                         Ok(state) => {
                             if state.phase == "available" && !state.skipped {
                                 trace(&app, "update", "自动检查发现新版本");
+                                // 「更新提示窗」：右下角小窗一次（不打断），点开落「关于」页
+                                mark_focus_pending(&app);
+                                let first_line = state.notes.lines().next().unwrap_or("").trim();
+                                let message = if first_line.is_empty() {
+                                    format!("AnyBoot v{} 已发布，点开查看并下载。", state.latest_version)
+                                } else {
+                                    format!("AnyBoot v{} 已发布：{first_line}", state.latest_version)
+                                };
+                                crate::notify::set_notify_state(
+                                    &app,
+                                    Some(crate::state::NotifyState::Update {
+                                        version: state.latest_version.clone(),
+                                        message,
+                                        expires_at: std::time::Instant::now() + Duration::from_secs(15),
+                                    }),
+                                );
                             }
                         }
                         Err(error) => {
                             trace(&app, "update", &format!("自动检查失败（静默）：{error}"));
                             set_phase(&app, |state| {
-                                // 自动检查失败回到 idle：不把错误摆在设置页里
                                 state.phase = "idle".to_string();
                                 state.error.clear();
                             });
@@ -1011,7 +1086,9 @@ pub(crate) fn spawn_auto_check(app: AppHandle) {
                     manager.busy.store(false, Ordering::SeqCst);
                 }
             }
-            std::thread::sleep(Duration::from_secs(AUTO_CHECK_PERIOD_SECS));
+            // 间隔随时可改：每轮重读；关闭时短睡再判断
+            let sleep_hours = if hours == 0 { 1 } else { hours };
+            std::thread::sleep(Duration::from_secs(sleep_hours as u64 * 3600));
         }
     });
 }

@@ -727,6 +727,32 @@ pub(crate) fn remote_ui_command_inner(
         "update_take_focus_pending" => {
             Ok(serde_json::Value::Bool(crate::update::update_take_focus_pending(app.clone())))
         }
+        // 检查更新（只读网络动作，可安全暴露给本机 HTTP；下载/安装**不**暴露）
+        "update_check" => {
+            // 同步版（check_with_busy 自己管单飞闸与错误态）—— 这里在 HTTP 线程上，
+            // 不能嵌 async 运行时（block_on 里再跑 async 命令会直接 command_failed）。
+            crate::update::check_with_busy(app.clone())
+                .map(|state| serde_json::to_value(state).unwrap_or_default())
+                .map_err(|e| e.to_string())
+        }
+        "set_update_auto_check" => {
+            let enabled = args.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+            crate::update::set_update_auto_check(app.clone(), enabled)
+                .map(|_| serde_json::json!({}))
+                .map_err(|e| e.to_string())
+        }
+        "set_update_mirror" => {
+            let value = ui_str(args, "value").unwrap_or_default();
+            crate::update::set_update_mirror(app.clone(), value)
+                .map(|_| serde_json::json!({}))
+                .map_err(|e| e.to_string())
+        }
+        "set_update_interval" => {
+            let hours = args.get("hours").and_then(|v| v.as_u64()).unwrap_or(12) as u32;
+            crate::update::set_update_interval(app.clone(), hours)
+                .map(|_| serde_json::json!({}))
+                .map_err(|e| e.to_string())
+        }
         "local_service_health" => {
             Ok(serde_json::Value::Bool(tauri::async_runtime::block_on(
                 crate::hub_tailscale::local_service_health(app.clone()),

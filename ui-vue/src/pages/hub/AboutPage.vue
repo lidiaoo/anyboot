@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { call, isTauri } from "@/api/tauri";
 const { t } = useI18n();
@@ -35,6 +35,10 @@ interface UpdateState {
   autoCheck?: boolean;
   /** 下载源 */
   mirror?: string;
+  /** 自动检查间隔（小时） */
+  intervalHours?: number;
+  /** 用户点过「跳过这个版本」 */
+  skipped?: boolean;
 }
 
 const inTauri = isTauri();
@@ -123,6 +127,37 @@ const downloading = computed(() =>
 const autoCheck = ref(true);
 /** 下载源（旧版 #update-mirror） */
 const mirror = ref<"auto" | "direct" | "ghfast" | "ghproxy">("auto");
+/** 自动检查间隔（小时，0=关闭） */
+const intervalHours = ref(12);
+/** 初始化期间不把「读回来的值」再写回后端（否则一进页面就覆盖用户设置） */
+const optionsReady = ref(false);
+/** 「更新提示窗」：自动检查命中新版本时弹一次（手动检查不弹，就地展开就行） */
+const promptOpen = ref(false);
+const manualCheck = ref(false);
+
+// 自动检查命中新版本 → 弹提示窗（用户点名要的「更新提示窗」）
+watch(
+  () => update.value?.phase,
+  (phase) => {
+    if (phase === "available" && !update.value?.skipped && !manualCheck.value) {
+      promptOpen.value = true;
+    }
+  },
+);
+
+/** 开关 / 下载源 / 频率改动即落盘（以前只在本地 ref 里改，重开就复原 = 功能等于没有） */
+watch(autoCheck, (value) => {
+  if (!optionsReady.value) return;
+  void call("set_update_auto_check", { enabled: value }).catch((e) => (updateError.value = String(e)));
+});
+watch(mirror, (value) => {
+  if (!optionsReady.value) return;
+  void call("set_update_mirror", { value }).catch((e) => (updateError.value = String(e)));
+});
+watch(intervalHours, (value) => {
+  if (!optionsReady.value) return;
+  void call("set_update_interval", { hours: value }).catch((e) => (updateError.value = String(e)));
+});
 
 /** 下载（旧版 #update-download） */
 async function startDownload() {
@@ -155,6 +190,15 @@ async function skipVersion() {
   }
 }
 
+/** 下载字节文案（后端只给数字；以前模板读 update.bytes，那个字段不存在 → 永远空） */
+const bytesText = computed(() => {
+  const mb = (n: number) => (n / 1048576).toFixed(1);
+  const downloaded = update.value?.downloaded ?? 0;
+  const total = update.value?.total ?? 0;
+  if (!total) return downloaded ? `${mb(downloaded)} MB` : "";
+  return `${mb(downloaded)}/${mb(total)} MB`;
+});
+
 const progress = computed(() => {
   const total = update.value?.total ?? 0;
   if (!total) return 0;
@@ -182,6 +226,8 @@ onMounted(async () => {
     update.value = await call<UpdateState>("update_state");
     autoCheck.value = update.value?.autoCheck ?? true;
     mirror.value = (update.value?.mirror as typeof mirror.value) ?? "auto";
+    intervalHours.value = update.value?.intervalHours ?? 12;
+    optionsReady.value = true;
     // 兜底：getVersion 拿不到时用快照里的版本（浏览器 / mock 环境）
     if (!version.value && update.value?.currentVersion) {
       version.value = update.value.currentVersion;
@@ -195,6 +241,7 @@ onMounted(async () => {
 async function checkUpdate() {
   if (checking.value) return;
   checking.value = true;
+  manualCheck.value = true;
   updateError.value = "";
   updateOpen.value = true;
   // 立即进入「正在检查」态：meta 显示“正在检查新版本…”，按钮转圈/禁用——否则点了没反馈(用户:没滚轮)
@@ -206,6 +253,7 @@ async function checkUpdate() {
     update.value = { ...(update.value ?? {}), phase: "error" } as UpdateState;
   } finally {
     checking.value = false;
+    manualCheck.value = false;
   }
 }
 
@@ -275,7 +323,7 @@ function openPage(which: string) {
               <div class="update-track"><div id="update-fill" class="update-fill" :style="{ width: progress + '%' }" /></div>
               <div class="update-progress-meta">
                 <span id="update-pct" class="update-pct">{{ progress }}%</span>
-                <span id="update-bytes" class="mono">{{ update?.bytes || "" }}</span>
+                <span id="update-bytes" class="mono">{{ bytesText }}</span>
                 <span id="update-source">{{ update?.source || "" }}</span>
               </div>
             </div>
@@ -316,6 +364,15 @@ function openPage(which: string) {
                 <option value="direct">{{ t("about.srcDirect") }}</option>
                 <option value="ghfast">{{ t("about.srcGhfast") }}</option>
                 <option value="ghproxy">{{ t("about.srcGhproxy") }}</option>
+              </select>
+            </label>
+            <label class="update-opt">
+              <span class="update-k">{{ t("about.checkEvery") }}</span>
+              <select id="update-interval" v-model.number="intervalHours">
+                <option :value="6">6 h</option>
+                <option :value="12">12 h</option>
+                <option :value="24">24 h</option>
+                <option :value="72">72 h</option>
               </select>
             </label>
           </div>
@@ -361,6 +418,24 @@ function openPage(which: string) {
         </div>
 
         <p class="about-sign mono">Made with AnyBoot · 2026</p>
+      </div>
+    </div>
+
+    <!-- 更新提示窗（自动检查命中新版本时弹一次；不打断，可稍后/跳过） -->
+    <div
+      v-if="promptOpen"
+      style="position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45)"
+      @click.self="promptOpen = false"
+    >
+      <div role="dialog" aria-modal="true" style="width:min(420px,92vw);background:var(--panel,#fff);border:1px solid var(--line,#e4e4e7);border-radius:14px;padding:18px 20px;box-shadow:0 18px 48px rgba(0,0,0,.28)">
+        <h3 style="margin:0 0 6px;font-size:16px">{{ t("about.foundNew", { v: update?.latestVersion || "" }) }}</h3>
+        <pre v-if="update?.notes" style="margin:0 0 12px;max-height:160px;overflow:auto;white-space:pre-wrap;font-size:12px;color:var(--dim,#52525b)">{{ update.notes }}</pre>
+        <p v-else style="margin:0 0 12px;font-size:12px;color:var(--dim,#52525b)">{{ t("about.notChecked") }}</p>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+          <button type="button" class="btn" @click="promptOpen = false">{{ t("common.cancel") }}</button>
+          <button type="button" class="btn" @click="skipVersion(); promptOpen = false">{{ t("about.skip") }}</button>
+          <button type="button" class="btn primary" @click="updateOpen = true; startDownload(); promptOpen = false">{{ t("about.download") }}</button>
+        </div>
       </div>
     </div>
   </div>

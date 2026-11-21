@@ -445,6 +445,12 @@ pub(crate) enum NotifyState {
         source: String,
         expires_at: Instant,
     },
+    /// 发现新版本（自动检查命中时弹的小窗；点开落到「关于」页）
+    Update {
+        version: String,
+        message: String,
+        expires_at: Instant,
+    },
 }
 
 /// 调度线程到点该做什么（纯判定，便于单测；副作用在调用方）。
@@ -463,6 +469,7 @@ pub(crate) fn notify_due(state: Option<&NotifyState>, now: Instant) -> NotifyDue
             NotifyDue::Execute(Box::new(pending.clone()))
         }
         Some(NotifyState::Info { expires_at, .. }) if now >= *expires_at => NotifyDue::CloseInfo,
+        Some(NotifyState::Update { expires_at, .. }) if now >= *expires_at => NotifyDue::CloseInfo,
         _ => NotifyDue::Nothing,
     }
 }
@@ -654,6 +661,10 @@ impl LoaderMode {
     pub(crate) fn is_manual(self) -> bool {
         matches!(self, Self::Manual)
     }
+}
+
+pub(crate) fn default_update_interval_hours() -> u32 {
+    12
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -850,6 +861,9 @@ pub(crate) struct Settings {
     /// 自动检查更新（默认开）：启动后延迟 30s 一次 + 每 12 小时一次。
     /// 关掉只保留设置页/托盘的手动检查。
     pub(crate) update_auto_check: bool,
+    /// 自动检查间隔（小时）。1–168；0 视为关闭（等价 update_auto_check=false）
+    #[serde(default = "default_update_interval_hours")]
+    pub(crate) update_check_interval_hours: u32,
     /// 用户点过「跳过这个版本」的版本号（`0.2.1` 形式，不带 v）。命中时不弹提醒，
     /// 但设置页仍可见（可随时改成安装）。
     pub(crate) update_skip_version: String,
@@ -962,6 +976,7 @@ impl Default for Settings {
             tsnet_authkey: String::new(),
             tailscale_authkey: String::new(),
             update_auto_check: true,
+            update_check_interval_hours: default_update_interval_hours(),
             update_skip_version: String::new(),
             update_mirror: UPDATE_MIRROR_AUTO.to_string(),
             boot_instance_aliases: std::collections::HashMap::new(),

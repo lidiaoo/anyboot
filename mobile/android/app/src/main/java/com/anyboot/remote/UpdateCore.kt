@@ -135,8 +135,16 @@ object UpdateCore {
     }
 
     /** 下载源顺序：直连优先，再逐个镜像回退 */
-    fun downloadSources(): List<Pair<String, String>> =
-        listOf("直连" to "") + MIRRORS
+    /** 下载源策略：auto=直连+镜像；direct=只直连；其它=指定镜像（找不到按 auto） */
+    fun downloadSources(choice: String = "auto"): List<Pair<String, String>> {
+        val trimmed = choice.trim()
+        return when {
+            trimmed == "direct" -> listOf("直连" to "")
+            trimmed.isEmpty() || trimmed == "auto" -> listOf("直连" to "") + MIRRORS
+            else -> MIRRORS.firstOrNull { it.first == trimmed }?.let { listOf(it) }
+                ?: (listOf("直连" to "") + MIRRORS)
+        }
+    }
 
     /** 从下载地址取文件名（去掉查询串与百分号编码尾巴） */
     fun fileNameOf(url: String): String =

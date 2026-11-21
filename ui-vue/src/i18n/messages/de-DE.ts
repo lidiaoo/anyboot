@@ -921,6 +921,7 @@ about: {
   installRestart: "Installieren und neu starten",
   skip: "Diese Version überspringen",
   autoCheck: "Auto-Prüfung (30 s nach Start + alle 12 h)",
+  checkEvery: "Prüfhäufigkeit",
   downloadSrc: "Download-Quelle",
   srcAuto: "Auto (direkt → Spiegel)",
   srcDirect: "Nur direkt GitHub",

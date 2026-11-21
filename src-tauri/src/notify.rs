@@ -75,6 +75,36 @@ pub(crate) fn notify_view(app: &AppHandle) -> Option<NotifyView> {
             play_sound: true,
             sound_file_path: String::new(),
         }),
+        NotifyState::Update {
+            version,
+            message,
+            expires_at,
+        } => Some(NotifyView {
+            kind: "info",
+            id: None,
+            title: crate::t!(
+                crate::i18n::current(),
+                "发现新版本 {}",
+                "發現新版本 {}",
+                "Update available {}",
+                "新バージョン {} があります",
+                "새 버전 {} 있습니다",
+                "Neue Version {}",
+                "Доступна версия {}",
+                "Nova versão {}",
+                "Nueva versión {}"
+            )
+            .replace("{}", version),
+            message: message.clone(),
+            source: "update".to_string(),
+            channel: Channel::Http.as_str(),
+            seconds_left: expires_at.saturating_duration_since(Instant::now()).as_secs(),
+            total_seconds: 15,
+            created: utc_timestamp(now_epoch_seconds()),
+            can_cancel: false,
+            play_sound: true,
+            sound_file_path: String::new(),
+        }),
     }
 }
 

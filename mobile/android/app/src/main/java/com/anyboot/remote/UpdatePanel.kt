@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,10 @@ class UpdateState(
         "error" -> activity.getString(R.string.and_updError)
         else -> activity.getString(R.string.and_updCheck)
     }
+
+    /** 下载源（设置项，落 SharedPreferences） */
+    fun mirrorChoice(): String = AppUpdate.mirror(activity)
+    fun setMirrorChoice(value: String) = AppUpdate.setMirror(activity, value)
 
     /** 展开时调一次：只有第一次展开才真的查，之后展开只是回看结果 */
     fun checkOnFirstOpen() {
@@ -239,6 +244,8 @@ fun UpdatePanel(state: UpdateState, modifier: Modifier = Modifier) {
                 PanelButton(text = stringResource(R.string.and_browserDownload), primary = false) { state.openDownloadPage() }
             }
         }
+        Spacer(Modifier.height(8.dp))
+        MirrorRow(state)
         Spacer(Modifier.height(10.dp))
         Text(
             stringResource(R.string.and_installHint),
@@ -246,6 +253,31 @@ fun UpdatePanel(state: UpdateState, modifier: Modifier = Modifier) {
             lineHeight = 17.sp,
             color = palette.fgFaint,
         )
+    }
+}
+
+/** 下载源选择（Auto / Direct / ghproxy / ghfast）—— 与桌面端「下载源」下拉同一语义 */
+@Composable
+private fun MirrorRow(state: UpdateState) {
+    val palette = LocalPalette.current
+    var choice by remember { mutableStateOf(state.mirrorChoice()) }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text("Source", fontSize = 11.sp, color = palette.fgFaint)
+        Spacer(Modifier.width(8.dp))
+        for (option in listOf("auto", "direct", "ghproxy", "ghfast")) {
+            val on = choice == option
+            Text(
+                option,
+                fontSize = 11.sp,
+                color = if (on) palette.onAccent else palette.fgDim,
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(if (on) palette.accent else palette.elevate)
+                    .clickable { choice = option; state.setMirrorChoice(option) }
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
     }
 }
 

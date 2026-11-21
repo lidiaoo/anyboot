@@ -18,6 +18,9 @@ enum ABUpdateCheck {
     static let latestPage = "https://github.com/\(repo)/releases/latest"
     static let releasesPage = "https://github.com/\(repo)/releases"
 
+    /// 镜像前缀（与桌面 update.rs / Android UpdateCore 同一批；国内直连常被断流）
+    static let mirrorPrefixes = ["https://gh-proxy.com/", "https://ghfast.top/"]
+
     struct Outcome {
         let tag: String        // v0.2.1
         let version: String    // 0.2.1
@@ -80,26 +83,36 @@ enum ABUpdateCheck {
     }
 
     private static func probeTag() async throws -> String {
-        guard let url = URL(string: latestPage) else { throw Failure.noTag }
-        var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 10
-        request.setValue("AnyBootRemote", forHTTPHeaderField: "User-Agent")
+        // 直连 → 镜像逐源回退（与桌面端 update.rs 同一策略）
+        let candidates = [latestPage] + mirrorPrefixes.map { $0 + latestPage }
+        var failures: [String] = []
+        for candidate in candidates {
+            guard let url = URL(string: candidate) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "HEAD"
+            request.timeoutInterval = 10
+            request.setValue("AnyBootRemote", forHTTPHeaderField: "User-Agent")
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 10
-        let session = URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 10
+            let session = URLSession(configuration: configuration, delegate: NoRedirect(), delegateQueue: nil)
+            defer { session.finishTasksAndInvalidate() }
 
-        let (_, response): (Data, URLResponse)
-        do {
-            (_, response) = try await session.data(for: request)
-        } catch {
-            throw Failure.network(error.localizedDescription)
+            let (_, response): (Data, URLResponse)
+            do {
+                (_, response) = try await session.data(for: request)
+            } catch {
+                failures.append(error.localizedDescription)
+                continue
+            }
+            let location = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location")
+            if let location, let tag = tagFromLocation(location) {
+                return tag
+            }
+            failures.append(candidate)
         }
-        let location = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location")
-        guard let location, let tag = tagFromLocation(location) else { throw Failure.noTag }
-        return tag
+        if failures.isEmpty { throw Failure.noTag }
+        throw Failure.network(failures.joined(separator: "; "))
     }
 
     /// 补充通道：匿名 API 只用来取更新日志与 assets（403 就静默放弃）

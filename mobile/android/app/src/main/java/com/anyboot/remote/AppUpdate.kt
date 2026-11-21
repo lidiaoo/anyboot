@@ -39,6 +39,7 @@ object AppUpdate {
 
     private const val PREFS = "anyboot_update"
     private const val KEY_SKIP = "skip_version"
+    private const val KEY_MIRROR = "update_mirror"
     private const val KEY_CHECKED_AT = "checked_at"
     private const val KEY_LATEST = "latest_version"
 
@@ -65,6 +66,14 @@ object AppUpdate {
      * 检查最新版本。失败抛 [IOException]（文案已带下一步），成功返回带安装包地址的结果。
      * 调用方自己决定「有新版本」还是「已最新」——这里不做判断，避免口径分散。
      */
+    /** 下载源设置（auto / direct / ghproxy / ghfast） */
+    fun mirror(ctx: Context): String =
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MIRROR, "auto") ?: "auto"
+
+    fun setMirror(ctx: Context, value: String) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_MIRROR, value).apply()
+    }
+
     fun check(ctx: Context): AppRelease {
         val tag = probeTag(ctx)
         val version = UpdateCore.normalize(tag)
@@ -85,22 +94,24 @@ object AppUpdate {
 
     /** 主通道：`HEAD /releases/latest` → 302 `Location` → tag（零速率限制） */
     private fun probeTag(ctx: Context): String {
-        val request = Request.Builder()
-            .url(UpdateCore.LATEST_PAGE)
-            .head()
-            .header("User-Agent", "AnyBootRemote")
-            .build()
-        val location = try {
-            probe.newCall(request).execute().use { response ->
-                // 不跟随重定向时 code 是 301/302，Location 在响应头里
-                response.header("Location") ?: response.header("location")
+        // 直连 → 镜像逐源回退（与桌面端 update.rs 同一策略：国内直连常被断流）
+        val failures = mutableListOf<String>()
+        for ((label, prefix) in UpdateCore.downloadSources(mirror(ctx))) {
+            val url = UpdateCore.applyPrefix(prefix, UpdateCore.LATEST_PAGE)
+            val request = Request.Builder().url(url).head().header("User-Agent", "AnyBootRemote").build()
+            val location = try {
+                probe.newCall(request).execute().use { response ->
+                    response.header("Location") ?: response.header("location")
+                }
+            } catch (error: Exception) {
+                failures.add("$label: ${error.message}")
+                continue
             }
-        } catch (error: Exception) {
-            throw IOException(ctx.getString(R.string.and_probeVerFail, error.message ?: ctx.getString(R.string.and_netUnavailable)))
+            val tag = UpdateCore.tagFromLocation(location)
+            if (tag != null) return tag
+            failures.add("$label: no-tag")
         }
-        val tag = UpdateCore.tagFromLocation(location)
-            ?: throw IOException(ctx.getString(R.string.and_probeVerNoVer))
-        return tag
+        throw IOException(ctx.getString(R.string.and_probeVerFail, failures.joinToString("; ")))
     }
 
     /** 补充通道：匿名 API（只用来取更新日志与 assets，403 时静默放弃） */
@@ -181,7 +192,7 @@ object AppUpdate {
         dir.listFiles()?.forEach { it.deleteRecursively() }
 
         val failures = mutableListOf<String>()
-        for ((label, prefix) in UpdateCore.downloadSources()) {
+        for ((label, prefix) in UpdateCore.downloadSources(mirror(context))) {
             // 同一个源试两次：国内链路上偶发的半截包 / 代理回网页，第二次常常就正常了。
             // 只重试一次是刻意的——真被劫持时重试也没用，别让用户干等。
             var lastError = ""

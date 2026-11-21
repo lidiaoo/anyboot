@@ -4174,6 +4174,7 @@ pub fn run() {
             update::update_take_focus_pending,
             update::set_update_auto_check,
             update::set_update_mirror,
+            update::set_update_interval,
             set_sound_file_path,
             set_http_token,
             set_theme,
