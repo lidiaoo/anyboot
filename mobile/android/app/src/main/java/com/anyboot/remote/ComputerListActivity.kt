@@ -2544,6 +2544,22 @@ class ComputerListActivity : ComponentActivity() {
         return current.ifEmpty { getString(R.string.hub_state_notSet) } to ""
     }
 
+    /** 二级条目回溯最近的组头（清洗「（N 项）」后缀）——回执提示要「一级 › 二级」 */
+    private fun parentHeaderOf(group: BootGroup, target: BootOption): String {
+        var hdr = ""
+        for (o in group.options) {
+            if (o.header) {
+                hdr = o.label
+                    .replace(Regex("^[▾▸\\s]+"), "")
+                    .replace(Regex("（\\d+\\s*(项|个内核)[^）]*）\\s*$"), "")
+                    .trim()
+            } else if (o === target) {
+                break
+            }
+        }
+        return hdr
+    }
+
     /** 统一下拉行：由 BootGroup.options 按字段生成（header/child/tag/sub/note/pinned/fixed）。
      *  所有引导器（含 GRUB）共用这一套，无 loader 特例。 */
     private fun bootRows(group: BootGroup): List<GrubRow> {
@@ -2568,14 +2584,12 @@ class ComputerListActivity : ComponentActivity() {
             val icon = grubOsIcon(opt.kind, plainLabel)   // 每行都带图标（与旧下拉一致）
             val readonly = v.isEmpty() || opt.fixed
             val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
-            // 组内二级行显示「一级组名 › 二级名」——弹窗里裸内核名（zen/mainline）看不出
-            // 属于哪个系统（用户 2026-11-21 要求：一二级都要显示）
-            val rowPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
             if (isCurrent) {
                 currentMarked = true
-                rows.add(GrubRow(opt, rowPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                val pinnedPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
+                rows.add(GrubRow(opt, pinnedPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            rows.add(GrubRow(opt, rowPlain, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
+            rows.add(GrubRow(opt, plainLabel, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
@@ -2971,8 +2985,17 @@ class ComputerListActivity : ComponentActivity() {
                                                     toast(getString(R.string.hub_picker_readonlyHint))
                                                 } else {
                                                     sheetRequest = null
-                                                    // 回执标题用 row.label（已含「一级 › 二级」），不要用裸 opt.label
-                                                    switchBoot(rid, group.instanceId.ifEmpty { group.kind }, opt.value, getString(R.string.and_switchAction), row.label)
+                                                    // 回执标题带「一级 › 二级」（列表行保持纯二级，只在提示里补一级）
+                                                    switchBoot(
+                                                        rid,
+                                                        group.instanceId.ifEmpty { group.kind },
+                                                        opt.value,
+                                                        getString(R.string.and_switchAction),
+                                                        if (opt.child) {
+                                                            val hdr = parentHeaderOf(group, opt)
+                                                            if (hdr.isEmpty()) opt.label else "$hdr › ${opt.label}"
+                                                        } else opt.label,
+                                                    )
                                                 }
                                             }
                                             .padding(
