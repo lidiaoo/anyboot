@@ -7,7 +7,7 @@ import { useI18n } from "vue-i18n";
  *
  * 复用真实区块组件（RefindSection/GrubSection）的 hideList 模式，只渲染设置部分。
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import RefindSection from "./RefindSection.vue";
 import GrubSection from "./GrubSection.vue";
 import GrubEsp from "./GrubEsp.vue";
@@ -16,6 +16,10 @@ const { t } = useI18n();
 
 const props = defineProps<{ loader: string; defaultOpen?: boolean; plain?: boolean }>();
 const open = ref(Boolean(props.defaultOpen));
+
+/** 多实例后 `loader` 是实例 id（`grub@b3fb…/efi`），比较前要先取 kind。
+ *  否则所有引导器都落到 ChannelSettings 兜底 → 显示「没有可调设置」（用户实测）。 */
+const kindOf = computed(() => String(props.loader || "").split("@")[0]);
 </script>
 
 <template>
@@ -34,17 +38,17 @@ const open = ref(Boolean(props.defaultOpen));
       <span class="chevron car" aria-hidden="true" :style="{ transform: open ? 'rotate(180deg)' : '' }">⌄</span>
     </button>
     <div v-show="props.plain || open" class="ba-set-body">
-      <template v-if="props.loader === 'refind'">
+      <template v-if="kindOf === 'refind'">
         <RefindSection hide-list />
       </template>
-      <template v-else-if="props.loader === 'refindplus'">
+      <template v-else-if="kindOf === 'refindplus'">
         <RefindSection channel="refindplus" hide-list />
       </template>
-      <template v-else-if="props.loader === 'grub'">
+      <template v-else-if="kindOf === 'grub'">
         <GrubSection hide-list />
         <GrubEsp />
       </template>
-      <ChannelSettings v-else :loader="props.loader" />
+      <ChannelSettings v-else :loader="kindOf" />
     </div>
   </div>
 </template>
