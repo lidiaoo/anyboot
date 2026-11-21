@@ -362,12 +362,16 @@ onMounted(async () => {
 .upd-hint { margin: 10px 0 0; color: var(--faint, #9ca3af); font-size: 11px; }
 /* 内联（关于页卡片）：跟随容器宽度、紧凑排版，标题与操作同一行，避免出现一大片空白 */
 .upd-card.is-inline {
+  /* 与关于页 .about-card 完全同规格：width 100% + max-width 520px + padding 24/16 + 16 圆角 */
   width: 100%;
-  max-width: none;
-  align-self: stretch;
+  max-width: 520px;
+  align-self: center;
   margin: 0;
-  padding: 18px 20px;
+  padding: 24px 16px;
   border-radius: 16px;
+  background: rgb(var(--card, 255 255 255));
+  border: 1px solid rgb(var(--line, 228 228 231));
+  color: rgb(var(--fg, 31 35 40));
   box-shadow: none;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

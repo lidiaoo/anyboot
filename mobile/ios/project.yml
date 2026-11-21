@@ -97,8 +97,8 @@ targets:
         # 一起改）：tag v0.2.5 → CFBundleShortVersionString 0.2.5，CFBundleVersion 205
         # （= major*10000+minor*100+patch）。检查更新只比 ShortVersion（ABUpdateCheck.isNewer），
         # 不同轴会永远判成「已是最新」。
-        CFBundleShortVersionString: "0.2.22"
-        CFBundleVersion: "222"
+        CFBundleShortVersionString: "0.2.23"
+        CFBundleVersion: "223"
         CFBundleDisplayName: AnyBoot 远程
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
