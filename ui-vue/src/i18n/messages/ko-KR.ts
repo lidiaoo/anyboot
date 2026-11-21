@@ -928,6 +928,7 @@ about: {
   installRestart: "설치 후 재시작",
   skip: "이 버전 건너뛰기",
   autoCheck: "자동 확인 (시작 30초 후 + 12시간마다)",
+  autoDownload: "새 버전 자동 다운로드",
   checkEvery: "확인 주기",
   downloadSrc: "다운로드 소스",
   srcCustom: "사용자 지정…",

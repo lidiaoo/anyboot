@@ -928,6 +928,7 @@ about: {
   installRestart: "安裝並重新啟動",
   skip: "跳過這個版本",
   autoCheck: "自動檢查（啟動 30 秒後 + 依下方頻率）",
+  autoDownload: "發現新版本時自動下載",
   checkEvery: "檢查頻率",
   downloadSrc: "下載來源",
   srcCustom: "自訂…",

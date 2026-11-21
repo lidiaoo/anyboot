@@ -928,6 +928,7 @@ about: {
   installRestart: "Instalar y reiniciar",
   skip: "Omitir esta versión",
   autoCheck: "Comprobación automática (30 s tras iniciar + cada 12 h)",
+  autoDownload: "Descargar nuevas versiones automáticamente",
   checkEvery: "Frecuencia de comprobación",
   downloadSrc: "Origen de descarga",
   srcCustom: "Personalizado…",

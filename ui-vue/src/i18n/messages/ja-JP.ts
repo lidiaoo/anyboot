@@ -928,6 +928,7 @@ about: {
   installRestart: "インストールして再起動",
   skip: "このバージョンをスキップ",
   autoCheck: "自動確認（起動 30 秒後 + 12 時間ごと）",
+  autoDownload: "新バージョンを自動ダウンロード",
   checkEvery: "確認頻度",
   downloadSrc: "ダウンロード元",
   srcCustom: "カスタム…",

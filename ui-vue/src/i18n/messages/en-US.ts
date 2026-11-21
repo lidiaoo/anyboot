@@ -928,6 +928,7 @@ about: {
   installRestart: "Install and restart",
   skip: "Skip this version",
   autoCheck: "Auto check (30 s after start, then at the frequency below)",
+  autoDownload: "Auto-download new versions",
   checkEvery: "Check frequency",
   downloadSrc: "Download source",
   srcCustom: "Custom…",

@@ -66,6 +66,10 @@ pub(crate) struct UpdateState {
     pub(crate) interval_hours: u32,
     /// 跳过截止时间（Unix 秒；0 = 永久跳过该版本）
     pub(crate) skip_until_epoch: u64,
+    /// 稍后提醒截止（Unix 秒；0 = 无）
+    pub(crate) remind_after_epoch: u64,
+    /// 自动下载开关（前端显示用）
+    pub(crate) auto_download: bool,
 }
 
 /// 进程内单例：状态 + 单飞闸 + 已选好的资产（URL 不暴露给前端）
@@ -373,6 +377,8 @@ fn snapshot(app: &AppHandle) -> UpdateState {
     state.mirror = settings.update_mirror.clone();
     state.interval_hours = settings.update_check_interval_hours.clamp(1, 168);
     state.skip_until_epoch = settings.update_skip_until_epoch;
+    state.remind_after_epoch = settings.update_remind_after_epoch;
+    state.auto_download = settings.update_auto_download;
     state
 }
 
@@ -959,6 +965,9 @@ pub(crate) fn check_with_busy(app: AppHandle) -> Result<UpdateState, String> {
                 if let Err(error) = show_update_window(&app) {
                     trace(&app, "update", &format!("打开更新弹窗失败（已忽略）：{error}"));
                 }
+                if stored_settings(&app).update_auto_download {
+                    let _ = update_download(app.clone());
+                }
             }
             Ok(state)
         }
@@ -1059,6 +1068,37 @@ pub(crate) fn update_dismiss(
         state.skipped = !version.is_empty();
         state.skip_until_epoch = until;
     });
+    Ok(())
+}
+
+/// 「稍后提醒」：默认 24 小时后再提醒（只影响**自动检查**是否弹窗；
+/// 用户手动点检查更新仍然会正常显示）。与「跳过此版本」是两件事。
+#[tauri::command]
+pub(crate) fn update_remind_later(app: AppHandle, hours: Option<u32>) -> Result<(), String> {
+    let hours = hours.unwrap_or(24).clamp(1, 24 * 30);
+    let until = crate::unix_millis() / 1000 + hours as u64 * 3_600;
+    update_settings_and_publish(
+        &app,
+        "检查更新",
+        &format!("{hours} 小时后提醒"),
+        |settings| settings.update_remind_after_epoch = until,
+        |_app| {},
+    )?;
+    set_phase(&app, |state| state.remind_after_epoch = until);
+    Ok(())
+}
+
+/// 自动下载开关（发现新版本就直接后台下载）
+#[tauri::command]
+pub(crate) fn set_update_auto_download(app: AppHandle, enabled: bool) -> Result<(), String> {
+    update_settings_and_publish(
+        &app,
+        "自动下载更新",
+        if enabled { "已开启" } else { "已关闭" },
+        |settings| settings.update_auto_download = enabled,
+        |_app| {},
+    )?;
+    set_phase(&app, |_| {});
     Ok(())
 }
 
@@ -1174,6 +1214,12 @@ pub(crate) fn show_update_window(app: &AppHandle) -> Result<(), String> {
 /// 命令：打开更新弹窗（供关于页 / 托盘「检查更新…」在检查完成后调用）
 #[tauri::command]
 pub(crate) fn update_open_window(app: AppHandle) -> Result<(), String> {
+    // 只在「确实有更新要处理」时弹窗：已是最新 / 检查中 / 出错都不弹（与主流做法一致）
+    let state = snapshot(&app);
+    let wanted = ["available", "downloading", "verifying", "ready_to_install", "installing"];
+    if !wanted.contains(&state.phase.as_str()) {
+        return Ok(());
+    }
     show_update_window(&app)
 }
 
@@ -1194,12 +1240,18 @@ pub(crate) fn spawn_auto_check(app: AppHandle) {
                 if !manager.busy.swap(true, Ordering::SeqCst) {
                     match check_blocking(&app) {
                         Ok(state) => {
-                            if state.phase == "available" && !state.skipped {
+                            let remind_active = state.remind_after_epoch > 0
+                                && state.remind_after_epoch > crate::unix_millis() / 1000;
+                            if state.phase == "available" && !state.skipped && !remind_active {
                                 trace(&app, "update", "自动检查发现新版本");
                                 // 「版本更新弹窗」：独立小窗（带下载 / 安装 / 跳过 / 稍后）
                                 mark_focus_pending(&app);
                                 if let Err(error) = show_update_window(&app) {
                                     trace(&app, "update", &format!("打开更新弹窗失败（已忽略）：{error}"));
+                                }
+                                if stored_settings(&app).update_auto_download {
+                                    manager.busy.store(false, Ordering::SeqCst);
+                                    let _ = update_download(app.clone());
                                 }
                             }
                         }

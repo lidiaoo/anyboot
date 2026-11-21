@@ -58,6 +58,10 @@ const bytesText = computed(() => {
 const downloading = computed(() => phase.value === "downloading" || phase.value === "verifying");
 const canInstall = computed(() => phase.value === "ready_to_install" || phase.value === "installing");
 /** 有「新版本」语义的阶段（标题/日志/跳过/下载源只在这些阶段出现） */
+const assetMB = computed(() => {
+  const size = state.value?.total ?? 0;
+  return size ? `${(size / 1048576).toFixed(1)} MB` : "";
+});
 const hasRelease = computed(() =>
   ["available", "downloading", "verifying", "ready_to_install", "installing"].includes(phase.value),
 );
@@ -210,6 +214,7 @@ onMounted(async () => {
       <p v-else class="upd-notes empty">（这个版本没有填写更新日志）</p>
     </template>
 
+    <p v-if="phase === 'available' && assetMB" class="upd-size">安装包大小 <span class="mono">{{ assetMB }}</span></p>
     <div v-if="downloading || canInstall" class="upd-progress">
       <div class="bar"><span :style="{ width: percent + '%' }" /></div>
       <div class="nums">
@@ -257,7 +262,7 @@ onMounted(async () => {
           <option value="30">忽略 30 天</option>
           <option value="0">永久跳过此版本</option>
         </select>
-        <button type="button" class="ghost" @click="close">稍后</button>
+        <button type="button" class="ghost" @click="run('update_remind_later', { hours: 24 }).then(close)">稍后提醒</button>
         <button type="button" class="primary" :disabled="primaryDisabled" @click="onPrimary">
           {{ primaryLabel }}
         </button>
@@ -313,6 +318,7 @@ onMounted(async () => {
   padding: 10px 12px;
 }
 .upd-notes.empty { color: var(--dim, #6b7280); }
+.upd-size { margin: 0 0 10px; color: var(--dim, #6b7280); font-size: 12px; }
 .upd-progress { margin: 0 0 10px; }
 .upd-progress .bar { height: 8px; border-radius: 4px; background: rgba(127, 127, 127, 0.25); overflow: hidden; }
 .upd-progress .bar span { display: block; height: 100%; background: var(--accent, #3b82f6); transition: width 0.12s linear; }

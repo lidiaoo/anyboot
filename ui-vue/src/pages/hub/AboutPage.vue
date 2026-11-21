@@ -34,6 +34,7 @@ interface UpdateState {
   bytes?: string;
   /** 自动检查开关 */
   autoCheck?: boolean;
+  autoDownload?: boolean;
   /** 下载源 */
   mirror?: string;
   /** 自动检查间隔（小时） */
@@ -91,6 +92,8 @@ const LINK_ITEMS = [
 
 /** 自动检查开关（旧版 #update-auto-check） */
 const autoCheck = ref(true);
+/** 发现新版本时自动后台下载 */
+const autoDownload = ref(false);
 /** 下载源：auto / direct / ghfast / ghproxy / custom（自定义 https 前缀） */
 const KNOWN_MIRRORS = ["auto", "direct", "ghfast", "ghproxy"] as const;
 const mirror = ref<string>("auto");
@@ -118,6 +121,10 @@ watch(
 watch(autoCheck, (value) => {
   if (!optionsReady.value) return;
   void call("set_update_auto_check", { enabled: value }).catch((e) => (updateError.value = String(e)));
+});
+watch(autoDownload, (value) => {
+  if (!optionsReady.value) return;
+  void call("set_update_auto_download", { enabled: value }).catch((e) => (updateError.value = String(e)));
 });
 watch(mirror, (value) => {
   if (!optionsReady.value) return;
@@ -172,6 +179,7 @@ onMounted(async () => {
   try {
     update.value = await call<UpdateState>("update_state");
     autoCheck.value = update.value?.autoCheck ?? true;
+    autoDownload.value = update.value?.autoDownload ?? false;
     const loadedMirror = String(update.value?.mirror ?? "auto");
     if ((KNOWN_MIRRORS as readonly string[]).includes(loadedMirror)) {
       mirror.value = loadedMirror;
