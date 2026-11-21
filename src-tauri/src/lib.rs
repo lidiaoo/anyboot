@@ -4168,6 +4168,7 @@ pub fn run() {
             // 检查更新（update.rs）：状态 / 检查 / 下载 / 安装 / 跳过此版本
             update::update_state,
             update::update_check,
+            update::update_open_window,
             update::update_download,
             update::update_install,
             update::update_dismiss,

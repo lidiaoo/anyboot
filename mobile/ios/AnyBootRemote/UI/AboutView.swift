@@ -28,6 +28,9 @@ struct AboutView: View {
     @State private var latestVersion: String?
     @State private var updateUpToDate = false
     @State private var updateError: String?
+    /// 版本更新弹窗（发现新版本时弹一次；iOS 只引导到 Releases）
+    @State private var showUpdatePopup = false
+    @State private var updateNotes = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -55,6 +58,15 @@ struct AboutView: View {
         }
         .background(ABColor.base.ignoresSafeArea())
         .onAppear(perform: loadRepoStats)
+        .alert(
+            latestVersion.map { "发现新版本 v\($0)" } ?? "发现新版本",
+            isPresented: $showUpdatePopup
+        ) {
+            Button("打开 Releases 下载页") { open(Self.repoURL + "/releases") }
+            Button("稍后", role: .cancel) { }
+        } message: {
+            Text(updateNotes.isEmpty ? "点「打开 Releases 下载页」获取安装包（iOS 需手动重签名安装）。" : updateNotes)
+        }
     }
 
     // MARK: - 标题栏（:75-84）
@@ -260,6 +272,8 @@ struct AboutView: View {
                     if outcome.isNewer {
                         latestVersion = outcome.version
                         updateUpToDate = false
+                        updateNotes = outcome.notes
+                        showUpdatePopup = true
                     } else {
                         latestVersion = nil
                         updateUpToDate = true

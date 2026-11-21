@@ -728,6 +728,9 @@ pub(crate) fn remote_ui_command_inner(
             Ok(serde_json::Value::Bool(crate::update::update_take_focus_pending(app.clone())))
         }
         // 检查更新（只读网络动作，可安全暴露给本机 HTTP；下载/安装**不**暴露）
+        "update_open_window" => crate::update::update_open_window(app.clone())
+            .map(|_| serde_json::json!({}))
+            .map_err(|e| e.to_string()),
         "update_check" => {
             // 同步版（check_with_busy 自己管单飞闸与错误态）—— 这里在 HTTP 线程上，
             // 不能嵌 async 运行时（block_on 里再跑 async 命令会直接 command_failed）。

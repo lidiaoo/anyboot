@@ -28,6 +28,11 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -88,6 +93,53 @@ class AboutActivity : ComponentActivity() {
     private fun Root() {
         AppTheme {
             val palette = LocalPalette.current
+            // 「版本更新弹窗」（独立弹窗，带下载/安装/跳过/稍后；每次新版本只弹一次）
+            var showUpdateDialog by remember { mutableStateOf(false) }
+            var promptedVersion by remember { mutableStateOf("") }
+            val pendingRelease = updateState.release
+            LaunchedEffect(updateState.phase, pendingRelease?.version) {
+                val version = pendingRelease?.version ?: ""
+                if (updateState.phase == "available" && version.isNotEmpty()
+                    && version != promptedVersion
+                    && AppUpdate.skippedVersion(this@AboutActivity) != version
+                ) {
+                    promptedVersion = version
+                    showUpdateDialog = true
+                }
+            }
+            if (showUpdateDialog && pendingRelease != null) {
+                AlertDialog(
+                    onDismissRequest = { showUpdateDialog = false },
+                    title = { Text("发现新版本 v${pendingRelease.version}", fontSize = 16.sp) },
+                    text = {
+                        Column(
+                            Modifier
+                                .heightIn(max = 240.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(
+                                pendingRelease.notes.ifBlank { "（这个版本没有填写更新日志）" },
+                                fontSize = 12.sp,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showUpdateDialog = false
+                            updateState.download()
+                        }) { Text("下载并安装") }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = {
+                                AppUpdate.skipVersion(this@AboutActivity, pendingRelease.version)
+                                showUpdateDialog = false
+                            }) { Text("跳过") }
+                            TextButton(onClick = { showUpdateDialog = false }) { Text("稍后") }
+                        }
+                    },
+                )
+            }
             Column(Modifier.fillMaxSize().background(palette.base)) {
                 // 标题（设计稿：大标题直接坐在页面底色上）
                 Row(

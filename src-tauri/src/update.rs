@@ -944,7 +944,15 @@ pub(crate) fn check_with_busy(app: AppHandle) -> Result<UpdateState, String> {
     let result = check_blocking(&app);
     manager.busy.store(false, Ordering::SeqCst);
     match result {
-        Ok(state) => Ok(state),
+        Ok(state) => {
+            // 有新版本 → 打开「版本更新弹窗」（独立窗口，带下载/安装/跳过/稍后）
+            if state.phase == "available" && !state.skipped {
+                if let Err(error) = show_update_window(&app) {
+                    trace(&app, "update", &format!("打开更新弹窗失败（已忽略）：{error}"));
+                }
+            }
+            Ok(state)
+        }
         Err(error) => {
             set_phase(&app, |state| {
                 state.phase = "error".to_string();
@@ -1093,6 +1101,39 @@ fn install_blocked_reason(app: &AppHandle) -> Option<String> {
     ))
 }
 
+/// 更新弹窗窗口标签（独立小窗，与 notify 同一种做法）
+pub(crate) const UPDATE_WINDOW_LABEL: &str = "update-popup";
+
+/// 打开/聚焦「发现新版本」弹窗。弹窗页面走 `update.html`（静态页，与 notify.html 同构），
+/// 里面自带下载 / 安装 / 跳过 / 稍后 与进度条。
+pub(crate) fn show_update_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(UPDATE_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        UPDATE_WINDOW_LABEL,
+        tauri::WebviewUrl::App("update.html".into()),
+    )
+    .title(crate::t!(crate::i18n::current(),"发现新版本","發現新版本","Update available","新バージョン","새 버전","Neue Version","Доступна версия","Nova versão","Nueva versión"))
+    .inner_size(560.0, 640.0)
+    .min_inner_size(480.0, 420.0)
+    .resizable(false)
+    .always_on_top(true)
+    .center()
+    .build()
+    .map_err(|error| format!("无法创建更新弹窗: {error}"))?;
+    Ok(())
+}
+
+/// 命令：打开更新弹窗（供关于页 / 托盘「检查更新…」在检查完成后调用）
+#[tauri::command]
+pub(crate) fn update_open_window(app: AppHandle) -> Result<(), String> {
+    show_update_window(&app)
+}
+
 // ============================================================================
 // 自动检查（后台线程）
 // ============================================================================
@@ -1112,22 +1153,11 @@ pub(crate) fn spawn_auto_check(app: AppHandle) {
                         Ok(state) => {
                             if state.phase == "available" && !state.skipped {
                                 trace(&app, "update", "自动检查发现新版本");
-                                // 「更新提示窗」：右下角小窗一次（不打断），点开落「关于」页
+                                // 「版本更新弹窗」：独立小窗（带下载 / 安装 / 跳过 / 稍后）
                                 mark_focus_pending(&app);
-                                let first_line = state.notes.lines().next().unwrap_or("").trim();
-                                let message = if first_line.is_empty() {
-                                    format!("AnyBoot v{} 已发布，点开查看并下载。", state.latest_version)
-                                } else {
-                                    format!("AnyBoot v{} 已发布：{first_line}", state.latest_version)
-                                };
-                                crate::notify::set_notify_state(
-                                    &app,
-                                    Some(crate::state::NotifyState::Update {
-                                        version: state.latest_version.clone(),
-                                        message,
-                                        expires_at: std::time::Instant::now() + Duration::from_secs(15),
-                                    }),
-                                );
+                                if let Err(error) = show_update_window(&app) {
+                                    trace(&app, "update", &format!("打开更新弹窗失败（已忽略）：{error}"));
+                                }
                             }
                         }
                         Err(error) => {
