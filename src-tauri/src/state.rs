@@ -64,6 +64,11 @@ pub(crate) struct AppState {
     pub(crate) channels: channels::ChannelsRuntime,
     /// 引导器实例扫描缓存（TTL，channels 刷新时失效），避免每次请求重新全盘枚举。
     pub(crate) instances_cache: Option<(std::time::Instant, Vec<crate::instances::BootInstanceRef>)>,
+    /// 【P4】`/api/boot-channels` 结果合并缓存（5s 防抖）。
+    /// 第三个字段 = 上次缓存里的实例条数：**新结果条数变少视为「扫描不全」，
+    /// 不覆盖缓存**（2026-11-21 踩过：不全的 3 条被缓存、前端据此剪 order → 页签消失）。
+    pub(crate) channels_json_cache:
+        Option<(std::time::Instant, Vec<serde_json::Value>, usize)>,
     /// 实例级 BootGroup 缓存（`all_channels_json` 的结果）：构建一次要 1.5s
     /// （opencore 视图解析 plist），切换后立刻全量重算就是「选中延迟」的来源。
     /// 缓存 15s；切换时只换掉被切那一条（见 `refresh_group_in_cache`）。

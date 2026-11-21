@@ -764,8 +764,11 @@ pub(crate) fn refresh_channels_with(app: &AppHandle, candidates: Vec<PathBuf>) {
     let state = app.state::<Mutex<AppState>>();
     let mut state = state.lock().expect("state mutex poisoned");
     state.channels = ChannelsRuntime { esp, views };
+    state.channels_json_cache = None; // 通道视图变了 → /api/boot-channels 合并缓存作废（P4）
     // 实例扫描缓存由自己的 60s TTL 管理：不要在每次 channels 刷新时清空，
     // 否则实例切换每次都要重新全盘枚举（旧版切换是秒级的）。
+    // 但**实例视图缓存**要失效：换内核 / 改 grub.cfg / 重装引导器后必须重建（P1）。
+    crate::instances::invalidate_group_cache();
 }
 
 // ─────────────────── 开机自动「提权扫」（进 App 就有数据） ───────────────────
@@ -1222,7 +1225,10 @@ pub(crate) fn switch(app: &AppHandle, spec: &str) -> Result<String, String> {
 pub(crate) fn apply_channel_spec_at(esp_root: &Path, spec: &str) -> Result<String, String> {
     let parsed = parse_switch_spec(spec).ok_or_else(|| format!("无法识别的通道动作：{spec}"))?;
     let readonly_mount = crate::mount::readonly_mount_of(esp_root);
-    crate::mount::with_mount(readonly_mount.as_ref(), || apply_spec(&parsed, esp_root))
+    let result = crate::mount::with_mount(readonly_mount.as_ref(), || apply_spec(&parsed, esp_root));
+    // P3：切换可能改了 OCBtOrder / Bless / 默认项 → OpenCore 视图缓存必须失效
+    opencore::invalidate_view_cache(esp_root);
+    result
 }
 
 fn apply_spec(parsed: &SwitchSpec, esp_root: &Path) -> Result<String, String> {

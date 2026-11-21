@@ -618,6 +618,9 @@ pub(crate) fn switch_instance_and_update(
     target: &str,
 ) -> Result<String, String> {
     let message = switch_instance(app, instance_id, target)?;
+    // 切换会改 grubenv / vars/PreviousBoot / OCBt* → 实例视图缓存失效（下次读重建；
+    // 有 P2 卷标缓存 + P3 视图缓存后重建成本很低）
+    invalidate_group_cache();
     // 先回执成功（切换命令不再同步跑全量 channels 刷新——那是几秒级延迟的来源）。
     // 复用实例缓存：旧代码切换只读当前状态即可，不能每次切换都全盘扫一遍；
     // 后台刷新/下一次 60s 缓存过期时自然会更新 current。
@@ -633,8 +636,96 @@ pub(crate) fn switch_instance_and_update(
     Ok(message)
 }
 
+/// 【P1】实例视图缓存：按「文件指纹 + TTL」缓存 `extra_instance_group` 的结果。
+///
+/// 实测（2026-11-21）：opencore 443ms/个、refind 335ms/个、refindplus 332ms/个，
+/// 每次 `/api/boot-channels` 都重算 → 1.55s。它们只依赖 ESP 上的文本文件
+/// （config.plist / grub.cfg / refind.conf / vars/）与内核清单缓存，
+/// 所以用「路径 + mtime + size」做指纹；`channels` 刷新（换内核、改配置）
+/// 与切换成功后由 `invalidate_group_cache()` 显式失效。
+static GROUP_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, (u64, std::time::Instant, crate::remote_servers::BootGroup)>>,
+> = std::sync::OnceLock::new();
+
+const GROUP_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// 失效全部实例视图缓存（`channels` 刷新、切换成功后调用）。
+pub(crate) fn invalidate_group_cache() {
+    if let Some(cell) = GROUP_CACHE.get() {
+        if let Ok(mut cache) = cell.lock() {
+            cache.clear();
+        }
+    }
+}
+
+fn hash_path(path: &std::path::Path, hasher: &mut std::collections::hash_map::DefaultHasher) {
+    use std::hash::{Hash, Hasher};
+    if let Ok(meta) = std::fs::metadata(path) {
+        path.to_string_lossy().hash(hasher);
+        meta.len().hash(hasher);
+        if let Ok(modified) = meta.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                duration.as_secs().hash(hasher);
+            }
+        }
+    }
+}
+
+/// 参与指纹的文件/目录：改了其中任何一个就该重建视图。
+fn instance_fingerprint(instance: &BootInstanceRef) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let root = std::path::Path::new(&instance.root_path);
+    let dir = root.join(&instance.install_dir);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    instance.instance_id.hash(&mut hasher);
+    hash_path(&dir, &mut hasher);
+    let candidates: Vec<std::path::PathBuf> = match instance.kind.as_str() {
+        "grub" => vec![dir.join("grub.cfg"), dir.join("grubenv"), root.join("EFI/grubenv")],
+        "refind" => vec![
+            dir.join("refind.conf"),
+            dir.join("refind_linux.conf"),
+            dir.join("vars"),
+        ],
+        "refindplus" => vec![
+            dir.join("refindplus.conf"),
+            dir.join("refind.conf"),
+            dir.join("vars"),
+        ],
+        "opencore" => vec![dir.join("config.plist"), dir.join("OpenCore.efi")],
+        "sdboot" => vec![root.join("loader/loader.conf"), root.join("loader/entries")],
+        _ => vec![dir.join("config.plist")],
+    };
+    for path in candidates {
+        hash_path(&path, &mut hasher);
+    }
+    hasher.finish()
+}
+
 /// 额外实例 → BootGroup（真实 options）。失败返回 None，由调用方给只读占位。
 pub(crate) fn extra_instance_group(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
+    // 【P1】先看指纹缓存：命中直接返回（1.55s → 几十 ms）
+    let fingerprint = instance_fingerprint(instance);
+    let cell = GROUP_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(cache) = cell.lock() {
+        if let Some((known, at, group)) = cache.get(&instance.instance_id) {
+            if *known == fingerprint && at.elapsed() < GROUP_TTL {
+                return Some(group.clone());
+            }
+        }
+    }
+    let built = extra_instance_group_uncached(app, instance);
+    if let Some(group) = built.as_ref() {
+        if let Ok(mut cache) = cell.lock() {
+            cache.insert(
+                instance.instance_id.clone(),
+                (fingerprint, std::time::Instant::now(), group.clone()),
+            );
+        }
+    }
+    built
+}
+
+fn extra_instance_group_uncached(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
     let _span = match instance.kind.as_str() {
         "grub" => crate::perf::span("inst.grub"),
         "refind" => crate::perf::span("inst.refind"),

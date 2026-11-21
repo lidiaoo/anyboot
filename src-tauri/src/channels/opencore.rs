@@ -259,6 +259,7 @@ pub(crate) fn fix_launcher_option(esp_root: &Path, mode: &str) -> Result<String,
         ));
     }
     write_esp_bytes(&config_path, edited.as_bytes())?;
+    invalidate_view_cache(esp_root); // P3：config.plist 改了，视图缓存必须失效
 
     let _ = update_channel_state(
         esp_root,
@@ -638,7 +639,83 @@ pub(crate) fn channel_state_key(esp_root: &Path, channel: &str, key: &str) -> Op
 }
 
 /// 组本通道的展示视图。
+/// 【P3】OpenCore 视图缓存。
+///
+/// `view()` 里 `oc_menu::preview`（解析 config.plist + 卷列表 + BootOrder 复算）
+/// 实测 440–630ms；而它只依赖磁盘文件（config.plist / OpenCore.efi / 驱动目录）
+/// 和 NVRAM 启动顺序。按「文件指纹」缓存 10s，写操作（apply/fix）后显式失效。
+static VIEW_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, (u64, std::time::Instant, ChannelView)>>,
+> = std::sync::OnceLock::new();
+
+const VIEW_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn path_fingerprint(path: &Path, hasher: &mut std::collections::hash_map::DefaultHasher) -> bool {
+    use std::hash::{Hash, Hasher};
+    match std::fs::metadata(path) {
+        Ok(meta) => {
+            path.to_string_lossy().hash(hasher);
+            meta.len().hash(hasher);
+            // FAT32（ESP）mtime 分辨率 2s：指纹必须带 size，短窗口内靠 TTL 兜底
+            if let Ok(modified) = meta.modified() {
+                if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                    duration.as_secs().hash(hasher);
+                }
+            }
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn view_fingerprint(esp_root: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    esp_root.to_string_lossy().hash(&mut hasher);
+    for rel in [
+        OC_CONFIG,
+        OC_EFI,
+        "EFI/OC/Drivers",
+        "EFI/OC/Kexts",
+        "EFI/OC/ACPI",
+    ] {
+        path_fingerprint(&grub_rel(esp_root, rel), &mut hasher);
+    }
+    hasher.finish()
+}
+
+pub(crate) fn invalidate_view_cache(esp_root: &Path) {
+    if let Some(cell) = VIEW_CACHE.get() {
+        if let Ok(mut cache) = cell.lock() {
+            let key = esp_root.to_string_lossy().to_string();
+            cache.remove(&key);
+        }
+    }
+}
+
 pub(crate) fn view(esp_root: &Path) -> ChannelView {
+    let key = esp_root.to_string_lossy().to_string();
+    let fingerprint = view_fingerprint(esp_root);
+    let cell = VIEW_CACHE
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(cache) = cell.lock() {
+        if let Some((known_fp, at, cached)) = cache.get(&key) {
+            if *known_fp == fingerprint && at.elapsed() < VIEW_TTL {
+                return cached.clone();
+            }
+        }
+    }
+    let view = view_uncached(esp_root);
+    if let Ok(mut cache) = cell.lock() {
+        cache.insert(
+            key,
+            (fingerprint, std::time::Instant::now(), view.clone()),
+        );
+    }
+    view
+}
+
+fn view_uncached(esp_root: &Path) -> ChannelView {
     let efi_exists = grub_rel(esp_root, OC_EFI).is_file();
     let config_path = grub_rel(esp_root, OC_CONFIG);
     let config_text = fs::read_to_string(&config_path).ok();

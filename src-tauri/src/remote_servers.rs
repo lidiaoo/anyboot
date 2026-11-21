@@ -4817,10 +4817,29 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
 /// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
 pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
     let _span = crate::perf::span("instances.all");
-    instance_boot_groups(app)
+    const TTL: std::time::Duration = std::time::Duration::from_secs(5);
+    if let Ok(state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+        if let Some((at, cached, _)) = &state.channels_json_cache {
+            if at.elapsed() < TTL {
+                return cached.clone();
+            }
+        }
+    }
+    let values: Vec<serde_json::Value> = instance_boot_groups(app)
         .iter()
         .map(|group| serde_json::to_value(group).unwrap_or_else(|_| serde_json::json!({})))
-        .collect()
+        .collect();
+    if let Ok(mut state) = app.state::<std::sync::Mutex<crate::state::AppState>>().lock() {
+        let keep_old = match &state.channels_json_cache {
+            // 条数变少 → 疑似扫描不全，不覆盖（返回新结果但缓存保持旧的可信值）
+            Some((_, _, last_count)) => values.len() < *last_count,
+            None => false,
+        };
+        if !keep_old && !values.is_empty() {
+            state.channels_json_cache = Some((std::time::Instant::now(), values.clone(), values.len()));
+        }
+    }
+    values
 }
 
 /// Tauri 命令：所有通道（含多实例扩展）。

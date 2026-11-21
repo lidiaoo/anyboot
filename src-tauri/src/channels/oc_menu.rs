@@ -563,7 +563,7 @@ pub(crate) fn volumes() -> Vec<Volume> {
 /// 少了这一步，Windows 端预演就会把 `H:\` 当卷标印在卡片上（用户 2026-10-28
 /// 报「为什么跟 macOS 显示不一样，只有盘符」），而 OC 那边明明记的是 `ARCH-EFI`。
 #[cfg(target_os = "windows")]
-pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
+fn native_volume_label_uncached(root: &Path) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
     #[link(name = "kernel32")]
     extern "system" {
@@ -613,7 +613,7 @@ pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
 /// Linux：卷标在 udev 数据库里（`lsblk -no LABEL <挂载点>` 直接认挂载路径）。
 /// 读不到（没装 util-linux、或 vfat 没设标签）返回 None，由调用方退回挂载点名。
 #[cfg(target_os = "linux")]
-pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
+fn native_volume_label_uncached(root: &Path) -> Option<String> {
     // 【关键】OpenCore 1.0.8 InternalDescribeBootEntry 取的是「文件系统卷标」
     // （OcGetVolumeLabel = FS Volume Label）。`lsblk -no LABEL <挂载点>` 对挂载路径
     // 经常回空（lsblk 要设备节点），导致读不到卷标 → 之前误退回盘符/GPT名。
@@ -657,7 +657,7 @@ pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
 /// 直接取挂载点末段（`/Volumes/MacOS-efi` → `MacOS-efi`）即可，不必 fork diskutil。
 /// 若挂载点不在 /Volumes 下（罕见），退回 diskutil 的 VolumeName。
 #[cfg(target_os = "macos")]
-pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
+fn native_volume_label_uncached(root: &Path) -> Option<String> {
     // /Volumes/<卷标> 形态：取末段
     let p = root.to_string_lossy();
     if let Some(rest) = p.strip_prefix("/Volumes/") {
@@ -671,9 +671,47 @@ pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-pub(crate) fn native_volume_label(_root: &Path) -> Option<String> {
+fn native_volume_label_uncached(_root: &Path) -> Option<String> {
     None
 }
+
+/// 【P2】卷标解析缓存（三端各一份实现，统一在这里加缓存）。
+///
+/// 实测：Linux 每次 `findmnt` + `lsblk` 两次进程启动 ≈ 40ms；一次 refresh 里
+/// 18 个卷 → ~720ms（`refind.sim_volumes` 的大头）。卷标几乎不会变，
+/// 按挂载根缓存 60s 即可；重命名卷后最多 60s 生效（可接受）。
+static VOLUME_LABEL_CACHE: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, Option<String>)>>,
+> = std::sync::OnceLock::new();
+
+pub(crate) fn native_volume_label(root: &Path) -> Option<String> {
+    const TTL: std::time::Duration = std::time::Duration::from_secs(60);
+    let key = root.to_string_lossy().to_string();
+    let cell = VOLUME_LABEL_CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+    if let Ok(cache) = cell.lock() {
+        if let Some((at, value)) = cache.get(&key) {
+            if at.elapsed() < TTL {
+                return value.clone();
+            }
+        }
+    }
+    let value = native_volume_label_uncached(root);
+    if let Ok(mut cache) = cell.lock() {
+        cache.insert(key, (std::time::Instant::now(), value.clone()));
+    }
+    value
+}
+
+/// 卷标缓存失效（写卷标 / 重新格式化后可用；目前排查时手动调用）。
+#[allow(dead_code)]
+pub(crate) fn invalidate_volume_label_cache() {
+    if let Some(cell) = VOLUME_LABEL_CACHE.get() {
+        if let Ok(mut cache) = cell.lock() {
+            cache.clear();
+        }
+    }
+}
+
 
 /// 卷标读不到时的兜底名。
 ///
