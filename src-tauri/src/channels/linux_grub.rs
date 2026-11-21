@@ -2613,7 +2613,40 @@ pub(crate) fn switch_blocking(app: AppHandle, selector: String) -> LinuxGrubView
 
     match write_env(&runtime, &selector) {
         Ok((detail, block)) => {
-            let message = format!("下次启动：{selector}｜{detail}");
+            // 提示用人话（一级组名 › 二级条目名），别把 grubenv 的 selector 原串甩给用户
+            let friendly = {
+                let entry = current
+                    .as_ref()
+                    .and_then(|view| {
+                        view.entries
+                            .iter()
+                            .find(|entry| entry.selector == selector || entry.name == selector)
+                    })
+                    .cloned();
+                match entry {
+                    Some(entry) => {
+                        let group_name = entry
+                            .submenu
+                            .as_deref()
+                            .and_then(|gid| {
+                                current.as_ref().and_then(|view| {
+                                    view.groups
+                                        .iter()
+                                        .find(|group| group.id == gid)
+                                        .map(|group| group.name.clone())
+                                })
+                            })
+                            .unwrap_or_default();
+                        if group_name.is_empty() {
+                            entry.name
+                        } else {
+                            format!("{group_name} › {}", entry.name)
+                        }
+                    }
+                    None => selector.clone(),
+                }
+            };
+            let message = format!("下次启动：{friendly}｜{detail}");
             let saved = crate::grub::env_value(&block, "saved_entry").filter(|value| !value.is_empty());
             let next = crate::grub::env_value(&block, "next_entry").filter(|value| !value.is_empty());
             let view = {
