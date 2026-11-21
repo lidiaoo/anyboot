@@ -1029,13 +1029,15 @@ pub(crate) fn set_update_interval(app: AppHandle, hours: u32) -> Result<(), Stri
 /// 安装前置条件：任何进行中的引导切换 / 电源操作 / 备份都不许装
 fn install_blocked_reason(app: &AppHandle) -> Option<String> {
     let busy = busy_snapshot(app);
-    let text = busy.describe();
-    if !text.trim().is_empty() {
-        return Some(format!(
-            "当前有进行中的操作（{text}），装完会打断它。等它跑完再点安装。"
-        ));
+    // 注意：describe() 在空闲时返回「空闲」（非空字符串）——以前这里只判空串，
+    // 于是**空闲时也被判成"有操作在进行"，安装按钮永远被拒**（2026-11-21 实测）。
+    if !busy.any() {
+        return None;
     }
-    None
+    let text = busy.describe();
+    Some(format!(
+        "当前有进行中的操作（{text}），装完会打断它。等它跑完再点安装。"
+    ))
 }
 
 // ============================================================================
