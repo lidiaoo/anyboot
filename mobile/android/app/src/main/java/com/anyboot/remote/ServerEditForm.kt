@@ -1308,6 +1308,24 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
             onToggle = { state.powerFoldOpen = !state.powerFoldOpen },
         )
         if (state.powerFoldOpen) {
+        Text(
+            "电源 HTTP 同时发的通道（默认全选）",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.fgDim,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            for (kind in ServerProfile.defaultPowerHttpKinds()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                    if (state.powerHttpKinds.contains(kind)) state.powerHttpKinds.remove(kind)
+                    else state.powerHttpKinds.add(kind)
+                }) {
+                    Checkbox(checked = state.powerHttpKinds.contains(kind), onCheckedChange = null)
+                    Text(kind, fontSize = 10.sp, color = palette.fgDim)
+                }
+            }
+        }
         FieldLabel(
             stringResource(R.string.and_lanPowerRouteLabel)
         )
@@ -1629,24 +1647,6 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     stringResource(R.string.and_powerApiHint),
                     fontSize = 10.sp, color = palette.fgFaint,
                 )
-            }
-        }
-        Text(
-            "电源 HTTP 同时发的通道（默认全选）",
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.fgDim,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            for (kind in ServerProfile.defaultPowerHttpKinds()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
-                    if (state.powerHttpKinds.contains(kind)) state.powerHttpKinds.remove(kind)
-                    else state.powerHttpKinds.add(kind)
-                }) {
-                    Checkbox(checked = state.powerHttpKinds.contains(kind), onCheckedChange = null)
-                    Text(kind, fontSize = 10.sp, color = palette.fgDim)
-                }
             }
         }
         TextButton(onClick = {

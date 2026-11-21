@@ -1095,23 +1095,6 @@ struct ComputerEditorView: View {
 
     private var powerFoldContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-            fieldLabel(L("and.lanPowerRouteLabel"))
-            if draft.powerRoutes.isEmpty {
-                Text(L("and.noRouteHint"))
-                    .font(.system(size: 11))
-                    .foregroundColor(ABColor.fgFaint)
-            }
-            ForEach(Array(draft.powerRoutes.enumerated()), id: \.offset) { index, _ in
-                PowerRouteCardView(
-                    route: powerRouteBinding(index),
-                    macPool: macPool,
-                    index: index,
-                    total: draft.powerRoutes.count,
-                    onRemove: {
-                        draft.powerRoutes.remove(at: index)
-                    })
-                    .padding(.top, 6)
-            }
             fieldLabel("电源 HTTP 同时发的通道（默认全选）")
             HStack(spacing: 12) {
                 ForEach(ServerProfile.defaultPowerHttpKinds(), id: \.self) { kind in
@@ -1134,6 +1117,23 @@ struct ComputerEditorView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            fieldLabel(L("and.lanPowerRouteLabel"))
+            if draft.powerRoutes.isEmpty {
+                Text(L("and.noRouteHint"))
+                    .font(.system(size: 11))
+                    .foregroundColor(ABColor.fgFaint)
+            }
+            ForEach(Array(draft.powerRoutes.enumerated()), id: \.offset) { index, _ in
+                PowerRouteCardView(
+                    route: powerRouteBinding(index),
+                    macPool: macPool,
+                    index: index,
+                    total: draft.powerRoutes.count,
+                    onRemove: {
+                        draft.powerRoutes.remove(at: index)
+                    })
+                    .padding(.top, 6)
+            }
             Button {
                 // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框）
                 draft.powerRoutes.append(

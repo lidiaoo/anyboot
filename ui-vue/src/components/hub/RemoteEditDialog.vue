@@ -752,16 +752,6 @@ function submit() {
             </div>
           </div>
           <div class="field">
-            <label><b>{{ t("remote.powerHttpKinds") }}</b></label>
-            <div style="display:flex;flex-wrap:wrap;gap:10px">
-              <label v-for="kind in ROUTE_IDS" :key="'pk-' + kind" style="display:inline-flex;align-items:center;gap:5px">
-                <input type="checkbox" :checked="powerHttpKinds.includes(kind)" @change="togglePowerKind(kind)" />
-                <span>{{ tr(ROUTE_LABELS[kind]) }}</span>
-              </label>
-            </div>
-            <p class="field-hint">{{ t("remote.powerHttpKindsHint") }}</p>
-          </div>
-          <div class="field">
             <label><b>{{ t("remote.priorityProbeLabel") }}</b></label>
             <div class="seg-row" role="group" :aria-label="t('remote.priorityProbeAria')">
               <button type="button" class="btn small" :class="{ 'seg-on': routeProbe === 'first' }" id="rsRouteProbeFirst" @click="routeProbe = 'first'">{{ t("remote.probeFirst") }}</button>
@@ -825,6 +815,16 @@ function submit() {
           <span class="fold-count" id="rsFoldPowerCount">{{ powerRoutes.length }}</span>
         </div>
         <div class="fold-body" id="rsFoldPower" :hidden="!foldPower">
+          <div class="field">
+            <label><b>{{ t("remote.powerHttpKinds") }}</b></label>
+            <div style="display:flex;flex-wrap:wrap;gap:10px">
+              <label v-for="kind in ROUTE_IDS" :key="'pk-' + kind" style="display:inline-flex;align-items:center;gap:5px">
+                <input type="checkbox" :checked="powerHttpKinds.includes(kind)" @change="togglePowerKind(kind)" />
+                <span>{{ tr(ROUTE_LABELS[kind]) }}</span>
+              </label>
+            </div>
+            <p class="field-hint">{{ t("remote.powerHttpKindsHint") }}</p>
+          </div>
           <div id="rsPowerRoutes" class="route-list">
             <div v-for="(r, i) in powerRoutes" :key="i" :class="['route-row', { 'route-off': !r.enabled }]">
               <!-- 行头：序号 + 动作下拉 + 模式下拉 + 启用 + 删除 -->
