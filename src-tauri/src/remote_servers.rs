@@ -6292,7 +6292,10 @@ mod tests {
                 {"id": "win", "title": "Windows Boot Manager", "icon": "windows"}
             ]
         }));
-        assert_eq!(group.kind, "channel:sdboot");
+        // 多实例模型后 kind 不再带 `channel:` 前缀（实例用 instanceId 区分，
+        // 见 channel_from_json 的 `id.trim_start_matches("channel:")`）——
+        // 旧断言留在这里会一直红，2026-11-21 对齐实现。
+        assert_eq!(group.kind, "sdboot");
         assert_eq!(group.title, "systemd-boot");
         assert!(group.available);
         assert_eq!(group.current, "sdboot:arch");
