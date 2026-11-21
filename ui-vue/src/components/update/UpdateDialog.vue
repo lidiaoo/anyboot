@@ -360,5 +360,38 @@ onMounted(async () => {
 .upd-actions button.primary { background: var(--accent, #3b82f6); border-color: var(--accent, #3b82f6); color: #fff; }
 .upd-actions button:disabled { opacity: 0.55; cursor: not-allowed; }
 .upd-hint { margin: 10px 0 0; color: var(--faint, #9ca3af); font-size: 11px; }
-.upd-card.is-inline { width: 100%; margin: 0; box-shadow: none; }
+/* 内联（关于页卡片）：跟随容器宽度、紧凑排版，标题与操作同一行，避免出现一大片空白 */
+.upd-card.is-inline {
+  width: auto;
+  margin: 0;
+  padding: 18px 20px;
+  border-radius: 16px;
+  box-shadow: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
+  row-gap: 6px;
+  align-items: start;
+}
+.upd-card.is-inline .upd-head { grid-column: 1; grid-row: 1; flex-wrap: wrap; }
+.upd-card.is-inline .upd-meta { grid-column: 1 / -1; margin: 0; }
+.upd-card.is-inline .upd-notes,
+.upd-card.is-inline .upd-size,
+.upd-card.is-inline .upd-progress,
+.upd-card.is-inline .upd-error,
+.upd-card.is-inline .upd-source,
+.upd-card.is-inline .upd-hint { grid-column: 1 / -1; }
+.upd-card.is-inline .upd-actions {
+  grid-column: 2;
+  grid-row: 1;
+  justify-content: flex-end;
+  align-self: center;
+  flex-wrap: nowrap;
+}
+.upd-card.is-inline .upd-actions button,
+.upd-card.is-inline .upd-actions select { padding: 6px 12px; }
+@media (max-width: 720px) {
+  .upd-card.is-inline { grid-template-columns: 1fr; }
+  .upd-card.is-inline .upd-actions { grid-column: 1; grid-row: auto; justify-content: flex-end; }
+}
 </style>
