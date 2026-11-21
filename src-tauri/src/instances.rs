@@ -635,6 +635,14 @@ pub(crate) fn switch_instance_and_update(
 
 /// 额外实例 → BootGroup（真实 options）。失败返回 None，由调用方给只读占位。
 pub(crate) fn extra_instance_group(app: &tauri::AppHandle, instance: &BootInstanceRef) -> Option<crate::remote_servers::BootGroup> {
+    let _span = match instance.kind.as_str() {
+        "grub" => crate::perf::span("inst.grub"),
+        "refind" => crate::perf::span("inst.refind"),
+        "refindplus" => crate::perf::span("inst.refindplus"),
+        "opencore" => crate::perf::span("inst.opencore"),
+        "sdboot" => crate::perf::span("inst.sdboot"),
+        _ => crate::perf::span("inst.clover"),
+    };
     let root = std::path::Path::new(&instance.root_path);
     match instance.kind.as_str() {
         "grub" => {

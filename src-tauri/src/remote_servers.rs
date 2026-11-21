@@ -4782,12 +4782,23 @@ pub async fn remote_boot_info(
 /// 本机 BootInfo.channels 追加同类型的额外实例（只读占位，供平铺列表展示）。
 /// 本机实例列表 → BootGroup（与 /api/boot-channels 完全同源）。
 fn instance_boot_groups(app: &AppHandle) -> Vec<BootGroup> {
+    let _span = crate::perf::span("instances.scan");
     crate::instances::scan_instances(app)
         .into_iter()
         .filter(|instance| !instance.hidden)
         .filter_map(|instance| {
+            let at = std::time::Instant::now();
             let mut group = crate::instances::extra_instance_group(app, &instance)?;
-            group.instance_id = Some(instance.instance_id);
+            group.instance_id = Some(instance.instance_id.clone());
+            crate::trace(
+                app,
+                "perf",
+                &format!(
+                    "  inst.build[{:<30}] {:>5}ms",
+                    format!("{}@{}", instance.kind, instance.install_dir),
+                    at.elapsed().as_millis()
+                ),
+            );
             Some(group)
         })
         .collect()
@@ -4805,6 +4816,7 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
 /// 所有通道 + 多实例扩展（JSON，供 /api/boot-channels 与前端平铺列表）。
 /// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
 pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
+    let _span = crate::perf::span("instances.all");
     instance_boot_groups(app)
         .iter()
         .map(|group| serde_json::to_value(group).unwrap_or_else(|_| serde_json::json!({})))
