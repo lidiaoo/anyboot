@@ -5144,6 +5144,31 @@ pub(crate) fn remote_boot_info_blocking(app: &AppHandle, server_id: &str) -> Res
         let format = crate::read_settings_file(app).grub_list_format;
         info.grub = grub_from_json(grub_value.unwrap_or(&serde_json::Value::Null), &format);
 
+        // 引导列（**实例级**）：hub 的列只渲染带 `instanceId` 的实例，而 ui-state
+        // 里的 `channels` 是旧的三通道形状（无 instanceId）→ 之前这条路径直接收尾，
+        // info.channels 恒空，非本机行的引导列表整块空白（2026-11-21 用户实测）。
+        // 对端 `/api/boot-channels` 返回的正是实例级 BootGroup（instanceId + options
+        // + current），优先用它；老对端没有该接口时保持空（列不显示，但不影响其余）。
+        match remote_http_json(app, &server, "/api/boot-channels") {
+            Ok(value) => {
+                info.channels = boot_groups_from_json(&value);
+                if info.channels.is_empty() {
+                    crate::trace(
+                        app,
+                        "boot",
+                        &format!("boot-channels 返回空列表 server={server_id}"),
+                    );
+                }
+            }
+            Err(error) => {
+                crate::trace(
+                    app,
+                    "boot",
+                    &format!("boot-channels 读取失败 server={server_id}: {error}"),
+                );
+            }
+        }
+
         // 快照里两套都在，没有「一边失败」的概念；直接收尾
         info.ok = true;
         info.online = true;
