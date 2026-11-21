@@ -42,6 +42,7 @@ export default defineConfig({
         "hub-files": resolve(__dirname, "hub-files.html"),
         "hub-backup": resolve(__dirname, "hub-backup.html"),
         "hub-keys": resolve(__dirname, "hub-keys.html"),
+        update: resolve(__dirname, "update.html"),
       },
       output: {
         // 入口保持原名（hub.js / hub-term.js …），chunk 与静态资源分开，

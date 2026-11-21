@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { call, isTauri } from "@/api/tauri";
+import UpdateDialog from "@/components/update/UpdateDialog.vue";
 const { t } = useI18n();
 
 /**
@@ -88,41 +89,6 @@ const LINK_ITEMS = [
   { id: "license", label: "about.tabLicense", icon: '<path d="M6 2.5h7.5L20 9v11.5H6z"/><path d="M13.5 2.5V9H20"/><path d="M9 14h6"/>', suffix: "MIT" },
 ];
 
-const phaseText = computed(() => {
-  switch (update.value?.phase) {
-    case "checking":
-      return t("about.checking");
-    case "up_to_date":
-      return t("about.upToDate");
-    case "available":
-      return t("about.foundNew", { v: update.value.latestVersion });
-    case "downloading":
-      return t("about.downloading", { v: update.value?.latestVersion ?? "" });
-    case "verifying":
-      return t("about.verifying", { v: update.value?.latestVersion ?? "" });
-    case "ready_to_install":
-      return t("about.canInstall");
-    case "installing":
-      return t("about.installing", { v: update.value?.latestVersion ?? "" });
-    case "error":
-      return t("about.errorMsg", { msg: String(update.value.error) });
-    default:
-      return t("about.notChecked");
-  }
-});
-
-/** 是否有新版本可下载（旧版 #update-new 的显隐条件） */
-const hasNew = computed(() =>
-  update.value?.phase === "available" ||
-  update.value?.phase === "downloading" ||
-  update.value?.phase === "verifying" ||
-  update.value?.phase === "ready_to_install",
-);
-/** 是否正在下载 */
-const downloading = computed(() =>
-  update.value?.phase === "downloading" || update.value?.phase === "verifying",
-);
-
 /** 自动检查开关（旧版 #update-auto-check） */
 const autoCheck = ref(true);
 /** 下载源：auto / direct / ghfast / ghproxy / custom（自定义 https 前缀） */
@@ -159,14 +125,6 @@ watch(mirror, (value) => {
   void call("set_update_mirror", { value }).catch((e) => (updateError.value = String(e)));
 });
 
-/** 应用自定义下载源（https://…），后端会校验格式 */
-function applyCustomMirror(): void {
-  const value = customUrl.value.trim();
-  if (!value) return;
-  void call("set_update_mirror", { value })
-    .then(() => (updateError.value = ""))
-    .catch((e) => (updateError.value = String(e)));
-}
 watch(intervalHours, (value) => {
   if (!optionsReady.value) return;
   void call("set_update_interval", { hours: value }).catch((e) => (updateError.value = String(e)));
@@ -177,15 +135,6 @@ async function startDownload() {
   try {
     await call("update_download");
     update.value = await call<UpdateState>("update_state");
-  } catch (error) {
-    updateError.value = String(error);
-  }
-}
-
-/** 安装并重启（旧版 #update-install） */
-async function installUpdate() {
-  try {
-    await call("update_install");
   } catch (error) {
     updateError.value = String(error);
   }
@@ -202,21 +151,6 @@ async function skipVersion() {
     updateError.value = String(error);
   }
 }
-
-/** 下载字节文案（后端只给数字；以前模板读 update.bytes，那个字段不存在 → 永远空） */
-const bytesText = computed(() => {
-  const mb = (n: number) => (n / 1048576).toFixed(1);
-  const downloaded = update.value?.downloaded ?? 0;
-  const total = update.value?.total ?? 0;
-  if (!total) return downloaded ? `${mb(downloaded)} MB` : "";
-  return `${mb(downloaded)}/${mb(total)} MB`;
-});
-
-const progress = computed(() => {
-  const total = update.value?.total ?? 0;
-  if (!total) return 0;
-  return Math.min(100, Math.round(((update.value?.downloaded ?? 0) / total) * 100));
-});
 
 onMounted(async () => {
   void loadGitHubStats();
@@ -314,102 +248,8 @@ function openPage(which: string) {
           </div>
         </div>
 
-        <!-- 更新卡（只在 Tauri 里出现） -->
-        <!-- ── 更新详情（旧版 #update-section，hub.html:4469）── -->
-        <div v-if="inTauri && updateOpen" id="update-section" class="about-card about-update">
-          <div class="update-head" id="update-head">
-            <div class="update-version">
-              <span class="update-k">{{ t("about.curVer") }}</span>
-              <b class="update-v mono" id="update-current">{{ update?.currentVersion || version }}</b>
-            </div>
-            <div class="update-actions" id="update-actions">
-              <button type="button" id="update-check" class="btn primary" :disabled="checking" @click="checkUpdate">
-                <span v-if="checking" class="spin" aria-hidden="true" />
-                {{ checking ? t("about.checkingNow") : t("about.checkUpdate") }}
-              </button>
-              <button v-if="updateError" type="button" id="update-retry" class="btn" @click="checkUpdate">{{ t("common.retry") }}</button>
-            </div>
-          </div>
-          <div class="update-meta" id="update-meta">{{ phaseText }}</div>
-
-          <!-- 发现新版本（旧版 #update-new） -->
-          <div v-if="hasNew" id="update-new" class="update-new">
-            <div class="update-new-head">
-              <strong id="update-new-title">{{ t("about.newTitle", { v: update?.latestVersion }) }}</strong>
-              <span class="update-k" id="update-new-date">{{ update?.publishedAt }}</span>
-            </div>
-            <pre v-if="update?.notes" id="update-notes" class="update-notes">{{ update.notes }}</pre>
-            <div v-if="update?.total" id="update-progress" class="update-progress">
-              <div class="update-track"><div id="update-fill" class="update-fill" :style="{ width: progress + '%' }" /></div>
-              <div class="update-progress-meta">
-                <span id="update-pct" class="update-pct">{{ progress }}%</span>
-                <span id="update-bytes" class="mono">{{ bytesText }}</span>
-                <span id="update-source">{{ update?.source || "" }}</span>
-              </div>
-            </div>
-            <div class="update-buttons">
-              <button
-                v-if="!downloading"
-                type="button"
-                id="update-download"
-                class="btn primary"
-                @click="startDownload"
-              >
-                {{ t("about.download") }}
-              </button>
-              <button
-                v-if="update?.downloaded"
-                type="button"
-                id="update-install"
-                class="btn primary"
-                @click="installUpdate"
-              >
-                {{ t("about.installRestart") }}
-              </button>
-              <button type="button" id="update-skip" class="btn" @click="skipVersion">{{ t("about.skip") }}</button>
-            </div>
-          </div>
-
-          <div v-if="updateError" id="update-error" class="update-error">{{ updateError }}</div>
-
-          <div class="update-opts" id="update-opts">
-            <label class="update-opt">
-              <input id="update-auto-check" v-model="autoCheck" type="checkbox" />
-              <span>{{ t("about.autoCheck") }}</span>
-            </label>
-            <label class="update-opt">
-              <span class="update-k">{{ t("about.downloadSrc") }}</span>
-              <select id="update-mirror" v-model="mirror">
-                <option value="auto">{{ t("about.srcAuto") }}</option>
-                <option value="direct">{{ t("about.srcDirect") }}</option>
-                <option value="ghfast">{{ t("about.srcGhfast") }}</option>
-                <option value="ghproxy">{{ t("about.srcGhproxy") }}</option>
-                <option value="custom">{{ t("about.srcCustom") }}</option>
-              </select>
-            </label>
-            <label v-if="mirror === 'custom'" class="update-opt" style="flex: 1 1 100%">
-              <span class="update-k">https://</span>
-              <input
-                id="update-mirror-custom"
-                type="url"
-                placeholder="https://ghfast.top/"
-                v-model="customUrl"
-                style="flex:1;min-width:0"
-                @change="applyCustomMirror"
-                @keyup.enter="applyCustomMirror"
-              />
-            </label>
-            <label class="update-opt">
-              <span class="update-k">{{ t("about.checkEvery") }}</span>
-              <select id="update-interval" v-model.number="intervalHours">
-                <option :value="6">6 h</option>
-                <option :value="12">12 h</option>
-                <option :value="24">24 h</option>
-                <option :value="72">72 h</option>
-              </select>
-            </label>
-          </div>
-        </div>
+        <!-- 更新卡：与「发现新版本」弹窗共用同一个 Vue 组件（UpdateDialog） -->
+        <UpdateDialog v-if="inTauri && updateOpen" inline @close="updateOpen = false" />
 
         <!-- 仓库卡 -->
         <div class="about-card about-repo">
