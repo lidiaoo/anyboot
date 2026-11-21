@@ -57,6 +57,19 @@ const bytesText = computed(() => {
 });
 const downloading = computed(() => phase.value === "downloading" || phase.value === "verifying");
 const canInstall = computed(() => phase.value === "ready_to_install" || phase.value === "installing");
+/** 有「新版本」语义的阶段（标题/日志/跳过/下载源只在这些阶段出现） */
+const hasRelease = computed(() =>
+  ["available", "downloading", "verifying", "ready_to_install", "installing"].includes(phase.value),
+);
+/** 是否处于检查中/未知（此时不该显示任何下载相关内容） */
+const checkingLike = computed(() => phase.value === "checking" || phase.value === "idle");
+const title = computed(() => {
+  if (hasRelease.value) return state.value?.latestVersion ? `发现新版本 v${state.value.latestVersion}` : "发现新版本";
+  if (phase.value === "up_to_date") return "已是最新版本";
+  if (phase.value === "error") return "检查更新失败";
+  if (checkingLike.value) return "正在检查更新";
+  return "检查更新";
+});
 /** 主按钮永远可见：有新版本=下载；下载/校验/安装中=对应文案；已最新/检查中=置灰并说明 */
 const primaryLabel = computed(() => {
   switch (phase.value) {
@@ -81,7 +94,7 @@ const primaryLabel = computed(() => {
   }
 });
 const primaryDisabled = computed(() =>
-  busy.value || ["downloading", "verifying", "installing", "checking", "up_to_date", "idle"].includes(phase.value),
+  busy.value || ["downloading", "verifying", "installing"].includes(phase.value),
 );
 function onPrimary(): void {
   switch (phase.value) {
@@ -187,13 +200,15 @@ onMounted(async () => {
 <template>
   <div :class="['upd-card', { 'is-inline': props.inline }]" role="dialog" aria-modal="true">
     <header class="upd-head">
-      <h3>发现新版本 <span v-if="state?.latestVersion" class="v">v{{ state.latestVersion }}</span></h3>
+      <h3>{{ title }}</h3>
       <small v-if="state?.currentVersion">当前 v{{ state.currentVersion }}</small>
     </header>
     <p v-if="state?.publishedAt" class="upd-meta">发布于 {{ state.publishedAt }}</p>
 
-    <pre v-if="state?.notes" class="upd-notes">{{ state.notes }}</pre>
-    <p v-else class="upd-notes empty">（这个版本没有填写更新日志）</p>
+    <template v-if="hasRelease">
+      <pre v-if="state?.notes" class="upd-notes">{{ state.notes }}</pre>
+      <p v-else class="upd-notes empty">（这个版本没有填写更新日志）</p>
+    </template>
 
     <div v-if="downloading || canInstall" class="upd-progress">
       <div class="bar"><span :style="{ width: percent + '%' }" /></div>
@@ -206,8 +221,8 @@ onMounted(async () => {
 
     <p v-if="state?.error || errorText" class="upd-error">{{ state?.error || errorText }}</p>
 
-    <!-- 下载源：下拉 + 自定义（与「关于」页同一套取值，落盘 setting） -->
-    <div class="upd-source">
+    <!-- 下载源：下拉 + 自定义（与「关于」页同一套取值，落盘 setting）；只在有新版时显示 -->
+    <div v-if="hasRelease" class="upd-source">
       <span class="k">下载源</span>
       <select v-model="mirror">
         <option value="auto">自动（直连 → 镜像）</option>
@@ -228,30 +243,44 @@ onMounted(async () => {
     </div>
 
     <footer class="upd-actions">
-      <select
-        class="skip-select"
-        :disabled="busy"
-        title="跳过此版本（可选择忽略时长）"
-        @change="(e) => { const v = Number((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; if (!Number.isNaN(v)) skipForDays(v); }"
-      >
-        <option value="">跳过此版本…</option>
-        <option value="1">忽略 1 天</option>
-        <option value="7">忽略 7 天</option>
-        <option value="30">忽略 30 天</option>
-        <option value="0">永久跳过此版本</option>
-      </select>
-      <button type="button" class="ghost" @click="close">稍后</button>
-      <button
-        type="button"
-        class="primary"
-        :disabled="primaryDisabled"
-        :title="phase === 'up_to_date' ? '当前已经是最新版本，无需下载' : ''"
-        @click="onPrimary"
-      >
-        {{ primaryLabel }}
-      </button>
+      <!-- 有新版：跳过（阶梯忽略）/稍后/下载·安装 -->
+      <template v-if="hasRelease">
+        <select
+          class="skip-select"
+          :disabled="busy"
+          title="跳过此版本（可选择忽略时长）"
+          @change="(e) => { const v = Number((e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value = ''; if (!Number.isNaN(v)) skipForDays(v); }"
+        >
+          <option value="">跳过此版本…</option>
+          <option value="1">忽略 1 天</option>
+          <option value="7">忽略 7 天</option>
+          <option value="30">忽略 30 天</option>
+          <option value="0">永久跳过此版本</option>
+        </select>
+        <button type="button" class="ghost" @click="close">稍后</button>
+        <button type="button" class="primary" :disabled="primaryDisabled" @click="onPrimary">
+          {{ primaryLabel }}
+        </button>
+      </template>
+
+      <!-- 检查中：只给关闭（避免在"还在查"的界面放任何下载按钮） -->
+      <template v-else-if="checkingLike">
+        <button type="button" class="ghost" @click="close">关闭</button>
+      </template>
+
+      <!-- 已是最新：说明 + 重新检查（没有下载/跳过这些不适用的动作） -->
+      <template v-else-if="phase === 'up_to_date'">
+        <button type="button" class="ghost" @click="run('update_check')">重新检查</button>
+        <button type="button" class="primary" @click="close">关闭</button>
+      </template>
+
+      <!-- 失败：重新检查 / 关闭 -->
+      <template v-else>
+        <button type="button" class="ghost" @click="close">关闭</button>
+        <button type="button" class="primary" :disabled="busy" @click="run('update_check')">重新检查</button>
+      </template>
     </footer>
-    <p class="upd-hint">下载源与检查频率可在「远程管理 → 关于」里设置 · 关闭窗口 = 稍后再说</p>
+    <p v-if="hasRelease" class="upd-hint">下载源与检查频率可在「远程管理 → 关于」里设置 · 关闭窗口 = 稍后再说</p>
   </div>
 </template>
 

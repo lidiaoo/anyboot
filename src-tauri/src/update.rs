@@ -1160,7 +1160,7 @@ pub(crate) fn show_update_window(app: &AppHandle) -> Result<(), String> {
         UPDATE_WINDOW_LABEL,
         tauri::WebviewUrl::App("update.html".into()),
     )
-    .title(crate::t!(crate::i18n::current(),"发现新版本","發現新版本","Update available","新バージョン","새 버전","Neue Version","Доступна версия","Nova versão","Nueva versión"))
+    .title(crate::t!(crate::i18n::current(),"AnyBoot 更新","AnyBoot 更新","AnyBoot Update","AnyBoot 更新","AnyBoot 업데이트","AnyBoot Update","Обновление AnyBoot","Atualização do AnyBoot","Actualización de AnyBoot"))
     .inner_size(560.0, 640.0)
     .min_inner_size(480.0, 420.0)
     .resizable(false)
