@@ -42,6 +42,9 @@ const props = withDefaults(
     pinnedGroupTitle?: string;
     /** 条目文本格式（旧版 grub.listFormat：minimal/simple/medium/detailed/raw） */
     format?: string;
+    /** 二级行是否加「一级 › 」前缀（**只给选择器弹窗用**：弹窗里没有组头行衬托，
+     *  裸二级名看不出属于哪个系统；系统引导页有组头，保持原样不加，免得整串标题刷屏） */
+    childGroupPrefix?: boolean;
   }>(),
   {
     activeSelector: "",
@@ -51,6 +54,7 @@ const props = withDefaults(
     pinnedTag: "",
     pinnedGroupTitle: "",
     format: "minimal",
+    childGroupPrefix: false,
   },
 );
 
@@ -128,8 +132,14 @@ const rows = computed<Row[]>(() => {
   };
   const emittedTop = new Set<string>();
   const emittedGroups = new Set<string>();
-  const emitEntry = (entry: EntryData, depth: number, counts: Map<string, number>, emitted: Set<string>) => {
-    const label = rowLabel(entry);
+  const emitEntry = (
+    entry: EntryData,
+    depth: number,
+    counts: Map<string, number>,
+    emitted: Set<string>,
+    labelOverride?: string,
+  ) => {
+    const label = labelOverride ?? rowLabel(entry);
     if (emitted.has(label)) return;
     emitted.add(label);
     const variants = counts.get(label) || 1;
@@ -174,9 +184,12 @@ const rows = computed<Row[]>(() => {
       return;
     }
     if (meta.child && currentGenericHeader) {
+      // 二级条目显示「一级组名 › 二级名」（用户 2026-11-21：选择器弹窗里不能只剩二级，
+      // 像 "mainline" 这种裸内核名离开组头就看不出属于哪个系统）
       const label = rowLabel(entry);
-      const counts = new Map<string, number>([[label, 1]]);
-      emitEntry({ ...entry, submenu: currentGenericHeader }, 1, counts, new Set<string>());
+      const full = props.childGroupPrefix ? `${currentGenericHeader} › ${label}` : label;
+      const counts = new Map<string, number>([[full, 1]]);
+      emitEntry({ ...entry, submenu: currentGenericHeader }, 1, counts, new Set<string>(), full);
       return;
     }
     currentGenericHeader = null;

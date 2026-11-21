@@ -999,6 +999,7 @@ function onRowClick() {
             :group-titles="picker.groupTitles"
             :show-groups="!picker.flat"
             :pinned-group-title="picker.pinnedGroupTitle"
+            :child-group-prefix="true"
             @select="chooseBoot"
           />
         </div>

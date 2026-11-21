@@ -2568,12 +2568,14 @@ class ComputerListActivity : ComponentActivity() {
             val icon = grubOsIcon(opt.kind, plainLabel)   // 每行都带图标（与旧下拉一致）
             val readonly = v.isEmpty() || opt.fixed
             val isCurrent = v.isNotEmpty() && v == group.current && !currentMarked
+            // 组内二级行显示「一级组名 › 二级名」——弹窗里裸内核名（zen/mainline）看不出
+            // 属于哪个系统（用户 2026-11-21 要求：一二级都要显示）
+            val rowPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
             if (isCurrent) {
                 currentMarked = true
-                val pinnedPlain = if (opt.child && curHeader.isNotEmpty()) "$curHeader › $plainLabel" else plainLabel
-                rows.add(GrubRow(opt, pinnedPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
+                rows.add(GrubRow(opt, rowPlain, false, pinned = true, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly))
             }
-            rows.add(GrubRow(opt, plainLabel, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
+            rows.add(GrubRow(opt, rowPlain, false, pinned = false, child = opt.child, trailing = opt.tag, sub = opt.grubSub, note = opt.grubNote, readonly = readonly, active = isCurrent))
         }
         return rows
     }
