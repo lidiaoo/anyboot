@@ -103,7 +103,13 @@ async function switchEntry(selector: string) {
   try {
     if (isInstance.value) {
       const chosen = instanceEntries.value.find((entry) => String(entry.selector ?? "") === selector);
-      const title = String(chosen?.name || selector);
+      // 二级行补「一级 › 」前缀（否则回执只剩裸二级名）
+      const parent = parentHeaderOf(
+        (instanceGroup.value as any)?.options as any[],
+        selector,
+      );
+      const baseTitle = String(chosen?.name || selector);
+      const title = parent && !baseTitle.startsWith(`${parent} › `) ? `${parent} › ${baseTitle}` : baseTitle;
       const message = await switchBootInstance(props.loader, selector);
       // 统一回执：所有引导器都显示「下次启动：<显示标题>」，不再用各后端自己的动作描述。
       void message;

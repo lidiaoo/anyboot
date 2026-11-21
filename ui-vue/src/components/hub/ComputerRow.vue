@@ -360,11 +360,29 @@ async function openPicker(kind: string) {
 }
 function chooseBoot(value: string) {
   const pk = picker.value; if (!pk) return;
-  const hit: any = (pk.entries ?? []).find((entry: any) =>
+  const list: any[] = (pk.entries ?? []) as any[];
+  const index = list.findIndex((entry: any) =>
     String(entry.selector ?? entry.value ?? "") === value || String(entry.name ?? "") === value,
   );
+  const hit: any = index >= 0 ? list[index] : undefined;
+  // 提示要带「一级 › 二级」：二级行本身只有裸内核名（如 mainline / Boot using default
+  // options），单看它不知道属于哪个系统（用户 2026-11-21 截图指出的问题）
+  let parent = "";
+  if (hit && (hit as any).child) {
+    for (let k = index - 1; k >= 0; k -= 1) {
+      if ((list[k] as any).header) {
+        parent = String((list[k] as any).name ?? "")
+          .replace(/^[▾▸\s]+/, "")
+          .replace(/（\d+\s*(项|个内核)[^）]*）\s*$/, "")
+          .trim();
+        break;
+      }
+    }
+  }
   picker.value = null;
-  emit("switchBoot", { serverId: props.row.id, kind: pk.kind, value, title: String(hit?.name ?? value) });
+  const base = String(hit?.name ?? value);
+  const title = parent && !base.startsWith(`${parent} › `) ? `${parent} › ${base}` : base;
+  emit("switchBoot", { serverId: props.row.id, kind: pk.kind, value, title });
 }
 /** 旧版：本机恒在线（hub 自身在跑）；远端看 remote_boot_info 的 online */
 const online = computed(() => (isLocal.value ? true : (props.info?.online ?? false)));
