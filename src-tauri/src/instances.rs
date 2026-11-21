@@ -574,7 +574,29 @@ pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target:
         "sdboot" | "opencore" | "clover" => {
             return crate::channels::apply_channel_spec_at(std::path::Path::new(&instance.root_path), target)
         }
-        "grub" => {}
+        "grub" => {
+            // **读取方式决定写哪份 grubenv**（与回显同源，2026-11-21 用户实测：
+            // 自动模式下点了没反应 —— 这里写的是 ESP 那份 EFI/grubenv，而真实
+            // grubenv 在 Linux 分区的 /boot/grub，两份不同步）。
+            if !crate::stored_settings(app).grub_mode.is_manual() {
+                let view = crate::channels::linux_grub::switch_blocking(
+                    app.clone(),
+                    selector.to_string(),
+                );
+                if let Some(error) = view.error.clone() {
+                    return Err(error);
+                }
+                let saved = view.saved_entry.clone().unwrap_or_default();
+                let label = view
+                    .entries
+                    .iter()
+                    .find(|entry| entry.selector == saved)
+                    .map(|entry| entry.name.clone())
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or(saved);
+                return Ok(format!("下次启动：{label}"));
+            }
+        }
         other => return Err(format!("暂不支持该类型的实例切换：{other}")),
     }
     let dir = std::path::Path::new(&instance.root_path).join(&instance.install_dir);
