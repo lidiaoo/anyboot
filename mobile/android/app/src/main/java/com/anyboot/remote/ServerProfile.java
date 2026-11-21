@@ -161,6 +161,17 @@ final class ServerProfile {
      */
     final List<PowerRoute> powerRoutes = new ArrayList<>();
 
+    /** 电源 HTTP 同时发的通道（多选：lan/jump/tunnel/ts/funnel/tsnet，默认全选） */
+    final List<String> powerHttpKinds = new ArrayList<>(defaultPowerHttpKinds());
+
+    static List<String> defaultPowerHttpKinds() {
+        List<String> list = new ArrayList<>();
+        for (String kind : new String[]{"lan", "jump", "tunnel", "ts", "funnel", "tsnet"}) {
+            list.add(kind);
+        }
+        return list;
+    }
+
     /**
      * 一条电源路由。
      *
@@ -193,6 +204,11 @@ final class ServerProfile {
          * 空 = 老数据，按 httpFallback 推导
          */
         String mode = "";
+
+        /** 广播包链路：both（默认）/ direct / jump */
+        String broadcastLink = "both";
+        /** HTTP 链路：both（默认）/ direct / jump */
+        String httpLink = "both";
 
         /** 这条路由的发送模式（空 / 不认识按旧 httpFallback 推导，老档案平滑升级） */
         String effectiveMode() {
@@ -258,7 +274,29 @@ final class ServerProfile {
             other.retry = retry;
             other.mode = mode;
             other.httpFallback = httpFallback;
+            other.broadcastLink = broadcastLink;
+            other.httpLink = httpLink;
             return other;
+        }
+
+        /** 只改「广播链路」（direct / jump / both） */
+        PowerRoute withBroadcastLink(String value) {
+            PowerRoute other = copy();
+            other.broadcastLink = "direct".equals(value) || "jump".equals(value) ? value : "both";
+            return other;
+        }
+
+        /** 只改「HTTP 链路」（direct / jump / both） */
+        PowerRoute withHttpLink(String value) {
+            PowerRoute other = copy();
+            other.httpLink = "direct".equals(value) || "jump".equals(value) ? value : "both";
+            return other;
+        }
+
+        static String linkLabel(String value) {
+            if ("direct".equals(value)) return "仅直连";
+            if ("jump".equals(value)) return "仅跳板机";
+            return "混合（直连+跳板机）";
         }
 
         /** 换一个新实例（Compose 的列表靠替换元素触发重组） */
@@ -270,6 +308,8 @@ final class ServerProfile {
             other.retry = retry;
             other.mode = mode;
             other.httpFallback = httpFallback;
+            other.broadcastLink = broadcastLink;
+            other.httpLink = httpLink;
             return other;
         }
 
@@ -1643,6 +1683,8 @@ final class ServerProfile {
         other.routeOrder.addAll(routeOrder);
         other.routeDisabled.addAll(routeDisabled);
         other.routeProbeHidden.addAll(routeProbeHidden);
+        other.powerHttpKinds.clear();
+        other.powerHttpKinds.addAll(powerHttpKinds);
         for (PowerRoute route : powerRoutes) {
             other.powerRoutes.add(route.copy());
         }
@@ -1698,9 +1740,16 @@ final class ServerProfile {
             item.put("mode", route.effectiveMode());
             item.put("httpFallback", route.effectiveMode().equals("auto")
                     || route.effectiveMode().equals("http_first"));
+            item.put("broadcastLink", text(route.broadcastLink).isEmpty() ? "both" : route.broadcastLink);
+            item.put("httpLink", text(route.httpLink).isEmpty() ? "both" : route.httpLink);
             routeArray.put(item);
         }
         object.put("powerRoutes", routeArray);
+        JSONArray kindArray = new JSONArray();
+        for (String kind : powerHttpKinds) {
+            kindArray.put(kind);
+        }
+        object.put("powerHttpKinds", kindArray);
         object.put("token", text(token));
         object.put("machineId", text(machineId));
         object.put("machineName", text(machineName));
@@ -1972,6 +2021,14 @@ final class ServerProfile {
                 route.retry = item.optInt("retry", 0);
                 route.httpFallback = item.optBoolean("httpFallback", true);
                 route.mode = item.optString("mode", "");
+                route.broadcastLink = item.optString("broadcastLink", "both");
+                route.httpLink = item.optString("httpLink", "both");
+                if (!"direct".equals(route.broadcastLink) && !"jump".equals(route.broadcastLink)) {
+                    route.broadcastLink = "both";
+                }
+                if (!"direct".equals(route.httpLink) && !"jump".equals(route.httpLink)) {
+                    route.httpLink = "both";
+                }
                 JSONArray values = item.optJSONArray("macs");
                 if (values != null) {
                     for (int j = 0; j < values.length(); j++) {
@@ -1982,6 +2039,19 @@ final class ServerProfile {
                     }
                 }
                 profile.powerRoutes.add(route);
+            }
+        }
+        JSONArray kindArray = object.optJSONArray("powerHttpKinds");
+        if (kindArray != null) {
+            profile.powerHttpKinds.clear();
+            for (int i = 0; i < kindArray.length(); i++) {
+                String kind = kindArray.optString(i, "").trim();
+                if (isRouteKind(kind) && !profile.powerHttpKinds.contains(kind)) {
+                    profile.powerHttpKinds.add(kind);
+                }
+            }
+            if (profile.powerHttpKinds.isEmpty()) {
+                profile.powerHttpKinds.addAll(defaultPowerHttpKinds());
             }
         }
         return profile;

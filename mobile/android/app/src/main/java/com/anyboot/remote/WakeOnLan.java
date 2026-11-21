@@ -74,7 +74,15 @@ final class WakeOnLan {
         }
         String jumpId = ServerProfile.text(profile.jumpServerId);
         if (!jumpId.isEmpty()) {
-            return wakeViaJump(context, profile, jumpId, macs, prompt);
+            // 默认「混合」：手机本地广播 + 经跳板机各发一份（任一侧成功即成功）
+            String local = "";
+            try {
+                local = wakeLocal(profile, macs);
+            } catch (Exception ignored) {
+                // 手机不在同网段时本机广播必然失败，由跳板机那侧兜底
+            }
+            String viaJump = wakeViaJump(context, profile, jumpId, macs, prompt);
+            return ServerProfile.text(local).isEmpty() ? viaJump : local + "；" + viaJump;
         }
         return wakeLocal(profile, macs);
     }
@@ -175,50 +183,76 @@ final class WakeOnLan {
         }
 
         String jumpId = ServerProfile.text(profile.jumpServerId);
-        String whereFrom;
+        // 链路聚合：任一 both → both；全部 jump → jump；否则 direct
+        boolean anyBoth = false, allJump = true, allDirect = true;
+        for (ServerProfile.PowerRoute route : routes) {
+            String link = ServerProfile.text(route.broadcastLink);
+            if (!"direct".equals(link) && !"jump".equals(link)) link = "both";
+            if ("both".equals(link)) anyBoth = true;
+            if (!"jump".equals(link)) allJump = false;
+            if (!"direct".equals(link)) allDirect = false;
+        }
+        String link = anyBoth ? "both" : (allJump ? "jump" : (allDirect ? "direct" : "both"));
+
         int sent = 0;
-        if (jumpId.isEmpty()) {
-            whereFrom = "本机";
-            sent = sendLocal(deliveries);
-        } else {
-            JumpServer jump = JumpStore.findJump(JumpStore.loadJumps(context), jumpId);
-            if (jump == null) {
-                throw new Exception("跳板机不存在（可能已删除），请到「服务器」页检查");
+        List<String> fromParts = new ArrayList<>();
+        List<String> linkErrors = new ArrayList<>();
+
+        if (!"jump".equals(link)) {
+            try {
+                int localSent = sendLocal(deliveries);
+                sent += localSent;
+                fromParts.add("本机");
+            } catch (Exception error) {
+                linkErrors.add("本机：" + ServerProfile.text(error.getMessage()));
             }
-            if (!jump.isSsh()) {
-                throw new Exception("跳板机是 Telnet，发不了局域网电源包 —— 换一台 SSH 服务器");
-            }
-            // 「重试次数」= 重试发包；走跳板机时每一轮重试都会重新连接跳板机
-            // （ensureSession 发现断线就重连），直到次数用完 —— 重试次数就是跳板机重连次数。
-            int maxRetry = 0;
-            for (Delivery delivery : deliveries) {
-                maxRetry = Math.max(maxRetry, delivery.retry);
-            }
-            Exception lastError = null;
-            boolean done = false;
-            for (int attempt = 0; attempt <= maxRetry && !done; attempt++) {
-                try {
-                    sent = sendViaJump(context, jump, deliveries, prompt);
-                    done = true;
-                } catch (Exception error) {
-                    String message = ServerProfile.text(error.getMessage());
-                    if (message.contains("python3")) {
-                        throw error;   // 跳板机没装 python3 不会自愈，重试没有意义
+        }
+        if (!"direct".equals(link)) {
+            if (jumpId.isEmpty()) {
+                linkErrors.add("跳板机：未配置（这条路由要求走跳板机）");
+            } else {
+                JumpServer jump = JumpStore.findJump(JumpStore.loadJumps(context), jumpId);
+                if (jump == null) {
+                    linkErrors.add("跳板机不存在（可能已删除）");
+                } else if (!jump.isSsh()) {
+                    linkErrors.add("跳板机是 Telnet，发不了局域网电源包");
+                } else {
+                    int maxRetry = 0;
+                    for (Delivery delivery : deliveries) {
+                        maxRetry = Math.max(maxRetry, delivery.retry);
                     }
-                    lastError = error;
-                    if (attempt < maxRetry) {
-                        Thread.sleep(RETRY_INTERVAL_MS);
+                    Exception lastError = null;
+                    boolean done = false;
+                    for (int attempt = 0; attempt <= maxRetry && !done; attempt++) {
+                        try {
+                            sent += sendViaJump(context, jump, deliveries, prompt);
+                            done = true;
+                        } catch (Exception error) {
+                            String message = ServerProfile.text(error.getMessage());
+                            if (message.contains("python3")) {
+                                lastError = error;
+                                break;
+                            }
+                            lastError = error;
+                            if (attempt < maxRetry) Thread.sleep(RETRY_INTERVAL_MS);
+                        }
+                    }
+                    if (done) {
+                        fromParts.add("跳板机「" + (ServerProfile.text(jump.name).isEmpty() ? jump.host : jump.name) + "」");
+                    } else {
+                        linkErrors.add("跳板机：" + (lastError != null ? ServerProfile.text(lastError.getMessage()) : "没能发出"));
                     }
                 }
             }
-            if (!done) {
-                throw lastError != null ? lastError : new Exception("跳板机没能发出电源包");
-            }
-            whereFrom = "跳板机「" + (ServerProfile.text(jump.name).isEmpty() ? jump.host : jump.name) + "」";
         }
+        String whereFrom = join(fromParts, " + ");
         if (sent == 0) {
-            throw new Exception(whereFrom + "一个包都没发出去：可能在隔离网络、防火墙拦了 UDP 广播，"
-                    + "或者广播地址填错了（手机要能访问到那个网段）");
+            throw new Exception((whereFrom.isEmpty() ? "所有通道都失败" : whereFrom + "一个包都没发出去")
+                    + "：可能在隔离网络、防火墙拦了 UDP 广播，或者广播地址填错了"
+                    + (linkErrors.isEmpty() ? "" : "（" + join(linkErrors, "；") + "）"));
+        }
+        if (!linkErrors.isEmpty()) {
+            whereFrom += "（其余通道失败：" + join(linkErrors, "；") + "）";
         }
 
         String label = ServerProfile.powerActionLabel(wanted);

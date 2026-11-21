@@ -49,8 +49,7 @@ enum PowerOps {
         let mode = ServerProfile.routesMode(routes)
 
         func http() async throws -> String {
-            let target = powerTarget(profile)
-            return try await send(address: target.address, token: target.token, action: wanted)
+            try await sendAll(profile: profile, action: wanted)
         }
 
         func packets() async throws -> String {
@@ -149,6 +148,86 @@ enum PowerOps {
     }
 
     // MARK: - HTTP 通道
+
+    /// 多通道并发发送（与 PC / Android 同一口径）：
+    /// 通道集合 = profile.powerHttpKinds；每条路由 httpLink 决定直连侧 / 跳板机侧是否参与；
+    /// 所有选中通道同时发，任一成功即成功，逐条汇报。
+    static func sendAll(profile: ServerProfile, action: String) async throws -> String {
+        let wanted = ServerProfile.normalizePowerAction(action)
+        let kinds = profile.powerHttpKinds.isEmpty
+            ? ServerProfile.defaultPowerHttpKinds() : profile.powerHttpKinds
+        let routes = profile.routesFor(wanted)
+        var allowDirect = routes.isEmpty
+        var allowJump = routes.isEmpty
+        for route in routes {
+            if route.httpLink != "jump" { allowDirect = true }
+            if route.httpLink != "direct" { allowJump = true }
+        }
+
+        struct Job { let label: String; let address: String; let token: String; let failure: String }
+        var jobs: [Job] = []
+        if allowDirect {
+            for candidate in profile.routeCandidates()
+            where candidate.kind != ServerProfile.routeJump && kinds.contains(candidate.kind) {
+                if candidate.kind == ServerProfile.routeLan {
+                    jobs.append(Job(label: candidate.kind, address: "http://" + profile.host,
+                                    token: profile.token, failure: ""))
+                } else {
+                    jobs.append(Job(label: candidate.kind, address: candidate.origin,
+                                    token: candidate.token, failure: ""))
+                }
+            }
+        }
+        if allowJump && kinds.contains(ServerProfile.routeJump),
+           !profile.primaryJumpServerId.isEmpty {
+            do {
+                let tunnel = try await SshSessionManager.shared.tunnelAddress(
+                    for: profile, destination: profile.host, jumpId: nil)
+                jobs.append(Job(label: "jump", address: "http://" + tunnel,
+                                token: profile.token, failure: ""))
+            } catch {
+                jobs.append(Job(label: "jump", address: "", token: "",
+                                failure: error.localizedDescription))
+            }
+        }
+        if jobs.isEmpty {
+            throw PowerError.message("没有可用的 HTTP 通道（多选里都未勾选 / 都被禁用 / 没配地址）")
+        }
+
+        let results = await withTaskGroup(of: (String, Result<String, Error>).self) { group -> [(String, Result<String, Error>)] in
+            for job in jobs {
+                group.addTask {
+                    if !job.failure.isEmpty {
+                        return (job.label, .failure(PowerError.message(job.failure)))
+                    }
+                    do {
+                        let message = try await send(address: job.address, token: job.token, action: wanted)
+                        return (job.label, .success(message))
+                    } catch {
+                        return (job.label, .failure(error))
+                    }
+                }
+            }
+            var collected: [(String, Result<String, Error>)] = []
+            for await item in group { collected.append(item) }
+            return collected
+        }
+
+        var ok: [String] = []
+        var bad: [String] = []
+        for (label, outcome) in results {
+            switch outcome {
+            case .success(let message): ok.append("\(label)：\(message)")
+            case .failure(let error): bad.append("\(label)：\(error.localizedDescription)")
+            }
+        }
+        if ok.isEmpty {
+            throw PowerError.message("所有 HTTP 通道都失败：" + bad.joined(separator: "；"))
+        }
+        var text = "已同时调用 \(ok.count) 个通道：" + ok.joined(separator: "；")
+        if !bad.isEmpty { text += "（其余失败：" + bad.joined(separator: "；") + "）" }
+        return text
+    }
 
     /// 发一次电源请求。`address` 接受裸 host:port（补 http://）或完整 origin。
     static func send(address: String, token: String, action: String) async throws -> String {

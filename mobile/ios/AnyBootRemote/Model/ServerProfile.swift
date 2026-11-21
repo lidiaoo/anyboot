@@ -38,6 +38,16 @@ struct PowerRoute: Hashable, Codable {
     var httpFallback: Bool = false
     /// 发送模式：auto / http_first / http_only / packet_only / hybrid；空 = 老数据按 httpFallback 推导
     var mode: String = ""
+    /// 广播包链路：both（默认）/ direct / jump
+    var broadcastLink: String = "both"
+    /// HTTP 链路：both（默认）/ direct / jump
+    var httpLink: String = "both"
+
+    static func linkLabel(_ value: String) -> String {
+        if value == "direct" { return "仅直连" }
+        if value == "jump" { return "仅跳板机" }
+        return "混合（直连+跳板机）"
+    }
 
     init() {}
 
@@ -84,6 +94,20 @@ struct PowerRoute: Hashable, Codable {
         other.retry = retry
         other.mode = mode
         other.httpFallback = httpFallback
+        other.broadcastLink = broadcastLink
+        other.httpLink = httpLink
+        return other
+    }
+
+    func withBroadcastLink(_ value: String) -> PowerRoute {
+        var other = copy()
+        other.broadcastLink = (value == "direct" || value == "jump") ? value : "both"
+        return other
+    }
+
+    func withHttpLink(_ value: String) -> PowerRoute {
+        var other = copy()
+        other.httpLink = (value == "direct" || value == "jump") ? value : "both"
         return other
     }
 
@@ -109,6 +133,8 @@ struct PowerRoute: Hashable, Codable {
         case action, target, port, macs, enabled, burst, retry
         case httpFallback, httpFallbackSnake = "http_fallback"
         case mode
+        case broadcastLink, broadcastLinkSnake = "broadcast_link"
+        case httpLink, httpLinkSnake = "http_link"
     }
 
     init(from decoder: Decoder) throws {
@@ -125,6 +151,14 @@ struct PowerRoute: Hashable, Codable {
             httpFallback = (try? c.decodeIfPresent(Bool.self, forKey: .httpFallbackSnake)) ?? false
         }
         mode = ((try? c.decodeIfPresent(String.self, forKey: .mode)) ?? "").trimmedAnyBoot
+        let broadcast = ((try? c.decodeIfPresent(String.self, forKey: .broadcastLink)) ?? "").trimmedAnyBoot
+        let broadcastSnake = ((try? c.decodeIfPresent(String.self, forKey: .broadcastLinkSnake)) ?? "").trimmedAnyBoot
+        let wantedBroadcast = broadcast.isEmpty ? broadcastSnake : broadcast
+        broadcastLink = (wantedBroadcast == "direct" || wantedBroadcast == "jump") ? wantedBroadcast : "both"
+        let http = ((try? c.decodeIfPresent(String.self, forKey: .httpLink)) ?? "").trimmedAnyBoot
+        let httpSnake = ((try? c.decodeIfPresent(String.self, forKey: .httpLinkSnake)) ?? "").trimmedAnyBoot
+        let wantedHttp = http.isEmpty ? httpSnake : http
+        httpLink = (wantedHttp == "direct" || wantedHttp == "jump") ? wantedHttp : "both"
     }
 
     func encode(to encoder: Encoder) throws {
@@ -138,6 +172,8 @@ struct PowerRoute: Hashable, Codable {
         try c.encode(retry, forKey: .retry)
         try c.encode(httpFallback, forKey: .httpFallback)
         try c.encode(mode, forKey: .mode)
+        try c.encode(broadcastLink, forKey: .broadcastLink)
+        try c.encode(httpLink, forKey: .httpLink)
     }
 }
 
@@ -248,6 +284,12 @@ struct ServerProfile: Identifiable, Hashable, Codable {
     var macs: [String: [String]] = [:]
     /// 局域网电源路由
     var powerRoutes: [PowerRoute] = []
+    /// 电源 HTTP 同时发的通道（多选，默认全选）
+    var powerHttpKinds: [String] = ServerProfile.defaultPowerHttpKinds()
+
+    static func defaultPowerHttpKinds() -> [String] {
+        [ServerProfile.routeLan, ServerProfile.routeJump, "tunnel", "ts", "funnel", "tsnet"]
+    }
     /// 访问令牌，可空
     var token: String = ""
     /// 电脑端 `/health` 给的机器标识（同一台电脑的多个 IP 靠它归并）；未知为空
@@ -1268,6 +1310,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         case jumps
         case sortIndex, lastUsedAt
         case pairs, blockProbeMode, blockTimeoutsMs, macs, powerRoutes
+        case powerHttpKinds, powerHttpKindsSnake = "power_http_kinds"
     }
 
     init(from decoder: Decoder) throws {
@@ -1307,6 +1350,16 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         blockTimeoutsMs = (try? c.decodeIfPresent([String: Int].self, forKey: .blockTimeoutsMs)) ?? [:]
         macs = (try? c.decodeIfPresent([String: [String]].self, forKey: .macs)) ?? [:]
         powerRoutes = (try? c.decodeIfPresent([PowerRoute].self, forKey: .powerRoutes)) ?? []
+        let kinds = (try? c.decodeIfPresent([String].self, forKey: .powerHttpKinds))
+            ?? (try? c.decodeIfPresent([String].self, forKey: .powerHttpKindsSnake))
+            ?? []
+        if kinds.isEmpty {
+            powerHttpKinds = Self.defaultPowerHttpKinds()
+        } else {
+            let allowed = Set(Self.defaultPowerHttpKinds())
+            powerHttpKinds = kinds.filter { allowed.contains($0) }
+            if powerHttpKinds.isEmpty { powerHttpKinds = Self.defaultPowerHttpKinds() }
+        }
 
         // 地址：老数据只有单个 host，读的时候当成唯一的候选地址
         let list = (try? c.decodeIfPresent([String].self, forKey: .addresses)) ?? []
@@ -1352,6 +1405,7 @@ struct ServerProfile: Identifiable, Hashable, Codable {
         try c.encode(blockTimeoutsMs, forKey: .blockTimeoutsMs)
         try c.encode(macs, forKey: .macs)
         try c.encode(powerRoutes, forKey: .powerRoutes)
+        try c.encode(powerHttpKinds, forKey: .powerHttpKinds)
     }
 
     /// 通道 id 清洗（去空、去非法、去重、保序）

@@ -1112,6 +1112,28 @@ struct ComputerEditorView: View {
                     })
                     .padding(.top, 6)
             }
+            fieldLabel("电源 HTTP 同时发的通道（默认全选）")
+            HStack(spacing: 12) {
+                ForEach(ServerProfile.defaultPowerHttpKinds(), id: \.self) { kind in
+                    Button {
+                        if draft.powerHttpKinds.contains(kind) {
+                            draft.powerHttpKinds.removeAll { $0 == kind }
+                        } else {
+                            draft.powerHttpKinds.append(kind)
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: draft.powerHttpKinds.contains(kind) ? "checkmark.square.fill" : "square")
+                                .font(.system(size: 12))
+                            Text(kind).font(.system(size: 11))
+                        }
+                        .foregroundColor(draft.powerHttpKinds.contains(kind) ? ABColor.accent : ABColor.fgDim)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Button {
                 // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框）
                 draft.powerRoutes.append(
@@ -1520,6 +1542,24 @@ private struct PowerRouteCardView: View {
                 }
             } label: {
                 outlinedButtonLabel("模式：" + ServerProfile.modeLabel(route.effectiveMode))
+            }
+
+            // 广播发送链路（both/direct/jump，默认混合）
+            Menu {
+                ForEach(["both", "direct", "jump"], id: \.self) { value in
+                    Button(PowerRoute.linkLabel(value)) { route = route.withBroadcastLink(value) }
+                }
+            } label: {
+                outlinedButtonLabel("广播：" + PowerRoute.linkLabel(route.broadcastLink))
+            }
+
+            // HTTP 发送链路（both/direct/jump，默认混合）
+            Menu {
+                ForEach(["both", "direct", "jump"], id: \.self) { value in
+                    Button(PowerRoute.linkLabel(value)) { route = route.withHttpLink(value) }
+                }
+            } label: {
+                outlinedButtonLabel("HTTP：" + PowerRoute.linkLabel(route.httpLink))
             }
 
             // —— 广播包设置区：端口 / 地址 / MAC / 发包数 / 重试 ——

@@ -556,6 +556,14 @@ internal class ServerEditFormState(
             profile.routeDisabled.forEach { id -> if (id in ROUTE_IDS_ALL && id !in this) add(id) }
         }
     }
+    /** 电源 HTTP 同时发的通道（多选，默认全选） */
+    val powerHttpKinds = mutableStateListOf<String>().apply {
+        if (profile != null && profile.powerHttpKinds.isNotEmpty()) {
+            addAll(profile.powerHttpKinds.filter { it in ROUTE_IDS_ALL })
+        } else {
+            addAll(ServerProfile.defaultPowerHttpKinds())
+        }
+    }
     /** 「是否展示」被关掉的通道（与 routeDisabled 同一套通道 id）。新建 = 默认全关
      *  （用户 2026-11-01：新电脑先不涌上电脑列表，要展示哪个通道再单独开）；
      *  编辑 = 档案里已存的原样回显 */
@@ -579,6 +587,8 @@ internal class ServerEditFormState(
     var routeMenuIndex by mutableStateOf(-1)
     var macMenuIndex by mutableStateOf(-1)
     var modeMenuIndex by mutableStateOf(-1)
+    var linkMenuIndex by mutableStateOf(-1)
+    var httpLinkMenuIndex by mutableStateOf(-1)
 
     /** MAC 池：以「已添加的地址」为准（地址 / 网卡变了，可选项跟着变） */
     val macPool: List<String>
@@ -1421,6 +1431,53 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                     }
                 }
 
+                // 广播发送链路（direct/jump/both，默认混合）
+                Box {
+                    OutlinedButton(
+                        onClick = { state.linkMenuIndex = if (state.linkMenuIndex == index) -1 else index },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    ) {
+                        Text("广播：" + ServerProfile.PowerRoute.linkLabel(route.broadcastLink), fontSize = 11.sp)
+                    }
+                    DropdownMenu(
+                        expanded = state.linkMenuIndex == index,
+                        onDismissRequest = { state.linkMenuIndex = -1 },
+                    ) {
+                        listOf("both", "direct", "jump").forEach { value ->
+                            DropdownMenuItem(
+                                text = { Text(ServerProfile.PowerRoute.linkLabel(value)) },
+                                onClick = {
+                                    state.routeList[index] = route.withBroadcastLink(value)
+                                    state.linkMenuIndex = -1
+                                },
+                            )
+                        }
+                    }
+                }
+                // HTTP 发送链路（direct/jump/both，默认混合）
+                Box {
+                    OutlinedButton(
+                        onClick = { state.httpLinkMenuIndex = if (state.httpLinkMenuIndex == index) -1 else index },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                    ) {
+                        Text("HTTP：" + ServerProfile.PowerRoute.linkLabel(route.httpLink), fontSize = 11.sp)
+                    }
+                    DropdownMenu(
+                        expanded = state.httpLinkMenuIndex == index,
+                        onDismissRequest = { state.httpLinkMenuIndex = -1 },
+                    ) {
+                        listOf("both", "direct", "jump").forEach { value ->
+                            DropdownMenuItem(
+                                text = { Text(ServerProfile.PowerRoute.linkLabel(value)) },
+                                onClick = {
+                                    state.routeList[index] = route.withHttpLink(value)
+                                    state.httpLinkMenuIndex = -1
+                                },
+                            )
+                        }
+                    }
+                }
+
                 // —— 广播包设置区：端口 / 地址 / MAC / 发包数 / 重试 ——
                 Text(
                     stringResource(R.string.and_broadcastPacket),
@@ -1574,6 +1631,24 @@ internal fun ServerEditFormBody(state: ServerEditFormState) {
                 )
             }
         }
+        Text(
+            "电源 HTTP 同时发的通道（默认全选）",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.fgDim,
+            modifier = Modifier.padding(top = 8.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            for (kind in ServerProfile.defaultPowerHttpKinds()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable {
+                    if (state.powerHttpKinds.contains(kind)) state.powerHttpKinds.remove(kind)
+                    else state.powerHttpKinds.add(kind)
+                }) {
+                    Checkbox(checked = state.powerHttpKinds.contains(kind), onCheckedChange = null)
+                    Text(kind, fontSize = 10.sp, color = palette.fgDim)
+                }
+            }
+        }
         TextButton(onClick = {
             // 用户 2026-11-01：发包 / 重试直接写**真实数字 10**（输入框里看得见，不再是空框）
             state.routeList.add(
@@ -1624,6 +1699,10 @@ internal fun applyServerEdit(
     target.routeOrder.addAll(state.routeOrder)
     target.routeDisabled.clear()
     target.routeDisabled.addAll(state.routeDisabled)
+    target.powerHttpKinds.clear()
+    target.powerHttpKinds.addAll(
+        state.powerHttpKinds.ifEmpty { ServerProfile.defaultPowerHttpKinds() }
+    )
     target.routeProbeHidden.clear()
     target.routeProbeHidden.addAll(state.routeProbeHidden)
     // 跳板机按**地址**写（一址一跳板机，用户 2026-11-01）：表单里每个地址各带一台。

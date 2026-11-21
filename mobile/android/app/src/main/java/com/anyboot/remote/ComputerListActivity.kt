@@ -4557,17 +4557,11 @@ class ComputerListActivity : ComponentActivity() {
                 routed != null -> routed
                 ServerProfile.POWER_WAKE == action -> WakeOnLan.wake(this@ComputerListActivity, profile, prompt)
                 // 广播包兜底的 HTTP：同样走选点（出门时广播包必然失败，HTTP 得能走隧道）
-                else -> {
-                    val (address, token) = powerTarget(profile)
-                    PowerOps.send(address, token, action)
-                }
+                else -> PowerOps.sendAll(this@ComputerListActivity, profile, action, prompt())
             }
         }
 
-        fun http(): String {
-            val (address, token) = powerTarget(profile)
-            return PowerOps.send(address, token, action)
-        }
+        fun http(): String = PowerOps.sendAll(this@ComputerListActivity, profile, action, prompt())
 
         if (routes.isEmpty()) return packets()
         return when (mode) {

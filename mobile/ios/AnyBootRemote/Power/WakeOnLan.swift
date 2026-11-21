@@ -142,41 +142,63 @@ enum WakeOnLan {
             throw PowerError.message(L("and.noPacketsToSend") + (problems.isEmpty ? L("and.allRoutesOff") : problems.joined(separator: "；")))
         }
 
-        // 电源包走**首选地址**那台跳板机（一址一跳板机：别的地址的跳板机到不了这个网段）
-        let jumpId = profile.primaryJumpServerId
-        var whereFrom = L("sysinfo.local")
+        // 链路聚合：任一 both → both；全部 jump → jump；否则 direct
+        var anyBoth = false, allJump = true, allDirect = true
+        for route in routes {
+            var link = route.broadcastLink.trimmedAnyBoot
+            if link != "direct" && link != "jump" { link = "both" }
+            if link == "both" { anyBoth = true }
+            if link != "jump" { allJump = false }
+            if link != "direct" { allDirect = false }
+        }
+        let link = anyBoth ? "both" : (allJump ? "jump" : (allDirect ? "direct" : "both"))
+
         var sent = 0
-        if jumpId.isEmpty {
-            sent = try sendLocal(deliveries)
-        } else {
-            guard let jump = JumpStore.shared.jump(jumpId) else {
-                throw PowerError.message(L("and.jumpNotExistCheck"))
+        var fromParts: [String] = []
+        var linkErrors: [String] = []
+
+        if link != "jump" {
+            do {
+                sent += try sendLocal(deliveries)
+                fromParts.append(L("sysinfo.local"))
+            } catch {
+                linkErrors.append("本机：" + error.localizedDescription)
             }
-            guard jump.isSsh else {
-                throw PowerError.message(L("and.jumpIsTelnetPower"))
-            }
-            let maxRetry = deliveries.map(\.retry).max() ?? 0
-            var done = false
-            var lastError: Error?
-            for attempt in 0...maxRetry {
-                do {
-                    sent = try await sendViaJump(jump, deliveries)
-                    done = true
-                    break
-                } catch {
-                    let message = error.localizedDescription
-                    if message.contains("python3") { throw error }   // 没装 python3 不会自愈
-                    lastError = error
-                    if attempt < maxRetry {
-                        try? await Task.sleep(nanoseconds: UInt64(retryIntervalMs) * 1_000_000)
+        }
+        if link != "direct" {
+            let jumpId = profile.primaryJumpServerId
+            if jumpId.isEmpty {
+                linkErrors.append("跳板机：未配置（这条路由要求走跳板机）")
+            } else if let jump = JumpStore.shared.jump(jumpId), jump.isSsh {
+                let maxRetry = deliveries.map(\.retry).max() ?? 0
+                var done = false
+                var lastError: Error?
+                for attempt in 0...maxRetry {
+                    do {
+                        sent += try await sendViaJump(jump, deliveries)
+                        done = true
+                        break
+                    } catch {
+                        if error.localizedDescription.contains("python3") { lastError = error; break }
+                        lastError = error
+                        if attempt < maxRetry {
+                            try? await Task.sleep(nanoseconds: UInt64(retryIntervalMs) * 1_000_000)
+                        }
                     }
                 }
+                if done {
+                    let label = jump.name.trimmedAnyBoot.isEmpty ? jump.host : jump.name
+                    fromParts.append(L("and.jumpFrom", label))
+                } else {
+                    linkErrors.append("跳板机：" + (lastError?.localizedDescription ?? L("and.jumpNotSend")))
+                }
+            } else {
+                linkErrors.append("跳板机不存在或是 Telnet")
             }
-            if !done {
-                throw lastError ?? PowerError.message(L("and.jumpNotSend"))
-            }
-            let label = jump.name.trimmedAnyBoot.isEmpty ? jump.host : jump.name
-            whereFrom = L("and.jumpFrom", label)
+        }
+        var whereFrom = fromParts.joined(separator: " + ")
+        if !linkErrors.isEmpty {
+            whereFrom += "（其余通道失败：" + linkErrors.joined(separator: "；") + "）"
         }
 
         if sent == 0 {
@@ -202,10 +224,13 @@ enum WakeOnLan {
         guard !macs.isEmpty else {
             throw PowerError.message(L("and.noMacEdit"))
         }
-        // 同上：唤醒包走首选地址那台跳板机
+        // 默认「混合」：本地广播 + 经跳板机各发一份（任一侧成功即可）
         let jumpId = profile.primaryJumpServerId
         if !jumpId.isEmpty {
-            return try await wakeViaJump(profile: profile, macs: macs, jumpId: jumpId)
+            var local = ""
+            if let text = try? wakeLocal(profile: profile, macs: macs) { local = text }
+            let viaJump = try await wakeViaJump(profile: profile, macs: macs, jumpId: jumpId)
+            return local.isEmpty ? viaJump : local + "；" + viaJump
         }
         return try wakeLocal(profile: profile, macs: macs)
     }

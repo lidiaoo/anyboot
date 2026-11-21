@@ -1,5 +1,7 @@
 package com.anyboot.remote;
 
+import android.content.Context;
+
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -7,6 +9,8 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 电源操作（重启 / 关机 / 睡眠）—— 走电脑端 HTTP 接口 {@code /api/power}。
@@ -91,6 +95,79 @@ final class PowerOps {
                 connection.disconnect();
             }
         }
+    }
+
+    /**
+     * 多通道并发发送（与 PC 的「电源 HTTP 同时发的通道」一致）：
+     * - 通道集合 = profile.powerHttpKinds（默认 lan/jump/tunnel/ts/funnel/tsnet 全选）；
+     * - 每条路由的 httpLink：任一 both → 直连侧也发；任一 both/jump → 跳板机侧也发；
+     * - 所有选中的通道**同时发**，任一成功即成功，逐条汇报。
+     */
+    static String sendAll(Context context, ServerProfile profile, String action,
+                          SshSessionManager.Prompt prompt) throws Exception {
+        List<String> kinds = profile.powerHttpKinds.isEmpty()
+                ? ServerProfile.defaultPowerHttpKinds() : profile.powerHttpKinds;
+        List<ServerProfile.PowerRoute> routes = profile.routesFor(ServerProfile.normalizePowerAction(action));
+        boolean allowDirect = routes.isEmpty();
+        boolean allowJump = routes.isEmpty();
+        for (ServerProfile.PowerRoute route : routes) {
+            String link = ServerProfile.text(route.httpLink);
+            if (!"jump".equals(link)) allowDirect = true;
+            if (!"direct".equals(link)) allowJump = true;
+        }
+
+        final List<String[]> jobs = new ArrayList<>();  // {label, address, token}
+        if (allowDirect) {
+            for (ServerProfile.RouteCandidate candidate : profile.routeCandidates()) {
+                if ("jump".equals(candidate.kind) || !kinds.contains(candidate.kind)) continue;
+                jobs.add(new String[]{candidate.kind, candidate.origin, candidate.token});
+            }
+        }
+        if (allowJump && kinds.contains("jump")) {
+            String jumpId = ServerProfile.text(profile.jumpServerId);
+            String dest = ServerProfile.text(profile.host());
+            if (!jumpId.isEmpty() && !dest.isEmpty()) {
+                JumpServer jump = JumpStore.findJump(JumpStore.loadJumps(context), jumpId);
+                if (jump != null && jump.isSsh()) {
+                    try {
+                        String tunnel = SshSessionManager.shared().tunnelAddress(context, jump, dest, prompt);
+                        jobs.add(new String[]{"jump", tunnel, profile.token});
+                    } catch (Exception error) {
+                        jobs.add(new String[]{"jump-error", ServerProfile.text(error.getMessage()), ""});
+                    }
+                }
+            }
+        }
+        if (jobs.isEmpty()) {
+            throw new Exception("没有可用的 HTTP 通道（多选里都未勾选 / 都被禁用 / 没配地址）");
+        }
+
+        final String wanted = ServerProfile.normalizePowerAction(action);
+        final Object lock = new Object();
+        final List<String> ok = new ArrayList<>();
+        final List<String> bad = new ArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+        for (String[] job : jobs) {
+            Thread thread = new Thread(() -> {
+                String label = job[0];
+                try {
+                    if ("jump-error".equals(label)) throw new Exception(job[1]);
+                    String message = send(job[1], job[2], wanted);
+                    synchronized (lock) { ok.add(label + "：" + message); }
+                } catch (Exception error) {
+                    synchronized (lock) { bad.add(label + "：" + ServerProfile.text(error.getMessage())); }
+                }
+            });
+            thread.start();
+            threads.add(thread);
+        }
+        for (Thread thread : threads) thread.join();
+        if (ok.isEmpty()) {
+            throw new Exception("所有 HTTP 通道都失败：" + String.join("；", bad));
+        }
+        StringBuilder text = new StringBuilder("已同时调用 " + ok.size() + " 个通道：" + String.join("；", ok));
+        if (!bad.isEmpty()) text.append("（其余失败：").append(String.join("；", bad)).append("）");
+        return text.toString();
     }
 
     /** 从响应体里挑一句能看的话：优先 message，其次 error，都没有就用兜底文案 */
