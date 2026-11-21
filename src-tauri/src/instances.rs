@@ -611,7 +611,7 @@ pub(crate) fn switch_instance(app: &tauri::AppHandle, instance_id: &str, target:
     Ok(format!("下次启动：{selector}"))
 }
 
-/// 实例切换的统一入口：写入 + 失效实例缓存 + 发布 UI（让三端都刷新/出提示）。
+/// 实例切换的统一入口：写入 + 局部更新实例缓存 + 发布 UI（让三端都刷新/出提示）。
 pub(crate) fn switch_instance_and_update(
     app: &tauri::AppHandle,
     instance_id: &str,

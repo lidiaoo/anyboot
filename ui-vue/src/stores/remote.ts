@@ -206,7 +206,19 @@ export const useRemoteStore = defineStore("remote", () => {
       kind: payload.kind,
       value: payload.value,
     });
-    // 先返回成功回执；远程电脑的 boot info 刷新可能 2.5s，不能挡着 toast。
+    // **本地先回显**：把选中值直接写进快照，切换立刻可见；
+    // 全量刷新（本机约 1.5s、远端约 7s）放后台，回来再对账。
+    const info = bootInfo.value.get(id);
+    if (info) {
+      const list: any[] = (info.channels ?? []) as any[];
+      const hit = list.find((group: any) =>
+        (group.instanceId && group.instanceId === payload.kind) || group.kind === payload.kind,
+      );
+      if (hit) {
+        hit.current = String(payload.value ?? "");
+        bootInfo.value = new Map(bootInfo.value);
+      }
+    }
     if (id) void refreshBoot(id).catch(() => {});
     return title ? `下次启动：${title}` : (message ?? "");
   }

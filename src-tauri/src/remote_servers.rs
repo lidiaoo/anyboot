@@ -4805,24 +4805,10 @@ pub(crate) fn all_channels(app: &AppHandle) -> Vec<BootGroup> {
 /// 所有通道 + 多实例扩展（JSON，供 /api/boot-channels 与前端平铺列表）。
 /// 主实例仍来自 all_channels（6 段）；同类型的额外实例作为 kind 可重复的只读条目追加。
 pub(crate) fn all_channels_json(app: &AppHandle) -> Vec<serde_json::Value> {
-    let instances = crate::instances::scan_instances(app);
-    let mut values: Vec<serde_json::Value> = Vec::new();
-    for instance in &instances {
-        if instance.hidden {
-            continue;
-        }
-        let Some(group) = crate::instances::extra_instance_group(app, instance) else {
-            continue;
-        };
-        let mut value = serde_json::to_value(&group).unwrap_or_else(|_| serde_json::json!({}));
-        if let Some(object) = value.as_object_mut() {
-            object.insert("title".into(), serde_json::Value::String(instance.title.clone()));
-            object.insert("instanceId".into(), serde_json::Value::String(instance.instance_id.clone()));
-            object.insert("hidden".into(), serde_json::Value::Bool(instance.hidden));
-        }
-        values.push(value);
-    }
-    values
+    instance_boot_groups(app)
+        .iter()
+        .map(|group| serde_json::to_value(group).unwrap_or_else(|_| serde_json::json!({})))
+        .collect()
 }
 
 /// Tauri 命令：所有通道（含多实例扩展）。

@@ -114,12 +114,10 @@ async function switchEntry(selector: string) {
       // 统一回执：所有引导器都显示「下次启动：<显示标题>」，不再用各后端自己的动作描述。
       void message;
       toast.show(`下次启动：${title}`, "ok");
-      void (async () => {
-        await instancePrefs.load(true).catch(() => {});
-        const fresh = instancePrefs.list.find((item: any) => String(item?.instanceId || "") === props.loader);
-        if (fresh) instanceGroup.value = fresh;
-        await ui.pollOnce().catch(() => {});
-      })();
+      // 本地立刻回显（全量刷新要 1.5s：opencore 视图解析 plist 是大头），
+      // 后台再 poll 一次快照对账即可。
+      instancePrefs.patchCurrent(props.loader, selector);
+      void ui.pollOnce().catch(() => {});
       return;
     }
     if (isRefindFamily.value) {

@@ -64,6 +64,11 @@ pub(crate) struct AppState {
     pub(crate) channels: channels::ChannelsRuntime,
     /// 引导器实例扫描缓存（TTL，channels 刷新时失效），避免每次请求重新全盘枚举。
     pub(crate) instances_cache: Option<(std::time::Instant, Vec<crate::instances::BootInstanceRef>)>,
+    /// 实例级 BootGroup 缓存（`all_channels_json` 的结果）：构建一次要 1.5s
+    /// （opencore 视图解析 plist），切换后立刻全量重算就是「选中延迟」的来源。
+    /// 缓存 15s；切换时只换掉被切那一条（见 `refresh_group_in_cache`）。
+    pub(crate) instances_groups_cache:
+        Option<(std::time::Instant, Vec<crate::remote_servers::BootGroup>)>,
     /// 安装 / 卸载 09_anyboot 的执行过程日志（最近一次）
     pub(crate) script_log: ScriptLogView,
     /// 贴边自动隐藏的运行态：是否已停靠、贴在哪条边、贴住时的坐标。

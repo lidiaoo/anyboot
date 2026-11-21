@@ -70,14 +70,25 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
   /** 新实例列表到达：补进 order 末尾、清理已消失的 id；保留后端已 hydrate 的顺序。 */
   function setInstances(items: any[]) {
     const ids = items.map(idOf).filter(Boolean);
-    const order = [...adv.state.instanceOrder].filter((id) => ids.includes(id));
+    // **只补不删**：扫描不全（挂载未就绪 / 临时错误）时若把 order 里的 id 剪掉，
+    // 会把页签永久删掉（用户实测 GRUB 页签消失）。删除交给人手在「引导高级设置」里做。
+    const order = [...adv.state.instanceOrder];
     for (const id of ids) if (!order.includes(id)) order.push(id);
-    const hidden = adv.state.instanceHidden.filter((id) => ids.includes(id));
-    const sides = Object.fromEntries(Object.entries(adv.state.instanceSides).filter(([id]) => ids.includes(id)));
+    const hidden = adv.state.instanceHidden.filter((id) => ids.includes(id) || !ids.length);
+    const sides = { ...adv.state.instanceSides };
     if (order.join("\u0000") !== adv.state.instanceOrder.join("\u0000")
       || hidden.join("\u0000") !== adv.state.instanceHidden.join("\u0000")
       || JSON.stringify(sides) !== JSON.stringify(adv.state.instanceSides)) {
       adv.setInstanceAll(order, hidden, sides);
+    }
+  }
+
+  /** 切换成功后就地改 current（本机 1.5s / 远端 7s 的全量刷新放后台） */
+  function patchCurrent(id: string, current: string): void {
+    const item = list.value.find((x: any) => idOf(x) === id);
+    if (item) {
+      item.current = current;
+      list.value = [...list.value];
     }
   }
 
@@ -123,5 +134,5 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
       .filter((item) => isVisible(idOf(item)));
   }
 
-  return { state, list, loading, load, setInstances, isVisible, toggleVisible, move, sideOf, toggleSide, reset, orderedVisible, idOf };
+  return { state, list, loading, load, setInstances, patchCurrent, isVisible, toggleVisible, move, sideOf, toggleSide, reset, orderedVisible, idOf };
 });
