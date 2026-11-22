@@ -44,7 +44,12 @@ const toast = useToastStore();
 const instancePrefs = useBootInstancesStore();
 
 const isInstance = computed(() => props.loader.includes("@"));
-const instanceGroup = ref<any>(props.instance ?? null);
+/** 实例快照是否"可用"：options / entries 至少有一个有内容。扫描前的空壳不算。 */
+function instanceUsable(value: any): boolean {
+  if (!value) return false;
+  return (value.options?.length ?? 0) > 0 || (value.entries?.length ?? 0) > 0;
+}
+const instanceGroup = ref<any>(instanceUsable(props.instance) ? props.instance : null);
 onMounted(() => {
   if (!isInstance.value || instanceGroup.value) return;
   const apply = (list: any[]) => {
@@ -61,7 +66,8 @@ onMounted(() => {
 });
 
 watch(() => props.instance, (value: any) => {
-  if (value) instanceGroup.value = value;
+  // 空壳（options=[]）不要覆盖已经拿到的真实数据，也不要阻止下面的自取
+  if (instanceUsable(value)) instanceGroup.value = value;
 }, { immediate: true });
 
 // 切换顶部引导器 tab 时 loader 会变，instanceGroup 必须跟着换成对应实例；

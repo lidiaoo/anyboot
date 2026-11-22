@@ -227,6 +227,18 @@ onMounted(async () => {
   // 移动端取消勾选后重开也不会又勾上（后端有值才覆盖，空则保持 localStorage）。
   adv.hydrateFromBackend((ui.settings as { bootAdvJson?: string } | null)?.bootAdvJson);
   void instancePrefs.load();
+  // 扫描完成后 `ui.linuxGrub` / `ui.grub` 的条目数会变，但实例列表是启动时拉的一次性快照
+  // （GRUB 实例的 options 还是空）→ 页签一直是 0、「没有可用条目」。这里盯住条目数变化，
+  // 强制重拉实例列表，保证扫描结果能落到页签/列表上（用户 2026-11-22 截图复现）。
+  watch(
+    () => [ui.linuxGrub?.entries?.length ?? 0, ui.grub?.entries?.length ?? 0],
+    (next, prev) => {
+      const grew = next[0] !== prev?.[0] || next[1] !== prev?.[1];
+      const any = next[0] > 0 || next[1] > 0;
+      if (any && grew) void instancePrefs.load(true).catch(() => {});
+    },
+    { immediate: true },
+  );
   // 启动扫描策略（用户定案修正 2026-11-07）：
   //   **勾选「启动时使用管理员扫描」= 启动一定用管理员权限扫描所有引导器**
   //   （GRUB 自动 + rEFInd 内核）。没免密就弹系统密码授权框扫；取消勾选才不用 root 扫。
@@ -360,13 +372,29 @@ onMounted(async () => {
 /** 每引导器的真实设置数据（旧版 boot-adv.js 各 *_Loader 适配器精简）：
  *  esp 副标题、entries(t/def)、nextBoot（默认项）、healthText —— 供各主题「引导器设置」面板显示。 */
 function instanceToLoader(inst: any): LoaderInfo {
-  const options = (inst?.options ?? []).filter((o: any) => !o.header);
-  const hit = currentEntryOf(inst);
+  let rawOptions: any[] = (inst?.options ?? []) as any[];
+  // 兜底：实例快照可能还是扫描前的空 options（GRUB 自动读取刚扫完时），
+  // 这时用 ui.linuxGrub（自动）/ ui.grub（手动）的最新条目来算数量/默认项，
+  // 避免页签显示 0 条。
+  if (!rawOptions.length && String(inst?.kind ?? "") === "grub") {
+    const latest =
+      settings.grubMode === "manual" ? (ui.grub?.entries ?? []) : (ui.linuxGrub?.entries ?? []);
+    rawOptions = latest.map((entry: any) => ({
+      value: entry.selector ?? entry.id ?? "",
+      label: entry.name ?? entry.title ?? "",
+      header: false,
+      class: entry.class ?? "",
+    }));
+  }
+  const options = rawOptions.filter((o: any) => !o.header);
+  const hit =
+    options.find((o: any) => String(o.value ?? "") === String(inst?.current ?? "")) ??
+    options.find((o: any) => String(o.label ?? "").includes(String(inst?.current ?? "")));
   const entries: { t?: string; def?: boolean }[] = [];
   if (hit || inst?.current) {
     entries.push({
       // 组内子项补一级组头（「一级 › 二级」），与置顶行/卡片回显同口径
-      t: groupedLabel(parentHeaderOf(inst?.options, String(inst?.current ?? "")), String(hit?.label ?? inst?.current ?? "")),
+      t: groupedLabel(parentHeaderOf(rawOptions, String(inst?.current ?? "")), String(hit?.label ?? inst?.current ?? "")),
       def: true,
     });
   }

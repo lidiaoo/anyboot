@@ -19,7 +19,7 @@ export const useBootInstancesStore = defineStore("bootInstances", () => {
 
   async function load(force = false): Promise<any[]> {
     if (!force && list.value.length) return list.value;
-    if (pending) return pending;
+    if (pending && !force) return pending; // force 必须另开一次，等旧 pending 会拿到扫描前快照
     loading.value = true;
     pending = (async () => {
       let data: any[] = [];

@@ -2,6 +2,7 @@
 /** hideList=true 时只渲染设置部分 */
 const props = defineProps<{ hideList?: boolean }>();
 const toast = useToastStore();
+const instancePrefs = useBootInstancesStore();
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useUiStateStore } from "@/stores/uiState";
@@ -10,6 +11,7 @@ import { call, setLoaderMode } from "@/api/tauri";
 import GrubList from "@/components/boot/GrubList.vue";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 const { t } = useI18n();
 
 /**
@@ -180,7 +182,9 @@ async function refreshAuto() {
     } else {
       ui.setBootNotice(t("grub.scanEmpty", { name: "GRUB" }));
     }
-    void call("refresh").catch(() => {});
+    await call("refresh").catch(() => {});
+    // 重新读取后强制刷新实例列表（否则 GRUB 页签的 options 还是旧快照，列表显示 0 条）
+    await instancePrefs.load(true).catch(() => {});
   } catch (e) {
     ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {

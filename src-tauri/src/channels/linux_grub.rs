@@ -2750,6 +2750,11 @@ fn store(
     if let Some(payload) = probe {
         state.linux_probe_cache = Some(payload.clone());
     }
+    // 关键：GRUB 自动读取的结果变了 → /api/boot-channels 的合并缓存（P4）必须作废，
+    // 否则「重新读取成功（75 条）」后页签/列表仍拿到扫描前的空 options（用户 2026-11-22 截图）。
+    state.channels_json_cache = None;
+    drop(state);
+    crate::instances::invalidate_group_cache();
 }
 
 /// 写盘上下文：从**同一份** payload 里取，绝不为了拿 env 再探一次
