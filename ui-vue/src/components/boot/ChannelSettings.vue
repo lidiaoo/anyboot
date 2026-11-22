@@ -9,10 +9,12 @@ import { useI18n } from "vue-i18n";
 import { computed, ref } from "vue";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 const { t } = useI18n();
 
 const props = defineProps<{ loader: string }>();
 const ui = useUiStateStore();
+const instancePrefs = useBootInstancesStore();
 const busy = ref(false);
 async function refreshChannel() {
   if (busy.value) return;
@@ -36,6 +38,8 @@ async function refreshChannel() {
     ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {
     busy.value = false;
+    // 扫描后重拉实例快照（OpenCore / systemd-boot / Clover 页签条数）
+    await instancePrefs.load(true).catch(() => {});
   }
 }
 const ch = computed(() => ui.channels.find((c) => c.id === props.loader) ?? null);

@@ -381,7 +381,11 @@ pub(crate) fn refresh_sim_for(
     let state = app.state::<Mutex<crate::AppState>>();
     if let Ok(mut state) = state.lock() {
         put_sim(&mut state, channel, sim.clone());
+        // 与 linux_grub::store 同理：sim 变了 → /api/boot-channels 合并缓存必须失效，
+        // 否则「重新读取」后页签/电脑列表仍拿到旧条目（用户 2026-11-22）。
+        state.channels_json_cache = None;
     }
+    crate::instances::invalidate_group_cache();
     sim
 }
 

@@ -7,6 +7,7 @@ const props = withDefaults(
   { channel: "refind" },
 );
 const toast = useToastStore();
+const instancePrefs = useBootInstancesStore();
 const settings = useSettingsStore();
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -17,6 +18,7 @@ import GrubList from "@/components/boot/GrubList.vue";
 import { simRows, refindVariableRows } from "@/pages/boot/bootRows";
 import type { EntryData } from "@/components/boot/types";
 import { useToastStore } from "@/stores/toast";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 const { t } = useI18n();
 
 /**
@@ -148,6 +150,8 @@ async function refreshSim() {
     ui.setBootNotice(t("grub.rereadFail", { msg: String(e) }), true);
   } finally {
     simBusy.value = false;
+    // 重新读取后实例列表要重拉（否则 rEFInd / RefindPlus 页签条数还是旧快照）
+    await instancePrefs.load(true).catch(() => {});
     // **不要在这里再 call("refresh")**：refind_sim_scan 已经把 sim 算好并写回
     // AppState + publish_ui，前端也已 applySnapshot。多调一次 refresh 会重新走
     // scan_vars_directory → 重新枚举挂载卷 / 提权临时挂载找 vars 目录，而刚才

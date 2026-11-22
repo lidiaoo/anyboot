@@ -8,11 +8,13 @@ import { useI18n } from "vue-i18n";
 import { call } from "@/api/tauri";
 import { useUiStateStore } from "@/stores/uiState";
 import { useToastStore } from "@/stores/toast";
+import { useBootInstancesStore } from "@/stores/bootInstances";
 import { useSettingsStore } from "@/stores/settings";
 const { t } = useI18n();
 
 const ui = useUiStateStore();
 const toast = useToastStore();
+const instancePrefs = useBootInstancesStore();
 const settings = useSettingsStore();
 /** 手动模式才显示「识别」按钮（识别=解析 ESP 上的 grub.cfg，仅手动解析用得到） */
 const isManual = computed(() => settings.grubMode === "manual");
@@ -32,7 +34,7 @@ async function detectEsp() {
     // 走统一的**底部状态栏**提示（ui.setBootNotice → BootApp 的 status-bar），
     // 不是浮层 toast。setBootNotice 每次赋新对象，连续点相同文案也会重复显示。
     ui.setBootNotice(res || t("grubEsp.recognized", { name: "GRUB" }));
-    void call("refresh").catch(() => {});
+    void call("refresh").then(() => instancePrefs.load(true)).catch(() => {});
   } catch (e) {
     toast.show(t("grubEsp.fail", { msg: String(e) }), "bad");
   }
@@ -50,7 +52,7 @@ async function detectPartuuid() {
   try {
     await call("detect_grub_by_partuuid");
   } finally {
-    void call("refresh").catch(() => {});
+    void call("refresh").then(() => instancePrefs.load(true)).catch(() => {});
   }
 }
 function savePartuuid() {
@@ -60,7 +62,7 @@ async function syncManual() {
   try {
     await call("sync_grub");
   } finally {
-    void call("refresh").catch(() => {});
+    void call("refresh").then(() => instancePrefs.load(true)).catch(() => {});
   }
 }
 function toggleMount() {

@@ -231,11 +231,20 @@ onMounted(async () => {
   // （GRUB 实例的 options 还是空）→ 页签一直是 0、「没有可用条目」。这里盯住条目数变化，
   // 强制重拉实例列表，保证扫描结果能落到页签/列表上（用户 2026-11-22 截图复现）。
   watch(
-    () => [ui.linuxGrub?.entries?.length ?? 0, ui.grub?.entries?.length ?? 0],
+    () => [
+      ui.linuxGrub?.entries?.length ?? 0,
+      ui.grub?.entries?.length ?? 0,
+      ui.refindSim?.entries?.length ?? 0,
+      ui.refindplusSim?.entries?.length ?? 0,
+      (ui.channels ?? [])
+        .map((c: any) => `${c.id}:${c.entries?.length ?? 0}:${c.menuPreview?.entries?.length ?? 0}`)
+        .join("|"),
+    ],
     (next, prev) => {
-      const grew = next[0] !== prev?.[0] || next[1] !== prev?.[1];
-      const any = next[0] > 0 || next[1] > 0;
-      if (any && grew) void instancePrefs.load(true).catch(() => {});
+      if (!prev) return;
+      if (JSON.stringify(next) === JSON.stringify(prev)) return;
+      // 任一引导器重新读取后条目数变化 → 实例列表必须重拉（页签/列表都吃这份快照）
+      void instancePrefs.load(true).catch(() => {});
     },
     { immediate: true },
   );
