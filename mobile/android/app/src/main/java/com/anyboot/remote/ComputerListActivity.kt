@@ -67,6 +67,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -346,6 +347,13 @@ class ComputerListActivity : ComponentActivity() {
     // 界面
     // ------------------------------------------------------------------
 
+    /** 当前应用版本号（启动检查更新用；与 AboutActivity.versionName() 同口径） */
+    private fun packageVersionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (ignored: Exception) {
+        "?"
+    }
+
     @Composable
     private fun Root() {
         // ⚠️ 取色必须在 AppTheme 里面：LocalPalette 的默认值是 paletteOf(Application())，
@@ -353,6 +361,19 @@ class ComputerListActivity : ComponentActivity() {
         // —— 少了这层包裹，进电脑列表页会直接闪退（与 TerminalSettingsActivity 同款约定）。
         AppTheme {
             val palette = LocalPalette.current
+            // 启动时检查更新：与 PC 一致，只有「发现新版本」才弹窗；已最新不打扰。
+            // 状态机/下载/安装复用 About 页的 UpdateState（同一套 UpdatePanel）。
+            val startupUpdate = remember { UpdateState(this@ComputerListActivity, packageVersionName()) }
+            var startupUpdateOpen by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { startupUpdate.checkOnFirstOpen() }
+            LaunchedEffect(startupUpdate.phase, startupUpdate.release?.version) {
+                val version = startupUpdate.release?.version ?: ""
+                if (startupUpdate.phase == "available" && version.isNotEmpty()
+                    && AppUpdate.skippedVersion(this@ComputerListActivity) != version
+                ) {
+                    startupUpdateOpen = true
+                }
+            }
             val tone = toneOf()
             val rows = rowsOf()
 
@@ -368,6 +389,32 @@ class ComputerListActivity : ComponentActivity() {
                                 HostList(visible)
                             }
                         }
+                    }
+                    if (startupUpdateOpen && startupUpdate.release != null) {
+                        AlertDialog(
+                            onDismissRequest = { startupUpdateOpen = false },
+                            title = {
+                                Text(
+                                    "发现新版本 v${startupUpdate.release?.version ?: ""}",
+                                    fontSize = 16.sp,
+                                )
+                            },
+                            text = { UpdatePanel(startupUpdate) },
+                            confirmButton = {},
+                            dismissButton = {
+                                Row {
+                                    TextButton(onClick = {
+                                        AppUpdate.skipVersion(
+                                            this@ComputerListActivity,
+                                            startupUpdate.release?.version ?: "",
+                                            0,
+                                        )
+                                        startupUpdateOpen = false
+                                    }) { Text("跳过此版本") }
+                                    TextButton(onClick = { startupUpdateOpen = false }) { Text("稍后") }
+                                }
+                            },
+                        )
                     }
                     ToastStack(Modifier.align(Alignment.BottomCenter))
                     if (drawerOpen) AppDrawerOverlay(DRAWER_COMPUTER_LIST) { drawerOpen = false }

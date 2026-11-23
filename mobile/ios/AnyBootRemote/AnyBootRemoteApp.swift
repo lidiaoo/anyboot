@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct AnyBootRemoteApp: App {
@@ -44,6 +45,12 @@ struct RootView: View {
     @ObservedObject private var theme = ABThemeStore.shared
     @StateObject private var langStore = ABLanguageStore.shared
 
+    // 启动检查更新（与 PC / Android 同一口径：只有发现新版本才弹；已最新不打扰）
+    @AppStorage("updateSkipVersion") private var skipVersion = ""
+    @AppStorage("updateSkipUntilEpoch") private var skipUntilEpoch: Double = 0
+    @State private var startupUpdate: ABUpdateCheck.Outcome?
+    @State private var showStartupUpdate = false
+
     var body: some View {
         ZStack {
             ABColor.base.ignoresSafeArea()
@@ -75,6 +82,46 @@ struct RootView: View {
             // 抽屉
             ABDrawerOverlay()
         }
+        .task { await checkStartupUpdate() }
+        .alert(
+            startupUpdate.map { "发现新版本 \($0.tag)" } ?? "发现新版本",
+            isPresented: $showStartupUpdate
+        ) {
+            Button("打开 Releases 下载页") {
+                if let url = URL(string: AnyBootRemoteAppReleasesURL) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("忽略 7 天") {
+                if let version = startupUpdate?.version {
+                    skipVersion = version
+                    skipUntilEpoch = Date().timeIntervalSince1970 + 7 * 86400
+                }
+            }
+            Button("忽略 30 天") {
+                if let version = startupUpdate?.version {
+                    skipVersion = version
+                    skipUntilEpoch = Date().timeIntervalSince1970 + 30 * 86400
+                }
+            }
+            Button("稍后", role: .cancel) { }
+        } message: {
+            let notes = (startupUpdate?.notes ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            Text(notes.isEmpty ? "点「打开 Releases 下载页」获取安装包（iOS 需自签后安装）。" : notes)
+        }
+    }
+
+    private let AnyBootRemoteAppReleasesURL = "https://github.com/lidiaoo/anyboot/releases"
+
+    private func checkStartupUpdate() async {
+        if startupUpdate != nil { return }
+        let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+        guard let outcome = try? await ABUpdateCheck.check(current: current), outcome.isNewer else { return }
+        let skipped = skipVersion == outcome.version
+            && (skipUntilEpoch == 0 || skipUntilEpoch > Date().timeIntervalSince1970)
+        guard !skipped else { return }
+        startupUpdate = outcome
+        showStartupUpdate = true
     }
 }
 
