@@ -289,6 +289,11 @@ jobs:
           sudo install -m 755 /tmp/squashfs-root/usr/bin/appimagetool /usr/local/bin/appimagetool
       - name: 构建 sidecar（Linux amd64/arm64）
         run: bash scripts/build-sidecar.sh
+      - name: 缓存 jammy sysroot
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ab-sysroot
+          key: jammy-sysroot-v1-${{ runner.os }}
       - name: 安装前端依赖
         run: npm ci
       - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
@@ -299,6 +304,8 @@ jobs:
       - name: 先构建标准 AppImage（作为 jammy 换基座的原包）
         run: NO_STRIP=1 npm run build:linux
       - name: 产出 GLIBC 2.35 兼容 AppImage
+        env:
+          AB_SKIP_ASSET_CHECK: "1"
         run: |
           set -e
           VERSION=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")

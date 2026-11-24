@@ -234,6 +234,9 @@ for f in anyboot-tsnet-linux-amd64 anyboot-tsnet-linux-arm64; do
   echo "  ✓ $f  $(stat -c%s "$p") 字节"
 done
 
+if [ "${AB_SKIP_ASSET_CHECK:-0}" = "1" ]; then
+  echo "==> 自检 A3：跳过（AB_SKIP_ASSET_CHECK=1，CI 构建不比对本地 codegen 目录）"
+else
 echo "==> 自检 A3：前端资产确实是本轮构建的"
 # 资产是 brotli 压缩后嵌进二进制的，扫二进制不现实；改查 codegen 产物目录。
 # 目录跟着**本体二进制**走（BIN 常是指向另一条构建线的符号链接，直接用
@@ -261,6 +264,8 @@ console.log('  ✓ index.html 资产字节一致（' + want.length + ' 字节）
 JSEOF
 else
   echo "  · 跳过（找不到 $PROJ/src-tauri/target/release/build/anyboot-*/out）"
+fi
+
 fi
 
 echo "==> 自检 B：每个 ELF 的依赖都能在包内解出"
