@@ -287,6 +287,10 @@ jobs:
           chmod +x /tmp/appimagetool.AppImage
           cd /tmp && /tmp/appimagetool.AppImage --appimage-extract >/dev/null
           sudo install -m 755 /tmp/squashfs-root/usr/bin/appimagetool /usr/local/bin/appimagetool
+          # appimagetool 运行时按 ../lib/appimagekit 找 mksquashfs，必须把辅助目录一起装上
+          sudo mkdir -p /usr/local/lib
+          sudo cp -a /tmp/squashfs-root/usr/lib/appimagekit /usr/local/lib/
+          ls -la /usr/local/lib/appimagekit | head
       - name: 构建 sidecar（Linux amd64/arm64）
         run: bash scripts/build-sidecar.sh
       - name: 缓存 jammy sysroot
