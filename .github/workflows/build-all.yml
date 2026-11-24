@@ -416,4 +416,4 @@ jobs:
           cd rel
           sha256sum "AnyBoot_${VERSION}_amd64-jammy.AppImage" >> SHA256SUMS.txt || true
           cat SHA256SUMS.txt
-          gh release upload "v${VERSION}" "AnyBoot_${VERSION}_amd64-jammy.AppImage" SHA256SUMS.txt --clobber
+          gh release upload "v${VERSION}" "AnyBoot_${VERSION}_amd64-jammy.AppImage" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
