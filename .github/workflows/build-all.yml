@@ -256,6 +256,63 @@ jobs:
           path: mobile/ios/build
         if: failure()
 
+  # ── 附加产物：GLIBC 2.35 兼容版 AppImage（与 desktop-linux 并行，失败不影响原发布）──
+  # 说明：desktop-linux 本身已是 ubuntu-22.04（glibc 2.35）；这个 job 用 make-appimage-jammy.sh
+  # 额外产出 *-jammy.AppImage（明确标注兼容 glibc 2.35 的包），不改动原 AppImage/deb/rpm。
+  desktop-linux-jammy:
+    needs: build-vue
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27" }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+      - name: 系统依赖（Tauri v2 Linux + AppImage 打包工具）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libfuse2 \
+            squashfs-tools libglib2.0-bin libgtk-3-bin
+      - name: 安装 appimagetool（解包出内部二进制，避免 FUSE 依赖）
+        run: |
+          set -e
+          curl -L --retry 3 -o /tmp/appimagetool.AppImage \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x /tmp/appimagetool.AppImage
+          cd /tmp && /tmp/appimagetool.AppImage --appimage-extract >/dev/null
+          sudo install -m 755 /tmp/squashfs-root/usr/bin/appimagetool /usr/local/bin/appimagetool
+      - name: 构建 sidecar（Linux amd64/arm64）
+        run: bash scripts/build-sidecar.sh
+      - name: 安装前端依赖
+        run: npm ci
+      - name: 下载 build-vue 产物（ui-vue dist + ui_assets.rs）
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-vue-dist
+          path: .
+      - name: 先构建标准 AppImage（作为 jammy 换基座的原包）
+        run: NO_STRIP=1 npm run build:linux
+      - name: 产出 GLIBC 2.35 兼容 AppImage
+        run: |
+          set -e
+          VERSION=$(python3 -c "import json;print(json.load(open('src-tauri/tauri.conf.json'))['version'])")
+          mkdir -p out
+          AB_OUT="$PWD/out/AnyBoot_${VERSION}_amd64-jammy.AppImage" bash scripts/make-appimage-jammy.sh
+          ls -lh out
+      - name: 上传 jammy AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-jammy
+          path: out/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
   # ── 发布：只有推 v* tag 才跑 ────────────────────────────────────────────
   # 客户端（update.rs）按**固定资产名**拼下载 URL + 校验 SHA256SUMS.txt，
   # 所以这里的命名是硬契约（见 docs/检查更新-设计.md §6 / update.rs
@@ -320,3 +377,32 @@ jobs:
           gh release view "v${VERSION}" >/dev/null 2>&1 \
             || gh release create "v${VERSION}" --title "AnyBoot v${VERSION}" --generate-notes
           gh release upload "v${VERSION}" rel/* --clobber
+
+  # ── 附加发布：把 GLIBC 2.35 兼容 AppImage 追加到已发布的 release ─────────
+  # 与原 release job 解耦：原 release 不依赖本 job；本 job 失败只会少一个附加资产。
+  release-jammy:
+    needs: [release, desktop-linux-jammy]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载 jammy 产物
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux-jammy
+          path: jammy
+      - name: 解析版本号
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_ENV"
+      - name: 追加到 release（含 SHA256SUMS 更新）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p rel
+          cp jammy/*.AppImage "rel/AnyBoot_${VERSION}_amd64-jammy.AppImage"
+          gh release download "v${VERSION}" --repo "$GITHUB_REPOSITORY" -p SHA256SUMS.txt -D rel || true
+          cd rel
+          sha256sum "AnyBoot_${VERSION}_amd64-jammy.AppImage" >> SHA256SUMS.txt || true
+          cat SHA256SUMS.txt
+          gh release upload "v${VERSION}" "AnyBoot_${VERSION}_amd64-jammy.AppImage" SHA256SUMS.txt --clobber

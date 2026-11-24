@@ -10,7 +10,7 @@
     "dev": "tauri dev",
     "build": "npm run build:vue && tauri build",
     "build:linux": "bash scripts/build-linux.sh",
-    "build:linux-portable": "npm run build:vue && tauri build --no-bundle && bash scripts/make-appimage-jammy.sh",
+    "build:linux-portable": "npm run build:linux && bash scripts/make-appimage-jammy.sh",
     "build:win": "npm run build:vue && tauri build --bundles nsis,msi",
     "build:mac-intel": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target x86_64-apple-darwin",
     "build:mac-arm": "npm run build:vue && env -u CARGO PATH=\"$HOME/.cargo/bin:$PATH\" CC=/usr/bin/clang CXX=/usr/bin/clang++ AR=/usr/bin/ar tauri build --target aarch64-apple-darwin",

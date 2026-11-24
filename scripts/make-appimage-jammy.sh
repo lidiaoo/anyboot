@@ -31,7 +31,19 @@ SYS=${AB_SYSROOT:-$HOME/.cache/ab-sysroot/root}
 BUILD=$ORIG_DIR/jammy-build
 APPDIR=$BUILD/AppDir
 BIN=$PROJ/src-tauri/target/release/anyboot
-OUT=${AB_OUT:-$PROJ/src-tauri/target/release/bundle/appimage/AnyBoot_0.1.0_amd64-jammy.AppImage}
+# 版本自适应：不再写死 0.1.0（否则 0.2.x 找不到原包、产物名也错）
+VERSION=$(python3 - "$PROJ/src-tauri/tauri.conf.json" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get("version", ""))
+except Exception:
+    print("")
+PY
+)
+[ -n "$VERSION" ] || VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$PROJ/src-tauri/Cargo.toml" | head -1)
+APPIMAGE_DIR=$PROJ/src-tauri/target/release/bundle/appimage
+DEFAULT_SRC=$APPIMAGE_DIR/AnyBoot_${VERSION}_amd64.AppImage
+OUT=${AB_OUT:-$APPIMAGE_DIR/AnyBoot_${VERSION}_amd64-jammy.AppImage}
 
 ZIG=${AB_ZIG:-$(command -v zig 2>/dev/null || true)}
 if [ -z "$ZIG" ] && [ -x "$HOME/.cache/ab-zig/zig/zig" ]; then ZIG=$HOME/.cache/ab-zig/zig/zig; fi
@@ -44,18 +56,25 @@ SQ=$ORIG_DIR/restore/squashfs-root    # 原包解出的 AppDir
 # 而不是让 mksquashfs 静默失败、旧文件冒充新包通过终验
 /usr/bin/rm -f "$OUT"
 
-# 原版素材：优先用已有解包（restore/squashfs-root）+ 原包备份；都没有就从
-# cargo tauri 产出的原版 AppImage 现场解。注意不用 grep -ob 'hsqs' 找 runtime
-# 起点——会在 runtime ELF 内部命中假阳性，真偏移必须问包自己 --appimage-offset。
-if [ -d "$SQ" ] && [ -f "$ORIG" ]; then
-  :
-elif SRC=$(ls $PROJ/src-tauri/target/release/bundle/appimage/AnyBoot_0.1.0_amd64.AppImage 2>/dev/null); then
-  ORIG=$SRC
-  echo "==> 现场解原版 AppDir（$SRC）"
+# 原版素材：**优先本次构建的 AnyBoot_<版本>_amd64.AppImage**（避免缓存里旧包冒充新包），
+# 没有才回退到 restore 缓存。注意不用 grep -ob 'hsqs' 找 runtime 起点——会在 runtime
+# ELF 内部命中假阳性，真偏移必须问包自己 --appimage-offset。
+if [ -f "$DEFAULT_SRC" ]; then
+  ORIG=$DEFAULT_SRC
+  echo "==> 现场解原版 AppDir（$ORIG）"
+  rm -rf "$SQ"
   mkdir -p "$ORIG_DIR/restore"
   (cd "$ORIG_DIR/restore" && "$ORIG" --appimage-extract >/dev/null 2>&1) || { echo "✗ 原版解包失败"; exit 1; }
+elif SRC=$(ls -t "$APPIMAGE_DIR"/AnyBoot_*_amd64.AppImage 2>/dev/null | grep -v -- '-jammy' | head -1); then
+  ORIG=$SRC
+  echo "==> 没找到版本精确匹配的原包，改用最新 AppImage 现场解（$ORIG）"
+  rm -rf "$SQ"
+  mkdir -p "$ORIG_DIR/restore"
+  (cd "$ORIG_DIR/restore" && "$ORIG" --appimage-extract >/dev/null 2>&1) || { echo "✗ 原版解包失败"; exit 1; }
+elif [ -d "$SQ" ] && [ -f "$ORIG" ]; then
+  echo "==> 使用缓存原包 $ORIG"
 else
-  echo "✗ 缺原版素材：需要 $ORIG（+ $SQ），或先跑 cargo tauri build 出原版 AppImage"; exit 1
+  echo "✗ 缺原版素材：需要 $DEFAULT_SRC（或任意 AnyBoot_*_amd64.AppImage），或先跑 build:linux"; exit 1
 fi
 
 # jammy 库闭包：没有就现场抓（脚本同目录）
