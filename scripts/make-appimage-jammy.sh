@@ -87,7 +87,14 @@ fi
 [ -x "$APPIMAGETOOL" ] || { echo "✗ 缺 appimagetool（PATH 里放一个，或设 AB_APPIMAGETOOL）"; exit 1; }
 [ -x "$BIN" ] || { echo "✗ 缺本体 $BIN（先 cargo build --release）"; exit 1; }
 command -v glib-compile-schemas >/dev/null || { echo "✗ 缺 glib-compile-schemas"; exit 1; }
-command -v gtk-query-immodules-3.0 >/dev/null || { echo "✗ 缺 gtk-query-immodules-3.0"; exit 1; }
+# Ubuntu 22.04 的 gtk-query-immodules-3.0 常装在 /usr/lib/<arch>/libgtk-3-0/ 下、不在 PATH
+GTK_QUERY=$(command -v gtk-query-immodules-3.0 2>/dev/null || true)
+if [ -z "$GTK_QUERY" ]; then
+  for p in /usr/lib/*/libgtk-3-0/gtk-query-immodules-3.0 /usr/lib/gtk-3.0/3.0.0/gtk-query-immodules-3.0; do
+    [ -x "$p" ] && GTK_QUERY=$p && break
+  done
+fi
+[ -n "$GTK_QUERY" ] || { echo "✗ 缺 gtk-query-immodules-3.0（装 libgtk-3-bin 或设 PATH）"; exit 1; }
 
 # 本体门槛检查：>2.35 就地用 zig 重链（也是交付的一部分；没有 zig 则明确报错）
 # 判据写法：MAX 自己排在 2.35 前面（sort -V）才算 ≤2.35。
@@ -179,7 +186,7 @@ echo "==> 6/7 生成 GTK 输入法模块缓存 immodules.cache"
 IM="$APPDIR/usr/lib/gtk-3.0/3.0.0"
 mkdir -p "$IM/immodules"
 LD_LIBRARY_PATH="$APPDIR/usr/lib" \
-  gtk-query-immodules-3.0 "$IM/immodules"/im-*.so > "$IM/immodules.cache" 2>/dev/null \
+  "$GTK_QUERY" "$IM/immodules"/im-*.so > "$IM/immodules.cache" 2>/dev/null \
   || echo "  (警告: immodules.cache 生成失败，仅影响输入法，继续)"
 grep -q 'immodules' "$IM/immodules.cache" 2>/dev/null && sed -i "s|$APPDIR/|./|g" "$IM/immodules.cache"
 # 相对条目按 CWD（=AppDir，见 7/7 的 cd）解析，故前缀写成 ./usr/lib/...
