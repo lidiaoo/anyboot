@@ -299,8 +299,11 @@ echo "==> 终验"
 echo "  --appimage-offset 自报: $("$OUT" --appimage-offset 2>/dev/null)"
 /usr/bin/rm -rf "$BUILD/extract-check"; mkdir -p "$BUILD/extract-check"; cd "$BUILD/extract-check"
 "$OUT" --appimage-extract >/dev/null 2>&1 || { echo "✗ 产物 --appimage-extract 失败"; exit 1; }
-N=$(find squashfs-root -type f | wc -l); echo "  --appimage-extract 解出 $N 个文件"
-[ "$N" -gt 400 ] || { echo "✗ 解出文件数异常，包可能不完整"; exit 1; }
+N=$(find squashfs-root -type f | wc -l)
+SRC_N=$(find "$APPDIR" -type f | wc -l)
+echo "  --appimage-extract 解出 $N 个文件（源 AppDir $SRC_N 个）"
+# 不写死 400：不同构建机（Arch vs Ubuntu）原始 AppDir 文件数不同；按源目录的 90% 校验完整性
+[ "$N" -ge $((SRC_N * 9 / 10)) ] || { echo "✗ 解出文件数异常（< 源 AppDir 的 90%），包可能不完整"; exit 1; }
 MAX2=$(find squashfs-root -type f \( -name '*.so*' -o -name 'anyboot' \) -exec sh -c \
   'objdump -T "$1" 2>/dev/null | grep -o "GLIBC_[0-9.]*"' _ {} \; | sed 's/GLIBC_//' | sort -Vu | tail -1)
 echo "  产物全包 GLIBC 门槛 = $MAX2"
